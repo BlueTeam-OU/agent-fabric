@@ -2,7 +2,6 @@
 A part of tools/fabric/jobs.py, whose docstring is the contract."""
 from __future__ import annotations
 
-import calendar
 import json
 import os
 import sys
@@ -210,6 +209,7 @@ def session_start(doc: dict, session: str | None) -> float | None:
     if not session:
         return None
     stamps = [e["at"] for j in doc["jobs"] for e in j.get("log", []) if e.get("session") == session and isinstance(e.get("at"), str)]
+    import calendar     # lazy: see settle.py
     try:
         return calendar.timegm(time.strptime(min(stamps), "%Y-%m-%dT%H:%M:%SZ")) if stamps else None
     except ValueError:

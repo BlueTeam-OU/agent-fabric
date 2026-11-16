@@ -17,7 +17,6 @@ from __future__ import annotations
 import fcntl
 import os
 import shutil
-import tomllib
 from fabric_jobs import vcs
 
 MAX_DEPTH = 4
@@ -183,6 +182,7 @@ def outside_config(target: str, worktree: str) -> str | None:
         except OSError as e:
             raise Unknown(f"{conf} cannot be looked at ({e.strerror})") from None
         try:
+            import tomllib      # only a path that reads a cargo configuration pays for the TOML parser
             with open(conf, "rb") as fh:
                 doc = tomllib.load(fh)
         except (OSError, ValueError) as e:      # a TOML error and bytes that are not UTF-8 are both ValueErrors

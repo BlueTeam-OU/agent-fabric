@@ -3,6 +3,7 @@
 file the same test shows valid first (the positive control), so a refusal is never the fixture's own fault."""
 from __future__ import annotations
 
+import zoneinfo
 import os
 import sys
 
@@ -372,8 +373,8 @@ def case_gloss_required_for_other_languages_only() -> None:
 
 
 def case_no_tz_database_is_an_error_not_a_verdict() -> None:
-    real = ac.zoneinfo.available_timezones
-    ac.zoneinfo.available_timezones = lambda: set()
+    real = zoneinfo.available_timezones
+    zoneinfo.available_timezones = lambda: set()
     try:
         try:
             check("holder.json", HOLDER_OK)
@@ -381,7 +382,7 @@ def case_no_tz_database_is_an_error_not_a_verdict() -> None:
             return
         raise AssertionError("an empty tz database was read as a verdict")
     finally:
-        ac.zoneinfo.available_timezones = real
+        zoneinfo.available_timezones = real
 
 
 def case_imports_no_lint() -> None:
