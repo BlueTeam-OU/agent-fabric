@@ -38,6 +38,7 @@ class Base(Scratch):
     """No cases: the account's agentd running in this process, and the operator's carrier beside it."""
     carrier = "dual"
     argv: list[str] | None = None
+    wait_answer: dict | None = None   # what the relay's /api/wait answers at once, instead of holding the poll to its timeout
 
     def setUp(self) -> None:
         self.net, self.runtime, self.state, self.home = (self.scratch() for _ in range(4))
@@ -52,6 +53,7 @@ class Base(Scratch):
         executable(os.path.join(self.home, ".local", "bin", "interweave-human"),
                    f"#!/bin/sh\nFAKE_NET={self.net} FAKE_PEER={PEERS['alice']} FAKE_ARGV={self.argv_file} exec {sys.executable} {FAKE} \"$@\"\n")
         self.relay = FakeRelay()
+        self.relay.wait_answer = self.wait_answer
         self.addCleanup(self.relay.close)
         self.logs: list[str] = []
         env = {"HOME": self.home, "XDG_RUNTIME_DIR": self.runtime, "AGENT_FABRIC_STATE_DIR": self.state, "AGENT_FABRIC_OPERATOR": self.operator,
@@ -125,6 +127,25 @@ class Base(Scratch):
     def relay_replies(self, rid: str) -> list[dict]:
         return [r for r in self.relay.replies() if r.get("in_reply_to") == rid]
 
+    def barrier(self, rid: str, *, via: str) -> None:
+        """Wait until a request sent after the one under test, on the carrier it came by, is answered: each carrier's inbox is
+        read in order, so by then that earlier record has been judged and, were it to be answered, already was. The positive
+        control and the bound of an assertion that nothing more happened, in place of a sleep."""
+        got = self.watch(rid)
+        if via == "relay":
+            self.relay.add("h/op", json.dumps(body(rid)))
+        else:
+            self.send_iw(body(rid))
+        self.assertTrue(until(lambda: got and self.relay_replies(rid)), self.logs)
+
+    def arrival_verdicts(self) -> list[str]:
+        from control.upgrade import state_dir
+        try:
+            with open(os.path.join(state_dir(), "control-arrivals.jsonl"), encoding="utf-8") as fh:
+                return [json.loads(l)["verdict"] for l in fh]
+        except FileNotFoundError:
+            return []
+
 
 class AgentdDual(Base):
     def test_a_request_by_the_second_carrier_is_answered_by_both_with_the_same_record(self):
@@ -140,12 +161,11 @@ class AgentdDual(Base):
         self.relay.add("h/op", json.dumps(body("dup")))
         self.send_iw(body("dup"))
         self.assertTrue(until(lambda: got and self.relay_replies("dup")), self.logs)
-        time.sleep(1.5)
+        # positive control, and the bound: a different id on each carrier is answered, so the silence on the duplicate is the
+        # seen-set's and not a dead loop
+        self.barrier("other", via="interweave")
+        self.barrier("other-relay", via="relay")
         self.assertEqual((len(got), len(self.relay_replies("dup"))), (1, 1), "one seen-set across both carriers")
-        # positive control: a different id is answered, so the silence above is the seen-set's and not a dead loop
-        again = self.watch("other")
-        self.send_iw(body("other"))
-        self.assertTrue(until(lambda: again), self.logs)
 
     def test_two_requests_of_one_minute_are_two_answers_and_their_lines_tell_them_apart(self):
         # j150: agentd logged "answered ping (01a1ddcd)" twice, 7 s apart, for one `fabric-ctl all ping`. A UUIDv7's first 8
@@ -165,7 +185,7 @@ class AgentdDual(Base):
         self.send_iw(body("01a1ddce-0000-7000-8000-00000000cccc"))
         self.send_iw(body("01a1ddce-0000-7000-8000-00000000cccc"))
         self.assertTrue(until(lambda: got3), self.logs)
-        time.sleep(1.5)
+        self.barrier("01a1ddcf-0000-7000-8000-00000000dddd", via="interweave")
         self.assertEqual(len([l for l in self.logs if "01a1ddce" in l and "answered" in l]), 1, self.logs)
 
     def test_a_request_the_other_way_round_is_answered_once_too(self):
@@ -173,14 +193,14 @@ class AgentdDual(Base):
         self.send_iw(body("dup2"))
         self.assertTrue(until(lambda: got and self.relay_replies("dup2")), self.logs)
         self.relay.add("h/op", json.dumps(body("dup2")))
-        time.sleep(1.5)
+        self.barrier("other2", via="relay")
         self.assertEqual((len(got), len(self.relay_replies("dup2"))), (1, 1))
 
     def test_a_forged_from_is_not_answered_on_either_carrier(self):
         bob = Node(self, self.net, "bob")
         got = self.watch("forged")
         self.send_iw(body("forged"), via=bob)   # bob writes the operator's address
-        time.sleep(1.0)
+        self.assertTrue(until(lambda: "forged-from" in self.arrival_verdicts()), "the arrival the code logs for it")
         self.assertEqual((got, self.relay_replies("forged")), ([], []))
 
     def test_a_request_older_than_its_ttl_is_dropped(self):
@@ -197,11 +217,9 @@ class AgentdDual(Base):
         for i, op in enumerate(sorted(link.RELAY_ONLY_OPS)):
             self.op.carrier.watch(f"ro{i}", lambda r, s: got.append((r, s)))
             self.send_iw(body(f"ro{i}", op=op))
-        time.sleep(1.0)
+        self.assertTrue(until(lambda: len(self.arrival_verdicts()) >= len(link.RELAY_ONLY_OPS)), "every arrival the code logs")
         self.assertEqual(got, [])
-        from control.upgrade import state_dir
-        with open(os.path.join(state_dir(), "control-arrivals.jsonl"), encoding="utf-8") as fh:
-            verdicts = [json.loads(l)["verdict"] for l in fh]
+        verdicts = self.arrival_verdicts()
         self.assertEqual(verdicts, ["relay-only-op"] * 4, "each was logged with its carrier and why it was dropped")
         # and by the relay the same op IS answered (the relay carries these)
         self.relay.add("h/op", json.dumps(body("ro-relay", op="interweave")))
@@ -215,11 +233,17 @@ class AgentdDual(Base):
         ro = self.watch("ro-relay2")
         self.relay.add("h/op", json.dumps(body("ro-relay2", op="interweave")))
         self.assertTrue(until(lambda: self.relay_replies("ro-relay2")), self.logs)
-        time.sleep(1.0)
+        # The relay's loop answers in order, both copies of one before the next: a later request's reply on the second carrier
+        # (the positive control) comes after whatever it would have sent for this one.
+        self.barrier("after-ro", via="relay")
         self.assertEqual(ro, [], "the reply to a relay-only op is relay-only")
 
     def test_with_the_relay_gone_the_answer_still_comes_by_the_second_carrier(self):
         got = self.watch("nore")
+        # The read loop sleeps RETRY_S (30 s) after a relay failure without looking at `stop`, and shutdown() joins it for 15 s.
+        retry = mock.patch.object(agentd, "RETRY_S", 0.2)
+        retry.start()
+        self.addCleanup(retry.stop)
         self.relay.closed.set()
         self.relay.server.shutdown()
         self.relay.server.server_close()
@@ -242,8 +266,8 @@ class AgentdDual(Base):
             self.send_iw(body("lv"))
             self.assertTrue(until(lambda: self.relay_replies("lv")), self.logs)   # the relay copy is posted; the other is held
             leave = self.leaver[0]
-            leave.request("the fabric moved")
-            time.sleep(0.5)
+            # request() decides, and calls the exit, before it returns: nothing later can be waited for
+            self.assertFalse(leave.request("the fabric moved"))
             self.assertEqual(left, [], "the daemon did not leave with the second copy unsent")
             gate.set()
             self.assertTrue(until(lambda: left == [0]), self.logs)
@@ -266,8 +290,7 @@ class AgentdDual(Base):
     def test_a_restart_asked_for_during_a_ctl_session_waits_for_it_and_its_replies_still_come(self):
         # j146: the operator's `upgrade fabric` moves its own agentd's code while the same command collects replies.
         session = self.ctl_session("hold")
-        self.leaver[0].request("source changed")
-        time.sleep(0.5)
+        self.assertFalse(self.leaver[0].request("source changed"))   # decided, and the exit called, before it returns
         self.assertEqual(self.left, [], "the daemon did not leave under an open fabric-ctl session")
         self.op_replies("hold")
         got: list = []
@@ -336,6 +359,7 @@ class AgentdOnce(Base):
     the dual start, a one-shot would start the child and socket and, on the first ctl session, hit hold_for_ctl's
     assert (a ctl token is no thread: finish_inflight() would join it)."""
     argv = ["--once"]
+    wait_answer = {"messages": []}   # --once's one pass polls for 3 s (a constant of the code); nothing is waiting on the relay
 
     def test_a_one_shot_on_a_dual_account_starts_no_child_no_socket_and_no_exit_hook(self):
         self.thread.join(timeout=30)
