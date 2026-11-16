@@ -1193,7 +1193,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
                 reply.pop("_followups", None)
                 moved[0] = ledgered and ((reply.get("data") or {}).get("upgrade") or {}).get("restart_daemon") is True
                 deliver(reply, request, via)
-                _stderr(f"agentd: answered {op} for {sender} ({rid[:8]})" + (f": {_status_of(reply, op)}" if ledgered else ""))
+                _stderr(f"agentd: answered {op} for {sender} ({rid[:8]})" + (f": {_status_of(reply, op)}" if ledgered else "") + control_link.id_tail(rid))
             except Exception as e:  # noqa: BLE001 — the Node's .catch: said, the loop goes on
                 _stderr(f"agentd: {op} for {sender} failed to answer: {e}")
             finally:
@@ -1244,7 +1244,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
             with leave.lock:
                 if not claimed(ledger, request, a["ts"]):
                     return
-                _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]}){tag}")
+                _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]}){tag}{control_link.id_tail(request['id'])}")
                 beside(a, True, via)
             return
         if request["op"] in BESIDE_LOOP_OPS:
@@ -1256,7 +1256,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         deliver(reply, request, via)
         for f in followups:
             deliver(f, request, via)
-        _stderr(f"agentd: answered {request['op']} for {request['from']} ({request['id'][:8]}){tag}")
+        _stderr(f"agentd: answered {request['op']} for {request['from']} ({request['id'][:8]}){tag}{control_link.id_tail(request['id'])}")
 
     def hold_for_ctl() -> Callable[[], None] | None:
         assert not once, "a ctl token is no thread: finish_inflight() would join it"

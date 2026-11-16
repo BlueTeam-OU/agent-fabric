@@ -131,7 +131,12 @@ def _carrier(ctx: Mapping[str, Any]) -> Any:
     from control.transport_mode import section
     answer = installed(home=ctx.get("home"), root=ctx.get("root"), **(ctx.get("carrier_opts") or {}))
     # The account's transport mode (W5), beside what is installed: one read answers both.
-    return {**answer, "transport_mode": section(ctx.get("mode_state_dir"))} if isinstance(answer, dict) else answer
+    if not isinstance(answer, dict):
+        return answer
+    from gzcoord.carrier import position
+    # Gate 2's "no stranded delivery" (D8) is read per account from here, in every mode: the outbox's age, never its content.
+    return {**answer, "transport_mode": section(ctx.get("mode_state_dir")),
+            "outbox": position.stranded(**(ctx.get("inbox_carrier_opts") or {}))}
 
 
 def _local(ctx: Mapping[str, Any]) -> Any:

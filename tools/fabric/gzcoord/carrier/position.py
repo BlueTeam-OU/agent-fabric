@@ -31,6 +31,9 @@ from . import server
 # One day, as drift.LAG_S (a test holds them equal): what "behind" means must not differ with the transport that is read.
 LAG_S = 86400
 TIMEOUT_S = 5.0
+# A delivery still outstanding after this long is "stranded" for the soak of gate 2 (cutover plan D8): the outbox retries from 1 s
+# doubling to 5 min, so ten minutes is two attempts at the ceiling past a receipt that should take seconds.
+STRANDED_AFTER_S = 600
 
 
 def _age(stamp: Any, now: float) -> int | None:
@@ -92,3 +95,34 @@ def for_mode(mode_state_dir: str | None = None, **opts: Any) -> dict | None:
     except _mode.ModeError as e:
         return {"status": "unknown", "reason": str(e)}
     return section(**opts) if m == _mode.CARRIER_ONLY else None
+
+
+def stranded(call: Callable[..., dict] = server.call, runtime_dir: str | None = None, now: float | None = None,
+             older_than_s: int = STRANDED_AFTER_S) -> dict:
+    """The outbox alone, in any transport mode (`section` is for carrier-only and reads the spool too): how many deliveries are
+    outstanding, how many are older than `older_than_s`, the oldest one's age, and the blocked ones, metadata only (no mid, no
+    recipient, no text). A queued_at that cannot be read is counted as stranded and leaves the age null: unknown is not young.
+    {"status": "unknown", "reason"} when the carrier cannot be asked; the relay is never called."""
+    rd = os.environ.get("XDG_RUNTIME_DIR") if runtime_dir is None else runtime_dir
+    if not rd or not os.path.isabs(rd):
+        return {"status": "unknown", "reason": "XDG_RUNTIME_DIR is not set: the carrier's socket cannot be found"}
+    now = time.time() if now is None else now
+    try:
+        status = call(server.socket_path(rd), {"op": "status"}, timeout=TIMEOUT_S)
+    except OSError as e:
+        return {"status": "unknown", "reason": f"the InterWeave carrier did not answer ({e.__class__.__name__}: {e})"}
+    if not isinstance(status, dict) or not status.get("ok"):
+        why = status.get("error", "no reason given") if isinstance(status, dict) else "not an object"
+        return {"status": "unknown", "reason": f"the InterWeave carrier refused status ({why})"}
+    pending = status.get("outstanding")
+    if not isinstance(pending, list):
+        return {"status": "unknown", "reason": "the InterWeave carrier's answer is not the contract's list"}
+    ages = [_age(d.get("queued_at") if isinstance(d, dict) else None, now) for d in pending]
+    blocked: dict[str, int] = {}
+    for d in pending:
+        if isinstance(d, dict) and d.get("blocked"):
+            blocked[str(d["blocked"])] = blocked.get(str(d["blocked"]), 0) + 1
+    known = [a for a in ages if a is not None]
+    return {"status": "ok", "outstanding": len(pending), "older_than_s": older_than_s,
+            "older": sum(1 for a in ages if a is None or a > older_than_s),
+            "oldest_s": None if None in ages else max(known, default=0), "blocked": blocked}

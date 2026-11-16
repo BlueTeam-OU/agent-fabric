@@ -9,12 +9,15 @@ CONTRACT
   MODES            relay-record (today's behaviour), carrier-record, carrier-only.
   DEFAULT          relay-record: what an account with no transport-mode.json is in. Absence is the normal state and a reader
                    never creates the file, so an account nobody moved behaves byte for byte as before this module.
-  read(state_dir)  the Mode: {"mode", "set_by", "set_at"} (the last two None for the default). A file that is not JSON, not
-                   an object, or whose mode is not one of MODES raises ModeError: an unknown mode is never read as the
+  read(state_dir)  the Mode: {"mode", "set_by", "set_at"} (the last two None for the default). A file that is not a regular
+                   file (a FIFO would block the watch, a symlink would redirect it), is larger than MAX_BYTES, cannot be
+                   opened or read, is not JSON, is not an object, or whose mode is not one of MODES raises ModeError: an unknown mode is never read as the
                    default, because the file was written to move the account and a damaged one must not quietly move it
                    back. The signed action rewrites it, which is the repair.
   write(mode, set_by, state_dir)
-                   the record, written atomically under the agent lock; mode names one of MODES.
+                   the record, written atomically; mode names one of MODES. Under the agent lock when state_dir is None (the
+                   login's own directory, which its other writers share); with an explicit state_dir no lock is taken, the
+                   login's lock protecting nothing there.
   Nothing here says what a mode sends or reads: that is the transports' (W6 to W8). open_transport only carries the mode
   on the mux it returns."""
 from __future__ import annotations
@@ -109,8 +112,15 @@ class Watcher:
         self._clock = clock or time.monotonic
         self._read = reader
         self._on_error = on_error
-        self._said: str | None = None
+        self._said: str | None = None     # the reason last reported; cleared by the next good read
         self._next = self._clock() + every
+
+    def report(self, reason: str) -> None:
+        """Say a reason once however it came: a caller that meets the damage itself (the reopen after a change) goes through
+        here, or the next poll of the same file would say it a second time."""
+        if reason != self._said:
+            self._said = reason
+            self._on_error(reason)
 
     def changed(self) -> bool:
         now = self._clock()
@@ -120,9 +130,7 @@ class Watcher:
         try:
             mode = self._read(self._dir)["mode"]
         except ModeError as e:
-            if str(e) != self._said:
-                self._said = str(e)
-                self._on_error(str(e))
+            self.report(str(e))
             return False
         self._said = None
         if mode == self.current:
