@@ -46,6 +46,17 @@ def inside(path: str, root: str) -> bool:
     return path != root and path.startswith(root.rstrip(os.sep) + os.sep)
 
 
+def same_device(path: str, dev: int, errors: list | None) -> bool:
+    """A mount inside a checkout is not entered: with no depth limit a network mount would be walked whole, with no timeout, and
+    its bytes counted as the checkout's. What cannot be statted is not entered and, where the caller collects them, said."""
+    try:
+        return os.lstat(path).st_dev == dev
+    except OSError as e:
+        if errors is not None:
+            errors.append(e)
+        return False
+
+
 def find_targets(worktree: str, kinds: tuple[tuple[str, str], ...] = CARGO,
                  errors: list | None = None, max_depth: int | None = MAX_DEPTH) -> tuple[list[str], list[str]]:
     """(the build-output directories beside their marker file, the links of that name beside one), below the worktree and not
@@ -58,9 +69,10 @@ def find_targets(worktree: str, kinds: tuple[tuple[str, str], ...] = CARGO,
     links: list[str] = []
     skip = {".git"} | {name for name, _ in kinds}
     base = worktree.rstrip(os.sep).count(os.sep)
+    dev = os.lstat(worktree).st_dev
     for dirpath, dirnames, filenames in os.walk(worktree, followlinks=False, onerror=errors.append if errors is not None else None):
         depth = dirpath.count(os.sep) - base
-        dirnames[:] = [d for d in dirnames if d not in skip and not os.path.islink(os.path.join(dirpath, d))] if max_depth is None or depth < max_depth - 1 else []
+        dirnames[:] = [d for d in dirnames if d not in skip and not os.path.islink(os.path.join(dirpath, d)) and same_device(os.path.join(dirpath, d), dev, errors)] if max_depth is None or depth < max_depth - 1 else []
         for name, marker in kinds:
             if marker in filenames:
                 t = os.path.join(dirpath, name)

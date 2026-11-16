@@ -147,6 +147,23 @@ def main() -> int:
         rc, out, err = tidy("--dry-run")
         check("a dry run lists every deep target and removes none",
               rc == 0 and all(f"{t_deep}/{d}/target" in out and os.path.isdir(os.path.join(t_deep, d, "target")) for d in deep), out + err)
+        # A mount cannot be made here: a directory whose st_dev differs stands for it. Review F1: no depth limit must not mean no filesystem limit.
+        mnt = os.path.join(t_deep, "a/b/c")
+        real_lstat = os.lstat
+
+        def lstat_with_mount(path, *a, **kw):
+            st = real_lstat(path, *a, **kw)
+            if os.fspath(path) == mnt:
+                return os.stat_result((st.st_mode, st.st_ino, st.st_dev + 1, *st[3:]))
+            return st
+        lt.os.lstat = lstat_with_mount
+        try:
+            found_mnt, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=None)
+        finally:
+            lt.os.lstat = real_lstat
+        found_ctl, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=None)
+        check("a directory on another filesystem is not entered, at any depth (the control: the same tree unmounted finds its target)",
+              os.path.join(t_deep, "a/b/c/d/e/f/g/target") not in found_mnt and len(found_mnt) == 2 and len(found_ctl) == 3, (found_mnt, found_ctl))
         t_deep_held = tree(*built)
         listing(job(1, "active", worktree=t_deep_held))
         rc, out, err = tidy()
