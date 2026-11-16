@@ -195,6 +195,9 @@ def main() -> int:
             shutil.copy(os.path.join(HERE, "tools", "fabric", "guards", g), os.path.join(fab, "tools", "fabric", "guards"))
         for m in ("roots.py", "agent_text.py", "hidden_unicode.py", "review_card.py", "state_writes.py", "context_reads.py", "evidence_caps.py", "process_spawns.py", "work_writes.py", "transport_calls.py", "roots_bypass.py"):   # what commit_hooks.py imports from tools/fabric/
             shutil.copy(os.path.join(HERE, "tools", "fabric", m), os.path.join(fab, "tools", "fabric"))
+        # the checkers above share one parse cache, loaded by path (j830 W4)
+        os.makedirs(os.path.join(fab, "tools", "fabric", "lint_rules"))
+        shutil.copy(os.path.join(HERE, "tools", "fabric", "lint_rules", "syntax_tree.py"), os.path.join(fab, "tools", "fabric", "lint_rules"))
         # a package, not a module: commit_hooks.py loads tools/fabric/cli/ by path for the command-name check (ADR-068)
         shutil.copytree(os.path.join(HERE, "tools", "fabric", "cli"), os.path.join(fab, "tools", "fabric", "cli"), ignore=shutil.ignore_patterns("__pycache__"))
         with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
