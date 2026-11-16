@@ -122,7 +122,8 @@ def probe_standin(state: str):
 
 # The fake codex sees only the environment the engine gives it, so its
 # behaviour and its records go through files at paths written into it.
-FAKE_CODEX = r'''#!%(python)s
+# -S: the stand-ins import only the standard library, and site costs ~7 ms of CPU a start, about 13 starts a review.
+FAKE_CODEX = r'''#!%(python)s -S
 import json, os, subprocess, sys, time
 S = %(state)r
 argv = sys.argv[1:]
@@ -298,7 +299,7 @@ elif mode == "noevents":
         f.write(EMPTY)
 '''
 
-GH_MOCK = r"""#!%(python)s
+GH_MOCK = r"""#!%(python)s -S
 import json, os, sys
 S = os.environ["GH_STATE"]
 a = sys.argv[1:]
