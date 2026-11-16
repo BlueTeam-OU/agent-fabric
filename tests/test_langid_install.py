@@ -56,8 +56,9 @@ own_instance_tree()
 INSTALL = os.path.abspath(os.environ.get("LANGID_INSTALL") or os.path.join(HERE, "runtime", "langid", "install.sh"))
 if not os.path.isfile(INSTALL):
     sys.exit(f"test: script under test not found at {INSTALL}")
-# A .py entry runs on the interpreter that runs this file; anything else by bash.
-ARGV0 = [sys.executable] if INSTALL.endswith(".py") else ["bash"]
+# A .py entry runs on the pin the case names (self.pin, a link to the interpreter that runs this file); anything else by
+# bash, whose install.sh finds that same pin through AGENT_FABRIC_PYTHON.
+PY_ENTRY = INSTALL.endswith(".py")
 with open(os.path.join(HERE, "runtime", "langid", "detector.json"), encoding="utf-8") as _fh:
     PACKAGE = json.load(_fh)["package"]
 TIMEOUT_S = 60
@@ -97,7 +98,7 @@ class Langid(unittest.TestCase):
                "AGENT_FABRIC_LANGID_DIR": self.dir, "AGENT_FABRIC_LANGID_PIP": self.pip if pip is None else pip}
         if python is not None:
             env["AGENT_FABRIC_LANGID_PYTHON"] = python
-        return subprocess.run([*ARGV0, INSTALL, *args], capture_output=True, text=True, env=env, cwd=self.sandbox,
+        return subprocess.run([self.pin if PY_ENTRY else "bash", INSTALL, *args], capture_output=True, text=True, env=env, cwd=self.sandbox,
                               timeout=TIMEOUT_S, check=False)
 
     def out(self, *args: str, **kw: str) -> str:
@@ -205,7 +206,7 @@ class Langid(unittest.TestCase):
                            f'#!/bin/sh\nif [ "$1" = -c ]; then echo {minor}.1; exit 0; fi\n'
                            f'printf "%s\\n" "$*" >> "{log}"\n'
                            'for a in "$@"; do v="$a"; done\n'
-                           'if [ "$3" = --clear ]; then rm -rf "$v"; mkdir -p "$v/bin"; : > "$v/bin/python"; '
+                           'if [ "$3" = --clear ]; then rm -rf "$v"; mkdir -p "$v/bin"; : > "$v/bin/python"; chmod 755 "$v/bin/python"; '
                            f'printf "version = {minor}.1\\n" > "$v/pyvenv.cfg"; fi\nexit 1\n')
         return fake, log
 
