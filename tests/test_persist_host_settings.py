@@ -287,7 +287,7 @@ class FabricHostPersist(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             hx = os.path.join(t, "hx")
             with open(hx, "w") as fh:
-                fh.write('#!/bin/sh\ncase "$1" in ok) exit 0;; seven) exit 7;; kill) kill -KILL $$;; hang) sleep 60;; esac\n')
+                fh.write('#!/bin/sh\ncase "$1" in ok) exit 0;; seven) exit 7;; kill) kill -KILL $$;; hang) exec sleep 60;; esac\n')
             os.chmod(hx, 0o755)
             with unittest.mock.patch.object(fabric_host, "HX", hx), unittest.mock.patch.object(fabric_host, "PERSIST_TIMEOUT_S", 1), \
                     tempfile.TemporaryFile("w+") as quiet, unittest.mock.patch.object(sys, "stderr", quiet):
