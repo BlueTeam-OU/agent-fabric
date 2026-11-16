@@ -31,6 +31,10 @@ their headers, and the exit status is 128+signal with no FAILED_SUITES line (sui
 output is buffered until a suite ends, so a runner that is killed instead of asked loses it; that is why run.py TERMs this
 process first and waits.
 
+AGENT_FABRIC_TEST_SHARD=<i>/<n> (1-based) runs only the i-th of n shards of the whole pool, suites and entries; unset is the whole
+section. CI sets it per platform leg, so each of the three legs of a platform takes a third of the wall time and every suite still
+runs on every platform. The split is shard_plan: the same on every runner, so no coordination. A bad value is exit 2.
+
 Entries: run.py hands over `--entries <json [[label, argv]...]>`, commands that are not tests/test_*.py (the corpus lint, the
 routing check). They are pool members like a suite: started first, buffered, printed under `== <label>`, counted in
 FAILED_SUITES, bounded by the same timeout and ended by a stop. They run in the runner's environment and cwd, which are the
@@ -55,6 +59,11 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 DURATIONS_FILE = os.path.join(HERE, "suite_durations.json")
 DURATIONS_VARIABLE = "AGENT_FABRIC_TEST_DURATIONS"
+SHARD_VARIABLE = "AGENT_FABRIC_TEST_SHARD"
+# What an entry weighs when the durations file has no record under its label: an assumption, not a measurement. The file is
+# {suite stem: seconds} and an entry's label is no stem; the corpus lint is about two minutes, the routing check seconds, and
+# only the balance between shards depends on this, never their union.
+ENTRY_ASSUMED_S = 60.0
 SLOWEST_SHOWN = 15
 # What one suite may take: a stated budget, not a measurement (none has been made of the peak). The slowest suite, the
 # launcher's, takes about 3 minutes alone, so a suite that is still running after SUITE_TIMEOUT_S is hung, not slow; it is
@@ -101,6 +110,39 @@ def ordered_suites(durations: dict[str, float] | None = None) -> list[str]:
     unknown = [p for p in every if stem(p) not in durations]
     known = sorted((p for p in every if stem(p) in durations), key=lambda p: (-durations[stem(p)], p))
     return unknown + known
+
+
+def parse_shard(value: str) -> tuple[int, int] | None:
+    """(i, n) of `i/n`, 1 <= i <= n; None when the value is anything else."""
+    head, sep, tail = value.partition("/")
+    if not (sep and head.isdigit() and tail.isdigit() and head.isascii() and tail.isascii()):
+        return None
+    i, n = int(head), int(tail)
+    return (i, n) if 1 <= i <= n else None
+
+
+def shard_plan(suites: dict[str, float | None], entries: dict[str, float], n: int) -> list[dict[str, float]]:
+    """The n shards, each {member: assumed seconds}; every member of `suites` and `entries` is in exactly one.
+    `suites` maps a suite's name to its seconds, None when the durations file does not know it.
+
+    Longest processing time first: the longest known suite goes to the shard with the least total so far (ties: fewer members,
+    then the lower index), so no shard waits on one that drew all the long ones. A suite the file does not know is dealt out by
+    name, round-robin, whatever the totals: it may be the longest of all, and it must land in exactly one shard even
+    when its length is not known. The entries go last, to the lightest shard: they are the biggest single pieces after
+    the launcher's suite, and placing them after the suites lets them fill what the suites left uneven.
+    The whole computation reads only its arguments, so the n runners of one platform agree without talking to each other."""
+    shards: list[dict[str, float]] = [{} for _ in range(n)]
+
+    def lightest() -> dict[str, float]:
+        return min(shards, key=lambda shard: (sum(shard.values()), len(shard), shards.index(shard)))
+    known = sorted(((name, sec) for name, sec in suites.items() if sec is not None), key=lambda kv: (-kv[1], kv[0]))
+    for name, sec in known:
+        lightest()[name] = sec
+    for position, name in enumerate(sorted(name for name, sec in suites.items() if sec is None)):
+        shards[position % n][name] = 0.0
+    for label, sec in sorted(entries.items(), key=lambda kv: (-kv[1], kv[0])):
+        lightest()[label] = sec
+    return shards
 
 
 def memory_bound(meminfo: str = "/proc/meminfo") -> int | None:
@@ -263,6 +305,12 @@ def main() -> int:
     if not 0 < timeout_s < float("inf"):
         print(f"tests/run_python_suites.py: AGENT_FABRIC_TEST_SUITE_TIMEOUT_S='{budget}' is not a positive number of seconds", file=sys.stderr)
         return 2
+    shard = None
+    if os.environ.get(SHARD_VARIABLE):
+        shard = parse_shard(os.environ[SHARD_VARIABLE])
+        if shard is None:
+            print(f"tests/run_python_suites.py: {SHARD_VARIABLE}='{os.environ[SHARD_VARIABLE]}' is not <i>/<n> with 1 <= i <= n", file=sys.stderr)
+            return 2
     fits = memory_bound()
     if fits is not None and int(slots) > fits:
         print(f"tests/run_python_suites.py: {slots} jobs would not fit the memory available ({SUITE_MEM_MIB} MiB each assumed): running {fits}",
@@ -290,10 +338,20 @@ def main() -> int:
             failed += status != 0
             records[os.path.basename(path)[:-3] if command is None else path] = {**timing, "status": status}
 
+    durations = known_durations()
+    suite_paths = ordered_suites(durations)
+    if shard is not None:
+        index, count = shard
+        stems = {path: os.path.basename(path)[:-3] for path in suite_paths}
+        mine = shard_plan({path: durations.get(stem) for path, stem in stems.items()},
+                          {label: durations.get(label, ENTRY_ASSUMED_S) for label, _ in entries}, count)[index - 1]
+        suite_paths = [path for path in suite_paths if path in mine]
+        entries = [(label, command) for label, command in entries if label in mine]
+        print(f"shard {index}/{count}: {len(mine)} suites, ~{sum(mine.values()):.0f} seconds by the durations file", flush=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=int(slots)) as pool:
         # Entries first: the lint alone takes about two minutes, and started last it would be the run's tail.
         futures = [pool.submit(run, label, command) for label, command in entries]
-        futures += [pool.submit(run, path) for path in ordered_suites()]
+        futures += [pool.submit(run, path) for path in suite_paths]
         # A timed wait, not pool.map's untimed one: a signal Python handles only in the main thread, and a main thread
         # blocked in an untimed lock acquire runs its handler only when something wakes it — a group INT reached it 5 s late,
         # after the suites it had killed let the workers start the next ones.

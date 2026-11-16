@@ -164,6 +164,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # platform and shard are the matrix's own keys, so it is their product, 3 x 3 = 9 jobs; each `include` entry below names
+        # its platform, which equals that key's value in three of the nine combinations and so is added to those three and
+        # to no others. Were platform only in `include`, each entry would be added to all three shard combinations and the
+        # next entry would overwrite the platform the last had added (added values may be overwritten, original ones not):
+        # three jobs, all almalinux.
+        platform: [fedora, debian, almalinux]
+        # The python section is split in three on every platform (AGENT_FABRIC_TEST_SHARD, tests/run_python_suites.py): each
+        # platform still runs every suite, in a third of the time per job (the owner, 2026-11-13).
+        shard: [1, 2, 3]
         include:
           - platform: fedora
             image: fedora:latest
@@ -242,13 +251,17 @@ jobs:
             ln -sf /usr/local/bin/fabric-python /usr/local/lib/ci-pin-bin/python3
             on_pin="export PATH=/usr/local/lib/ci-pin-bin:\$PATH && python3 -V && "
           fi
+          # Static and bash sections are the platform's, not the python section's, and every shard would repeat them: shard 1 runs them.
+          first=""; last=""
+          if [ "${{ matrix.shard }}" = 1 ]; then first="bash tests/run.sh static && "; last=" && bash tests/run.sh bash"; fi
           # The python step's per-suite times, for refreshing tests/suite_durations.json; in the workspace, which is ci's.
-          su ci -c "${on_pin}cd '$GITHUB_WORKSPACE' && bash tests/run.sh static && AGENT_FABRIC_TEST_DURATIONS='$GITHUB_WORKSPACE/suite-durations.json' bash tests/run.sh python && bash tests/run.sh bash"
+          su ci -c "${on_pin}cd '$GITHUB_WORKSPACE' && ${first}AGENT_FABRIC_TEST_DURATIONS='$GITHUB_WORKSPACE/suite-durations.json' AGENT_FABRIC_TEST_SHARD='${{ matrix.shard }}/3' bash tests/run.sh python${last}"
       - name: per-suite durations
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: suite-durations-${{ matrix.platform }}
+          # One name per job: nine uploads of one name collide.
+          name: suite-durations-${{ matrix.platform }}-${{ matrix.shard }}
           path: suite-durations.json
           if-no-files-found: ignore
 
