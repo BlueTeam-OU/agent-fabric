@@ -137,9 +137,19 @@ gone = "/nonexistent/fabric-python"
 for args in (("lenses",), ("frob",), ("-h",), ()):
     outcome("missing pin: %s is 127" % (args[0] if args else "no argument"), run(*args, python=gone),
             127, "", INSTALL % gone)
-# Mutation: the default pin path is not /usr/local/bin/fabric-python.
-if not os.access("/usr/local/bin/fabric-python", os.X_OK):
-    outcome("default pin path", run("lenses", python=None), 127, "", INSTALL % "/usr/local/bin/fabric-python")
+# Mutation: the default pin path is not /usr/local/bin/fabric-python. The path is the host's own, so the case has
+# two shapes and one always runs: where the pin is absent the entry names it and exits 127; where it is installed (a
+# fleet host, CI) the entry's answer is the pin's own answer to the same verb.
+DEFAULT_PIN = "/usr/local/bin/fabric-python"
+if not os.access(DEFAULT_PIN, os.X_OK):
+    outcome("default pin path", run("lenses", python=None), 127, "", INSTALL % DEFAULT_PIN)
+else:
+    direct = subprocess.run([DEFAULT_PIN, os.path.join(ROOT, "tools", "fabric", "review_cli.py"), "lenses"],
+                            env={k: v for k, v in os.environ.items() if k not in ("AGENT_FABRIC_ROOT", "AGENT_FABRIC_PYTHON")},
+                            capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    check("default pin path: the installed pin answers the verb", direct.returncode, 0)
+    outcome("default pin path: the entry reaches it", run("lenses", python=None),
+            direct.returncode, direct.stdout, direct.stderr)
 # Mutation: the root taken from the symlink's directory instead of the real path;
 # help read from the link's own file.
 if not ENTRY.endswith(".py"):

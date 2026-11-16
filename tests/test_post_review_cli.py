@@ -95,6 +95,7 @@ case "$1" in
     done
     [ -f "$S/api_fail_reviews" ] && case "$2" in */reviews) echo "gh: Validation Failed (HTTP 422)" >&2; exit 1 ;; esac
     [ -f "$S/api_empty_reviews" ] && case "$2" in */reviews) echo ""; exit 0 ;; esac
+    [ -f "$S/api_empty_comments" ] && case "$2" in */comments) echo ""; exit 0 ;; esac
     [ -f "$S/api_fail" ] && { echo "gh: Validation Failed (HTTP 422)" >&2; exit 1; }
     [ -f "$S/api_empty" ] && { echo ""; exit 0; }
     echo "https://github.com/gzapi-org/gzapp/pull/1#pullrequestreview-1"
@@ -715,6 +716,13 @@ def main() -> int:
         drop("api_fail")
         check("a comment GitHub rejects: no review is posted", rc == 2 and calls().count("POST") == 1 and "rejected" in out, f"{out}\n{calls()}")
 
+        v2_pr(cr, listed=(c0, cb, cr))
+        put("api_empty_comments", "")
+        rc, out = v2_post(prose + compact, header=big)
+        drop("api_empty_comments")
+        check("a comment GitHub accepts with no URL: no review is posted, said as not posted",
+              rc == 2 and calls().count("POST") == 1 and "returned no URL" in out and "NOT posted" in out, f"{out}\n{calls()}")
+
         for flag, why in (("api_fail_reviews", "rejected"), ("api_empty_reviews", "NOT posted")):
             v2_pr(cr, listed=(c0, cb, cr))
             put(flag, "")
@@ -959,6 +967,42 @@ def main() -> int:
         check("…as no adjudication: its second line is not the adjudication line", not rcov.is_adjudication(body_of()),
               body_of()[:300])
 
+        # The review's size bound is inclusive: a review of exactly MAX_REVIEW_CHARS posts as one review; a report whose
+        # comment is exactly MAX_REVIEW_CHARS posts as comment and review. The padding is calibrated on a probe's own
+        # posted length, so the cases stay exact whatever the header and the block weigh.
+        def padded(n: int) -> str:
+            return report + "x" * n + "\n" + cover("a.py", "sub/c.py")
+
+        v2_pr()
+        rc, out = v2_post(padded(1000))
+        probe = len(body_of())
+        check("the size probe: one review, under the bound", rc == 0 and calls().count("POST") == 1 and probe < rcov.MAX_REVIEW_CHARS, out)
+        v2_pr()
+        rc, out = v2_post(padded(1000 + rcov.MAX_REVIEW_CHARS - probe))
+        check("a review of exactly MAX_REVIEW_CHARS: posts as one review, no comment",
+              rc == 0 and len(body_of()) == rcov.MAX_REVIEW_CHARS and calls().count("POST") == 1, f"{out}\n{len(body_of())}\n{calls()}")
+        v2_pr()
+        rc, out = v2_post(padded(2 + rcov.MAX_REVIEW_CHARS - probe + 1000))
+        check("…one character over: the report goes to a comment first", rc == 0 and calls().count("POST") == 2
+              and calls().splitlines()[0].endswith("/issues/552/comments"), f"{out}\n{calls()}")
+        comment_len = len(sent(1).get("body", ""))
+        v2_pr()
+        rc, out = v2_post(padded(2 + rcov.MAX_REVIEW_CHARS - probe + 1000 + rcov.MAX_REVIEW_CHARS - comment_len))
+        check("a comment of exactly MAX_REVIEW_CHARS posts: comment, then the review", rc == 0 and calls().count("POST") == 2
+              and len(sent(1).get("body", "")) == rcov.MAX_REVIEW_CHARS, f"{out}\n{len(sent(1).get('body', ''))}\n{calls()}")
+        v2_pr()
+        rc, out = v2_post(padded(2 + rcov.MAX_REVIEW_CHARS - probe + 1000 + rcov.MAX_REVIEW_CHARS - comment_len + 1))
+        check("…one character more: refused, nothing sent", rc == 2 and not posted() and "GitHub takes" in out, out)
+
+        # P20, P21: a payload that names the branch and not the head commit or the base branch is unknown, not a default.
+        for missing, said in (("headRefOid", "head commit"), ("baseRefName", "base branch")):
+            v2_pr()
+            meta = json.load(open(f"{state}/pr.json"))
+            del meta[missing]
+            put("pr.json", json.dumps(meta) + "\n")
+            rc, out = v2_post(report + cover("a.py", "sub/c.py"))
+            check(f"a PR payload with no {missing}: refused, nothing sent, saying which", rc == 2 and not posted() and said in out, out)
+
         # REQUEST 01a1cf77 (gzapp#1246): a finding raised in round 1 of 3 had no review that could close it. An
         # adjudication is based on the head it was raised on, carries only judgements, and judges only labels raised there.
         print("post-review: an adjudication of an earlier round, based on the head its findings were raised on")
@@ -1001,6 +1045,17 @@ def main() -> int:
         rc, out = v2_post(judged, header=fence_header(base_sha=c2, head_sha=c3))
         check("…based on a head no review raised a finding on: refused",
               rc == 2 and not posted() and "raised a finding on its base" in out, f"rc={rc}\n{out}")
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        # P12: a finding IS raised on c3, by a review that is no checkpoint (another config), so c3..c3 is no re-review
+        # (base_refusal refuses it) and the only thing wrong with it as an adjudication is that it judges at the head
+        # its findings were raised on. With a checkpoint at c3 it would post as the next round from c3.
+        r3_raised = with_lines(checkpoint_review(base=c2, head=c3, at="2026-10-20T12:00:00Z"),
+                               "Finding: F4 | P3 | likely | a.py:2 | round 3's F4")
+        r3_raised = {**r3_raised, "body": r3_raised["body"].replace(f"config={real_config(CARD)}", f"config={CONFIG}")}
+        put("reviews.json", json.dumps([r1, r2, r3_raised]))
+        rc, out = v2_post("Judgement: F4 | fixed | gone\nFinding: none\n", header=fence_header(base_sha=c3, head_sha=c3))
+        check("…based on its own head, where a finding was raised: refused as no adjudication, nothing sent",
+              rc == 2 and not posted() and "never that head itself" in out, f"rc={rc}\n{out}")
         v2_pr(c3, listed=(c0, c1, c2, c3))
         put("reviews.json", json.dumps([{**r1, "user": {"login": "stranger"}}, r2, r3]))
         rc, out = v2_post(judged, header=adjudicate)
