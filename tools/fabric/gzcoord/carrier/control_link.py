@@ -287,6 +287,8 @@ class Inbox:
 
     def put(self, event: dict) -> None:
         with self._cv:
+            if self._stop:   # a message read after close would be handled behind the owner's back
+                return
             if len(self._q) >= self._limit:
                 self._q.popleft()
                 self.dropped += 1
@@ -301,7 +303,7 @@ class Inbox:
             self._q.clear()
             self._cv.notify()
         if dropped:
-            self._log(f"inbox closed with {dropped} unhandled message(s): dropped (the relay still holds them)")
+            self._log(f"inbox closed with {dropped} unhandled message(s): dropped; one that came by InterWeave alone is lost")
         # A handler still running when close() returned writes the arrival log (makedirs included) after its
         # owner removed the directory, which re-creates it. Short, because agentd's Leaver calls this holding the
         # lock the handler may be waiting on: the wait must not stretch a leave. Never on the thread itself.
@@ -315,7 +317,7 @@ class Inbox:
             with self._cv:
                 while not self._q and not self._stop:
                     self._cv.wait()
-                if self._stop and not self._q:
+                if self._stop:
                     return
                 event = self._q.popleft()
             try:

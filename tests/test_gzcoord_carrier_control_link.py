@@ -473,11 +473,20 @@ class Inbound(Net):
         self.assertTrue(until(lambda: not inbox._q or len(inbox._q) == 3))
         with mock.patch.object(cc, "CLOSE_WAIT_S", 0.1):
             inbox.close()
-        self.assertTrue(any("dropped" in l for l in logs), logs)
+        self.assertTrue(any("dropped" in l and "InterWeave alone is lost" in l for l in logs), logs)
         self.assertTrue(any("still running" in l for l in logs), logs)
         gate.set()
         self.assertTrue(until(lambda: not inbox._thread.is_alive()))
         self.assertEqual(seen, [0], "only the message in hand was handled after close")
+
+    def test_a_message_put_after_close_is_not_handled(self):
+        seen = []
+        inbox = cc.Inbox(lambda ev: seen.append(ev["n"]), lambda l: None)
+        inbox.start()
+        inbox.close()
+        inbox.put({"n": 1})
+        self.assertFalse(inbox._thread.is_alive())
+        self.assertEqual((seen, len(inbox._q)), ([], 0))
 
     def test_close_from_the_handler_itself_does_not_wait_for_itself(self):
         done = threading.Event()
