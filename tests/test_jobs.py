@@ -187,10 +187,12 @@ def main() -> int:
                 jobs_world.touch_memory(env["HOME"], cwd)
             if argv[:1] == ("done",):
                 jobs_world.landed(env["AGENT_FABRIC_STATE_DIR"], login, argv[1])
+            if argv[:1] in (("next",), ("switch",)):
+                return jobs_world.inprocess(env, cwd, *argv, quiet_sweep=True)
             return subprocess.run([JOBS, *argv], cwd=cwd, env=env, capture_output=True, text=True)
 
         def jobs() -> list[dict]:
-            return json.loads(run("list", "--all", "--json").stdout)
+            return json.loads(jobs_world.listing(env, repo_a))
 
         def force(job_id: str, state: str, **fields) -> None:
             """A state set as another writer of jobs.json could set it: the setup of a case about something other than the
