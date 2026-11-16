@@ -69,7 +69,7 @@ import re
 import sqlite3
 from typing import Any
 
-from control.ops import util
+from control import opsutil as util
 from gzcoord.carrier import CARRIER_NAME, parity, record
 
 EVIDENCE_OP = f"{CARRIER_NAME}-evidence"

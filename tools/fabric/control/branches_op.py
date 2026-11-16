@@ -34,8 +34,8 @@ import sys
 import time
 from typing import Any, Callable
 
-from control.ops import util
-import roots  # noqa: E402 — control.ops.util puts tools/fabric on sys.path
+from control import opsutil as util
+import roots  # noqa: E402 — control.opsutil puts tools/fabric on sys.path
 
 READ_TIMEOUT_S = 60
 # branches.py's fetch alone may take 600 s: one copy's bound; the op's budget is for all of them.

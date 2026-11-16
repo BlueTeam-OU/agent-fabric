@@ -152,7 +152,7 @@ from typing import Any, Callable
 from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, install_client, roster
 from control import minisign
 from control.gateway import ARCHES, SHA256, PinError, _arch, _fsync_dir, _why, download, file_sha256
-from control.ops import util
+from control import opsutil as util
 from control.upgrade import LEASE_HELD, VERSION_RE, LeaseRefused, hold_lease
 
 PIN_REL = os.path.join("runtime", CARRIER_NAME, "release.json")

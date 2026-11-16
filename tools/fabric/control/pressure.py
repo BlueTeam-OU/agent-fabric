@@ -25,7 +25,7 @@ import sys
 import time
 from typing import Any, Callable
 
-from control.ops import util
+from control import opsutil as util
 
 SAMPLE_INTERVAL_MS = 60_000
 RING_MAX = 1440   # a day of minutes: the evening before a morning's look
