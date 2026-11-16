@@ -34,8 +34,10 @@ runtime/identity.py is the writer and is not judged for copy or write."""
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
-import warnings
+import os
+import sys
 
 POLICY = "tools/fabric/state-writers.json"
 IDENTITY = "runtime/identity.py"
@@ -47,6 +49,17 @@ STATE_PARAM = "state_dir"
 OS_WRITES = frozenset({"replace", "rename", "link", "symlink", "mkfifo"})
 SHUTIL_WRITES = frozenset({"copy", "copy2", "copyfile", "copytree", "move"})
 _MODE_CHARS = set("rwaxbt+")
+
+
+def _syntax_tree():
+    """The lint run's shared parse cache (tools/fabric/lint_rules/syntax_tree.py): one module per process, loaded by path like every module lint
+    trusts and registered once so each by-path copy of this checker meets the same cache."""
+    mod = sys.modules.get("fabric_syntax_tree")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location("fabric_syntax_tree", os.path.join(os.path.dirname(os.path.realpath(__file__)), "lint_rules", "syntax_tree.py"))
+        mod = sys.modules["fabric_syntax_tree"] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    return mod
 
 
 def _writing_mode(node: ast.AST | None) -> bool:
@@ -160,10 +173,7 @@ def _lock_finding(call: ast.Call, constants: set[str]) -> str | None:
 def scan(rel: str, text: str, writers: dict[str, str]) -> list[str]:
     """Findings for one Python module, each `<rel>:<line>: <what> (ADR-003 rule 1)`."""
     try:
-        with warnings.catch_warnings():
-            # A scanned file's own invalid escape is its own lint's to report; under -W error it would read as a syntax error, a clean verdict.
-            warnings.simplefilter("ignore", SyntaxWarning)
-            tree = ast.parse(text, filename=rel)
+        tree = _syntax_tree().parse(text, rel)
     except SyntaxError:
         return []   # ruff refuses it in CI; a commit of a half-merged module is not this rule's to stop
     judged = rel != IDENTITY

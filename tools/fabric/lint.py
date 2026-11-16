@@ -74,7 +74,7 @@ import roots  # noqa: E402
 # Every name the parts define, from here as before: tests and the memory-write
 # hook reach them as lint.<name>.
 from fabric_lint_rules.base import layout, workingcopy  # noqa: E402, F401
-from fabric_lint_rules.base import FRONTMATTER_RE, PAYLOAD_DIRS, _git, _tracked  # noqa: E402, F401
+from fabric_lint_rules.base import FRONTMATTER_RE, PAYLOAD_DIRS, _git, _tracked, begin_run, end_run  # noqa: E402, F401
 from fabric_lint_rules.base import sibling_working_copies  # noqa: E402, F401
 from fabric_lint_rules.docs import BANNED_PATTERNS, CARRIER_FENCE, CLASS_DOCS, DOC_PATH_EXEMPT, DOC_PATH_RE  # noqa: E402, F401
 from fabric_lint_rules.docs import FABRIC_ADR_RE, FABRIC_REF_NAME, FABRIC_REF_RE, FABRIC_SELF  # noqa: E402, F401
@@ -657,6 +657,14 @@ def contributor_findings(root: str) -> list[str]:
 
 
 def main() -> int:
+    begin_run()
+    try:
+        return _main()
+    finally:
+        end_run()
+
+
+def _main() -> int:
     ap = argparse.ArgumentParser(description="Lint the committed corpus.")
     ap.add_argument("--fabric", default=None, help="agent-fabric root (default: this checkout)")
     ap.add_argument("--tokens", metavar="FILE", help="print FILE's protected tokens (what a translation keeps byte-identical) and exit")

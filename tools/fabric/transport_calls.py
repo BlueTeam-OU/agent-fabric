@@ -18,17 +18,28 @@ nothing, or names a file that is not tracked, is a finding, so a gap's entry lea
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import os
 import subprocess
 import sys
-import warnings
 
 POLICY = "tools/fabric/transport-calls.json"
 OWNER = "tools/fabric/gzcoord/transport/"
 # The modules that define the calls: judged for nothing, so the policy need not name them.
 DEFINING = frozenset({"tools/fabric/gzcoord/inbox_parts/relay.py", "tools/fabric/gzcoord/carrier/adapter.py"})
 PATH_PREFIX = "/api/"
+
+
+def _syntax_tree():
+    """The lint run's shared parse cache (tools/fabric/lint_rules/syntax_tree.py): one module per process, loaded by path like every module lint
+    trusts and registered once so each by-path copy of this checker meets the same cache."""
+    mod = sys.modules.get("fabric_syntax_tree")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location("fabric_syntax_tree", os.path.join(os.path.dirname(os.path.realpath(__file__)), "lint_rules", "syntax_tree.py"))
+        mod = sys.modules["fabric_syntax_tree"] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    return mod
 
 
 def judged_path(rel: str) -> bool:
@@ -98,10 +109,7 @@ def scan(rel: str, text: str, allowed: dict[str, str]) -> list[str]:
     if rel in allowed or not judged_path(rel):
         return []
     try:
-        with warnings.catch_warnings():
-            # A scanned file's own invalid escape is its own lint's to report; under -W error it would read as a syntax error, a clean verdict.
-            warnings.simplefilter("ignore", SyntaxWarning)
-            tree = ast.parse(text, filename=rel)
+        tree = _syntax_tree().parse(text, rel)
     except SyntaxError:
         return []   # ruff refuses it in CI; a commit of a half-merged module is not this rule's to stop
     out = []

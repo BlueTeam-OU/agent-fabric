@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import re
+import sys
 
 _spec = importlib.util.spec_from_file_location(
     "fabric_layout", os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "layout.py"))
@@ -19,6 +20,14 @@ roots = importlib.util.module_from_spec(_roots_spec)
 _spec.loader.exec_module(layout)
 _wc_spec.loader.exec_module(workingcopy)
 _roots_spec.loader.exec_module(roots)
+# The one parse cache of the process, registered under the name the checkers in tools/fabric/ look it up by, so a rule here and
+# a checker there share each module's tree. Loaded once: a second lint.py in one process (the tests) meets the first one's.
+syntax_tree = sys.modules.get("fabric_syntax_tree")
+if syntax_tree is None:
+    _st_spec = importlib.util.spec_from_file_location(
+        "fabric_syntax_tree", os.path.join(os.path.dirname(os.path.realpath(__file__)), "syntax_tree.py"))
+    syntax_tree = sys.modules["fabric_syntax_tree"] = importlib.util.module_from_spec(_st_spec)
+    _st_spec.loader.exec_module(syntax_tree)
 
 
 def lint_environ() -> dict[str, str]:
@@ -48,9 +57,33 @@ def _git():
     return mod
 
 
+# Each rule asks which files are tracked, about eleven times a lint. The answer is held only between begin_run() and end_run(),
+# i.e. inside one lint.main(): a test that calls a rule directly on a tree it `git add`s between calls is outside any run and
+# always gets git's current answer. (Keying on the root alone would not survive that; keying on the index's mtime would need
+# the git dir resolved, which is the cost this saves.)
+_run_tracked: dict[str, list[str]] | None = None
+
+
+def begin_run() -> None:
+    global _run_tracked
+    _run_tracked = {}
+    syntax_tree.clear()
+
+
+def end_run() -> None:
+    global _run_tracked
+    _run_tracked = None
+    syntax_tree.clear()
+
+
 def _tracked(root: str) -> list[str]:
+    if _run_tracked is not None and root in _run_tracked:
+        return list(_run_tracked[root])   # a copy: a rule may sort or edit what it was handed
     r = _git().run(root, "ls-files", "-z", check=False, timeout=60)
-    return [f for f in r.stdout.split("\0") if f] if r.returncode == 0 else []
+    files = [f for f in r.stdout.split("\0") if f] if r.returncode == 0 else []
+    if _run_tracked is not None:
+        _run_tracked[root] = files
+    return list(files)
 
 
 def _not_ours(root: str) -> tuple[str, ...]:
