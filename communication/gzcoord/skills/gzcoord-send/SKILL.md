@@ -86,6 +86,12 @@ Rules that are not style:
   (`fabric-ctl all presence`), else the lowest-numbered login — and say which rule chose
   (`MESSAGE-FORMAT.md` §Direct versus role addressing). `TO-ROLE` stays
   for an `INFO`, a `DECISION`, a `QUESTION` to whoever holds the role.
+- **An ask is a `REQUEST`, whatever thread it answers** (`MESSAGE-FORMAT.md`
+  §Working on a request together). "Merged, distribute it", "ready to
+  fold", "this text is yours to write": `REQUEST` `TO` the login that
+  acts, with `IN-REPLY-TO` for the thread. Only a `REQUEST` becomes the
+  recipient's job on delivery; an ask inside a `REPLY` or `INFO` is lost
+  when the reading session ends.
 - **Diagnose completely, prescribe nothing outside your lane.** State what
   you saw, how you verified it, what you did not, and ask the owning role
   to decide (`MESSAGE-FORMAT.md` §Reporting a finding).

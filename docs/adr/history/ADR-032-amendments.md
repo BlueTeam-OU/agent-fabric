@@ -123,3 +123,24 @@ The section now states the rule for each kind of watch and leaves the
 bound and the lines to the implementation. No field, grammar rule or
 meaning of a message changes; a reader accepts and rejects exactly what
 it did before.
+
+### Amendment 2026-11-15 — An ask another agent must act on goes as a REQUEST
+
+MESSAGE-FORMAT's "Working on a request together" gains one paragraph:
+whatever another agent must act on goes as a `REQUEST` `TO` the login
+that acts, with `IN-REPLY-TO` when it answers a thread, and a receiver
+who gets an ask in another type queues it itself (`fabric-jobs add
+--request`). The reason is the fleet's own tooling: the inbox queues
+only a `REQUEST` as a job (ADR-037 §5 rule 11), and only a `REQUEST` or
+`QUESTION` with `REPLY-EXPECTED: yes` holds `fabric-jobs switch`; an ask
+in an `INFO`, `OBSERVATION` or `REPLY` vanishes with the session that
+read it. Evidence (rule 6), four instances from three independent senders on 2026-11-14
+and 15: python-dev-02's j152 `REPLY` carrying the ask for #620's record
+text, unacted for five hours until architect-cto chased it on the
+owner's behalf; python-dev-02's "#614 merged, distribution is yours" and
+python-dev-03's "#615 merged, needs distribution", each an ask in a
+`REPLY` or `INFO`; python-dev-04's "supply ready to fold" `INFO`. The
+owner approved the convention in session on 2026-11-15. It is a
+convention (rule 3): a hand-off that answers the recipient's own
+`REQUEST` stays the supplier's `REPLY`; no field, grammar rule or meaning
+of a message changes, and a reader accepts and rejects exactly what it did before.

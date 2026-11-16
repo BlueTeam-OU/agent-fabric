@@ -8,9 +8,8 @@ import ast
 import json
 import os
 import re
-import warnings
 
-from .base import _tracked
+from .base import _tracked, syntax_tree
 
 POLICY = "tools/fabric/mechanisms.json"
 STATUSES = ("enforced", "pending", "planned")
@@ -23,27 +22,30 @@ PRE_COMMIT = "tools/fabric/guards/commit_hooks.py"
 
 def _tree(root: str, rel: str) -> ast.AST | None:
     try:
-        with open(os.path.join(root, rel), encoding="utf-8") as fh, warnings.catch_warnings():
-            # A scanned file's own invalid escape is its own lint's to report, not noise in this one's output.
-            warnings.simplefilter("ignore", SyntaxWarning)
-            return ast.parse(fh.read())
+        with open(os.path.join(root, rel), encoding="utf-8") as fh:
+            return syntax_tree.parse(fh.read())
     except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
         return None
 
 
-def _loads(tree: ast.AST | None, stem: str) -> bool:
-    """Whether the module loads `stem`: imports it, or calls `_load("<stem>")`, lint's by-path loader. Read from the syntax
-    tree, so a comment or a docstring that names the checker is not a load."""
+def _loaded_stems(tree: ast.AST | None) -> frozenset[str]:
+    """Every stem the module loads: imports it, or calls `_load("<stem>")`, lint's by-path loader. Read from the syntax
+    tree, so a comment or a docstring that names the checker is not a load. One walk answers for every mechanism."""
+    stems: set[str] = set()
     for node in ast.walk(tree) if tree is not None else ():
-        if isinstance(node, ast.Import) and any(a.name.split(".")[-1] == stem for a in node.names):
-            return True
-        if isinstance(node, ast.ImportFrom) and (str(node.module or "").split(".")[-1] == stem
-                                                 or any(a.name == stem for a in node.names)):
-            return True
-        if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) == "_load" \
-                and node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == stem:
-            return True
-    return False
+        if isinstance(node, ast.Import):
+            stems.update(a.name.split(".")[-1] for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            stems.add(str(node.module or "").split(".")[-1])
+            stems.update(a.name for a in node.names)
+        elif isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) == "_load" \
+                and node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            stems.add(node.args[0].value)
+    return frozenset(stems)
+
+
+def _loads(tree: ast.AST | None, stem: str) -> bool:
+    return stem in _loaded_stems(tree)
 
 
 def _run_rules(root: str) -> list[str]:
@@ -84,6 +86,13 @@ def mechanism_findings(root: str) -> list[str]:
     tracked = set(_tracked(root))
     rules = [r for r in _run_rules(root) if r in tracked]
     tests = [t for t in tracked if t.startswith("tests/") and os.path.basename(t).startswith("test_") and t.endswith(".py")]
+    stems_of: dict[str, frozenset[str]] = {}
+
+    def loads(rel: str, stem: str) -> bool:
+        if rel not in stems_of:
+            stems_of[rel] = _loaded_stems(_tree(root, rel))
+        return stem in stems_of[rel]
+
     out: list[str] = []
     for name, e in sorted(entries.items()):
         where = f"{POLICY}: {name}"
@@ -107,11 +116,11 @@ def mechanism_findings(root: str) -> list[str]:
         checker = e.get("checker")
         if status == "enforced" and isinstance(checker, str) and checker in tracked:
             stem = os.path.splitext(os.path.basename(checker))[0]
-            if not any(_loads(_tree(root, r), stem) for r in rules):
+            if not any(loads(r, stem) for r in rules):
                 out.append(f"{where}: enforced, but no lint rule that {LINT} imports loads {checker}")
-            if not _loads(_tree(root, PRE_COMMIT), stem):
+            if not loads(PRE_COMMIT, stem):
                 out.append(f"{where}: enforced, but the pre-commit hook ({PRE_COMMIT}) does not load {checker}")
-            if not any(_loads(_tree(root, t), stem) for t in tests):
+            if not any(loads(t, stem) for t in tests):
                 out.append(f"{where}: enforced, but no tests/test_*.py loads {checker}")
         if status == "pending" and not JOB.fullmatch(str(e.get("job") or "")):
             out.append(f"{where}: a pending mechanism names the job building its checker as <login>/j<n>")

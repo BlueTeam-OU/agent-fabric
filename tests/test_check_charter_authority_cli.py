@@ -247,6 +247,14 @@ def main() -> int:
     print("a detached HEAD")
     is_rc("reports rather than guessing", "HEAD", 0)
 
+    print("no pinned Python")
+    # Mutation: check_charter_authority.sh:14 `exit 127` -> `exit 0` (a host with no pinned Python must refuse, not pass)
+    new_repo()
+    commit_change("identities/roles/flutter-dev/charter.md")
+    rc, out = guard("develop-qzapp/flutter-dev-01/feat/thing", AGENT_FABRIC_PYTHON="/nonexistent/fabric-python")
+    check("a missing pinned Python is exit 127 naming the path",
+          rc == 127 and "the fleet's pinned Python is not installed at /nonexistent/fabric-python" in out, f"rc={rc}\n{out}")
+
     print()
     if fails:
         print(f"{fails} FAILED")

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import re
 import shutil
@@ -248,6 +249,141 @@ def main() -> int:
         check("a check whose file is missing is a failed suite, never skipped", r.returncode == 1
               and "tests/run.py: 1 suite(s) FAILED" in r.stdout, (r.returncode, r.stdout, r.stderr))
 
+        print("the python runner measures its suites, starts the longest first and runs the lint in its pool")
+        four = {f"tests/test_{x}.py": suite(f"print('{x}')\n") for x in "abcd"}
+
+        def headers(r: subprocess.CompletedProcess) -> list[str]:
+            return [ln[len("== tests/test_"):-3] for ln in r.stdout.splitlines() if ln.startswith("== tests/test_")]
+        # One slot, so the order of the headers is the order of the starts.
+        base = fresh(files=four)
+        write(os.path.join(base, "tests/suite_durations.json"), '{"test_a": 5, "test_b": 50, "test_c": 20}\n')
+        r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1")
+        check("a known file: the longest first, and a suite it does not know before all of them",
+              headers(r) == ["d", "b", "c", "a"], (headers(r), r.stderr))
+        base = fresh(files=four)
+        write(os.path.join(base, "tests/suite_durations.json"),
+              '{"test_a": {"wall_s": 5, "exit_to_pipe_s": 0, "status": 0}, "test_b": {"wall_s": 50}, "test_c": {"wall_s": 20}}\n')
+        r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1")
+        check("a run's own durations file, as CI uploads it, orders by its wall seconds",
+              headers(r) == ["d", "b", "c", "a"], (headers(r), r.stderr))
+        base = fresh(files=four)
+        r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1")
+        check("no file: the alphabetical order", headers(r) == ["a", "b", "c", "d"], headers(r))
+        base = fresh(files=four)
+        write(os.path.join(base, "tests/suite_durations.json"), "{not json")
+        r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1")
+        check("an unreadable file: the alphabetical order, the run unharmed", headers(r) == ["a", "b", "c", "d"] and r.returncode == 0,
+              (headers(r), r.returncode))
+
+        print("the python runner's shards: AGENT_FABRIC_TEST_SHARD=<i>/<n>")
+        sys.path.insert(0, TESTS)
+        import run_python_suites as pool_runner
+        real = pool_runner.known_durations()
+        real_stems = [os.path.basename(f)[:-3] for f in sorted(os.listdir(TESTS)) if f.startswith("test_") and f.endswith(".py")]
+        # The real corpus with some suites unknown to the file, so the round-robin path is in the partition too.
+        weights = {stem: real.get(stem) for stem in real_stems}
+        for stem in real_stems[:7]:
+            weights[stem] = None
+        pool_entries = {"corpus lint": 60.0, "routing check": 60.0}
+        for count in (1, 2, 3):
+            shards = pool_runner.shard_plan(weights, pool_entries, count)
+            members = [m for shard in shards for m in shard]
+            check(f"n={count}: the shards' union is every suite and entry, each in exactly one (catches: a suite no leg runs)",
+                  len(shards) == count and sorted(members) == sorted([*weights, *pool_entries]), (len(members), len(set(members))))
+        check("the split is the same on a second computation (the legs of a platform agree without talking)",
+              pool_runner.shard_plan(weights, pool_entries, 3) == pool_runner.shard_plan(dict(reversed(list(weights.items()))), pool_entries, 3))
+        totals = [sum(shard.values()) for shard in pool_runner.shard_plan(weights, pool_entries, 3)]
+        check("the three shards' known seconds are within a tenth of each other (catches: a split that is no balance)",
+              max(totals) - min(totals) <= 0.1 * max(totals), totals)
+        check("the entries land in different shards when the suites leave room",
+              len({name for name, shard in enumerate(pool_runner.shard_plan(weights, pool_entries, 3)) for m in shard if m in pool_entries}) == 2)
+        for bad in ("0/3", "4/3", "1/0", "a/3", "1", "1/", "/3", "-1/3", "1/3/3", "١/3"):
+            check(f"{bad!r} is not a shard", pool_runner.parse_shard(bad) is None)
+        check("'2/3' is shard 2 of 3", pool_runner.parse_shard("2/3") == (2, 3))
+
+        base = fresh(files=four)
+        write(os.path.join(base, "tests/suite_durations.json"), '{"test_a": 5, "test_b": 50, "test_c": 20}\n')
+        # One slot, so the headers' order is the starts' order; the lint and the routing check are 60 s each by assumption:
+        # LPT puts b (50) alone in 1, then c (20) in 2, a (5) in 3, d (unknown) round-robin to 1, the entries to the lightest.
+        seen: list[list[str]] = []
+        entry_seen: list[list[str]] = []
+        for i in (1, 2, 3):
+            r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1", AGENT_FABRIC_TEST_SHARD=f"{i}/3")
+            seen.append(headers(r))
+            entry_seen.append([x for x in ("corpus lint", "routing check") if f"== {x}" in r.stdout])
+            check(f"shard {i}/3: exit 0, its own line first, and FAILED_SUITES=0",
+                  r.returncode == 0 and r.stdout.startswith(f"shard {i}/3: ") and " seconds by the durations file" in r.stdout.splitlines()[0]
+                  and "FAILED_SUITES=0" in r.stdout, (r.returncode, r.stdout[:200], r.stderr))
+        check("the shards' suites are the four suites, disjoint (the headers show only that shard's suites)",
+              sorted(x for part in seen for x in part) == ["a", "b", "c", "d"], seen)
+        check("the corpus lint and the routing check each run in exactly one shard",
+              sorted(x for part in entry_seen for x in part) == ["corpus lint", "routing check"], entry_seen)
+        r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1", AGENT_FABRIC_TEST_SHARD="1/1")
+        check("1/1 is the whole section", sorted(headers(r)) == ["a", "b", "c", "d"] and "== corpus lint" in r.stdout
+              and "== routing check" in r.stdout, headers(r))
+        r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1")
+        check("no variable: every suite, both entries and no shard line",
+              sorted(headers(r)) == ["a", "b", "c", "d"] and "== corpus lint" in r.stdout and "== routing check" in r.stdout
+              and "shard " not in r.stdout, (headers(r), r.stdout[:200]))
+        for bad in ("4/3", "x", "0/1"):
+            r = run(base, "python", AGENT_FABRIC_TEST_SHARD=bad)
+            check(f"AGENT_FABRIC_TEST_SHARD={bad!r}: the runner's exit 2 is the run's failure, with its stderr line and no suite run",
+                  r.returncode == 1 and "AGENT_FABRIC_TEST_SHARD" in r.stderr and "== tests/test_" not in r.stdout, (r.returncode, r.stderr))
+
+        lingering = suite("import subprocess\nsubprocess.Popen(['sleep', '2'])\nprint('left a child')\n")
+        base = fresh(files={"tests/test_quick.py": suite("print('q')\n"), "tests/test_linger.py": lingering,
+                            "tests/test_bad.py": suite("sys.exit(1)\n")})
+        out = os.path.join(sandbox, "durations.json")
+        direct = subprocess.run([sys.executable, os.path.join(base, "tests", "run_python_suites.py"), "--entries",
+                                 json.dumps([["corpus lint", [sys.executable, "tools/fabric/lint.py"]]])], cwd=base,
+                                env=env(base, AGENT_FABRIC_TEST_DURATIONS=out), capture_output=True, text=True, timeout=120,
+                                stdin=subprocess.DEVNULL)
+        try:
+            with open(out, encoding="utf-8") as fh:
+                records = json.load(fh)
+        except (OSError, ValueError):
+            records = {}
+        check("the durations file holds one record per suite and entry, with wall, pipe gap and status",
+              set(records) == {"test_quick", "test_linger", "test_bad", "corpus lint"}
+              and all(set(v) == {"wall_s", "exit_to_pipe_s", "status"} for v in records.values())
+              and records.get("test_bad", {}).get("status") == 1 and records.get("test_quick", {}).get("status") == 0,
+              (records, direct.stderr))
+        gap = records.get("test_linger", {}).get("exit_to_pipe_s")
+        check("a child that outlives its suite shows as the gap between the exit and the end of the pipe",
+              gap is not None and gap > 0.8 and records["test_quick"]["exit_to_pipe_s"] < gap, records)
+        lines = direct.stdout.splitlines()
+        slow_at = [i for i, ln in enumerate(lines) if ln.startswith("slowest ")]
+        check("the slowest list comes before the count, which is still the last line",
+              lines[-1] == "FAILED_SUITES=1" and len(slow_at) == 1 and slow_at[0] < len(lines) - 1, direct.stdout)
+        slow_rows = [ln for ln in lines if ln.startswith("  ") and "(pipe " in ln]
+        check("…and names the slowest suite first", bool(slow_rows) and "test_linger" in slow_rows[0], slow_rows)
+
+        base = fresh(files={"tests/test_ok.py": suite("print('fine')\n")})
+        write(os.path.join(base, "tools/fabric/lint.py"), "import sys\nprint('lint finding')\nsys.exit(1)\n")
+        r = run(base, "python")
+        check("a failing lint in the pool: exit 1, FAILED_SUITES=1 (counted once), its output once under its header",
+              r.returncode == 1 and "FAILED_SUITES=1" in r.stdout and r.stdout.count("lint finding") == 1
+              and r.stdout.index("== corpus lint") < r.stdout.index("lint finding") < r.stdout.index("FAILED_SUITES="),
+              (r.returncode, r.stdout))
+
+        # A stop ends the lint like a suite: its process is gone and the run exits 128+signal with no count.
+        pidfile = os.path.join(sandbox, "lint.pid")
+        base = fresh(files={"tests/test_ok.py": suite("import time\ntime.sleep(30)\n")})
+        write(os.path.join(base, "tools/fabric/lint.py"),
+              "import os, time\nopen(os.environ['LINTPID'], 'w').write(str(os.getpid()))\ntime.sleep(60)\n")
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, LINTPID=pidfile))
+        if wait_until(p, lambda: os.path.exists(pidfile) and open(pidfile).read().isdigit(), "the lint started in the pool"):
+            lint_pid = int(open(pidfile).read())
+            p.send_signal(signal.SIGTERM)
+            try:
+                rc = p.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                rc = None
+            check("TERM: the run exits 143 and the lint's process is ended", rc == 143 and poll_until(lambda: ended(lint_pid), 10),
+                  (rc, lint_pid))
+
         print("through the forwarders tests/run.sh and tests/static.sh, which CI and every habit call")
 
         def via(base: str, script: str, *args: str, **extra: str) -> subprocess.CompletedProcess:
@@ -281,11 +417,11 @@ def main() -> int:
         base = fresh(files={"tests/test_env.py": suite(
             "import json\n"
             "keys = ['TMPDIR', 'PYTHONUNBUFFERED', 'GZCOORD_DEFAULT_LOCALE_ONLY', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0',\n"
-            "        'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1', 'AGENT_FABRIC_SUITE_RUN']\n"
+            "        'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1', 'GIT_CONFIG_KEY_2', 'GIT_CONFIG_VALUE_2',\n"
+            "        'GIT_CONFIG_KEY_3', 'GIT_CONFIG_VALUE_3', 'AGENT_FABRIC_SUITE_RUN']\n"
             "print('ENV ' + json.dumps({k: os.environ.get(k) for k in keys}))\n"
             "print('TMPDIR-EXISTS ' + str(os.path.isdir(os.environ['TMPDIR'])))\n")})
         r = run(base, "python")
-        import json
         line = next((ln for ln in r.stdout.splitlines() if ln.startswith("ENV ")), "ENV {}")
         got = json.loads(line[4:])
         runtime = os.path.join(os.path.dirname(base), "runtime")
@@ -293,10 +429,12 @@ def main() -> int:
               (got.get("TMPDIR") or "").startswith(os.path.join(runtime, "af-t.")), got)
         check("…it existed while the suite ran", "TMPDIR-EXISTS True" in r.stdout, r.stdout)
         check("…and is gone when the run ends", not runs_left(base), os.listdir(runtime))
-        check("unbuffered output, the default locale pinned, git signing off in the environment",
+        check("unbuffered output, the default locale pinned, git signing and automatic housekeeping off in the environment",
               got.get("PYTHONUNBUFFERED") == "1" and got.get("GZCOORD_DEFAULT_LOCALE_ONLY") == "1"
-              and got.get("GIT_CONFIG_COUNT") == "2" and (got.get("GIT_CONFIG_KEY_0"), got.get("GIT_CONFIG_VALUE_0")) == ("commit.gpgsign", "false")
-              and (got.get("GIT_CONFIG_KEY_1"), got.get("GIT_CONFIG_VALUE_1")) == ("tag.gpgsign", "false"), got)
+              and got.get("GIT_CONFIG_COUNT") == "4" and (got.get("GIT_CONFIG_KEY_0"), got.get("GIT_CONFIG_VALUE_0")) == ("commit.gpgsign", "false")
+              and (got.get("GIT_CONFIG_KEY_1"), got.get("GIT_CONFIG_VALUE_1")) == ("tag.gpgsign", "false")
+              and (got.get("GIT_CONFIG_KEY_2"), got.get("GIT_CONFIG_VALUE_2")) == ("gc.auto", "0")
+              and (got.get("GIT_CONFIG_KEY_3"), got.get("GIT_CONFIG_VALUE_3")) == ("maintenance.auto", "false"), got)
         # env() starts from nothing of the session's, so the marker seen here is the run's own, not inherited.
         check("the suite marker is set, so resume reads no live routing/profiles.json (j556)",
               got.get("AGENT_FABRIC_SUITE_RUN") == "1", got)
@@ -914,7 +1052,6 @@ def main() -> int:
               os.path.exists(os.path.join(sandbox, "ran-broken")) and "no host lease" in r.stderr, (r.returncode, r.stderr))
 
         print("every section holds one cpu slot, after full-suite (ADR-010 A 2026-10-28)")
-        import json
         import socket
         host = socket.gethostname().split(".")[0]
         nproc = len(os.sched_getaffinity(0))

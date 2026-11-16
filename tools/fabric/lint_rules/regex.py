@@ -5,9 +5,8 @@ from __future__ import annotations
 import ast
 import os
 import re
-import warnings
 
-from .base import _is_under, _not_ours, _tracked
+from .base import _is_under, _not_ours, _tracked, syntax_tree
 
 
 def _ends_in_dollar(pattern: str) -> bool:
@@ -207,10 +206,8 @@ class _Resolver:
     def module(self, rel: str) -> _Module | None:
         if rel not in self.modules:
             try:
-                with open(os.path.join(self.root, rel), encoding="utf-8") as fh, warnings.catch_warnings():
-                    # A scanned file's own invalid escape is its own lint's to report; under -W error the module would read as unparseable.
-                    warnings.simplefilter("ignore", SyntaxWarning)
-                    self.modules[rel] = _Module(ast.parse(fh.read(), filename=rel))
+                with open(os.path.join(self.root, rel), encoding="utf-8") as fh:
+                    self.modules[rel] = _Module(syntax_tree.parse(fh.read(), rel))
             except (OSError, SyntaxError, ValueError):
                 self.modules[rel] = None
         return self.modules[rel]

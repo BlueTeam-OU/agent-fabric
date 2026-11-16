@@ -74,7 +74,7 @@ widened.
   candidate for linking deliveries to requests; the owner declined it:
   the delivery `REPLY` naming the artifact, and the PR body
   naming the request, stay the link.
-- **A skill edit.** Deferred: `gzcoord-receive` step 7 already says to
+- **A skill edit.** Deferred: `gzcoord-receive` step 8 already says to
   answer with where the work is; the launch prompt points every session
   at the fuller text, and a skill change waits until that proves
   insufficient.

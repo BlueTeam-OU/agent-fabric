@@ -9,9 +9,8 @@ import ast
 import importlib.util
 import os
 import sys
-import warnings
 
-from .base import _tracked
+from .base import _tracked, syntax_tree
 
 _FABRIC = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
@@ -40,9 +39,8 @@ OWN_VERB_SOURCES: dict[str, tuple[str, str, str]] = {
 
 
 def _read_verbs(path: str, shape: str, name: str) -> set[str] | None:
-    with open(path, encoding="utf-8") as fh, warnings.catch_warnings():
-        warnings.simplefilter("ignore", SyntaxWarning)   # the module's own invalid escape is ruff's to report
-        tree = ast.parse(fh.read(), filename=path)
+    with open(path, encoding="utf-8") as fh:
+        tree = syntax_tree.parse(fh.read(), path)
     for node in ast.walk(tree):
         if (shape == "dict" and isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Dict)
                 and any(isinstance(t, ast.Name) and t.id == name for t in (node.targets if isinstance(node, ast.Assign) else [node.target]))):

@@ -24,12 +24,12 @@ file that is not tracked, is a finding, so a gap's entry leaves the list with it
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
-import warnings
 
 POLICY = "tools/fabric/roots_bypass.json"
 DEFINING = frozenset({"tools/fabric/roots.py"})
@@ -49,6 +49,17 @@ CLONE = re.compile(r"(^|(?<!~)/)projects/agent-fabric(/|$)")
 HOME_CLONE = re.compile(r"^~/projects/agent-fabric(/|$)")
 ENV_CONSTANTS = frozenset({"ENV_ENGINE", "ENV_OPERATOR"})
 PYTHON_SHEBANG = re.compile(rb"^#!.*\bpython|^#!.*fabric-python")
+
+
+def _syntax_tree():
+    """The lint run's shared parse cache (tools/fabric/lint_rules/syntax_tree.py): one module per process, loaded by path like every module lint
+    trusts and registered once so each by-path copy of this checker meets the same cache."""
+    mod = sys.modules.get("fabric_syntax_tree")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location("fabric_syntax_tree", os.path.join(os.path.dirname(os.path.realpath(__file__)), "lint_rules", "syntax_tree.py"))
+        mod = sys.modules["fabric_syntax_tree"] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    return mod
 
 
 def judged_path(rel: str) -> bool:
@@ -123,9 +134,7 @@ def scan(rel: str, text: str) -> list[str]:
     if not judged_path(rel):
         return []
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")   # under -W error a module's own invalid escape would read as a syntax error
-            tree = ast.parse(text, filename=rel)
+        tree = _syntax_tree().parse(text, rel)
     except SyntaxError:
         return []   # ruff refuses it in CI; a commit of a half-merged module is not this rule's to stop
     consts = _module_constants(tree)

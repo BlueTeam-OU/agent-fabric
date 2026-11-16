@@ -26,14 +26,27 @@ Tests are not judged: a fixture writes a binding on purpose."""
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
+import os
 import re
-import warnings
+import sys
 
 POLICY = "tools/fabric/context-reads.json"
 HOMES = frozenset({"runtime/identity.py", "tools/fabric/workingcopy.py"})
 ACCESSORS = frozenset({"binding_path"})
 _FILE = re.compile(r"(?:^|/)binding\.json$")
+
+
+def _syntax_tree():
+    """The lint run's shared parse cache (tools/fabric/lint_rules/syntax_tree.py): one module per process, loaded by path like every module lint
+    trusts and registered once so each by-path copy of this checker meets the same cache."""
+    mod = sys.modules.get("fabric_syntax_tree")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location("fabric_syntax_tree", os.path.join(os.path.dirname(os.path.realpath(__file__)), "lint_rules", "syntax_tree.py"))
+        mod = sys.modules["fabric_syntax_tree"] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    return mod
 
 
 def parse_readers(text: str) -> dict[str, str]:
@@ -67,10 +80,7 @@ def raw_findings(rel: str, text: str) -> list[str]:
     if not judged_path(rel):
         return []
     try:
-        with warnings.catch_warnings():
-            # A scanned file's own invalid escape is its own lint's to report, not noise in this one's output.
-            warnings.simplefilter("ignore", SyntaxWarning)
-            tree = ast.parse(text, filename=rel)
+        tree = _syntax_tree().parse(text, rel)
     except SyntaxError:
         return []
     docs = _docstrings(tree)

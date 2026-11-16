@@ -141,6 +141,15 @@ class Empty(Guarded):
         self.assertEqual((r.returncode, r.stdout, r.stderr), (0, ".agent-fabric/\n", ""))
 
 
+class UnusablePython(Guarded):
+    def test_with_an_unusable_python_the_call_fails_and_says_where(self):
+        gone = os.path.join(self.repo.root, "no-such-python")
+        r = call_library(LIB, self.repo.path, f'_gc_py="{gone}"; guarded_change "$1"; echo "rc=$?"', "/nonexistent-fabric-root")
+        # Mutation: policies/githooks/guarded-change.sh:9 `|| { echo ...; return 1; }` -> `|| true`, or `return 1` -> `return 0` (the caller sees a guarded change that is not there, or none).
+        self.assertEqual(r.stdout.strip().splitlines()[-1], "rc=1", r.stdout)
+        self.assertIn(f"not usable at {gone}", r.stderr)
+
+
 class Merges(Guarded):
     def setUp(self):
         super().setUp()

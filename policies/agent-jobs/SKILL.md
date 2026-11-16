@@ -31,11 +31,14 @@ fabric-jobs add "<artifact>" --priority high                      # blocking | h
   evidence". Two jobs with the same label are one subject. The label is
   how the restart rule knows whether a subject has changed, so reuse a
   label exactly for the same subject.
-- **Requests:** a request from another agent becomes a job only when you
-  add it. First answer it as always, with a REPLY saying what you
-  undertake. Then `add --request` fills the title, the sender and the
-  project from the message. It is refused for a message not addressed to
-  you, or one already on your list. Nothing adds a request for you.
+- **Requests:** a `REQUEST` addressed to your login is queued as a job
+  when your inbox delivers it (`tools/fabric/gzcoord/intake.py`); answer
+  it as always, with a REPLY saying what you undertake. A message of
+  another type that asks you to act (an `INFO` "merged, distribute it",
+  a `REPLY` "the text is yours") is not queued: add it yourself with
+  `add --request <MESSAGE-ID>`, which fills the title, the sender and the
+  project from any message addressed to you. It is refused for a message
+  not addressed to you, or one already on your list.
 - **Priority:** `normal` unless you say otherwise. Use `blocking` for a
   job another agent waits on, `high` for one the owner said is urgent,
   `low` for one that can wait behind everything else. Change it later

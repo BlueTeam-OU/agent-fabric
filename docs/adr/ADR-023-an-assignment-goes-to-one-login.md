@@ -122,7 +122,7 @@ stub pointing here.
   `communication/gzcoord/i18n/en-US.json` (`validate.request-to-role`,
   `validate.section-to-role`).
 - `communication/gzcoord/skills/gzcoord-send/SKILL.md`,
-  `communication/gzcoord/skills/gzcoord-receive/SKILL.md` (step 6).
+  `communication/gzcoord/skills/gzcoord-receive/SKILL.md` (step 7).
 - ADR-000 (P3).
 
 ## Amendments

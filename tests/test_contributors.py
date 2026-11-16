@@ -144,6 +144,12 @@ def main() -> int:
     check("no what", co.branch_problem(f"h/{LOGIN}/for/user", LOGIN) is not None)
     check("an empty segment", co.branch_problem(f"h/{LOGIN}/for//x", LOGIN) is not None)
     check("detached", co.branch_problem("", LOGIN) is not None)
+    print("main: the usage")
+    # Mutation: contributors.py:301 `or argv[0] != "hook"` dropped (three arguments of any first word run the hook).
+    with redirect_stderr(io.StringIO()) as usage:
+        rc = co.main(["x", HERE, "python-dev"])
+    check("a first word other than hook: exit 2, the usage said", rc == 2 and "usage: contributors.py hook" in usage.getvalue(),
+          f"rc={rc} {usage.getvalue()}")
     print("branch_problem with merges: its own four-segment branch too")
     check("its own feat branch", co.branch_problem(f"h/{LOGIN}/feat/x", LOGIN, True) is None)
     check("…still its for/ branch", co.branch_problem(f"h/{LOGIN}/for/user/x", LOGIN, True) is None)
@@ -189,6 +195,9 @@ def main() -> int:
             shutil.copy(os.path.join(HERE, "tools", "fabric", "guards", g), os.path.join(fab, "tools", "fabric", "guards"))
         for m in ("roots.py", "agent_text.py", "hidden_unicode.py", "review_card.py", "state_writes.py", "context_reads.py", "evidence_caps.py", "process_spawns.py", "work_writes.py", "transport_calls.py", "roots_bypass.py"):   # what commit_hooks.py imports from tools/fabric/
             shutil.copy(os.path.join(HERE, "tools", "fabric", m), os.path.join(fab, "tools", "fabric"))
+        # the checkers above share one parse cache, loaded by path (j830 W4)
+        os.makedirs(os.path.join(fab, "tools", "fabric", "lint_rules"))
+        shutil.copy(os.path.join(HERE, "tools", "fabric", "lint_rules", "syntax_tree.py"), os.path.join(fab, "tools", "fabric", "lint_rules"))
         # a package, not a module: commit_hooks.py loads tools/fabric/cli/ by path for the command-name check (ADR-068)
         shutil.copytree(os.path.join(HERE, "tools", "fabric", "cli"), os.path.join(fab, "tools", "fabric", "cli"), ignore=shutil.ignore_patterns("__pycache__"))
         with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
@@ -311,6 +320,25 @@ def main() -> int:
               r.returncode != 0 and "outside what python-dev" in r.stderr and "src/a.py" in r.stderr, r.stderr)
         sh(fab, "merge", "--abort", check=False)
         sh(fab, "reset", "-q", "--hard", "HEAD")
+
+        # git merge's own commit skips pre-commit, so a fold reaches the guard only through `merge --no-commit` and `git commit`.
+        # commit_hooks asks contributors only of a merge with a change of its own, so the case carries one (a clean fold is never judged).
+        # Mutation: contributors.py:249 `own &= ...` -> `own |= ...` (main's src/b.py, equal to the merged-in parent, is taken as the merge's own).
+        before_fold = sh(fab, "rev-parse", "HEAD").stdout.strip()
+        sh(fab, "checkout", "-q", "main")
+        with open(os.path.join(fab, "src", "b.py"), "w") as f:
+            f.write("main only\n")
+        sh(fab, "add", "-A")
+        sh(fab, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "main moves again\n\nFabric-Role: fabric-coordinator")
+        sh(fab, "checkout", "-q", port)
+        sh(fab, "merge", "-q", "--no-ff", "--no-commit", "main", env=menv, check=False)
+        with open(os.path.join(fab, "tools", "a.py"), "a") as f:
+            f.write("the merge's own edit, within the entry\n")
+        sh(fab, "add", "tools/a.py")
+        r = sh(fab, "commit", "-q", "--no-edit", env=menv, check=False)
+        check("a merge's own edit within the entry, beside main's path outside it equal to the merged-in parent: committed",
+              r.returncode == 0, r.stderr)
+        sh(fab, "reset", "-q", "--hard", before_fold)
 
         sh(fab, "checkout", "-q", "-b", f"h/{LOGIN}/feat/own")
         r = attempt("tools/a.py")
