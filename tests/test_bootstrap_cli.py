@@ -1469,10 +1469,13 @@ def failures() -> None:
 
 
 # The cases are independent (each makes its own account under the scratch root), so they run as GROUPS, each in a process of
-# its own with its own scratch fabric: the same cases, the wall time of the longest group. Balanced by what each costs on a
-# loaded host (every case is a run of the script, and `failures` and `relay` are the long ones).
-GROUPS = ((failures,), (relay, user_manager, coordinator_timers), (first_run, record_current, journal, store_trust_base),
-          (arguments, existing_files, no_config_dir, local_bin_override, completion_dir, dry_run, fabric_worktree))
+# its own with its own scratch fabric: the same cases, the wall time of the longest group. Balanced by what each case
+# costs (every case is a run of the script: `completion_dir` is the longest, `failures`, `user_manager` and `relay` next).
+# Measured per case, longest-first assignment to the lightest group; a case added later goes where the sum is least.
+GROUPS = ((completion_dir, record_current, local_bin_override),
+          (failures, journal, first_run, dry_run),
+          (user_manager, coordinator_timers, existing_files, fabric_worktree),
+          (relay, store_trust_base, no_config_dir, arguments))
 
 
 def main() -> int:
