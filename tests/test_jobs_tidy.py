@@ -167,6 +167,15 @@ def main() -> int:
         check("a directory on another filesystem is not entered, at any depth (the control: the same tree unmounted finds its target)",
               os.path.join(t_deep, "a/b/c/d/e/f/g/target") not in found_mnt and len(found_mnt) == 2 and len(found_ctl) == 3, (found_mnt, found_ctl))
         check("…and it is said, one line, never silence (F3)", mounts == [mnt] and f"kept {mnt}: another filesystem, not entered\n" in out, (mounts, out))
+        t_unseen = tree("q/Cargo.toml", "q/target/debug/a.o")
+        os.makedirs(os.path.join(t_unseen, "p/hidden"))
+        os.chmod(os.path.join(t_unseen, "p/hidden"), 0)
+        try:
+            rc, out, err = tidy("--dry-run")
+            check("a directory that cannot be listed is said, never read as having no build output (the control: the readable q/target is listed)",
+                  rc == 0 and f"warning: {t_unseen}/p/hidden could not be searched for build output" in out and f"{t_unseen}/q/target" in out, out + err)
+        finally:
+            os.chmod(os.path.join(t_unseen, "p/hidden"), 0o755)
         t_deep_held = tree(*built)
         listing(job(1, "active", worktree=t_deep_held))
         rc, out, err = tidy()

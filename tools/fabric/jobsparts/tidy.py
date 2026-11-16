@@ -126,8 +126,10 @@ def tidy_tree(tree: str, projects_dev: int, held: dict[str, str], cwds: list[str
     if st.st_dev != projects_dev:
         return [f"kept {tree}: on another filesystem"], 0
     mounts: list[str] = []
-    found, links = lt.find_targets(real, lt.BUILD_OUTPUT, max_depth=None, mounts=mounts)
+    unseen: list[OSError] = []      # os.walk says nothing of a directory it cannot list: its build output would read as none
+    found, links = lt.find_targets(real, lt.BUILD_OUTPUT, unseen, max_depth=None, mounts=mounts)
     lines = [f"kept {t}: a link, not followed" for t in links] + [f"kept {m}: another filesystem, not entered" for m in mounts]
+    lines += [f"warning: {e.filename or tree} could not be searched for build output ({e.strerror or e})" for e in unseen]
     freed = 0
     for t in found:
         try:
