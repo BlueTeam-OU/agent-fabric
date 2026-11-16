@@ -239,7 +239,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    only if it still exceeds it, reassembled before the journal append.
    The names, the framing, the receipt and the adapter channel are
    `communication/gzcoord/docs/CARRIER-CONTRACT.md` (A 2026-10-24).
-   With the journal off (ADR-041 rule 10) the route is the relay alone.
+   With the journal off (ADR-041 rule 10) the route is the mode's primary
+   with no mirror: the relay alone in `relay-record`; the carrier, with its
+   bypass line and the outbox keeping the text, in `carrier-record` and
+   `carrier-only`, where a journal-off receive is refused (A 2026-11-16).
 9. A delivery carries the address the roster maps its PeerId to. A message
    whose `FROM` differs from it is shown with the mismatch, never as from
    its `FROM`. When the relay's copy was shown first, the InterWeave
@@ -430,3 +433,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-14 | The cutover past the dual run: data plane first, three modes per account | §7: gates 1 and 2 before the relay's retirement; `relay-record`, `carrier-record`, `carrier-only` by signed action; seq, alerts and whole-channel record given up |
 | 2026-11-14 | A second host with no fixed coordinator address is reached at a public forward, any source | §5 rule 1: admission by roster PeerId alone; the exposure a known limit in the operator's record (ADR-069 rule 2) |
 | 2026-11-15 | The drills read each account's watch log; a carrier-outage drill is judged | §5 rule 11: restarts and give-ups from `gzcoord-watch.jsonl`; `gzcoord-carrier parity --carrier-drill` (#620) |
+| 2026-11-16 | journal off, a carrier mode sends through the carrier and refuses a receive | §5 rule 8: the route is the mode's primary with no mirror; a receive is refused in `carrier-record` and `carrier-only` (D7, #623) |

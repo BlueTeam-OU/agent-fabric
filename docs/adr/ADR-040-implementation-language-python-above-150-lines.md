@@ -150,8 +150,7 @@ serve as the parity oracle for each port, unchanged.
      `post-commit`, the fallback note and gzapp's host check (A 2026-10-19)
      and `session-start.sh` (A 2026-10-24); the launcher, account creation and bootstrap
      have moved, and bootstrap's helpers under `runtime/` run on the pin
-     with it, but for step 7's language-detector venv, which is made with
-     the host's `python3`;
+     with it, step 7's language-detector venv included (A 2026-11-16);
    - `check_actions_pinned_by_sha.py`, run by CI's static job, which
      installs no pin;
    - what `fabric-host` runs on another host, which may not have the pin
@@ -411,3 +410,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-24 | the pin moves to 3.14; no third-party wheel | §2 (the pinned version) |
 | 2026-11-11 | One Python on every host: a host's python3 only bootstraps the pin | §5 rule 1: the owner's word; `python_pin.py` valid on EL 10's 3.12; a host whose python3 is below 3.13 takes no account until rule 4's host-`python3` entries run on the pin |
 | 2026-11-12 | Wave 10 moves to the operator's record | §5 rule 10 and §7's Wave 10 paragraph and inventory rows move to ADR-070; §8; rule 10's number stays, vacated; rules 1-9 and waves 0-9 stay |
+| 2026-11-16 | the language detector's venv is made with the pin | §5 rule 4: bootstrap step 7's venv leaves the host's `python3` (#627) |

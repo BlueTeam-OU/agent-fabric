@@ -445,15 +445,20 @@ def main() -> int:
         check(f"a result that never lands: cancelled (transcript:tool-use-unanswered) after the bound, in {took:.1f} s",
               out == "rc=0" and got == "cancelled transcript:tool-use-unanswered" and 2.5 <= took < 6, f"{out} {got}")
         # The wait and an inferred row's git calls share one budget. This git answers --show-toplevel in 1 s, well
-        # inside its 3 s timeout with 2 s left for the interpreter's start, and hangs on every later call: each own timeout
-        # alone would take 3 + 1 + 3 + 3 s, past the 9.5 s checked here; the shared budget ends the last call at 8 s.
+        # inside its 3 s timeout, and hangs on every later call: after the 3 s wait, each own timeout alone would take
+        # 1 + 3 + 3 s from the first git call, where the shared budget ends the last call 8 - 3 = 5 s after it. Timed
+        # from that first call, which the fake stamps, not from the fire: the interpreter's start rides on the fire's
+        # time and a loaded runner stretched it past a fixed 9.5 s bound (9.7 s on almalinux CI, j907). 6.5 s: load
+        # only lengthens the mutant's 7 s, and leaves the budget 1.5 s of its own.
         # The row is written with the toplevel's name and without what git had no time left to answer. One process,
         # so a timeout ends all of it.
         slow = os.path.join(sandbox, "slowbin")
         os.makedirs(slow, exist_ok=True)
+        stamps = os.path.join(sandbox, "git-starts")
         fast_path = env["PATH"]
         with open(os.path.join(slow, "git"), "w", encoding="utf-8") as fh:
             fh.write(f"#!{sys.executable}\nimport os, sys, time\n"
+                     f"open({stamps!r}, 'a').write(f'{{time.time()}}\\n')\n"
                      f"time.sleep(1 if '--show-toplevel' in sys.argv else 30)\n"
                      f"os.execv({shutil.which('git', path=fast_path)!r}, ['git', *sys.argv[1:]])\n")
         os.chmod(os.path.join(slow, "git"), 0o755)
@@ -461,10 +466,17 @@ def main() -> int:
         with open(pending, "w", encoding="utf-8") as fh:
             fh.write("".join(head))
         out, r, took = timed_fire(pending, None)
+        ended = time.time()
         env["PATH"] = fast_path
-        check(f"unanswered hand-back and a hanging git: the row is written within the budget ({took:.1f} s)",
+        starts = []
+        if os.path.exists(stamps):
+            with open(stamps, encoding="utf-8") as fh:
+                starts = [float(x) for x in fh.read().split()]
+        after_git = ended - min(starts) if starts else float("inf")
+        check(f"unanswered hand-back and a hanging git: the row is written within the budget ({after_git:.1f} s after the first git call, {took:.1f} s in all)",
               out == "rc=0" and r.get("status_source") == "transcript:tool-use-unanswered"
-              and r.get("repository") == "work" and r.get("head_sha") is None and took < 9.5, f"{out} {r.get('status_source')}")
+              and r.get("repository") == "work" and r.get("head_sha") is None and len(starts) >= 2 and after_git < 6.5,
+              f"{out} {r.get('status_source')} git calls {len(starts)}")
         out, r, took = timed_fire(variant("bashwait", unanswered), None)
         check(f"an unanswered call that is not the hand-back is not waited for ({took:.1f} s)",
               out == "rc=0" and r.get("status_source") == "transcript:tool-use-unanswered" and took < 2.5,

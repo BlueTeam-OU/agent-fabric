@@ -187,9 +187,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
 The helpers under runtime/ run on this interpreter, the fleet's pinned
 Python, as ADR-040 §5 rule 4 has it for bootstrap's port: the bash ran
 them on the host's python3 and stopped with 127 before step 2 without
-one. Only step 7's venv, the language detector's own environment, is
-still made with the host's python3; without it that step says so and the
-run carries on.
+one. Step 7's venv, the language detector's own environment, is made
+with the pin too (#627); when it cannot be made that step says so and
+the run carries on.
 
 DELIBERATE DEPARTURES from the bash, each a defect the oracle pinned as the
 bash behaved, fixed here with its case changed:

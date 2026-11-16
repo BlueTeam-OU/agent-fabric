@@ -106,7 +106,8 @@ a message for the agent and two per send, and no prompt tokens.
    only from the agent's birth.
 10. Rules 3 and 4 have one exception, a break-glass: `GZCOORD_JOURNAL=off`
    sends and receives without the journal, for an operator whose journal
-   cannot be written. It is never silent and never untraced: every send
+   cannot be written; in a carrier mode it sends only, and a receive is
+   refused, ADR-064 rule 8 (A 2026-11-16). It is never silent and never untraced: every send
    and every addressed inbound record that crosses without the journal
    first appends a line to `journal-bypass.jsonl` in the agent's state
    (time, direction, MESSAGE-ID, the hash the journal would have kept,
@@ -173,3 +174,4 @@ The body above reads current; each change's full note is in [history/ADR-041-ame
 | 2026-10-09 | What a resume reads from the journal, and how it is ranked | §7: a resume fetches the session's working events by query, ranked, never the whole record; the full-text recipe to measure first is FTS5 stemmed + trigram fused by reciprocal rank, with snippets |
 | 2026-10-09 | A resume that reads working events needs rules 2 and 8 amended first | §7: the resume shape stays a direction; reading working events into a session needs rules 2 and 8 amended first |
 | 2026-11-14 | A grant to arm may be read from the arming login's own journal | §5 rule 7: a row addressed to that login; a carrier's row only with its verified sender as `FROM`, a relay's row as before |
+| 2026-11-16 | journal off, receiving is refused in a carrier mode | §5 rule 10: in `carrier-record` and `carrier-only` a journal-off receive is refused; the send keeps its audit lines (D7, #623) |
