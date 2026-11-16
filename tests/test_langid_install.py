@@ -184,10 +184,19 @@ class Langid(unittest.TestCase):
         os.makedirs(fakebin)
         asked = os.path.join(self.sandbox, "python3-asked")
         self.script(os.path.join(fakebin, "python3"), f'#!/bin/sh\n: > "{asked}"\nexit 1\n')
-        self.run_install(path=f"{fakebin}{os.pathsep}{self.path}")
+        p = self.run_install(path=f"{fakebin}{os.pathsep}{self.path}")
         self.assertFalse(os.path.exists(asked), "the host's python3 was run")
-        self.assertTrue(os.path.isfile(os.path.join(self.dir, "venv", "pyvenv.cfg")), "no venv was made")
-        self.assertIn(f"command = {self.pin} -m venv", self.venv_cfg())
+        self.assert_the_pin_made_it(p)
+
+    def assert_the_pin_made_it(self, p: subprocess.CompletedProcess) -> None:
+        """The venv's own record names the pin as its maker, or the failure line does: a host whose interpreter
+        cannot make a venv (Debian without python3-venv has no ensurepip) fails `-m venv` and says who ran it. Either
+        way the interpreter that ran is the pin; a maker that is not the pin satisfies neither."""
+        out = p.stdout + p.stderr
+        if os.path.isfile(os.path.join(self.dir, "venv", "pyvenv.cfg")):
+            self.assertIn(f"command = {self.pin} -m venv", self.venv_cfg(), out)
+        else:
+            self.assertIn(f"{self.pin} -m venv failed", out)
 
     def venv_cfg(self) -> str:
         with open(os.path.join(self.dir, "venv", "pyvenv.cfg"), encoding="utf-8") as fh:
@@ -196,7 +205,7 @@ class Langid(unittest.TestCase):
     def test_an_empty_override_counts_as_unset(self) -> None:
         # Positive control of the failing-interpreter cases: "" must not be run as a command.
         p = self.run_install(python="")
-        self.assertIn(f"command = {self.pin} -m venv", self.venv_cfg(), p.stdout + p.stderr)
+        self.assert_the_pin_made_it(p)
 
     def recording_maker(self, minor: str) -> tuple[str, str]:
         """An interpreter that says it is `minor`, logs each `-m venv` call, and fails it the way venv does after
