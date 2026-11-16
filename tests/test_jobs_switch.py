@@ -89,6 +89,33 @@ def main() -> int:
             fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
         os.environ["AGENT_FABRIC_SECRET_STORE"] = store
         jobs = load_jobs()
+        # Every switch runs `fabric-branches --sweep --worktrees` as a command of its own (~0.85 s, 187 times in this suite, of
+        # the ~160 s it ran in). Only the cases that ask what the sweep removed or said need the real one; the rest get a
+        # command that starts and exits 0, so the switch still runs a sweep and reads its (empty) report.
+        quiet_sweep = os.path.join(tmp, "quiet-branches.py")
+        with open(quiet_sweep, "w", encoding="utf-8") as fh:
+            fh.write("")
+        leave_sweep = sys.modules["fabric_jobs"].leave_sweep
+        real_sweep = leave_sweep.BRANCHES
+        leave_sweep.BRANCHES = quiet_sweep
+
+        # The journal writers run as episodic.main in this process: the same verbs on the same stdin and environment, without
+        # the interpreter start each of the ~55 calls paid. The file's own command-line entry is episodic's suite's.
+        spec = importlib.util.spec_from_file_location("episodic_under_test", os.path.join(ROOT, "tools", "fabric", "episodic.py"))
+        episodic = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(episodic)
+
+        def episodic_cli(argv: list[str], stdin: str = "") -> tuple[int, str, str]:
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), mock.patch.object(sys, "stdin", io.StringIO(stdin)):
+                rc = episodic.main(argv)
+            return rc, out.getvalue(), err.getvalue()
+
+        def next_second() -> None:
+            """Wait until the clock's whole second has changed: every stamp the cases compare is whole seconds, so a fixed 1.1 s wait
+            is the worst case of this (0.52 s on average)."""
+            time.sleep(1.0 - time.time() % 1.0 + 0.02)
+
         host = jobs.identity.current_host()
         me = f"{host}/{login}"
         mine = f"{host}/{login}/feat/earlier"      # a branch of this login with an open pull request, where a case has one
@@ -161,16 +188,12 @@ def main() -> int:
             def journal(self, *messages: tuple[str, str], ts: str | None = None) -> None:
                 for direction, text in messages:
                     verb = ["gzcoord-in"] if direction == "in" else ["gzcoord-out-pending"]
-                    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), *verb],
-                                       env=os.environ, input=json.dumps({"content": text, "seq": 1, **({"ts": ts} if ts else {})}) + "\n" if direction == "in" else text,
-                                       capture_output=True, text=True, timeout=60)
-                    assert r.returncode == 0, r.stderr
+                    rc, _, err = episodic_cli(verb, json.dumps({"content": text, "seq": 1, **({"ts": ts} if ts else {})}) + "\n" if direction == "in" else text)
+                    assert rc == 0, err
                     if direction in ("out", "out-failed"):
                         mid = re.search(r"^MESSAGE-ID: (\S+)$", text, re.M).group(1)
-                        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "gzcoord-out-final", mid,
-                                            "--state", "failed" if direction == "out-failed" else "accepted"],
-                                           env=os.environ, capture_output=True, text=True, timeout=60)
-                        assert r.returncode == 0, r.stderr
+                        rc, _, err = episodic_cli(["gzcoord-out-final", mid, "--state", "failed" if direction == "out-failed" else "accepted"], "")
+                        assert rc == 0, err
 
         def request(mid: str, expect: str = "yes") -> str:
             return (f"[GZCOORD/1] REQUEST\nFROM: peer/sender\nROLE: x\nPROJECT: p\nTO: {me}\nREPLY-EXPECTED: {expect}\n"
@@ -407,7 +430,7 @@ def main() -> int:
         w.sw("done", j1)
         settles(w, j1, "a done job with no artifact cannot be left", "done needs evidence")
         before = w.job(j1)["updated"]
-        time.sleep(1.1)
+        next_second()
         rc, out, err = w.sw("deliver", j1, f"origin/{contrib}")
         check("deliver on a done job appends evidence and does not reopen it",
               rc == 0 and w.job(j1)["state"] == "done" and w.job(j1)["artifacts"] == [f"origin/{contrib}"], out + err)
@@ -997,9 +1020,9 @@ def main() -> int:
         w = World()
         first = w.working("the session's first job")
         w.sw("drop", first, "x")
-        time.sleep(1.1)
+        next_second()
         w.journal(("in", request(RID)))
-        time.sleep(1.1)
+        next_second()
         second = w.add("second")
         w.sw("start", second)
         w.sw("drop", second, "x")
@@ -1175,6 +1198,7 @@ def main() -> int:
         check("a branch of the generated name that exists (a landed one, a leftover) is not reused or refused: a suffix",
               rc == 0 and w.job(j2)["branch"] == f"{host}/{login}/feat/{j2}-second-2", out + err)
 
+        leave_sweep.BRANCHES = real_sweep      # the cases below read what the sweep removed and said
         print("leaving a job sweeps what it left (j301): a pushed worktree goes, no branch is deleted, the next job's worktree stays")
 
         def git_in(path: str, *args: str) -> None:
@@ -1258,6 +1282,7 @@ def main() -> int:
         check("--json: stdout is the one object, the sweep's report is on stderr", rc == 0 and json.loads(out)["job"] and f"removed worktree {left}" in err
               and "removed worktree" not in out, out + err)
 
+        leave_sweep.BRANCHES = quiet_sweep
         print("review findings: a switch that races, a swept worktree, odd artifacts, pause elsewhere, blockers kept")
         w = World()
         j1 = w.working("first")
@@ -1340,7 +1365,7 @@ def main() -> int:
         w = World()
         j1 = w.add("scoped")
         w.journal(("in", request(RID)))
-        time.sleep(1.1)
+        next_second()
         w.switch()
         w.sw("drop", j1, "done")
         w.add("n")
@@ -1804,7 +1829,7 @@ def main() -> int:
         w.sw("drop", j1, "done")
         w.add("n")
         w.journal(("in", request(RID, "no")))       # makes the journal exist
-        path = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "where"], env=os.environ, capture_output=True, text=True).stdout.strip()
+        path = episodic_cli(["where"])[1].strip()
         conn = sqlite3.connect(path)
         conn.execute("UPDATE episodes SET metadata_json='not json', recorded_at='2099-01-01T00:00:00Z' WHERE message_id=?", (RID,))
         conn.commit()
@@ -1823,8 +1848,7 @@ def main() -> int:
             w.sw("drop", j, "done")
             w.add("n")
             w.journal(("in", request(RID, "yes")))
-            conn = sqlite3.connect(subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "where"], env=os.environ,
-                                                  capture_output=True, text=True).stdout.strip())
+            conn = sqlite3.connect(episodic_cli(["where"])[1].strip())
             if metadata is None:      # keep the metadata the journal wrote: only the receipt time is broken
                 conn.execute("UPDATE episodes SET recorded_at=? WHERE message_id=?", (recorded, RID))
             else:

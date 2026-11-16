@@ -4,13 +4,18 @@ memory directory changes before a switch, and a job without artifacts is given o
 from __future__ import annotations
 
 import atexit
+import contextlib
 import datetime
+import importlib.util
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+from unittest import mock
 from git_env import git_env  # noqa: E402 — tests/, the script's own directory
 
 GH_REPO = "fixture-org/fixture-proj"
@@ -74,3 +79,59 @@ def landed(state_dir: str, login: str, job_id: str) -> None:
             j["artifacts"] = [LANDED]
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(doc, fh)
+
+
+_JOBS = None
+_SWEEP = None   # the leave_sweep module of the package _JOBS was loaded with: a suite that loads jobs.py again replaces sys.modules["fabric_jobs"]
+
+
+def inprocess(env: dict[str, str], cwd: str, *argv: str, quiet_sweep: bool = False) -> subprocess.CompletedProcess:
+    """`fabric-jobs <argv>` as jobs.main in this process under `env` (the whole environment) and `cwd`. A suite reads the list
+    after nearly every verb, hundreds of times, and the command is two interpreter starts (bash, then Python) for each; the verbs
+    the cases are about still run as the command. `quiet_sweep`: the sweep a switch runs on leaving a job is `branches.py` as a
+    command (~0.85 s), here an empty script that exits 0; for the suites whose cases take a job with `next` and ask nothing
+    of the sweep (tests/test_jobs_switch.py reads it as the command in its own section)."""
+    global _JOBS, _SWEEP
+    if _JOBS is None:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        spec = importlib.util.spec_from_file_location("jobs_world_jobs", os.path.join(root, "tools", "fabric", "jobs.py"))
+        _JOBS = importlib.util.module_from_spec(spec)
+        with mock.patch.dict(os.environ, env):
+            spec.loader.exec_module(_JOBS)
+        _SWEEP = sys.modules["fabric_jobs"].leave_sweep
+    sweep = _SWEEP
+    real_branches = sweep.BRANCHES
+    if quiet_sweep:
+        sweep.BRANCHES = _quiet_script()
+    out, err, here = io.StringIO(), io.StringIO(), os.getcwd()
+    try:
+        os.chdir(cwd)
+        with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                rc = _JOBS.main(list(argv))
+            except SystemExit as e:
+                rc = e.code
+    finally:
+        os.chdir(here)
+        sweep.BRANCHES = real_branches
+    return subprocess.CompletedProcess(list(argv), rc if isinstance(rc, int) else (0 if rc is None else 1), out.getvalue(), err.getvalue())
+
+
+_QUIET: str | None = None
+
+
+def _quiet_script() -> str:
+    global _QUIET
+    if _QUIET is None:
+        d = tempfile.mkdtemp(prefix="jobs-world-quiet-")
+        atexit.register(shutil.rmtree, d, True)
+        _QUIET = os.path.join(d, "quiet-branches.py")
+        open(_QUIET, "w").close()
+    return _QUIET
+
+
+def listing(env: dict[str, str], cwd: str, *argv: str) -> str:
+    """The stdout of `fabric-jobs list --all --json <argv>`, in process (inprocess)."""
+    r = inprocess(env, cwd, "list", "--all", "--json", *argv)
+    assert r.returncode == 0, f"fabric-jobs list exited {r.returncode}: {r.stderr}"
+    return r.stdout

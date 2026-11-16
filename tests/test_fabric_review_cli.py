@@ -146,6 +146,32 @@ DEFAULT_PIN = "/usr/local/bin/fabric-python"
 if not ENTRY.endswith(".py"):
     with open(ENTRY, encoding="utf-8") as fh:
         check("the entry's default interpreter is the pin's path", ':-' + DEFAULT_PIN + '}' in fh.read(), True)
+# The host's own pin path is no fixture: no fleet host or CI image lacks it, and none runs without it. So the
+# shim's default is also held on a copy whose default names a scratch path, absent and then installed. The
+# replace must hit, or the copy would test the host's pin and the cases stay green on the mutation.
+if not ENTRY.endswith(".py"):
+    with open(ENTRY, encoding="utf-8") as fh:
+        text = fh.read()
+    scratch_pin = os.path.join(tmp, "scratch-pin", "fabric-python")
+    copy_dir = os.path.join(tmp, "entry-copy", "bin")
+    os.makedirs(copy_dir)
+    os.symlink(os.path.join(ROOT, "tools"), os.path.join(copy_dir, "..", "tools"))
+    copy = os.path.join(copy_dir, os.path.basename(ENTRY))
+    with open(copy, "w", encoding="utf-8") as fh:
+        fh.write(text.replace(DEFAULT_PIN, scratch_pin))
+    os.chmod(copy, 0o755)
+    check("scratch pin: the copy names the scratch path", scratch_pin in text.replace(DEFAULT_PIN, scratch_pin), True)
+    outcome("scratch pin: absent is 127", run("lenses", python=None, entry=copy), 127, "", INSTALL % scratch_pin)
+    os.makedirs(os.path.dirname(scratch_pin))
+    with open(scratch_pin, "w") as fh:
+        fh.write("#!/bin/sh\necho PIN \"$@\"\n")
+    os.chmod(scratch_pin, 0o755)
+    outcome("scratch pin: installed is reached", run("lenses", python=None, entry=copy), 0,
+            "PIN %s lenses\n" % os.path.join(os.path.dirname(copy_dir), "tools", "fabric", "review_cli.py"), "")
+    # Present but not executable: the shim's `-x` is what refuses it, which an absent file cannot show.
+    os.chmod(scratch_pin, 0o644)
+    outcome("scratch pin: present and not executable is 127", run("lenses", python=None, entry=copy), 127, "", INSTALL % scratch_pin)
+    os.unlink(scratch_pin)
 if not os.access(DEFAULT_PIN, os.X_OK):
     outcome("default pin path", run("lenses", python=None), 127, "", INSTALL % DEFAULT_PIN)
 else:
