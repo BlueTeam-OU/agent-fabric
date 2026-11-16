@@ -159,6 +159,9 @@ def live_text(cmd: str) -> str:
                 first = after_wrapper or "=" in name     # an assignment leaves the command word still to come
                 if not first:
                     command = name
+                    # A command word the walk cannot name, an expansion (`$c`, `"${c}"`) or xargs' `{}`, may be any
+                    # command, a shell included: `read -r c <<< '…'; $c` runs the quoted text (#624 review, j909).
+                    runner = runner or full.startswith("$") or "{}" in full
             word.clear()
 
     def separator() -> None:

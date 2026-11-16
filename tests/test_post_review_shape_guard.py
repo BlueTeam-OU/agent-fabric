@@ -84,6 +84,11 @@ def main() -> int:
         ("a quoted here-string, then the command", "cat <<< 'x'\nfabric-pr post-review 1 < r.md"),
         ("a double-quoted here-string, then the command", 'cat <<< "a b"\nfabric-pr post-review 1 < r.md'),
         ("a quoted here-string with no space, then the command", "cat <<<'x'\nfabric-pr post-review 1 < r.md"),
+        # #624 review (j909): the quoted text run by a command word the walk cannot name. Mutation: drop the `$`/`{}`
+        # clause in live_text()'s end_word(); each case passes then.
+        ("a quoted line read into a variable, run as the command", "read -r c <<< 'fabric-pr post-review 1 < r.md'; $c"),
+        ("a quoted line run by a braced variable", "c='fabric-pr post-review 1 < r.md'; \"${c}\""),
+        ("a quoted line run by xargs' placeholder", "xargs -0 -I{} env {} <<< 'fabric-pr post-review 1'"),
         ("single quotes piped to a shell", "printf '%s' 'fabric-pr post-review 12 < r.md' | sh"),
         ("1500 nested evals (F7)", "eval " * 1500 + "fabric-pr post-review 1"),
         # Round 3 of #451: quoting read differently from bash hid a later call (F10), and runners it did not name.
