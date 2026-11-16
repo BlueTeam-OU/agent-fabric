@@ -1634,7 +1634,7 @@ if spec is not None:
             # A host with no tz database cannot judge a name: a stated refusal, not a traceback.
             checker = f"{code}/tools/fabric/addenda_check.py"
             real_check = read(checker)
-            put(checker, real_check.replace("import zoneinfo\n", "import zoneinfo\nzoneinfo.available_timezones = lambda: set()\n", 1))
+            put(checker, real_check.replace("    import zoneinfo\n", "    import zoneinfo\n    zoneinfo.available_timezones = lambda: set()\n", 1))
             locale_json("ge", "Asia/Tbilisi", "ge")
             rc, out = run("--provider", "anthropic", "--", "--version", launcher=tree, FAKE_HOLDER='{"locale":"ge"}')
             put(checker, real_check)

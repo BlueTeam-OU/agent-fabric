@@ -8,6 +8,10 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, this script's own directory
+
+own_instance_tree()
 ROOT = os.path.dirname(HERE)
 PY = os.environ.get("AGENT_FABRIC_PYTHON") or sys.executable
 failures = 0

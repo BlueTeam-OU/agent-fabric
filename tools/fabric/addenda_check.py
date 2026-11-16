@@ -298,7 +298,8 @@ def _holder(name: str, text: str) -> list[str]:
 
 
 def _is_iana(value: object) -> bool:
-    import zoneinfo     # lazy: ~13 ms, and only a holder file with a timezone asks
+    # Imported here: ~13 ms, and only a holder file with a timezone asks.
+    import zoneinfo
     zones = zoneinfo.available_timezones()
     if not zones:
         # No tz database on this host: every name would read as unknown, and
