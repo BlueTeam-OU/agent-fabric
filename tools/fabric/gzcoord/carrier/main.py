@@ -46,8 +46,8 @@ CONTRACT
                                roster file atomically; refuses a collision on agent id,
                                login, PeerId or port, and a port outside the range
   env     XDG_RUNTIME_DIR (required: the data socket and the adapter socket
-          live under it), GZCOORD_JOURNAL=off (the carrier refuses to run: the
-          route is the relay alone, ADR-064 rule 8), AGENT_FABRIC_ROOT /
+          live under it), GZCOORD_JOURNAL=off (the carrier refuses to run: it
+          receives, and a journal-off receive is refused, ADR-064 rule 8), AGENT_FABRIC_ROOT /
           AGENT_FABRIC_OPERATOR / AGENT_FABRIC_STATE_DIR (as every GZCoord
           tool reads them), AGENT_FABRIC_HOSTS_REGISTRY (the hosts registry, read
           only when a roster row names a host; else the operator tree's),
@@ -183,7 +183,7 @@ def parse(text: str):
 
 def cmd_run(profile: str | None = None) -> int:
     if os.environ.get("GZCOORD_JOURNAL") == "off":
-        return _refuse("GZCOORD_JOURNAL=off: with the journal off the route is the relay alone (ADR-064 rule 8)")
+        return _refuse("GZCOORD_JOURNAL=off: the carrier receives, and a journal-off receive is refused (ADR-064 rule 8, ADR-041 rule 10)")
     import episodic
     from gzcoord.inbox_parts.tokens import for_me
     rd = runtime_dir()

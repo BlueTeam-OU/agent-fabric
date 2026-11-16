@@ -63,3 +63,21 @@ refusing its rows would stop arming on every account still in
 `relay-record`. That second part ends when the relay stops carrying
 GZCoord, at gate 2 of the plan: its records amend this rule again, and
 its work item W15 removes `verify_grant`'s relay-row branch.
+
+### Amendment 2026-11-16 — journal off, receiving is refused in a carrier mode
+
+What changed: §5 rule 10's break-glass, `GZCOORD_JOURNAL=off`, sent and
+received without the journal. In a carrier mode (`carrier-record`,
+`carrier-only`, ADR-064 §7) it now sends only: a journal-off receive is
+refused. A send keeps both audit lines exactly as before, and in
+`relay-record` nothing changes.
+
+Why: the cutover plan's D7. A carrier-mode arrival without the journal
+would be shown with nothing to keep it, the one record of what an agent
+was told; the human relay is the break-glass for an account whose
+journal cannot be written. The code landed first, in #623 (W17,
+`tools/fabric/gzcoord/transport/__init__.py` `open_transport`, which
+raises `ModeError`); this amendment brings the rule to it.
+
+Accepted by the owner, 2026-11-15 (D7, in the coordinator's session).
+ADR-064 rule 8 is amended the same day for the route.
