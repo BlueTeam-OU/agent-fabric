@@ -240,13 +240,21 @@ def main() -> int:
     # --until-delivery rides out a drop it recovers from without a word
     w = C.World([[]])
     w.relay_down = True
-    env = {**w.env, "GZCOORD_UNTIL_DELIVERY_DOWN_S": "60"}
-    pr = subprocess.Popen([P.INBOX_CMD, "--until-delivery", "--deadline", "40"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    env = {**w.env, "GZCOORD_UNTIL_DELIVERY_DOWN_S": "60", "GZCOORD_RETRY_S": C.RETRY_S}
+    pr = subprocess.Popen([P.INBOX_CMD, "--until-delivery", "--deadline", "6"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           text=True, stdin=subprocess.DEVNULL)
     try:
-        time.sleep(3)
-        refused = w.calls     # fetches the fake answered 500: without one the drop was never exercised
+        # the watch waits for the events, not a clock: a fetch the fake answered 500 (without one the drop was never
+        # exercised), then, once the relay answers, a fetch after it (the retry that finds it back; a watch that slept
+        # to its deadline instead would never make one)
+        t0 = time.monotonic()
+        while w.calls < 1 and time.monotonic() - t0 < 5:
+            time.sleep(0.05)
+        refused = w.calls
         w.relay_down = False
+        while w.calls <= refused and time.monotonic() - t0 < 5:
+            time.sleep(0.05)
+        retried = w.calls > refused
         out, err = pr.communicate(timeout=60)
     finally:
         if pr.poll() is None:
@@ -254,8 +262,8 @@ def main() -> int:
     check("--until-delivery: a relay that drops and returns inside its bound is not told to the session (SEMANTICS.md 'When the relay is down'): "
           "no unreachable line and no back line, the watch ending at its deadline with the quiet line and nothing on stderr",
           pr.returncode == 0 and out.startswith("gzcoord inbox: quiet for ") and len(out.splitlines()) == 1
-          and not any("unreachable" in x or "back" in x for x in out.splitlines()) and err.strip() == "" and refused >= 1,
-          f"{pr.returncode}\nrefused={refused}\n{out}{err}")
+          and not any("unreachable" in x or "back" in x for x in out.splitlines()) and err.strip() == "" and refused >= 1 and retried,
+          f"{pr.returncode}\nrefused={refused} retried={retried}\n{out}{err}")
     w.close()
 
     # ── send: what is posted, what is recorded, what a relay error leaves ───────────────────────────────────────────

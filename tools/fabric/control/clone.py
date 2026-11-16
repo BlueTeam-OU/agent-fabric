@@ -27,7 +27,7 @@ import subprocess
 import uuid
 from typing import Any, Callable
 
-from control.ops import util
+from control import opsutil as util
 from control.tools import MAX_BUFFER
 from control.upgrade import BOOTSTRAP_TIMEOUT_MS, last_line
 import project_clone

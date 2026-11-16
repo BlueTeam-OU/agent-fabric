@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from control import busy
-from control.ops import util
+from control import opsutil as util
 from control.upgrade import STOP_WAIT_MS
 
 # The stop wait plus the pgrep and write around it: what fabric-ctl waits for one account's reply.

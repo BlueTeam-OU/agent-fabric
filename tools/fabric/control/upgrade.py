@@ -86,13 +86,19 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from control import busy, js
-from control.ops import util
-from control.ops.usage import claude_bin
+from control import opsutil as util
 from provisioning import bounded
-import roots  # noqa: E402 — control.ops puts tools/fabric on sys.path
+import roots  # noqa: E402 — control.opsutil puts tools/fabric on sys.path
 import operator_checkout  # noqa: E402
 
 PIECES = ["claude", "fabric"]
+
+
+def claude_bin(home):
+    """ops.usage's claude_bin, imported on the call: control.ops.usage is in a package whose import loads every op's code,
+    which fabric-ctl, importing this module for a budget constant, must not pay for at start."""
+    from control.ops.usage import claude_bin as resolve
+    return resolve(home)
 VERSION_RE = re.compile(r"\d{1,4}\.\d{1,4}\.\d{1,6}")
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 STOP_WAIT_MS = 90000   # the harness's failsafe is the hook budget + 5 s

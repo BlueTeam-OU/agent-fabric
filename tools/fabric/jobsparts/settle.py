@@ -5,7 +5,6 @@ settle() returns what it checked and every thing that failed, so the refusal nam
 cannot be told (gh, git or the journal did not answer) is a failure too, said as such: unknown is never settled."""
 from __future__ import annotations
 
-import calendar
 import glob
 import json
 import os
@@ -138,6 +137,7 @@ def owed_replies(since: float | None) -> list[dict] | str:
             continue
         at = None
         try:
+            import calendar     # lazy: calendar costs ~25 ms of start-up and few verbs parse a stamp
             at = calendar.timegm(time.strptime(str(received), "%Y-%m-%dT%H:%M:%SZ"))
         except (ValueError, OverflowError):
             pass
@@ -163,6 +163,7 @@ def owed_replies(since: float | None) -> list[dict] | str:
 def started_at(job: dict) -> float | None:
     """When the job last became active, as epoch seconds; its creation when it never did."""
     stamps = [e.get("at") for e in job.get("log") or [] if e.get("state") == "active"] or [job.get("created")]
+    import calendar
     try:
         return calendar.timegm(time.strptime(str(stamps[-1]), "%Y-%m-%dT%H:%M:%SZ"))
     except (ValueError, TypeError):
@@ -361,6 +362,7 @@ def _reflected(job: dict, problems: list[str]) -> list[str]:
         problems.append(f"no fabric-reflect pass has been closed: {fix}")
         return []
     since = started_at(job)
+    import calendar
     try:
         done = calendar.timegm(time.strptime(str(cur.get("done_at")), "%Y-%m-%dT%H:%M:%SZ"))
     except (ValueError, OverflowError):

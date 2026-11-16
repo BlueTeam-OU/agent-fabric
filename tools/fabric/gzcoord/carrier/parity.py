@@ -60,7 +60,6 @@ cannot show (no relay copy yet, a ledger line interrupted before its final line)
 """
 from __future__ import annotations
 
-import calendar
 import json
 import os
 import re
@@ -80,6 +79,7 @@ MARGIN_S = 3600
 
 
 def parse_t(t: str) -> float:
+    import calendar     # lazy: a start of fabric-ctl imports this module and parses no stamp
     return calendar.timegm(time.strptime(t, "%Y-%m-%dT%H:%M:%SZ"))
 
 
