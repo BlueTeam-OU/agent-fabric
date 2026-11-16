@@ -255,6 +255,9 @@ DEADLINE_USAGE = "gzcoord inbox: --deadline takes a number of seconds above 0 an
 # to tell the session; --follow never gives up (its Monitor shows each line).
 MODE_POLL_S = 5.0     # how often a running watch reads the account's transport mode; the plan's bound is a minute
 UNTIL_DELIVERY_DOWN_S = float(os.environ.get("GZCOORD_UNTIL_DELIVERY_DOWN_S") or 900)
+# Seconds between tries while the relay does not answer. The environment is a seam for tests, which wait for the retry's
+# event rather than out a fixed 30 s; a test of the default reads this constant.
+RETRY_S = float(os.environ.get("GZCOORD_RETRY_S") or 30)
 
 
 def _episodic():
@@ -720,10 +723,10 @@ def main(argv: list[str]) -> int:
                     print(primary_down_line("gave-up"), flush=True)
                     mark_relay_down(who["agent"], time.time())
                     return ended("gave-up", 5)
-                # The 30 s between tries, shortened to the time left before the give-up bound and, under --until-delivery,
+                # The RETRY_S between tries, shortened to the time left before the give-up bound and, under --until-delivery,
                 # before the --deadline (never negative: sleep refuses that): a relay that refuses connections must not
                 # carry the watch past the deadline it promised, and a shorter bound (a test's) is not slept through twice.
-                time.sleep(max(0.0, min(30.0, UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since), deadline - time.monotonic())) if until_delivery else 30)
+                time.sleep(max(0.0, min(RETRY_S, UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since), deadline - time.monotonic())) if until_delivery else RETRY_S)
                 continue
             if r.get("relayAnswered"):
                 clear_relay_down(who["agent"])

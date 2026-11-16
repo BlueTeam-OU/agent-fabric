@@ -18,12 +18,54 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import threading
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 from gzcoord.carrier import server  # noqa: E402
 import test_gzcoord_protocol as P  # noqa: E402 — its relay stub, scratch and command environment
+
+
+RETRY_S = "1"   # GZCOORD_RETRY_S: the watch's seconds between tries while the relay fails, shortened so a case waits for the retry's event
+
+
+class Follow:
+    """A `gzcoord-inbox --follow` run, its streams drained as they come so a case can wait for what it expects
+    (`wait_for`) instead of out a fixed time; `stop` ends it and returns everything it said."""
+
+    def __init__(self, env: dict) -> None:
+        self.proc = subprocess.Popen([P.INBOX_CMD, "--follow"], env={**env, "GZCOORD_RETRY_S": RETRY_S}, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL)
+        self.out: list[str] = []
+        self.err: list[str] = []
+        self.readers = [threading.Thread(target=self._drain, args=(f, into), daemon=True)
+                        for f, into in ((self.proc.stdout, self.out), (self.proc.stderr, self.err))]
+        for t in self.readers:
+            t.start()
+
+    @staticmethod
+    def _drain(stream, into: list) -> None:
+        for line in stream:
+            into.append(line)
+
+    def wait_for(self, ready, timeout: float = 20) -> bool:
+        """True once ready(out, err) holds; False at the timeout, which a case's own check then reports."""
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if ready("".join(self.out), "".join(self.err)):
+                return True
+            time.sleep(0.05)
+        return False
+
+    def stop(self) -> tuple[str, str]:
+        self.proc.terminate()
+        self.proc.wait(timeout=30)
+        for t in self.readers:
+            t.join(timeout=5)
+        return "".join(self.out), "".join(self.err)
+
 
 fails = 0
 ME = P.MY_ADDRESS
@@ -375,24 +417,24 @@ def main() -> int:
           r.returncode == 0 and "subject-8" in r.stdout and r.stderr.count("the watch log") == 1, f"{r.returncode}\n{r.stdout}{r.stderr}")
     w.close()
     # --follow: an arm failed (the watch is "down"), then the carrier delivers while the relay still fails: not "the relay is back".
-    # The watch retries every 30 s, so the record arrives after the first failed arm and the case waits for the second.
+    # The watch retries every RETRY_S: the record is added once the watch has said the relay is down, and the case waits for
+    # the retry that shows it, then for one more failed fetch. A wait that never fires is a failed check, not a silent timeout.
     recs = []
     w = World([], carrier_records=recs)
     w.relay_down = True
-    pr = subprocess.Popen([P.INBOX_CMD, "--follow"], env=w.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                          stdin=subprocess.DEVNULL)
+    f = Follow(w.env)
     try:
-        import time
-        time.sleep(3)
+        waited = [f.wait_for(lambda out, err: "relay unreachable" in out)]
         recs.append(urec(5))
-        time.sleep(34)
+        waited.append(f.wait_for(lambda out, err: "subject-5" in out))
+        seen = w.calls
+        waited.append(f.wait_for(lambda out, err: w.calls > seen))
     finally:
-        pr.terminate()
-        out, err = pr.communicate(timeout=30)
+        out, err = f.stop()
     check("--follow, relay down, then the carrier delivers: shown, the relay still reported, and no relay-back line",
-          "subject-5" in out and "HTTP 500" in err
+          all(waited) and "subject-5" in out and "HTTP 500" in err
           and [x for x in out.splitlines() if x.startswith("gzcoord watch:")] == [x for x in out.splitlines() if "relay unreachable" in x],
-          f"{out}{err}")
+          f"{waited}\n{out}{err}")
     w.close()
 
     for d in P.SCRATCH:
