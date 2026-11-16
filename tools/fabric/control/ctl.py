@@ -679,7 +679,7 @@ def parse_args(argv: list[str]) -> dict:
                           else CARRIER_INSTALL_BUDGET_S if op == INSTALL_OP
                           else CARRIER_START_BUDGET_S if op == START_OP
                           else CARRIER_STOP_BUDGET_S if op == STOP_OP
-                          else CARRIER_READ_BUDGET_S if op in (CARRIER_NAME, MODE_OP)   # the mode move reads the whole fleet first, with the read's budget
+                          else CARRIER_READ_BUDGET_S if op == CARRIER_NAME or (op == MODE_OP and out.get("mode") == mode_mod.CARRIER_ONLY)   # only the move to carrier-only reads the whole fleet first; the others write one account
                           else EVIDENCE_BUDGET_S if op == EVIDENCE_OP
                           else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
                           else 90 if op == "drift"
