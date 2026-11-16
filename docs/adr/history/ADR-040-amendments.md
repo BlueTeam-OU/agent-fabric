@@ -341,3 +341,19 @@ Written by fabric-coordinator as job j762, on the j706 branch.
 ### Amendment 2026-11-12 — Wave 10 moves to the operator's record
 
 Rule 10 (Wave 10: the managed projects' own Node scripts move to Python) and §7's Wave 10 paragraph and inventory rows (gzapp, gzapp.decks, blueteam.ee, gzapi.ge, herdr) are this organisation's porting programme for its own projects, not a rule the engine's code or shims rest on: rules 1 to 8 bind the fabric's code, rule 9 advises any managed project, and the waves the engine's files cite (`ADR-040 §7`) are 0 to 9. ADR-045 §5 rule 4 has a mixed record split, so the engine's part keeps the number and the programme moved, text and rows verbatim, into the operator's ADR-070. Rule 10's slot stays, marked moved, so no citation of a later number shifts (there is none after it); §7 points at ADR-070 for Wave 10 and §8 no longer says it is dispatched; References cite ADR-070. The owner's word is the 2026-11-11 answer on the classification (docs/split/move-plan.md §5, ADR-045's Amendments row of that date), decided in docs/split/adr-classification.md.
+
+### Amendment 2026-11-16 — the language detector's venv is made with the pin
+
+What changed: §5 rule 4 kept one exception inside bootstrap's port,
+step 7's language-detector venv (`runtime/langid/`), made with the
+host's `python3`. It is now made with the fleet's pin like the rest of
+bootstrap's helpers, and the exception leaves the rule.
+
+Why: rule 1's floor and one interpreter per fleet. A venv made with the
+host's interpreter carried a different minor on each platform (EL 10's
+3.12, Debian 13's 3.13), and `langid_install.py` took whatever `python3`
+PATH found. #627 (python-dev-02, j157's branch) makes it with the
+interpreter running it, which `runtime/langid/install.sh` already makes
+the pin, and makes a venv of another minor again. Raised as #627's
+review F3 and deferred to this record; no owner decision was needed,
+the rule's direction being rule 1's.
