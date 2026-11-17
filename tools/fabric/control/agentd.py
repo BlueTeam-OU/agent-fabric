@@ -136,6 +136,7 @@ from control import hold as hold_mod  # noqa: E402
 from control import transport_mode as mode_mod  # noqa: E402
 from control.branches_op import branches_sweep  # noqa: E402
 from control.local import local_prune  # noqa: E402
+from control import state_read, state_record  # noqa: E402
 from control.pool import POOL_FILE, pool_add, pool_claim, pool_holder, pool_list, reconcile, role_from_stream, state_reader  # noqa: E402
 from control.secrets import secrets_sync  # noqa: E402
 from control.selftest import secrets_selftest  # noqa: E402
@@ -822,12 +823,19 @@ def leaver(inflight: set, exit: Callable[[int], None] | None = None, log: Callab
     return Leaver(inflight, exit, log)
 
 
-def state_poster(call: Callable[..., Any], cfg: dict, address: str) -> Callable[[dict], Any]:
-    """How a state record leaves: on the state channel, never the control
-    channel, whose replies would push it out of a reader's window (ADR-029
-    rule 16)."""
-    return lambda content: call("/api/send", method="POST",
-                                body=js.stringify({"channel": cfg["state_channel"], "sender": address, "content": js.stringify(content)}))
+def state_poster(call: Callable[..., Any], cfg: dict, address: str, file: str | None = None) -> Callable[[dict], Any]:
+    """How a state record leaves: kept in `file` (the `state` op answers from it, state_record.py) in every carrier mode,
+    then on the state channel, never the control channel, whose replies would push it out of a reader's window (ADR-029
+    rule 16). With the second carrier alone nothing is posted: the relay stores the history the readers no longer read. The record is
+    kept before it is posted, so a failed post is retried with the file already telling the truth."""
+    def post(content: dict) -> Any:
+        if file is not None:
+            state_record.store(file, content)
+        if cfg.get("control_carrier") == CARRIER_SECOND_ONLY:
+            return None
+        return call("/api/send", method="POST",
+                    body=js.stringify({"channel": cfg["state_channel"], "sender": address, "content": js.stringify(content)}))
+    return post
 
 
 def up_record(address: str) -> dict:
@@ -900,6 +908,8 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {"local-prune": local_prune(request, home=home, root=root)}
     elif op == "branches-sweep":
         data = {"branches-sweep": branches_sweep(request, home=home, root=root, **(ctx.get("branches_opts") or {}))}
+    elif op == state_record.STATE_OP:
+        data = {state_record.STATE_OP: state_record.state(request, me=me, file=os.path.join(state_dir(), state_record.RECORD_FILE))}
     elif op == "secrets-selftest":
         data = {"secrets-selftest": secrets_selftest(request, home=home, root=root, **(ctx.get("selftest_opts") or {}))}
     else:
@@ -1113,7 +1123,8 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         return call("/api/send", method="POST",
                     body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(content)}))
     # A claimant's role is what its own control agent last said on the state channel.
-    ctx["pool_opts"] = {"role_of": role_from_stream(call=call, cfg=cfg)}
+    state_asker = state_read.asker(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=new_id)
+    ctx["pool_opts"] = {"role_of": role_from_stream(call=call, cfg=cfg, ask=state_asker)}
     # The account's GZCoord inbox is the project's channel on the relay this daemon already reaches
     # (status says its read position: tools/fabric/drift.py); a project with none says so.
     # `call` reaches the control relay; the project's channel may sit on another one, reached with the same token.
@@ -1176,14 +1187,14 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
             codex_token.start(Ticker, _stderr, agents=placed_agents)
         # What the account's sessions are doing, posted when it changes
         # (sessions.py); first at start, so a restart re-says it.
-        states = sessions.StateWatcher(address=me["address"], post=state_poster(call, cfg, me["address"]),
+        states = sessions.StateWatcher(address=me["address"], post=state_poster(call, cfg, me["address"], os.path.join(state_dir(), state_record.RECORD_FILE)),
                                        file=os.path.join(state_dir(), sessions.STATE_FILE), agent=who.get("agent"),
                                        jobs=os.path.join(state_dir(), "jobs.json"))
         # First at start, in its own thread: the Node did not await it, and a
         # relay that is down must not hold the read loop's start behind the post.
         Ticker("session state", states.tick, sessions.STATE_POLL_MS / 1000).start()
         # The pool holder's own end of a claim; the stream is read once for a claimant, as a claim is checked.
-        state_of = state_reader(call=call, cfg=cfg)
+        state_of = state_reader(call=call, cfg=cfg, ask=state_asker)
         Ticker("pool claims", lambda: pool_claims_tick(me=me["address"], holder=lambda: pool_holder(control_config()),
                                                        file=lambda: os.path.join(state_dir(), POOL_FILE), state_of=state_of),
                POOL_CLAIMS_EVERY_S, first_s=tools_mod.first_run_delay_s(me["address"])).start()

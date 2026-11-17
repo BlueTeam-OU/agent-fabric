@@ -122,7 +122,7 @@ from control.selftest import SELFTEST_BUDGET_S
 from control.restart import RESTART_BUDGET_S
 from control.sessions import SESSION_ID
 from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, public_key_from, sign_request
-from control import harness_restart, units
+from control import harness_restart, state_read, state_record, units
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
 from control.clone import CLONE_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
@@ -204,6 +204,8 @@ VERBS: tuple[Verb, ...] = (
                   ("--restart", "resume a session on the result")) + COMMON),
     Verb("presence", "Whether each account has a session running, since when, as which role.", "fabric-ctl all presence",
          usage=(("<login|all> presence", "any placed account may ask"),), options=COMMON),
+    Verb("state", "Each account's newest state record, as the account itself keeps and answers it: the same rows as states, asked of the accounts.",
+         "fabric-ctl all state", usage=(("<login|all> state", "any placed account may ask"),), options=COMMON),
     Verb("jobs", "Each account's stored job list.", "fabric-ctl all jobs", usage=(("<login|all> jobs", None),), options=COMMON),
     Verb("tools", "Each account's missing required tools, from its hourly report.", "fabric-ctl all tools",
          usage=(("<login|all> tools", "each account: its missing required tools, from its hourly report"),), options=COMMON),
@@ -963,7 +965,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "five_hour": g("usage", "five_hour"), "seven_day": g("usage", "seven_day"), "usage_status": g("usage", "status"),
                     "keys": g("keys"), "fabric": g("fabric"), "session": g("session"), "script": g("script"), "recall": g("recall"),
                     "tokens": g("tokens"), "memory": g("memory"), "machine": g("host"), "disk": g("disk"), "accounts": g("accounts"),
-                    "upgrade": g("upgrade"), "secretsSync": g("secrets-sync"), "restart": g("restart"), "presence": g("presence"), "jobs": g("jobs"), "tools": g("tools"),
+                    "upgrade": g("upgrade"), "secretsSync": g("secrets-sync"), "restart": g("restart"), "presence": g("presence"), "state": g("state"), "jobs": g("jobs"), "tools": g("tools"),
                     "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), CARRIER_NAME: g(CARRIER_NAME), f"{CARRIER_NAME}Install": g(INSTALL_OP), f"{CARRIER_NAME}Start": g(START_OP), f"{CARRIER_NAME}Stop": g(STOP_OP), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
@@ -1592,6 +1594,24 @@ def _table_presence(rs: list) -> list[str]:
     return lines
 
 
+def _table_state(rs: list) -> list[str]:
+    """One row per account as `states` prints it; an account that has no record to give is unknown, with its reason."""
+    lines = [f"{pad_end('account', 22)} {pad_end('state', 8)} {pad_end('role', 18)} sessions"]
+    for r in rs:
+        s = r.get("state")
+        if _unless(r, s):
+            lines.append(_row(r))
+            continue
+        rec = dig(s, "state")
+        if not isinstance(rec, dict):
+            lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('unknown', 8)} {S(nullish(dig(s, 'why'), 'no record'))}"))
+            continue
+        row = state_row(S(nullish(rec.get("from"), r["account"])), rec)
+        lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(printable(row['state']), 8)} {pad_end(printable(nullish(row.get('role'), '-')), 18)} "
+                              f"{len(row['sessions'])}{'  (' + row['why'] + ')' if row.get('why') else ''}"))
+    return lines
+
+
 def _gt1(v: Any) -> bool:
     """`v > 1` as JavaScript compares it: a string is a number, undefined is NaN."""
     if isinstance(v, bool):
@@ -2153,6 +2173,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_pool_add(rs)
     elif op == "presence":
         lines = _table_presence(rs)
+    elif op == "state":
+        lines = _table_state(rs)
     elif op == "upgrade":
         lines = _table_upgrade(rs)
     elif op == "accounts":
@@ -2322,6 +2344,14 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
             tok = synced_token()   # `??`: a token that is empty is a token, and refused as one
     api_call = call or (lambda p, **init: api(tok, p, relay_url=cfg["relay_url"], **init))
     if args["op"] == "states":
+        asker = state_read.asker(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=agentd.new_id,
+                                 say=err)
+        if asker is not None:
+            # The op, not the channel: the relay is not touched, so no token is needed, and a placed account may ask (a public op).
+            if me["address"] not in agentd.operator_addresses(registry) and me["address"] not in agentd.account_addresses(registry):
+                err(f"fabric-ctl: {me['address']} is not placed in runtime/hosts/registry.json — no agent would answer; not sent")
+                return 2
+            return states(args, expected, call=None, cfg=cfg, out=out, err=err, now=lambda: now() * 1000, sleep=sleep, ask=asker)
         # A read of the channel, not a request: no daemon is asked and none
         # answers, so no operator check — the relay token is the gate.
         if not tok:
@@ -2839,9 +2869,15 @@ def printable(v: Any) -> str:
     return _PRINTABLE.sub("?", S(v))
 
 
+STATES_ASK_EVERY_S = 5
+
+
 def states(args: dict, expected: list[dict], *, call: Callable[..., Any], cfg: dict, out: Callable[[str], None] = _out,
            err: Callable[[str], None] = _err, now: Callable[[], float] | None = None, sleep: Callable[[float], None] = time.sleep,
-           forever: bool = True) -> int:
+           forever: bool = True, ask: Callable[[list], dict] | None = None) -> int:
+    """With `ask` (state_read.ask, bound to this account) the records are asked of the accounts, never read from the
+    channel: an account that gives none is a row of unknown with the reason it gave, and --follow asks again every
+    STATES_ASK_EVERY_S, the op having no stream to wait on."""
     clock = now or (lambda: time.time() * 1000)
     want = {e["address"] for e in expected}
     channel = cfg["state_channel"]
@@ -2853,10 +2889,13 @@ def states(args: dict, expected: list[dict], *, call: Callable[..., Any], cfg: d
         return (f"{pad_end(row['address'], 32)} {pad_end(printable(row['state']), 8)} {pad_end(printable(nullish(row.get('role'), '-')), 18)} "
                 f"{n} session{'' if n == 1 else 's'}{'  since ' + printable(row['since']) if T(row.get('since')) else ''}{'  (' + row['why'] + ')' if row.get('why') else ''}")
     latest: dict[str, dict] = {}
+    why_missing: dict[str, str] = {}
     shown: dict[str, str] = {}   # address → the row last printed, without its ts: a heartbeat that says nothing new prints nothing
 
     def show(address: str, force: bool = False) -> None:
         row = state_row(address, latest.get(address), clock())
+        if latest.get(address) is None and address in why_missing:
+            row["why"] = why_missing[address]
         said = {k: v for k, v in row.items() if k != "ts"}
         # Text prints neither activity nor the context sample: a row that differs only in them is the same line.
         key = js.stringify(said) if args["json"] else line(row)
@@ -2879,6 +2918,41 @@ def states(args: dict, expected: list[dict], *, call: Callable[..., Any], cfg: d
         rows_ = page["messages"] if isinstance(dig(page, "messages"), list) else []
         take(rows_)
         return dig(rows_[-1], "id") if rows_ and dig(rows_[-1], "id") not in (UNDEFINED, None) else None
+    def asked() -> None:
+        for address, said in ask(sorted(want)).items():
+            if "error" in said:
+                latest.pop(address, None)   # an answer that is missing now is not the last one's
+                why_missing[address] = said["error"]
+                continue
+            # Only a record whose every field the row reads has agentd's shape, as one read from the channel must.
+            r = state_record_of({"content": js.stringify(said["record"])}, want)
+            if r:
+                latest[address] = r
+                why_missing.pop(address, None)
+            else:
+                latest.pop(address, None)
+                why_missing[address] = f"{address}'s state record has not the shape agentd writes"
+    if ask is not None:
+        try:
+            asked()
+        except Exception as e:  # noqa: BLE001 — the ask's own failure; each account's is a row, this is none of them
+            err(f"fabric-ctl: the state op could not be asked ({e})")
+            return 3
+        for e in expected:
+            show(e["address"], True)
+        if not args["follow"]:
+            return 0 if all(a in latest for a in want) else 1
+        while True:
+            sleep(STATES_ASK_EVERY_S)
+            try:
+                asked()
+            except Exception as e:  # noqa: BLE001
+                err(f"fabric-ctl: the state op could not be asked ({e})")
+                return 3
+            for e in expected:
+                show(e["address"])
+            if not forever:
+                return 0
     try:
         last = snapshot()
     except Exception as e:  # noqa: BLE001 — any failure of the read is the relay's, said as relay_failure says it
