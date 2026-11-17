@@ -122,7 +122,8 @@ def probe_standin(state: str):
 
 # The fake codex sees only the environment the engine gives it, so its
 # behaviour and its records go through files at paths written into it.
-FAKE_CODEX = r'''#!%(python)s
+# -S: the stand-ins import only the standard library, and site costs ~7 ms of CPU a start, about 13 starts a review.
+FAKE_CODEX = r'''#!%(python)s -S
 import json, os, subprocess, sys, time
 S = %(state)r
 argv = sys.argv[1:]
@@ -298,7 +299,7 @@ elif mode == "noevents":
         f.write(EMPTY)
 '''
 
-GH_MOCK = r"""#!%(python)s
+GH_MOCK = r"""#!%(python)s -S
 import json, os, sys
 S = os.environ["GH_STATE"]
 a = sys.argv[1:]
@@ -695,7 +696,10 @@ def main() -> int:
         os.makedirs(os.path.dirname(local_layer))
         env0 = {k: v for k, v in os.environ.items()
                 if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "ANTHROPIC_", "CLAUDE", "OPENAI_", "CODEX_"))}
-        env0["PYTHONDONTWRITEBYTECODE"] = "1"      # the engine's children import the real tools/fabric modules: no __pycache__ into the checkout
+        # The engine's children import the real tools/fabric modules, and a __pycache__ beside them would land in the checkout.
+        # Bytecode off made every one of the ~80 runs compile them all again (about a third of the suite's CPU); a cache
+        # prefix inside the case's own tmp compiles them once and leaves nothing behind.
+        env0["PYTHONPYCACHEPREFIX"] = os.path.join(tmp, "pycache")
         env0.update(PATH=f"{fakebin}:{env0.get('PATH', '')}", GH_STATE=state, GH_REPO="fixture-org/fixture",
                     HOME=home, TMPDIR=scratch, AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_OPERATOR=operator,
                     AGENT_FABRIC_STATE_DIR=fabric_state,
