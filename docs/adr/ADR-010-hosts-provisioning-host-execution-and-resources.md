@@ -135,6 +135,17 @@ that killed the host without privilege and without anything going stale.
     `bin/fabric-status` reports its drift from this repository. It goes one
     way: an account with sudo can become a role account; a role account
     can become nothing.
+13. **Build output belongs to the job that holds its tree.** Every
+    account runs `agent-fabric-tidy.timer` daily, installed by bootstrap.
+    It removes `target/` and `node_modules/` from every checkout that no
+    active, queued, paused or blocked job holds, under the keep rules of
+    `leave_targets`. `fabric-jobs switch` cleans the left job's output
+    (ADR-037 §5 rule 10). A held tree's output is measured and never
+    removed, and the run warns at 85% of the filesystem under
+    `~/projects`. Output from a job closed after the day's run waits for
+    the next run, up to a day. The coordinator reads the disk with
+    `fabric-ctl all disk` and the machine row of `fabric-ctl all status`
+    (A 2026-11-17).
 
 ## 6. Consequences
 
@@ -194,3 +205,4 @@ The body above reads current; each change's full note is in [history/ADR-010-ame
 | 2026-10-19 | full-suite: one full local test run per host | §5 rule 9: a second named resource, the host's CPU and timing headroom, which a full local test run waits for |
 | 2026-10-28 | cpu: N heavy builds and suites at a time per host | §5 rules 9-11: N slots with a thread budget each, taken by shims ahead of cargo and dotnet and by tests/run.py |
 | 2026-11-11 | The ssh backend read back on fabric-h2, the second host | §7 |
+| 2026-11-17 | Build output belongs to the job that holds its tree | §5 rule 13: the daily tidy, switch, and the coordinator's disk reads |

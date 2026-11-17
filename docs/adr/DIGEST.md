@@ -309,8 +309,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-19 — `full-suite`: one full local test run at a time (§5 rule 9).
 - A 2026-10-28 — `cpu`, N slots with a thread budget, taken by shims ahead of cargo and dotnet and by tests/run.py (§5 rules 9-11).
 - A 2026-11-11 — ssh backend read back on fabric-h2, the second host; `--as` not yet (§7).
+- A 2026-11-17 — build output belongs to the job that holds its tree: a daily tidy on every account, switch cleans the left job, 85% warning, disk read via fabric-ctl (§5 rule 13).
 - Keywords: host, placement, hostexec, fabric-host, ssh, provisioning,
-  new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM, cpu, load, cargo, dotnet, shim.
+  new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM, cpu, load, cargo, dotnet, shim, disk, target, tidy.
 
 ### ADR-011 — Managed projects consume the fabric at a pinned ref (Accepted)
 
