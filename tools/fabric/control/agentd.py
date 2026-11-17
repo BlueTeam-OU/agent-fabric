@@ -53,12 +53,16 @@ Every reply arrives: a section that cannot be read says so inline.
 Relay down: one line on stderr, retry every 30 s; a refused token is
 re-read once from the synced file (a rotation), then reported.
 
-THE SECOND CARRIER (ADR-029 rule 18), only when runtime/control/config.json `control_carrier` is "dual" (or
+THE SECOND CARRIER (ADR-029 rule 18), only when runtime/control/config.json `control_carrier` is "dual" or the second carrier alone (or
 FABRIC_CONTROL_CARRIER says so): gzcoord/carrier/control_link.py holds the supervised child, the roster check of who
 sent what and fabric-ctl's socket. This file adds the one decision path, handle(): a request from either carrier
 goes through the same accept(), the same seen-set and the same action ledger, so one on both is answered once; and
 deliver(): the reply goes by the relay (the record) and, at once, by the other carrier to the sender's PeerId. With
 the key absent or "relay" none of it starts, and every line this daemon writes is what it was.
+With control_carrier naming the second carrier alone it is the only one: the daemon neither reads nor posts the relay's control channel
+(no prime, no poll, no reply post), so a relay that refuses every connection changes nothing it answers. What it still
+posts to the relay is the state stream (sessions.StateWatcher, ADR-029 rule 16), which has no other carrier yet; a
+failure of that is said, never read as an account with no sessions. --once reads the relay once and is refused there.
 
 CONTRACT, frozen from agentd.mjs. Kept byte for byte: every
 record posted (key order, ids, timestamps' shape), every refusal's reason
@@ -123,7 +127,7 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-from control import clone as clone_mod, gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod, usage_resets  # noqa: E402
+from control import carrier_cfg, clone as clone_mod, gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod, usage_resets  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
 from gzcoord.carrier import CARRIER_LABEL, control_link  # noqa: E402
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
@@ -142,8 +146,8 @@ from gzcoord import gzmsg  # noqa: E402
 import roots  # noqa: E402
 
 CONFIG = os.path.join(roots.code_root(), "runtime", "control", "config.json")
-CARRIER_RELAY, CARRIER_DUAL = "relay", "dual"
-CARRIERS = (CARRIER_RELAY, CARRIER_DUAL)
+CARRIER_RELAY, CARRIER_DUAL, CARRIER_SECOND_ONLY = carrier_cfg.RELAY, carrier_cfg.DUAL, carrier_cfg.SECOND_ONLY
+CARRIERS = carrier_cfg.CARRIERS
 
 
 def number_of(v: Any) -> float:
@@ -1073,6 +1077,12 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     if not tok:
         _stderr("agentd: no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync) — nothing to read with")
         return 3
+    alone = cfg["control_carrier"] == CARRIER_SECOND_ONLY
+    if alone and once:
+        # --once is one read of the relay's control channel (the launcher's and the tests' way to answer what is waiting):
+        # with the second carrier alone there is none to read, and answering nothing with exit 0 would read as "nothing was asked".
+        _stderr(f"agentd: --once reads the relay's control channel, and control_carrier is {CARRIER_SECOND_ONLY}: there is nothing to read")
+        return 2
     if not operator_addresses():
         _stderr("agentd: no host operator in runtime/hosts/registry.json — nothing could ever be answered; not starting")
         return 3
@@ -1121,7 +1131,10 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
             return
         up = post(up_record(me["address"]))
         state["last"] = up.get("id")
-    _stderr(f"agentd: {me['address']} on {cfg['channel']} at {cfg['relay_url']}; operators: {' '.join(operator_list())}")
+    if alone:
+        _stderr(f"agentd: {me['address']} on {CARRIER_LABEL} alone ({control_link.ENDPOINT}); the relay's control channel is not read or posted; operators: {' '.join(operator_list())}")
+    else:
+        _stderr(f"agentd: {me['address']} on {cfg['channel']} at {cfg['relay_url']}; operators: {' '.join(operator_list())}")
     if not once:
         watch_source(lambda: leave.request("source changed"))
         # At start too: after a reboot every observed sign-in may have lapsed.
@@ -1201,6 +1214,8 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
             with leave.lock:
                 inflight.add(thread)
             thread.start()
+        if alone:
+            return   # the other carrier's copy is the only one: the relay's control channel is not posted to
         try:
             post(reply)
         except Exception as e:  # noqa: BLE001
@@ -1295,18 +1310,23 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         return ctl_hold(leave, inflight)
 
     # `not once`: finish_inflight() joins every member of `inflight`, and a ctl session's token is not a thread.
-    if cfg["control_carrier"] == CARRIER_DUAL and not once:
+    if carrier_cfg.uses_second_carrier(cfg) and not once:
         # An account on both splits once, at the bound the second carrier carries (rule 18): the same parts go by both.
         ctx["part_bytes"] = control_link.PART_BYTES
         ctx["carrier_evidence_opts"] = {**(ctx.get("carrier_evidence_opts") or {}), "page_bytes": control_link.PART_BYTES}
         running = control_link.start_for_agentd(
             me=me["address"], placed=lambda: operator_addresses() | account_addresses(),
             on_request=lambda request, sender: handle({"id": request.get("id"), "content": js.stringify(request)}, control_link.VIA),
-            hold=hold_for_ctl)
+            hold=hold_for_ctl, relay_off=alone)
         carrier_box[0] = running
         EXIT_HOOKS.append(running.stop)
-        _stderr(f"agentd: also on {CARRIER_LABEL} ({control_link.ENDPOINT}); the relay stays the record")
+        if not alone:
+            _stderr(f"agentd: also on {CARRIER_LABEL} ({control_link.ENDPOINT}); the relay stays the record")
 
+    if alone:
+        # Requests arrive on the carrier's own threads (on_request above); this thread only keeps the process.
+        (stop or threading.Event()).wait()
+        return 0
     while stop is None or not stop.is_set():
         try:
             if not state["last"]:
