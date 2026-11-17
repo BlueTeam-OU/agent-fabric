@@ -409,7 +409,7 @@ def main() -> int:
               ("bash < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash < k.sh"),
               ("sh -s < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nsh -s < k.sh"),
               ("cat k.sh | sudo bash", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sudo bash"),
-              # Re-review of #637, F6: the runner has operands, yet reads the file from its stdin. Kills: the fed
+              # Re-review of #637, F6: the runner has operands, yet reads the file from its stdin. Kills: the
               # runner-anywhere rule in _runs_what_it_writes.
               ("bash -s x < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash -s x < k.sh"),
               ("cat k.sh | bash -s x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | bash -s x"),
@@ -450,8 +450,6 @@ def main() -> int:
               # Round 3, section 2: tee's operands after `--` are all files, a `-k.sh` included.
               ("tee -- -k.sh, then bash -- -k.sh", "tee -- -k.sh <<'X' >/dev/null\n{kill}\nX\nbash -- -k.sh"),
               ("tee -- -k.sh, then bash ./-k.sh", "tee -- -k.sh <<'X' >/dev/null\n{kill}\nX\nbash ./-k.sh"),
-              # Round 3, F13: the cost as the rule applies it. A write from a heredoc beside any runner denies, though
-              # nothing runs the file.
               # Re-review round 4, F15: the file run by its bare name from a PATH directory, by `.` behind a prefix,
               # or inside `env -S` text. Kills: the written-name mention test, the `.` behind a prefix, and the
               # whitespace split before _is_runner.
@@ -469,27 +467,34 @@ def main() -> int:
               ("nohup k, no slash or expansion", "cat > k <<'X'\n{kill}\nX\nchmod +x k; nohup k"),
               ("command . j, a link to the file", "cat > k.sh <<'X'\n{kill}\nX\nln -s k.sh j; command . j"),
               ("env -S 'bash j', a link to the file", "cat > k.sh <<'X'\n{kill}\nX\nln -s k.sh j; env -S 'bash j'"),
+              # Re-review round 5, F21: a name an opener stores under, found only by _written_names's openers loop.
+              ("cp /dev/stdin k, then nohup k", "cp /dev/stdin k <<'X'\n{kill}\nX\nchmod +x k; nohup k"),
+              ("dd of=k, then nohup k", "dd of=k <<'X'\n{kill}\nX\nchmod +x k; nohup k"),
               # Re-review round 4, section 2: a wrapper the guard knows no option table for hides a path-run. Kills:
               # the `/` word in any position of a segment that is no data reader's.
               ("flock /tmp/l ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nflock /tmp/l ./k.sh"),
               ("ionice -c3 ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nionice -c3 ./k.sh"),
               ("strace -f ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nstrace -f ./k.sh"),
               ("watch -n1 ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nwatch -n1 ./k.sh"),
-              # Re-review round 4, F13: a runner word as an argument counts, a cost of the rule.
+              # Round 3 and re-review round 4, F13: the cost as the rule applies it. A write from a heredoc beside a
+              # runner word (an argument counts), a `/` word outside a data reader, or a command named like the written
+              # file denies, though nothing runs the file (codex round 5, F2 and F3).
               ("cat > k.sh, then grep bash notes.txt", "cat > k.sh <<'X'\n{kill}\nX\ngrep bash notes.txt"),
               ("cat > k.sh, then python3 t.py", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py"),
               ("cat > k.sh, then python3 t.py < in.txt", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py < in.txt"),
               ("cat > k.sh, then another file run", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py && bash other.sh"),
               ("a commit message, then python3 t.py", "git commit -F- <<'EOF'\n{kill}\nEOF\npython3 t.py"),
-              ("an unrelated echo hi | python3", "cat > k.sh <<'X'\n{kill}\nX\necho hi | python3"))
+              ("an unrelated echo hi | python3", "cat > k.sh <<'X'\n{kill}\nX\necho hi | python3"),
+              ("cat > k.sh, then ls /tmp", "cat > k.sh <<'X'\n{kill}\nX\nls /tmp"),
+              ("cat > cat, the writer's own name", "cat > cat <<'X'\n{kill}\nX"))
     for label, tmpl in stored:
         d = by_pid(tmpl.format(kill=f"kill {W}"))
         check(f"a stored body the command runs denies by pid: {label}", d is not None and d[0] == "deny"
               and "inbox watch" in d[1], d)
         d = g.decision(tmpl.format(kill="pkill -f claude-fable"), CLAUDE, shell=False)
         check(f"a stored body the command runs denies by pattern: {label}", d is not None and d[0] == "deny", d)
-    # Writing the file and running nothing at all (no runner, no path or unreadable word in command position), or a body
-    # that is only data, stays allowed.
+    # Writing the file beside nothing that may run it (no runner word, no `/` word outside a data reader or the opening
+    # line, no unreadable word or written name as a command word), or a body that is only data, stays allowed.
     for label, tmpl in (("cat > k.sh, not run", "cat > k.sh <<'X'\n{kill}\nX"),
                         ("tee k.sh, not run", "tee k.sh <<'X' >/dev/null\n{kill}\nX"),
                         ("cat > k.sh, then chmod and cat it", "cat > k.sh <<'X'\n{kill}\nX\nchmod +x k.sh && cat k.sh"),
@@ -506,6 +511,16 @@ def main() -> int:
             check(f"a body no command runs stays allowed by pid: {label}", d is None, d)
         d = g.decision(tmpl.format(kill="pkill -f claude-fable"), CLAUDE, shell=False)
         check(f"a body no command runs stays allowed by pattern: {label}", d is None, d)
+    # Codex round 5 of #637, F1: thousands of written names outside [\w.-] made one alternation tried at every
+    # character. Past ODD_NAMES_CAP every word counts as a mention (fails closed). Counted, not timed: this host runs
+    # at load 49. Mutation: drop the cap's early return in _mentions.
+    few = g._mentions({"0@x", "1@x"})
+    many = g._mentions({f"{i}@x" for i in range(g.ODD_NAMES_CAP + 1)})
+    check("written names outside [\\w.-]: a few are matched by name, past the cap every word is a mention",
+          few("0@x") and not few("ls") and many("ls"))
+    odd_tee = "tee k " + " ".join(f"{i}@x" for i in range(g.ODD_NAMES_CAP + 1)) + " <<'X' >/dev/null\n{kill}\nX\nls"
+    d = g.decision(odd_tee.format(kill="pkill -f claude-fable"), CLAUDE, shell=False)
+    check("…and a write to more of them than the cap, beside any command word, denies", d is not None and d[0] == "deny", d)
     check("a stored body's {a,b} asks only when the file is run",
           g.unevaluated("cat > f <<'EOF'\nkill 1{a,b}\nEOF") is None
           and g.unevaluated("cat > f <<'EOF'\nkill 1{a,b}\nEOF\nbash f") is not None)
