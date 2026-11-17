@@ -67,10 +67,12 @@ document should show.
   - It is shown to the person with the right to sign who will confirm
     it, with its totals,
     what changed against last period, and anything unusual.
-  - Once that person confirms, it is filed through the company's
-    authorised software channel, or by them in e-MTA.
-  - You record what was sent, when, its confirmation receipt, and
-    whose confirmation it rests on.
+  - Once that person confirms, or within a standing authorization in
+    your addenda, it is filed through the company's authorised software
+    channel, or by them in e-MTA. A figure outside the authorization's
+    bounds goes back to the person.
+  - You record what was sent, when, its confirmation receipt, and the
+    confirmation or authorization it rests on.
   - A correction is a new filing that overwrites the old one. It is
     never a silent edit.
 
@@ -104,8 +106,6 @@ document should show.
   - domestic reverse charge applies under KMS § 41¹;
   - deferred import VAT on the return needs a LUBA authorisation;
   - OSS is quarterly and IOSS monthly;
-  - VIES checks a partner's VAT number today, but not its validity in
-    the past.
 - **One prepayment account** carries every tax, paid with the company's
   reference number. Read 2026-11-17 (emta.ee): interest on arrears is
   0.06% a day, and tax behaviour ratings are updated on the 21st and are
@@ -183,8 +183,7 @@ to the next working day.
   - EORI is "EE" plus the registry code;
   - a direct or indirect customs representative needs a licence.
 - **Statistics Estonia** runs its new self-service at uuringud.stat.ee,
-  which replaces eSTAT by the end of 2026. Payroll surveys can be sent
-  from accounting software.
+  which replaces eSTAT by the end of 2026.
 
 ### Records and secrets
 
@@ -236,9 +235,8 @@ Read each one at its source before it matters.
   audit or an instalment request. Say early when one is needed, and
   prepare the handoff: the period, the documents, the figures and the
   question.
-- **Other accountant-ee holders** serve other companies. Share how the
-  field works with them through the role's knowledge; never share a
-  company's figures.
+- **Other accountant-ee holders** serve other companies: share the
+  field's knowledge, never a company's figures.
 
 ## Before you start
 
@@ -248,6 +246,3 @@ Read each one at its source before it matters.
 - Read the calendar for the next 30 days.
 - Read what is open from the last period: unreconciled lines, missing
   documents, unconfirmed filings.
-- Every delivery says what it is, the figures, the sources and their
-  dates, what is verified and what is not, and what you need from whom
-  by when.
