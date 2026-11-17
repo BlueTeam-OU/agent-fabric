@@ -259,7 +259,7 @@ def cases(w: G.World) -> None:
     with open(os.path.join(runtime, "bridge-token"), "w") as fh:
         fh.write("tok-fixture\n")
 
-    def moved_watch(url: str, begin: str, move_to: str, relay_alive_until_move: http.server.HTTPServer | None) -> tuple[str, int]:
+    def moved_watch(url: str, begin: str, move_to: str, relay_alive_until_move: http.server.ThreadingHTTPServer | None) -> tuple[str, int]:
         if os.path.exists(started):
             os.unlink(started)
         set_mode(w, begin)
@@ -271,6 +271,8 @@ def cases(w: G.World) -> None:
                                   stdin=subprocess.DEVNULL, cwd=w.base)
             time.sleep(3)
             if relay_alive_until_move is not None:
+                # The watch's own start has probed the relay: the relay goes down only after, not on a clock a slow runner beats.
+                until(lambda: relay_alive_until_move.hits, 30)
                 relay_alive_until_move.shutdown()
                 relay_alive_until_move.server_close()
             set_mode(w, move_to)
@@ -286,9 +288,12 @@ def cases(w: G.World) -> None:
         return said(), (n if ok else -1)
 
     def status_relay() -> http.server.ThreadingHTTPServer:
+        hits: list[str] = []
         up = http.server.ThreadingHTTPServer(("127.0.0.1", 0), type("S", (http.server.BaseHTTPRequestHandler,), {
-            "do_GET": lambda h: (h.send_response(200), h.send_header("Content-Length", "2"), h.end_headers(), h.wfile.write(b"{}"))[0],
+            "do_GET": lambda h: (hits.append(h.path), h.send_response(200), h.send_header("Content-Length", "2"), h.end_headers(),
+                                 h.wfile.write(b"{}"))[0],
             "log_message": lambda *a: None}))
+        up.hits = hits  # type: ignore[attr-defined]
         threading.Thread(target=up.serve_forever, daemon=True).start()
         return up
 
@@ -299,6 +304,7 @@ def cases(w: G.World) -> None:
     _, n_out = moved_watch("http://127.0.0.1:9", mode.CARRIER_ONLY, mode.CARRIER_RECORD, None)
     check("positive control: a watch moved out of carrier-only starts the hosted relay once",
           n_out == 1, f"starts={n_out}")
+    shutil.rmtree(runtime)       # the later cases name a relay and must never find a venv to start
     # F4 and F6: a move the start would have refused is refused at the move too, and the watch keeps its transport.
     for what, extra, wants in (("a control channel", {"GZCOORD_CHANNEL": "fixture:control", "CLAUDE_BRIDGE_URL": "http://127.0.0.1:9",
                                                        "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture"}, "control"),
