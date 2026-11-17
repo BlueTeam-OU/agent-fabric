@@ -1317,7 +1317,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         running = control_link.start_for_agentd(
             me=me["address"], placed=lambda: operator_addresses() | account_addresses(),
             on_request=lambda request, sender: handle({"id": request.get("id"), "content": js.stringify(request)}, control_link.VIA),
-            hold=hold_for_ctl)
+            hold=hold_for_ctl, relay_off=alone)
         carrier_box[0] = running
         EXIT_HOOKS.append(running.stop)
         if not alone:

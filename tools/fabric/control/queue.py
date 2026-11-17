@@ -212,7 +212,7 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
     With cfg["control_carrier"] "dual" (ADR-029 rule 18) the request also goes
     to this account's own agentd, which sends it to the holder over the second carrier,
     and the holder's reply on either carrier answers it: a relay that is down
-    no longer leaves the holder unreachable. Under any other control_carrier
+    no longer leaves the holder unreachable. Under relay
     nothing differs. With the second carrier alone nothing is posted to or read from the relay, `call` is never used, and the
     holder is reached through this account's agentd alone, itself included (its agentd loops the request back, as for
     presence in carrier-only); a leg that cannot be opened is the answer's failure, said as such."""
@@ -248,7 +248,8 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
             except RuntimeError as e:
                 if alone:
                     from gzcoord.carrier import control_link
-                    raise control_link.Down(f"{carrier_cfg.SECOND_ONLY}: {e}", None, handed=bool(getattr(e, "handed", False))) from None
+                    handed = bool(getattr(e, "handed", False))
+                    raise control_link.Down(f"{carrier_cfg.SECOND_ONLY}: {e}", None, handed=handed, unsent=not handed) from None
                 if relay_error is not None:
                     from gzcoord.carrier import control_link
                     raise control_link.Down(f"{gzcoord.relay_failure(relay_error, cfg.get('relay_url'))}; the second carrier: {e}", relay_error,

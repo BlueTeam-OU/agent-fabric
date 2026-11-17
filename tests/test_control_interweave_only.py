@@ -145,6 +145,7 @@ class Holder(Net):
             with self.assertRaises(cc.Down) as cm:
                 queue.ask_holder(call=self.relay, cfg=CFG, from_=ALICE, holder=BOB, op="pool-claim", args={"id": "p1"}, new_id=lambda: "q", wait_ms=200)
         self.assertEqual(self.relay.calls, [], "no relay post to make it up")
+        self.assertTrue(queue.unsent(cm.exception), "the socket was never handed the request: certainly unsent")
         self.assertIn("interweave:", str(cm.exception))
         self.assertEqual(queue.relay_error(cm.exception, CFG), str(cm.exception))
 
@@ -153,7 +154,7 @@ class Holder(Net):
             raise cc.LegFailed("the operator's agentd did not finish the sends in time", handed=True)
         with self.assertRaises(cc.Down) as cm:
             queue.ask_holder(call=self.relay, cfg=CFG, from_=ALICE, holder=BOB, op="pool-list", args={}, new_id=lambda: "q", wait_ms=200, open_leg=handed)
-        self.assertFalse(queue.unsent(cm.exception))
+        self.assertFalse(queue.unsent(cm.exception), "handed: it may have left")
 
 
 class Cli(Net):

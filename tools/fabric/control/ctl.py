@@ -2368,7 +2368,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
             return 3
     if args.get("via"):
         return _via_hostexec(args, request, expected[0], registry=registry, out=out, err=err)
-    # The second carrier (ADR-029 rule 18), only when control_carrier says "dual" and the op may go by it: the
+    # The second carrier (ADR-029 rule 18), only when control_carrier says "dual" or names it alone, and the op may go by it: the
     # sends are handed to the operator's own agentd, which holds the lease, and its replies come back here.
     # With the second carrier alone it is the only one: no relay post, no relay read, and no merge, which compares the two.
     dual = carrier_cfg.uses_second_carrier(cfg) and args["op"] not in link.RELAY_ONLY_OPS
@@ -2386,12 +2386,18 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
             relay_error = e
     else:
         relay_up = False
-    session, early, attempted = (_second_carrier(request, expected, args, err, relay_alone=not alone) if dual else (None, [], set()))
+    session, early, attempted, maybe_handed = (_second_carrier(request, expected, args, err, relay_alone=not alone) if dual else (None, [], set(), False))
     if alone and not attempted:
-        # Nothing was handed to any account, and there is no relay copy to wait for: the whole --timeout would be a silence.
+        # No send is known to have gone, and there is no relay copy to wait for: the whole --timeout would be a silence.
         if session is not None:
             session.close()
-        err(f"fabric-ctl: control_carrier is {carrier_cfg.SECOND_ONLY} and the request reached no account by {CARRIER_LABEL}; nothing sent")
+        if maybe_handed:
+            # The operator's agentd may have taken the request and sent it, or looped it back to this very account: unknown is
+            # said as unknown, since a re-run is a new request that the replay floor does not stop.
+            err(f"fabric-ctl: control_carrier is {carrier_cfg.SECOND_ONLY}, and whether the request reached an account by {CARRIER_LABEL} "
+                f"is unknown (the hand-off to the operator's agentd failed after it was made); read the accounts before sending it again")
+        else:
+            err(f"fabric-ctl: control_carrier is {carrier_cfg.SECOND_ONLY} and the request reached no account by {CARRIER_LABEL}; nothing sent")
         return 3
     t0 = now()   # after both hand-offs, as it was after the one: --timeout is the wait for answers
     if relay_error is not None:
@@ -2467,7 +2473,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
                 session = None
             return got
         except RuntimeError as e:
-            err(f"fabric-ctl: {CARRIER_LABEL}: {e}; the relay carries alone")
+            err(f"fabric-ctl: {CARRIER_LABEL}: {e}" + ("; the relay carries alone" if not alone else "; the relay is not used, so no further answer can come"))
             session.close()
             session = None
             return []
@@ -2555,14 +2561,15 @@ DUAL_GRACE_S = 3.0
 
 def _second_carrier(request: dict, expected: list[dict], args: dict, err: Callable[[str], None], *, relay_alone: bool = True) -> tuple:
     """Hand the request to the operator's own agentd for one direct send per target (ADR-029 rule 18): (session,
-    replies that came with the sends, the addresses a send went out to). Any failure to reach agentd is one line
+    replies that came with the sends, the addresses a send went out to, whether a request that went to no account may still have been
+    handed to agentd: a session that was made and then failed, or sends whose failure does not say they never left). Any failure to reach agentd is one line
     and `(None, [], set())`: the relay has the request too, so the run goes on as a relay run and its rows say so. With relay_alone False (control_carrier names the second carrier alone) there is
     no relay copy, and the caller says that nothing was sent."""
     carries = "; the relay carries alone" if relay_alone else ""
     path = link.socket_path()
     if path is None:
         err(f"fabric-ctl: {CARRIER_LABEL}: XDG_RUNTIME_DIR is not set, so there is no socket to the operator's agentd{carries}")
-        return None, [], set()
+        return None, [], set(), False
     targets = [e["address"] for e in expected]   # the operator's own account too: its agentd loops the request back (j245)
     ttl = request.get("ttl_s")
     budget = min(args["timeout"], ttl) if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) and ttl > 0 else args["timeout"]
@@ -2574,11 +2581,13 @@ def _second_carrier(request: dict, expected: list[dict], args: dict, err: Callab
         err(f"fabric-ctl: {CARRIER_LABEL}: {e}{carries}")
         if session is not None:
             session.close()
-        return None, [], set()
+        # A refused request, or no connection at all, sent nothing; a session that was made had the request handed to it.
+        return None, [], set(), session is not None and not isinstance(e, link.SessionRefused)
     lost = sorted(a for a, (ok, _why) in session.sent.items() if not ok)
     if lost:
         err(f"fabric-ctl: {CARRIER_LABEL}: not sent to {', '.join(f'{a} ({session.sent[a][1]})' for a in lost)}{'; the relay carries those' if relay_alone else ''}")
-    return session, early, {a for a, (ok, _why) in session.sent.items() if ok}
+    sent_to = {a for a, (ok, _why) in session.sent.items() if ok}
+    return session, early, sent_to, not sent_to and not all(link.never_sent(session.sent[a][1]) for a in lost)
 
 
 def _relay_only_by_hostexec(args: dict, expected: list[dict], *, me: dict, cfg: dict, new_id: Callable[[], str], registry: str | None,
@@ -2599,20 +2608,24 @@ def _relay_only_by_hostexec(args: dict, expected: list[dict], *, me: dict, cfg: 
     if "error" in k:
         err(f"fabric-ctl: {k['error']} — an action is signed or not sent")
         return 3
+    # Every request is signed before the first one is sent: a signing failure on a later account would otherwise leave the
+    # earlier accounts' actions run and their rows unprinted, and the rest untried.
+    signed: list[tuple[dict, dict]] = []
+    for target in expected:
+        try:
+            signed.append((sign_request(build_request(args, id=new_id(), from_=me["address"], to=[target["address"]], cfg=cfg), k["key"]), target))
+        except Exception as e:  # noqa: BLE001 — the signer's own words, as for a relay run
+            err(f"fabric-ctl: {e}; nothing sent")
+            return 3
     replies: list[dict] = []
     rc = 0
-    for target in expected:
-        request = build_request(args, id=new_id(), from_=me["address"], to=[target["address"]], cfg=cfg)
+    for request, target in signed:
         try:
-            request = sign_request(request, k["key"])
             o = breakglass.via_hostexec(request, target, timeout=args["timeout"], registry=registry)
         except breakglass.JournalError as e:
             err(f"fabric-ctl: {target['login']}: {e}; nothing sent")
             rc = max(rc, 3)
             continue
-        except Exception as e:  # noqa: BLE001 — the signer's own words, as for a relay run
-            err(f"fabric-ctl: {e}")
-            return 3
         if o.kind in ("refused", "failed"):
             err(f"fabric-ctl: {target['login']}: {'refused by fabric-op: ' if o.kind == 'refused' else ''}{o.detail}")
             rc = max(rc, 2 if o.kind == "refused" else 3)

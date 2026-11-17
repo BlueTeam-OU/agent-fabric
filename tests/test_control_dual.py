@@ -445,6 +445,77 @@ class Interweave(Harness):
         self.assertTrue(any("interweave" in e and "nothing sent" in e for e in self.err), self.err)
         self.assertEqual((self.relay.calls, self.out, self.nodes["alice"].requests), ([], [], []))
 
+    def run_with_session(self, session_cls):
+        self.nodes["alice"] = Node(self, self.net, "alice")
+        with mock.patch.object(link, "Session", session_cls):
+            rc = ctl.main(["alice", "ping", "--json", "--timeout", "30"], registry=self.registry, call=self.relay, who=WHO, token="t",
+                          out=self.out.append, err=self.err.append)
+        return rc
+
+    def test_a_hand_off_that_failed_after_agentd_took_the_request_is_unknown_and_never_nothing_sent(self):
+        class Slow:
+            def __init__(self, *a, **k):
+                self.sent = {"h/alice": (True, "")}
+
+            def wait_sent(self, t):
+                raise RuntimeError("the operator's agentd did not finish the sends in time")
+
+            def close(self):
+                pass
+        rc = self.run_with_session(Slow)
+        self.assertEqual(rc, 3)
+        self.assertTrue(any("is unknown" in e and "read the accounts" in e for e in self.err), self.err)
+        self.assertFalse(any("nothing sent" in e for e in self.err), self.err)
+        self.assertEqual(self.relay.calls, [])
+
+    def test_a_request_agentd_refused_or_never_connected_is_nothing_sent(self):   # the positive control of the case above
+        class Refused:
+            def __init__(self, *a, **k):
+                self.sent = {}
+
+            def wait_sent(self, t):
+                raise link.SessionRefused("agentd refused it")
+
+            def close(self):
+                pass
+        self.assertEqual(self.run_with_session(Refused), 3)
+        self.assertTrue(any("nothing sent" in e for e in self.err), self.err)
+        self.assertFalse(any("is unknown" in e for e in self.err), self.err)
+
+    def test_sends_that_all_failed_are_unknown_unless_each_reason_says_it_never_left(self):
+        def session_with(why):
+            class S:
+                def __init__(self, *a, **k):
+                    self.sent = {"h/alice": (False, why)}
+
+                def wait_sent(self, t):
+                    return []
+
+                def close(self):
+                    pass
+            return S
+        self.assertEqual(self.run_with_session(session_with("the send did not settle in time")), 3)
+        self.assertTrue(any("is unknown" in e for e in self.err), self.err)
+        self.err.clear()
+        self.assertEqual(self.run_with_session(session_with("no roster row for this peer")), 3)
+        self.assertTrue(any("nothing sent" in e for e in self.err), self.err)
+
+    def test_a_signing_failure_on_a_later_account_sends_to_none_of_them(self):
+        from control import breakglass
+        self.boot("alice", "bob")
+        calls = []
+        real = ctl.sign_request
+
+        def flaky(request, key):
+            if request["to"] == ["h/bob"]:
+                raise RuntimeError("openssl: could not spawn")
+            return real(request, key)
+        with mock.patch.object(ctl, "sign_request", flaky), mock.patch.object(breakglass, "via_hostexec", lambda *a, **k: calls.append(a)):
+            rc = ctl.main(["all", "interweave-stop", "--json", "--timeout", "10"], registry=self.registry, call=self.relay, who=WHO,
+                          token="t", out=self.out.append, err=self.err.append)
+        self.assertEqual((rc, calls, self.out), (3, [], []))
+        self.assertTrue(any("could not spawn" in e and "nothing sent" in e for e in self.err), self.err)
+
     def test_a_relay_only_action_goes_through_hostexec_one_signed_request_per_account_and_says_so(self):
         from control import breakglass
         self.boot("alice", "bob")
