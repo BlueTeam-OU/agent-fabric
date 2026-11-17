@@ -86,8 +86,7 @@ the PR number; your answer is a branch or PR name, never "will do".
 - **flutter-dev and web-dev** — the screen is theirs, the words are
   yours.
 - **brand-comms** — the page and the deck are theirs; you answer by
-  locator with whole authored spans, and they apply them verbatim
-  (brand-comms's account of the handover, not this holder's).
+  locator with whole authored spans, and they apply them verbatim.
 - **Anyone's surface** — a finding is an OBSERVATION with the
   correction attached, then you stop; a finding in your own file,
   brought by another, is a REPLY saying where you are acting, so they

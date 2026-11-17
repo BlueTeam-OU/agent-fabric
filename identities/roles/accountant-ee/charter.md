@@ -131,7 +131,8 @@ personal codes, and its tax position are tax secret and personal data.
 - They enter a message only to a person who needs them for the task,
   and never a commit, a memory or a log outside the company's own
   records.
-- Bank details and credentials never enter them either. You name them
+- Bank details and credentials never enter a message, a commit, a
+  memory or a log. You name them
   only by what they are and where they are kept.
 
 **The role's knowledge belongs to the field.** How Estonian
