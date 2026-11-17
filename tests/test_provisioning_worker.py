@@ -245,7 +245,7 @@ def main() -> int:
     ssh = "git@github.com:BlueTeam-OU/agent-fabric.git"
     https = "https://github.com/BlueTeam-OU/agent-fabric.git"
 
-    def step6(origin: str | None, *argv: str, pushurl: str | None = None, as_project: bool = True, present: bool = True):
+    def step6(origin: str | None, *argv: str, pushurl: str | None = None, as_project: bool = True, present: bool = True, earlier: str | None = None):
         """Run finish up to the end of step 6 with a present clone whose remote.origin.url reads `origin` (None: unreadable)."""
         seen: list = []
 
@@ -255,14 +255,12 @@ def main() -> int:
                 return subprocess.CompletedProcess(cmd, 2, stdout="", stderr="")
             if not present and "test" in cmd:
                 return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
-            if "remote.origin.pushurl" in cmd:
-                if pushurl is None:
-                    return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
-                return subprocess.CompletedProcess(cmd, 0, stdout=pushurl + "\n", stderr=None)
-            if "remote.origin.url" in cmd:
-                if origin is None:
-                    return subprocess.CompletedProcess(cmd, 128, stdout="", stderr="")
-                return subprocess.CompletedProcess(cmd, 0, stdout=origin + "\n", stderr=None)
+            if "--get-regexp" in cmd:
+                # One call answers both, as git does with --null: `key\nvalue\0`, only the keys that are set; none is status 1.
+                found = [f"remote.origin.url\n{earlier}\0"] if earlier is not None else []
+                found += [f"remote.origin.url\n{origin}\0"] if origin is not None else []
+                found += [f"remote.origin.pushurl\n{pushurl}\0"] if pushurl is not None else []
+                return subprocess.CompletedProcess(cmd, 0 if found else 1, stdout="".join(found), stderr=None)
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         out = io.StringIO()
         w = make_worker(*(["--clone", f"agent-fabric={ssh}"] if as_project else []), *argv)
@@ -292,6 +290,14 @@ def main() -> int:
     check("a push URL of its own is said, not rewritten", not sets(seen) and f"origin has its own push URL {https}" in said, f"{sets(seen)} {said}")
     seen, said = step6(https, pushurl=ssh)
     check("…and none is said when it is the registry remote", len(sets(seen)) == 1 and "push URL" not in said, f"{sets(seen)} {said}")
+    seen, said = step6(https)
+    check("origin and push URL are read in one call, not two",
+          len([c for c in seen if "config" in c]) == 1 and not any("remote.origin.url" in c for c in seen), str(seen))
+    seen, said = step6(ssh, earlier=https)
+    check("two origin URLs: the last is the one, as --get reads it", not sets(seen), f"{sets(seen)} {said}")
+    seen, said = step6(None, pushurl=https)
+    check("a push URL with no origin is no answer: left as it is, and said", not sets(seen) and "origin not readable; left as it is" in said
+          and "push URL" not in said, f"{sets(seen)} {said}")
     seen, said = step6(None)
     check("an origin that cannot be read is left as it is, and said", not sets(seen) and "origin not readable; left as it is" in said, f"{sets(seen)} {said}")
 
@@ -349,16 +355,18 @@ def main() -> int:
     def spy(argv, **kw):
         if "_" in argv:
             seen_shells.append((argv[argv.index("_") - 2], argv[argv.index("_") + 1:]))
-        out = {"symbolic-ref": "main\n", "rev-list": "0\n", "rev-parse": "abc1234\n", "--get": "git@x:y\n"}
+        out = {"symbolic-ref": "main\n", "rev-list": "0\n", "rev-parse": "abc1234\n",
+               "--get-regexp": "remote.origin.url\ngit@x:y\0"}
         return subprocess.CompletedProcess(argv, 0, stdout=next((v for k, v in out.items() if k in argv), ""), stderr="")
     with mock.patch.object(subprocess, "run", spy):
         w = make_worker()
         w.home = "/home/x"
         worker.fabric_checkout(w)
-        worker.point_origin_at_registry(w, "p", "git@x:y")
+        with redirect_stderr(io.StringIO()) as said_origin:
+            worker.point_origin_at_registry(w, "p", "git@x:y")
     git_flags = {flag for flag, rest in seen_shells if "git" in rest}
     check("the fabric checkout's and the origin's git reads and writes all run in a login shell, one environment",
-          git_flags == {"-lc"} and len(seen_shells) >= 6, str(seen_shells))
+          git_flags == {"-lc"} and len(seen_shells) >= 6 and "not readable" not in said_origin.getvalue(), str(seen_shells))
     seen_shells.clear()
     with mock.patch.object(subprocess, "run", spy):
         w = make_worker()
@@ -390,6 +398,45 @@ def main() -> int:
     with mock.patch.object(subprocess, "run", recorder([], lambda argv: OSError("gone"))), redirect_stderr(io.StringIO()) as e2:
         make_worker().best_effort(["soft"])
     check("best_effort: a command that cannot start is a warning too", "warning: soft failed; continuing" in e2.getvalue())
+
+    print("prepare: step 2 asks the account about its claude in one call, and a dangling link is not a claude")
+    from provisioning import host_steps  # noqa: E402
+    want = host_steps.claude_want(HERE, "")
+    with tempfile.TemporaryDirectory() as tmp:
+        fake_sudo = os.path.join(tmp, "sudo")
+        with open(fake_sudo, "w", encoding="utf-8") as fh:      # drops its flags, logs what it was asked, runs it: real readlink and test
+            fh.write(f'#!/bin/sh\n[ "$1" = -n ] && shift; [ "$1" = -u ] && shift 2; [ "$1" = -H ] && shift\n'
+                     f'echo "$@" | grep -o "_ .*" >> {tmp}/asked\nexec "$@"\n')
+        os.chmod(fake_sudo, 0o755)
+
+        def step2(link_to: str | None, target_exists: bool) -> tuple[str, list[str]]:
+            home = os.path.join(tmp, f"home-{link_to}-{target_exists}")
+            os.makedirs(os.path.join(home, ".local", "bin"))
+            if link_to:
+                target = os.path.join(home, ".local", "share", "claude", "versions", link_to)
+                os.makedirs(os.path.dirname(target))      # its directory is there either way: `readlink -f` answers for a missing last part
+                if target_exists:
+                    open(target, "w").close()
+                os.symlink(target, os.path.join(home, ".local", "bin", "claude"))
+            if os.path.exists(f"{tmp}/asked"):
+                os.remove(f"{tmp}/asked")
+            w = make_worker("--dry-run")
+            w.home, w.sudo = home, [fake_sudo]
+            err = io.StringIO()
+            # The host's managed-settings drift is machine state, and it would refuse the install this case wants planned.
+            with redirect_stderr(err), mock.patch.object(host_steps, "claude_install_refusal", lambda root, target: None):
+                worker.install_claude_and_ori(w)
+            asked = open(f"{tmp}/asked", encoding="utf-8").read().splitlines() if os.path.exists(f"{tmp}/asked") else []
+            return err.getvalue(), [ln for ln in asked if ".local/bin/claude" in ln]
+        # Mutation: `-e` read as `-f` (a dangling link answers with the path it would have, and is taken for the version).
+        said, asked = step2(want, True)
+        check("a link to the wanted version is present, said, after one question about it",
+              f"2. claude {want} present" in said and len(asked) == 1, f"{said}{asked}")
+        said, asked = step2(want, False)
+        check("…a link to the wanted version that is not there is not a claude: the install is planned", f"2. claude {want} present" not in said
+              and "would: as" in said and "install.sh" in said, said)
+        said, asked = step2(None, False)
+        check("…no link at all is asked once and the install planned", "would: as" in said and len(asked) == 1, f"{said}{asked}")
 
     print("test_provisioning_worker:", "OK" if not fails else f"{fails} FAILED")
     return 1 if fails else 0

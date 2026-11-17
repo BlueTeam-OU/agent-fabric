@@ -246,7 +246,6 @@ def vendor_install(w: Worker, url: str, extra: list[str]) -> tuple[bool, str]:
 def prepare(w: Worker) -> int:
     a = w.a
     login, etc = a.login, w.env.get("AGENT_FABRIC_ETC") or "/etc"
-    w.settle_home()
     # ---- 0. the host: the fabric's contract (host_platform), each missing tool's package
     prof = host_platform.profile(host_platform.detect(w.env))
     absent = [t for t in host_platform.FABRIC_HOST_TOOLS if shutil.which(t) is None]
@@ -316,10 +315,10 @@ def install_claude_and_ori(w: Worker) -> None:
         text = "".join((got.stdout or "").split()) if got is not None and got.returncode == 0 else ""
         resolved = text if re.match(r"[0-9]+\.[0-9]+\.[0-9]+", text) else ""
     claude = os.path.join(h, ".local", "bin", "claude")
-    have = ""
-    if w.as_login(["test", "-e", claude], login_shell=False).returncode == 0:
-        target = w.as_login_out(["readlink", "-f", claude], login_shell=False).strip()
-        have = os.path.basename(target) if target else ""
+    # One call for "is there one, and what does it point at": -e fails on a missing or dangling link where -f would answer
+    # with the path it would have, so the answer is "" exactly when `test -e` said no.
+    target = w.as_login_out(["readlink", "-e", claude], login_shell=False).strip()
+    have = os.path.basename(target) if target else ""
     present = bool(have and resolved and have == resolved)
     refused = None if present else hs.claude_install_refusal(w.root, want)
     if present:
@@ -483,12 +482,17 @@ def point_origin_at_registry(w: Worker, pid: str, remote: str) -> None:
     if not remote:
         return
     repo = os.path.join(w.home, "projects", pid)
-    got = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.url"], stderr=subprocess.DEVNULL)
-    have = (got.stdout or "").strip("\n") if got.returncode == 0 else ""
-    pushurl = ""
-    if have:
-        push = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.pushurl"], stderr=subprocess.DEVNULL)
-        pushurl = (push.stdout or "").strip("\n") if push.returncode == 0 else ""
+    # One read of both settings (the account's shell costs a login each): --null keeps a value with a newline in it whole,
+    # and the last of each key wins, as --get gives it. No url, however it failed, is "unreadable".
+    got = w.as_login(["git", "-C", repo, "config", "--null", "--get-regexp", r"^remote\.origin\.(url|pushurl)$"],
+                     stderr=subprocess.DEVNULL)
+    seen: dict[str, str] = {}
+    if got.returncode == 0:
+        for entry in (got.stdout or "").split("\0"):
+            key, _, value = entry.partition("\n")
+            seen[key.lower()] = value
+    have = seen.get("remote.origin.url", "")
+    pushurl = seen.get("remote.origin.pushurl", "")
     plan = pc.plan_origin(remote, have, pushurl)
     if plan.action == "unreadable":
         w.say(f"6. {pid}: origin not readable; left as it is")
@@ -661,9 +665,9 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
         if args.phase == "host-check":
             sys.stdout.write(hs.host_check(args.login))
             return 0
+        # No home or group is read here: each phase settles what it uses (prepare after the account exists, finish at its
+        # start), and a read made before them is one getent and one id for an answer nothing consumes.
         w = Worker(args, ROOT, shlex.split(env.get("SUDO") or "sudo"), env)
-        w.settle_home()
-        w.group = w.primary_group()
         if not args.dry and w.probe([*w.sudo, "-n", "true"]) != 0:
             host = subprocess.run(["hostname", "-s"], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S).stdout.strip()
             w.die(f"sudo without a password is needed for the account steps (the operator on {host} has none).")
