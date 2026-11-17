@@ -121,6 +121,15 @@ def judged_roster():
     return r, good
 
 
+def judged_or_die():
+    """(roster, good) or the carrier's refusal as a die() line, not a traceback."""
+    from gzcoord.carrier import roster
+    try:
+        return judged_roster(), None
+    except (roster.RosterError, OSError) as e:
+        return None, die(f"roster refused: {e}")
+
+
 def render_text() -> str:
     """What `gzcoord-carrier render-config` prints for this account; a refusal (own host, roster, identity)
     comes back as RenderRefused with the carrier's own words."""
@@ -160,7 +169,10 @@ def phase_check() -> int:
         if run.returncode or run.stdout.strip() != want:
             return die(f"{path} --version printed {run.stdout.strip()!r}, the pin says {want!r}")
         say(f"check: {prog} is the pinned program: {want}")
-    _, good = judged_roster()
+    judged, failed = judged_or_die()
+    if failed:
+        return failed
+    _, good = judged
     # the pair names which peer the test talks to; the other rows are rendered and left alone
     missing = [x for x in (LOGIN, PEER) if x not in {row["login"] for row in good}]
     if missing:
@@ -198,7 +210,10 @@ def phase_serve() -> int:
     from gzcoord.carrier import roster, server
     if phase_check():
         return 2
-    _, good = judged_roster()
+    judged, failed = judged_or_die()
+    if failed:
+        return failed
+    _, good = judged
     mine = next((row for row in good if row["login"] == LOGIN), None)
     if mine is None:
         return die("no valid roster row for this account")

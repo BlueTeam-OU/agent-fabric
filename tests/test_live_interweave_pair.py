@@ -16,7 +16,6 @@ import unittest.mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
-from gzcoord import paths  # noqa: E402
 from gzcoord.carrier import main as M  # noqa: E402
 from gzcoord.carrier import roster as R  # noqa: E402
 
@@ -64,9 +63,6 @@ class WholeRosterRender(unittest.TestCase):
         for peer in ("peer-beta", "peer-gamma", "peer-delta"):
             self.assertIn(peer, got)
         self.assertIn("/ip4/192.0.2.7/tcp/47104", got)
-
-    def test_positive_control_a_two_row_roster_renders_without_the_third(self):
-        self.assertNotIn("peer-gamma", self.live_render_text([self.A, self.B]))
 
     def test_own_host_refusal_comes_through_render_text(self):
         rows = [row("alpha", 47101, host="h2"), self.B]
@@ -118,6 +114,31 @@ class WholeRosterRender(unittest.TestCase):
         rc, text = self.serve(rows, existing=self.cmd_render_text([self.A, self.B]))
         self.assertEqual(rc, 2)
         self.assertEqual(text, self.cmd_render_text([self.A, self.B]))
+
+    def test_serve_of_a_pair_only_roster_leaves_the_third_out_and_the_whole_roster_puts_it_in(self):
+        # the control for the whole-roster case above: the third peer shows up in the served file only when it is in the roster
+        self.assertNotIn("peer-gamma", self.serve([self.A, self.B])[1])
+        self.assertIn("peer-gamma", self.serve([self.A, self.B, self.G])[1])
+
+    def check(self, rows) -> int:
+        a, b = self.seams(rows)
+        with a, b, unittest.mock.patch.object(live, "LOGIN", "alpha"), unittest.mock.patch.object(live, "PEER", "beta"), \
+                unittest.mock.patch.object(live, "pinned_build", return_value={"reports": {}, "program_sha256": {}}), \
+                contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            return live.phase_check()
+
+    def test_check_needs_both_pair_rows_and_accepts_any_other_rows(self):
+        self.assertEqual(self.check([self.A, self.B]), 0)
+        self.assertEqual(self.check([self.A, self.B, self.G, row("delta", 47104)]), 0)
+        self.assertEqual(self.check([self.A, self.G]), 2)
+        self.assertEqual(self.check([self.B, self.G]), 2)
+
+    def test_a_roster_refusal_is_a_die_line_not_a_traceback(self):
+        with unittest.mock.patch.object(M, "verified_roster", side_effect=R.RosterError("unreadable")), \
+                unittest.mock.patch.object(live, "LOGIN", "alpha"), unittest.mock.patch.object(live, "PEER", "beta"), \
+                unittest.mock.patch.object(live, "pinned_build", return_value={"reports": {}, "program_sha256": {}}), \
+                contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(live.phase_check(), 2)
 
 
 if __name__ == "__main__":
