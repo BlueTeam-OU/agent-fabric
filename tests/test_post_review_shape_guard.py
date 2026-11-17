@@ -138,6 +138,29 @@ def main() -> int:
         ("the name in a variable, the verb after it", "c='fabric-pr'; \"${c}\" post-review 1"),
         ("a redirection before an expansion holding the whole line", "c='fabric-pr post-review 1'; 2>/dev/null $c"),
         ("an expansion in the shell's path", "c=bash; /bin/${c} -c 'fabric-pr post-review 1'"),
+        # Review of #637, F1: a `/` the shell moves or splits around is no boundary of the command's last part.
+        ("a slash in a substitution operator", held + "${c/z/z} < r.md"),
+        ("a slash in a trailing-slash strip", held + "${c%/} < r.md"),
+        ("a slash in a prefix strip", held + "${c##*/} < r.md"),
+        ("a slash after a word-split expansion", "c='fabric-pr post-review 1 .'; $c/ < r.md"),
+        ("a slash inside a double-quoted operator", held + '"${c//z/z}" < r.md'),
+        ("a slash in a default, after the word split", held + "${d:-x/y}$c/ < r.md"),
+        ("an unquoted root before the script", "R='fabric-pr post-review 1 .'; $R/bin/fabric-pr < r.md"),
+        # F2: a wrapper's option value is no command, whatever PLAIN says of the word.
+        ("env -u with a plain value", held + "env -u echo $c < r.md"),
+        ("exec -a with a plain value", held + "exec -a echo $c < r.md"),
+        ("sudo -u with a plain value", held + "sudo -u test $c < r.md"),
+        ("xargs -I with a plain replace string", "xargs -I echo env -S echo <<< 'fabric-pr post-review 1'"),
+        ("timeout -s with a plain value", held + "timeout -s true 5 $c < r.md"),
+        ("nice -n then exec, with a plain value", held + "nice -n true exec -a printf $c"),
+        # F3: a second `-exec` is judged as the first is.
+        ("a second find -exec of an expansion",
+         "c='fabric-pr post-review 1'; find . -maxdepth 0 -exec true \\; -exec $c \\;"),
+        ("a third find -exec of an expansion",
+         "c='fabric-pr post-review 1'; find . -exec true \\; -exec echo {} + -exec $c \\;"),
+        # F4: the dispatcher runs its noun as a command.
+        ("the dispatcher with its noun held", "read -r c <<< 'pr post-review 1'; fabric $c < r.md"),
+        ("the dispatcher with the whole line held", "read -r c <<< 'pr post-review 1'; fabric \"$c\" < r.md"),
         # Shapes they did not name.
         ("a command substitution as the command word", "$(echo fabric-pr) post-review 12 < r.md"),
         ("backticks as the command word", "`printf fabric-pr` post-review 12 < r.md"),
@@ -222,6 +245,14 @@ def main() -> int:
         ("sed over a variable file", 'sed -i \'s/post-review/x/\' "$f"'),
         ("the test builtin with a glob-looking bracket", "[ -f x ] && grep -n 'post-review' x < /dev/null"),
         ("a stderr redirect before a plain command", "2>/dev/null grep -n 'post-review' bin/fabric-pr"),
+        # F5: `[[` is the test builtin, as `[` is.
+        ("the [[ test beside post-review text", "[[ -f x ]] && grep -n 'post-review' x"),
+        ("the [[ test beside a redirection", "[[ -f x ]] && cat < x"),
+        # F1, F2 and F3 must not refuse what they name correctly.
+        ("a double-quoted expansion before the slash", 'c=x; "${c}"/bin/fabric-pr arm 3 < /dev/null'),
+        ("a slash in an argument's operator", "c=x; grep -n 'post-review' ${c//a/b}"),
+        ("sudo -u with a value, then a plain command", 'sudo -u test grep -n \'post-review\' "$f"'),
+        ("a second find -exec of grep", "find . -exec true \\; -exec grep -l 'post-review' \"$f\" {} +"),
     ]
     for label, cmd in refused + unnameable:
         check(f"refused: {label}", g.refused(cmd), cmd[:200])
