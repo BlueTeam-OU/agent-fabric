@@ -39,7 +39,7 @@ hold, or a broadcast it is not addressed by), which is no pair at all. The
 arrival logs hold only copies ADDRESSED to their owner, so a non-holder of a
 role is never counted as a miss of either carrier. The sender's own copy of
 its broadcast or TO-ROLE (the relay returns it, the carrier never sends to its
-sender, CARRIER-CONTRACT.md rule 6) is listed apart as `own_copies`, not
+sender, ADR-064 rule 6, CARRIER-CONTRACT.md §4) is listed apart as `own_copies`, not
 counted as an InterWeave miss, so delivered plus missed is less than the pairs
 by that many; it is known from the sender's own recorded deliveries of that
 MESSAGE-ID, and a pair the sender recorded nothing for stays a miss.
@@ -530,7 +530,7 @@ def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[st
             sent[(r["mid"], f"{host}/{r['to']}" if host else r["to"])] = (login, r)
     first = {k: min(parse_t(a["t"]) for c in v.values() for a in c) for k, v in pairs.items()}
     # The carrier sends a broadcast or a TO-ROLE to every roster member but its own sender (engine.Carrier.recipients,
-    # CARRIER-CONTRACT.md rule 6), where the relay hands the sender its own copy back: that pair is no InterWeave miss.
+    # ADR-064 rule 6, CARRIER-CONTRACT.md §4), where the relay hands the sender its own copy back: that pair is no InterWeave miss.
     sender_logins = defaultdict(set)
     for (m_, _), (login, _) in sent.items():
         sender_logins[m_].add(login)
