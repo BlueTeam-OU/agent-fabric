@@ -174,6 +174,27 @@ def main() -> int:
         ("exec -a with the value held", held + "exec -a $c < r.md"),
         ("nice -n with the value held", held + "nice -n $c < r.md"),
         ("env -u with a glob and the value held", held + "env -u *$c < r.md"),
+        # Codex round 3 of #637, F1: an assignment word and a word starting with `-` are never a command's name, a
+        # path-valued one included. Mutation: post-review-shape-guard.py end_word(), drop the `full[:1] == "-" or
+        # ASSIGN.match(full)` branch.
+        ("env with a path-valued assignment", held + "env TAG=/tmp/echo $c < r.md"),
+        ("env with a second path-valued assignment", held + "env A=1 B=/usr/bin/true $c < r.md"),
+        ("env with a glued long option", held + "env --chdir=/tmp/echo $c < r.md"),
+        ("env with a glued short option value", held + "env -C/tmp/echo $c < r.md"),
+        # Extglob: the shell picks the letters of a word with `@(`, `+(`, `!(`, `?(` or `*(` in it, and the walk reads
+        # `(` as a separator. Mutation: drop the `if c == "(" and s.uq and s.uq[-1] in "@+!?*"` mark in live_text().
+        ("an extglob @( in the command word", "shopt -s extglob\n/tmp/b/fabric-p@(r) post-review 1 < r.md"),
+        ("an extglob +( in the command word", "shopt -s extglob\n/tmp/b/fabric-p+(r) post-review 1 < r.md"),
+        ("an extglob !( in the command word", "shopt -s extglob\n/tmp/b/fabric-pr!(x) post-review 1 < r.md"),
+        ("an extglob ?( in the command word", "shopt -s extglob\nfabric-pr?(x) post-review 1 < r.md"),
+        # A wrapper's positional operand is no command: a PLAIN name there does not end the open phase. Mutation:
+        # post-review-shape-guard.py end_word(), drop the `s.phase == "open" and s.operands` branch.
+        ("sg with a plain group name", held + "sg test $c < r.md"),
+        ("chroot with a plain directory name", held + "chroot test $c < r.md"),
+        ("ip netns exec with a plain name", held + "ip netns exec test $c < r.md"),
+        ("ip -n netns exec with a plain name", held + "ip -n netns exec echo $c < r.md"),
+        ("runuser with a plain user", held + "runuser test $c < r.md"),
+        ("runuser -u with a value and a plain operand", held + "runuser -u test echo $c < r.md"),
         # F3: a second `-exec` is judged as the first is.
         ("a second find -exec of an expansion",
          "c='fabric-pr post-review 1'; find . -maxdepth 0 -exec true \\; -exec $c \\;"),
@@ -211,6 +232,15 @@ def main() -> int:
         ("a double-quoted commit message", 'git commit -m "post-review: bare form\n\nfabric-pr post-review 12 < r.md"'),
         ("a double-quoted grep", 'grep -E "arm|fabric-pr post-review" docs'),
         ("a redirection target named post-review", "fabric-pr arm 3 > post-review.log"),
+        # Review of #637, F12: the costs of failing closed, pinned as decisions. Any wrapper whose option precedes its
+        # command is refused beside a `<` or the words, an expansion or not; a root before the script whenever the line
+        # holds fabric-pr.
+        ("xargs -r of rm, an input and no expansion", "xargs -r rm -f < list.txt"),
+        ("xargs -n1 after an input", "grep -c x < f | xargs -n1 echo"),
+        ("xargs -0 of grep over the words", "git ls-files -z | xargs -0 grep -l 'post-review'"),
+        ("a quoted root before the script, no post-review", '"$R"/bin/fabric-pr gate 12'),
+        ("a quoted root before the script, after a cd", 'cd "$WT" && "$WT"/bin/fabric-pr arm 3'),
+        ("sudo -n of grep with an expanded argument", "sudo -n grep -n x \"$f\" < /dev/null"),
         ("a bare runner name as an argument", "grep -rn 'fabric-pr post-review' bash"),
     ]
     allowed = [
@@ -270,8 +300,10 @@ def main() -> int:
         ("the [[ test beside post-review text", "[[ -f x ]] && grep -n 'post-review' x"),
         ("the [[ test beside a redirection", "[[ -f x ]] && cat < x"),
         # F1, F2 and F3 must not refuse what they name correctly. F11's case (an operator's slash in an argument) is
-        # dropped, and nothing replaces it: after a literal non-PLAIN command every unnamed argument counts (the phase
-        # is open), and after a PLAIN one the slash rule is never reached, so no passing case can reach it.
+        # dropped, and nothing replaces it: a word with a mark is unnamed wherever its slash stands, so no passing case
+        # can tell a slash rule from none.
+        ("sg with a group, then a plain command", 'sg test grep -n \'post-review\' "$f"'),
+        ("an env assignment, then a plain command", 'env TAG=1 grep -n \'post-review\' "$f"'),
         ("sudo -u with a value, then a plain command", 'sudo -u test grep -n \'post-review\' "$f"'),
         ("a second find -exec of grep", "find . -exec true \\; -exec grep -l 'post-review' \"$f\" {} +"),
     ]
@@ -305,6 +337,15 @@ def main() -> int:
     except (ValueError, KeyError) as e:
         good, d = False, e
     check("hook: a deny decision naming the bare form", good, d)
+    # The reason names the cause class the command was refused for (review of #637, F12).
+    for label, cmd, clause in (("a wrapped call", refused[0][1], "the bare-form rule"),
+                               ("an unnameable word", held + "$c < r.md", "cannot name"),
+                               ("a wrapper's option before its command", "xargs -r rm -f < list.txt", "wrapper whose option")):
+        try:
+            why = json.loads(run(json.dumps({"tool_input": {"command": cmd}})))["hookSpecificOutput"]["permissionDecisionReason"]
+        except (ValueError, KeyError) as e:
+            why = str(e)
+        check(f"hook: the reason names the cause: {label}", "Refused for: " in why and clause in why, why[-160:])
     check("hook: nothing on the bare form", run(json.dumps({"tool_input": {"command": allowed[0][1]}})) == "")
     for label, payload in (("not JSON", "{"), ("no tool_input", "{}"), ("tool_input a string", '{"tool_input": "x"}'),
                            ("command a number", '{"tool_input": {"command": 3}}')):

@@ -85,14 +85,15 @@ name is
   - one with a mark anywhere outside single quotes: an unquoted or
     double-quoted expansion (`$c`, `${c}`, `e$c`, `/bin/${c}`), a `$(…)` or
     backtick, `$'…'` (its escapes spell the name), a glob (`*`, `?`, `[`) or a
-    brace list (`{a,b}`). Failing closed: no part of such a word is trusted to
+    brace list (`{a,b}`) or an extglob (`@(`, `+(`, `!(`, `?(`, `*(` glued to
+    the word). Failing closed: no part of such a word is trusted to
     name the command, not even the text after its last `/` (three rounds of
     review on #637 each found a spelling past a rule that said where the last
     part begins: `${c/z/z}`, `$c/`, `{fabric-pr,x,o/n}`, `$'/x/\x66…'`). The
     cost: `"$R"/bin/fabric-pr` and `$ROOT/bin/fabric-pr` are unnamed too, and
-    are refused beside post-review text or a `<`; `cd "$R" && bin/fabric-pr`
-    or the bare name is the way through. `[` and `[[` alone are the test
-    builtin, not a glob;
+    are refused whenever the line holds `fabric-pr` (post-review text or a `<`
+    is not needed); `cd "$R" && bin/fabric-pr` or the bare name is the way
+    through. `[` and `[[` alone are the test builtin, not a glob;
   - the command word position itself is not trusted to the walk's reading of
     wrappers (`timeout 5s`, `sudo -u X`, `setsid`, a leading `2>/dev/null`
     all misread it): after a wrapper, or a program this file does not list
@@ -103,12 +104,28 @@ name is
     closed: a word right after an option word (one starting with `-`) is never
     taken for the PLAIN command, and an unnameable word counts whether or not
     it might be an option value (`env -u $c` word-splits into value and
-    command). The cost: `sudo -n grep -n x "$f"` and `xargs -r grep -n x
-    "$f"` are refused beside post-review text, `sudo grep …` and `xargs -n 1
-    grep …` are not. A redirection's fd and target are no word at all;
+    command). A word starting with `-` (a glued `--chdir=/tmp/echo` too) and an
+    assignment (`TAG=/tmp/echo`) are never a command's name, whatever their
+    last part says. A wrapper with a positional operand before its command
+    (`sg GROUP`, `chroot DIR`, `ip netns exec NAME`, `runuser`, `su`) takes the
+    first word that is no option as that operand, so the next PLAIN name does
+    not end the open phase either. The cost: any wrapper whose option precedes
+    its command is refused beside a `<`, `fabric-pr` or post-review text,
+    expansion or not (`sudo -n grep -n x "$f"`, `xargs -r rm -f < list.txt`,
+    `git ls-files -z | xargs -0 grep -l 'post-review'`); `sudo grep …` and
+    `xargs -n 1 grep …` are not. The deny's reason names which of the three
+    causes it fell to (the word, the wrapper, the bare-form rule). A
+    redirection's fd and target are no word at all;
   - what `xargs` and `find -exec` run, unless a PLAIN command is named
     there: `xargs grep -n foo` is a grep, `xargs env` and `xargs -I X env
     -S X` run what stdin says; `env -S` runs its text.
+SCOPE. This guard stops the accidental non-bare shapes a session writes. A
+session that deliberately hides a command (reading it from a file, building it
+at run time, `eval` of text assembled from pieces the walk cannot see) is not
+stopped by any static reading of bash, and is out of this guard's scope: the
+fence for that is the harness permission (only the bare `fabric-pr` form is
+allowed without the classifier) and the review's identity on GitHub.
+
 Not covered: an argument assembled from pieces (`fabric-pr ${a}${b}`), a
 program not in PLAIN or RUNNERS that runs text itself. The dispatcher `fabric`
 is not in PLAIN, since its noun is a command (`fabric $c` with c='pr
@@ -152,8 +169,12 @@ NAMING_WORDS = 3
 # A word that runs its arguments as commands, wherever it stands: over-reported in argument position, which costs a
 # rephrase. `.` is `source` only as a command word: as an argument it is a path (`grep -rn '…' .`; review of #451, F9).
 RUNNERS = {"bash", "sh", "dash", "zsh", "ksh", "eval", "source", "su", "ssh", "watch", "flock"}
+# Wrappers that take positional words before the command, and how many non-option words each skips (`sg GROUP cmd`,
+# `chroot DIR cmd`, `ip netns exec NAME cmd`, `runuser USER cmd`, `su USER`). The walk cannot tell the operand from the
+# command, so the first non-option words are the operand and a PLAIN name among them does not end the open phase.
+OPERANDS = {"sg": 1, "chroot": 1, "runuser": 1, "su": 1, "ip": 3}
 WRAPPERS = {"sudo", "env", "exec", "command", "builtin", "nohup", "nice", "time", "timeout", "xargs", "then", "do",
-            "else", "elif", "if", "while", "until", "!", "{"}
+            "else", "elif", "if", "while", "until", "!", "{"} | set(OPERANDS)
 # What `.` reads a script from when it is fed a heredoc or a pipe, and any /dev/fd/N (`3<<'EOF'`). `.` followed by one of these runs that input,
 # wherever the reading of command words placed it: a leading redirection (`2>/dev/null . /dev/stdin`) is a word
 # the walk cannot tell from a command (j543, #451 round 4 F11). Over-reported as an argument, which costs a rephrase.
@@ -191,13 +212,21 @@ REASON = ("Post the review as the bare command `fabric-pr post-review [--repo <o
           "which refuses a review on your own pull request as [Self-Approval] for the rest of the session. "
           "Read its output in the next call. If this command only mentions the two words (a grep, a commit message, "
           "a doc), put them in single quotes, a quoted heredoc (<<'EOF') or a file.")
+# One short clause per cause class, appended to REASON, so a refusal says which rule it fell to.
+CAUSES = {
+    "word": " Refused for: a command word the walk cannot name (an expansion, substitution, glob, brace list or extglob; "
+            "`\"$R\"/bin/fabric-pr` is one).",
+    "wrapper": " Refused for: a wrapper whose option comes before its command (`sudo -n`, `xargs -r`, `env -S`, "
+               "`find -exec`) beside a `<` or the words.",
+    "bare": " Refused for: the bare-form rule, the call names fabric-pr with post-review and is not the bare command.",
+}
 
 
 class Simple:
     """The walk's state for one simple command and the word being read in it. A `$( … )` or backtick gets a fresh one
     and the outer one is kept, so the word that holds the substitution is still seen whole when it closes."""
     __slots__ = ("first", "after_wrapper", "prev", "command", "phase", "plain_name", "fed", "env", "exec", "redir",
-                 "word", "uq", "wilds", "after_option")
+                 "word", "uq", "wilds", "after_option", "operands")
 
     def __init__(self) -> None:
         self.word: list[str] = []     # the current word, its quotes off
@@ -217,6 +246,7 @@ class Simple:
         # not to run its arguments).
         self.phase, self.plain_name = "cmd", ""
         self.after_option = False   # the last word was an option of a wrapper: the next may be its value
+        self.operands = 0           # positional words the wrapper in front still takes before its command
         self.fed = self.env = self.exec = self.redir = False
 
 
@@ -241,14 +271,15 @@ def unnameable(uq: str) -> list[int]:
     return found
 
 
-def live_text(cmd: str) -> tuple[str, bool]:
-    """(the text the shell may run, whether a command word is one the walk cannot name). The text is the command less
-    comments, single-quoted strings and quoted-delimiter heredoc bodies, those two given back when the command names a
-    shell, eval or source; the flag is the invariant of the header's COMMAND WORDS THE WALK CANNOT NAME."""
+def live_text(cmd: str) -> tuple[str, str]:
+    """(the text the shell may run, why a command word is one the walk cannot name: "" no, "word" or "wrapper"). The
+    text is the command less comments, single-quoted strings and quoted-delimiter heredoc bodies, those two given back
+    when the command names a shell, eval or source; the cause is the invariant of the header's COMMAND WORDS THE WALK
+    CANNOT NAME."""
     live: list[str] = []
     inert: list[str] = []
     runner = False
-    dynamic = False
+    dynamic = ""
     states = [Simple()]
     stack = ["N"]               # N: unquoted (top level, $( … ) or ` … `); D: inside "…"
     depth = [0]                 # open parentheses inside each $( … )
@@ -276,9 +307,8 @@ def live_text(cmd: str) -> tuple[str, bool]:
             s.env = True
         elif name in FEEDERS:
             s.fed = True
-        elif s.env and (full == "--split-string" or full.startswith("--split-string=")
-                        or (full[:1] == "-" and full[1:2] != "-" and "S" in full)):
-            dynamic = True      # `env -S 'text'` runs the text as a command line
+        elif name in OPERANDS:
+            s.operands = OPERANDS[name]
 
     def end_word() -> None:
         """Close the word: its quotes are already off (`"bash" -c` names bash), so it is a runner by its name."""
@@ -324,10 +354,19 @@ def live_text(cmd: str) -> tuple[str, bool]:
         # that ends the open phase: it may be the option's value (#637 F2, F10).
         after_option, s.after_option = s.after_option, False
         if unnamed:
-            dynamic = True
+            dynamic = dynamic or "word"
             s.phase = "open"
         elif s.phase == "cmd" and name in KEYWORDS:
             return
+        elif full[:1] == "-" or ASSIGN.match(full):
+            # Never a command's name, whatever the part after a `/` says (`env TAG=/tmp/echo $c`, `--chdir=/tmp/echo`): the
+            # phase is open, as a wrapper's option leaves it (codex round 3 of #637, F1).
+            s.phase = "open"
+            if s.env and (full == "--split-string" or full.startswith("--split-string=")
+                          or (full[:1] == "-" and full[1:2] != "-" and "S" in full)):
+                dynamic = dynamic or "wrapper"      # `env -S 'text'` runs the text as a command line
+        elif s.phase == "open" and s.operands and not after_option:
+            s.operands -= 1                         # `sg test $c`: `test` is the group, not the command
         elif not (after_option and name in PLAIN):
             literal(s, name, full)
         if s.phase == "open":
@@ -338,7 +377,7 @@ def live_text(cmd: str) -> tuple[str, bool]:
         end_word()
         s = states[-1]
         if s.phase == "open" and s.fed:     # xargs, or find -exec, whose command line never named a plain command
-            dynamic = True
+            dynamic = dynamic or "wrapper"
         s.reset()
 
     def open_sub(kind: str) -> None:
@@ -491,6 +530,8 @@ def live_text(cmd: str) -> tuple[str, bool]:
             live.append(c)                              # `>|file`
             i += 1
             continue
+        if c == "(" and s.uq and s.uq[-1] in "@+!?*":
+            mark()                                      # `fabric-p@(r)`: an extglob, the shell picks the letters
         if top == "S" and c == "(":
             depth[-1] += 1
         elif top == "S" and c == ")":
@@ -556,26 +597,31 @@ def bare(cmd: str, canonical) -> bool:
             and words[0] in (COMMAND, canonical.DISPATCHER))
 
 
-def refused(cmd: str) -> bool:
+def refusal(cmd: str) -> str:
+    """"" when the command passes, else the key of CAUSES it is refused for."""
     named = VERB in cmd
     # The trigger (header, COMMAND WORDS THE WALK CANNOT NAME): either word, or any text a command could read as input.
     if not (named or COMMAND in cmd or "<" in cmd):
-        return False
+        return ""
     canonical = canonical_module() if named else None
     if named and bare(cmd.strip(), canonical):
-        return False
+        return ""
     text, dynamic = live_text(cmd)
     if dynamic or not named:
         return dynamic
     last = text.rfind(VERB)                 # a run names the subcommand after the script: `grep post-review bin/fabric-pr` runs none
     if last == -1:
-        return False
+        return ""
     words = LIVE_WORD.findall(text, 0, last)
     # Every live word before the last `post-review` is asked whether it starts `fabric-pr`: a text walk, not a parse of
     # command positions (the header says why), so `echo fabric-pr post-review` is over-reported as it always was. By
     # its last part, so a path outside a `bin` (`./fabric-pr`, `/opt/x/fabric-pr`) stays the script it always was here.
-    return any((read := canonical.canonical([os.path.basename(words[k]), *words[k + 1:k + NAMING_WORDS]])) is not None
-               and read[0] == COMMAND for k in range(len(words)))
+    return "bare" if any((read := canonical.canonical([os.path.basename(words[k]), *words[k + 1:k + NAMING_WORDS]]))
+                         is not None and read[0] == COMMAND for k in range(len(words))) else ""
+
+
+def refused(cmd: str) -> bool:
+    return bool(refusal(cmd))
 
 
 def main() -> int:
@@ -584,12 +630,13 @@ def main() -> int:
     except (ValueError, KeyError, TypeError):
         return 0
     try:
-        deny = isinstance(cmd, str) and refused(cmd)
+        cause = refusal(cmd) if isinstance(cmd, str) else ""
     except Exception:                       # a guard that cannot decide refuses: over-reporting costs a rephrase
-        deny = True
-    if deny:
+        cause = "bare"
+    if cause:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                                 "permissionDecisionReason": REASON}}, separators=(",", ":")))
+                                                 "permissionDecisionReason": REASON + CAUSES[cause]}},
+                         separators=(",", ":")))
     return 0
 
 
