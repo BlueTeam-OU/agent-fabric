@@ -654,8 +654,8 @@ class Server:
     """The operator's agentd end of fabric-ctl's sends. One connection is one request: a line
     {"v":1,"op":"send","to":[addresses],"record":{request},"wait_s":N}; the answer is a line {"event":"sent",
     "to":a,"ok":b,"why":s} per target, {"event":"sent-all"}, then {"event":"reply","carrier":"interweave",
-    "from":sender,"record":{...}} for each verified reply to that request until `wait_s` or until the client
-    closes. The socket is the account's own, mode 0600, in a 0700 directory, and a peer of another uid is
+    "from":sender,"record":{...}} for each verified reply to that request until `wait_s` (then {"event":"end"}
+    and the close) or until the client closes. The socket is the account's own, mode 0600, in a 0700 directory, and a peer of another uid is
     closed unread; nothing here signs or decides: the record is the operator's, signed as fabric-ctl built it.
 
     `hold` is agentd's way to keep its restart back while a session is open: called when a request is accepted,
@@ -826,13 +826,21 @@ class Server:
             put({"event": "sent-all"})
             end = time.monotonic() + wait_s
             conn.settimeout(SOCKET_SEND_S)   # bounds put(); the loop below reads only what select says is there
+            gone = False
             while not self._stop.is_set() and (left := end - time.monotonic()) > 0:
                 try:
                     readable, _, _ = select.select([conn], [], [], min(left, 0.5))
                     if readable and not conn.recv(4096):
-                        break   # fabric-ctl is done
+                        gone = True   # fabric-ctl is done
+                        break
                 except (OSError, ValueError):
-                    break       # the connection was reset or dropped by put()
+                    gone = True       # the connection was reset or dropped by put()
+                    break
+            if not gone and not self._stop.is_set():
+                # This window starts when sent-all is written; fabric-ctl's --timeout starts (t0) only after its hand-off
+                # has read sent-all, so this window can close first: said, so a close at its end is not read as an agentd
+                # that went away (j249).
+                put({"event": "end"})
         finally:
             if timer is not None:
                 timer.cancel()
@@ -856,6 +864,7 @@ class Session:
     def __init__(self, path: str, record: dict, to: list[str], wait_s: float, *, connect_s: float = 5.0) -> None:
         self._buf = b""
         self.sent: dict[str, tuple[bool, str]] = {}
+        self.ended = False   # agentd said its window is over: the close that follows is expected, no replies come after it
         self._conn = socket.socket(socket.AF_UNIX)
         try:
             self._conn.settimeout(connect_s)
@@ -877,13 +886,18 @@ class Session:
                 except ValueError:
                     continue
                 if isinstance(ev, dict):
+                    if ev.get("event") == "end":
+                        self.ended = True
                     out.append(ev)
-            if out:
+            if out or self.ended:
                 return out
             readable, _, _ = select.select([self._conn], [], [], max(0.0, end - time.monotonic()))
             if not readable:
                 return out
-            chunk = self._conn.recv(262144)
+            try:
+                chunk = self._conn.recv(262144)
+            except OSError as e:   # a daemon killed with the request unread resets the socket: the same fact as a close
+                raise RuntimeError(f"the operator's agentd dropped the connection ({e.strerror})") from e
             if not chunk:
                 raise RuntimeError("the operator's agentd closed the connection")
             self._buf += chunk
