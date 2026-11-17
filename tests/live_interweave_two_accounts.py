@@ -22,7 +22,7 @@ a directory J92_SHARE (default /var/tmp/j92-live-share, mode 1777, files
 readable by all): each account's results.
 
     check      every account   the installed programs are the pinned ones; the
-                               roster counts both rows
+                               roster counts both rows (the whole roster is rendered)
     serve      every account   renders the profile's config.yaml from the
                                roster (refuses to replace a different one),
                                starts the installed daemon and the carrier
@@ -40,7 +40,6 @@ readable by all): each account's results.
 """
 from __future__ import annotations
 
-import dataclasses
 import hashlib
 import json
 import os
@@ -65,7 +64,7 @@ BIN = os.path.join(HOME, ".local", "bin")
 HOST = socket.gethostname().split(".")[0]
 CMD = os.path.join(ROOT, "bin", "gzcoord-carrier")
 RELEASE = os.path.join(ROOT, "runtime", "interweave", "release.json")
-ROSTER = os.path.join(ROOT, "runtime", "interweave", "roster.json")
+ROSTER = os.environ.get("GZCOORD_CARRIER_ROSTER") or os.path.join(ROOT, "runtime", "interweave", "roster.json")  # the carrier's own rule, so render and portcheck read one file
 PEER = os.environ.get("J92_PEER", "")  # the other account; the roster holds every admitted account since 0.2.0 rolled out
 FREE_PORT_OFFSET = 90  # own roster port + 90, in the roster's range: two accounts' controls never meet
 
@@ -114,20 +113,30 @@ def pinned_build() -> dict:
     return pin["releases"][pin["current"]]["x86_64"]
 
 
-def pair_of(r, good: list[dict], logins: tuple[str, ...]):
-    """The two accounts under test: a config naming 28 absent peers is not this check, and a third row
-    must change nothing it renders."""
-    good = [row for row in good if row["login"] in logins]
-    return dataclasses.replace(r, rows=tuple(row for row in r.rows if row["login"] in logins)), good
-
-
 def judged_roster():
-    from gzcoord import paths
-    from gzcoord.carrier import roster
-    r = roster.load(ROSTER)
-    good, refused = roster.valid_rows(r, roster.GitMainKeys(paths.operator_root()))
-    r, good = pair_of(r, good, (LOGIN, PEER))
-    return r, good, refused
+    """The whole verified roster, as the carrier's cmd_render judges it: no row is dropped here, so the
+    config rendered from it is the carrier unit's own."""
+    from gzcoord.carrier import main as carrier_main
+    r, good = carrier_main.verified_roster()
+    return r, good
+
+
+def render_text() -> str:
+    """What `gzcoord-carrier render-config` prints for this account; a refusal (own host, roster, identity)
+    comes back as RenderRefused with the carrier's own words."""
+    import contextlib
+    import io
+    from gzcoord.carrier import main as carrier_main
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = carrier_main.cmd_render(None)
+    if rc:
+        raise RenderRefused(err.getvalue().strip() or f"render-config exited {rc}")
+    return out.getvalue()
+
+
+class RenderRefused(Exception):
+    pass
 
 
 def peer_refusal() -> str | None:
@@ -151,11 +160,11 @@ def phase_check() -> int:
         if run.returncode or run.stdout.strip() != want:
             return die(f"{path} --version printed {run.stdout.strip()!r}, the pin says {want!r}")
         say(f"check: {prog} is the pinned program: {want}")
-    r, good, refused = judged_roster()
-    for x in refused:
-        say(f"check: row of {x.login} refused: {x.reason}")
-    if sorted(row["login"] for row in good) != sorted(row["login"] for row in r.rows) or len(good) != 2:
-        return die(f"the roster must count exactly two rows, it counts {len(good)}")
+    _, good = judged_roster()
+    # the pair names which peer the test talks to; the other rows are rendered and left alone
+    missing = [x for x in (LOGIN, PEER) if x not in {row["login"] for row in good}]
+    if missing:
+        return die(f"the roster does not count a valid row for {', '.join(missing)}")
     say("check: the roster counts " + ", ".join(f"{row['login']}:{row['port']}" for row in good))
     return 0
 
@@ -189,16 +198,13 @@ def phase_serve() -> int:
     from gzcoord.carrier import roster, server
     if phase_check():
         return 2
-    r, good, _ = judged_roster()
+    _, good = judged_roster()
     mine = next((row for row in good if row["login"] == LOGIN), None)
     if mine is None:
         return die("no valid roster row for this account")
-    # the filtered pair is rendered, not the whole roster; own_host is the identity address's, as in the carrier's cmd_render
-    from gzcoord.carrier import main as carrier_main
     try:
-        own_host = carrier_main.make_me().address.split("/")[0]
-        want = roster.render_config(r, good, mine["agent_id"], own_host=own_host)
-    except roster.RosterError as e:
+        want = render_text()
+    except RenderRefused as e:
         return die(f"render refused: {e}")
     cfg = config_path()
     os.makedirs(WORK, mode=0o700, exist_ok=True)
