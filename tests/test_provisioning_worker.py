@@ -391,6 +391,45 @@ def main() -> int:
         make_worker().best_effort(["soft"])
     check("best_effort: a command that cannot start is a warning too", "warning: soft failed; continuing" in e2.getvalue())
 
+    print("prepare: step 2 asks the account about its claude in one call, and a dangling link is not a claude")
+    from provisioning import host_steps  # noqa: E402
+    want = host_steps.claude_want(HERE, "")
+    with tempfile.TemporaryDirectory() as tmp:
+        fake_sudo = os.path.join(tmp, "sudo")
+        with open(fake_sudo, "w", encoding="utf-8") as fh:      # drops its flags, logs what it was asked, runs it: real readlink and test
+            fh.write(f'#!/bin/sh\n[ "$1" = -n ] && shift; [ "$1" = -u ] && shift 2; [ "$1" = -H ] && shift\n'
+                     f'echo "$@" | grep -o "_ .*" >> {tmp}/asked\nexec "$@"\n')
+        os.chmod(fake_sudo, 0o755)
+
+        def step2(link_to: str | None, target_exists: bool) -> tuple[str, list[str]]:
+            home = os.path.join(tmp, f"home-{link_to}-{target_exists}")
+            os.makedirs(os.path.join(home, ".local", "bin"))
+            if link_to:
+                target = os.path.join(home, ".local", "share", "claude", "versions", link_to)
+                if target_exists:
+                    os.makedirs(os.path.dirname(target))
+                    open(target, "w").close()
+                os.symlink(target, os.path.join(home, ".local", "bin", "claude"))
+            if os.path.exists(f"{tmp}/asked"):
+                os.remove(f"{tmp}/asked")
+            w = make_worker("--dry-run")
+            w.home, w.sudo = home, [fake_sudo]
+            err = io.StringIO()
+            # The host's managed-settings drift is machine state, and it would refuse the install this case wants planned.
+            with redirect_stderr(err), mock.patch.object(host_steps, "claude_install_refusal", lambda root, target: None):
+                worker.install_claude_and_ori(w)
+            asked = open(f"{tmp}/asked", encoding="utf-8").read().splitlines() if os.path.exists(f"{tmp}/asked") else []
+            return err.getvalue(), [ln for ln in asked if ".local/bin/claude" in ln]
+        # Mutation: `-e` read as `-f` (a dangling link answers with the path it would have, and is taken for the version).
+        said, asked = step2(want, True)
+        check("a link to the wanted version is present, said, after one question about it",
+              f"2. claude {want} present" in said and len(asked) == 1, f"{said}{asked}")
+        said, asked = step2(want, False)
+        check("…a link to the wanted version that is not there is not a claude: the install is planned", f"2. claude {want} present" not in said
+              and "would: as" in said and "install.sh" in said, said)
+        said, asked = step2(None, False)
+        check("…no link at all is asked once and the install planned", "would: as" in said and len(asked) == 1, f"{said}{asked}")
+
     print("test_provisioning_worker:", "OK" if not fails else f"{fails} FAILED")
     return 1 if fails else 0
 
