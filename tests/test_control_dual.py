@@ -282,19 +282,13 @@ class Dual(Scratch):
         self.assertTrue(any(str(closed) in e for e in self.err), "the line names the closed port the relay was asked at")
 
     def test_agentds_window_ending_before_the_wait_does_not_say_agentd_went_away(self):
-        # j249: agentd's window counts from its sends, --timeout from after the relay post; a slow post makes the first end first.
+        # j249: agentd's window starts when it writes sent-all, --timeout (t0) after the hand-off has read it, so agentd's ends first.
         self.boot("alice")
-        real = self.relay
-
-        def slow(*a, **k):
-            if a and not str(a[0]).startswith("/api/messages?"):   # the post, not the reads
-                time.sleep(1.5)
-            return real(*a, **k)
         self.done = threading.Event()
         box: dict = {}
 
         def go() -> None:
-            box["rc"] = ctl.main(["all", "ping", "--json", "--timeout", "3"], registry=self.registry, call=slow, who=WHO, token="t",
+            box["rc"] = ctl.main(["all", "ping", "--json", "--timeout", "3"], registry=self.registry, call=self.relay, who=WHO, token="t",
                                  out=self.out.append, err=self.err.append)
             self.done.set()
         threading.Thread(target=go, daemon=True).start()

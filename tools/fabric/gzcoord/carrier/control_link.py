@@ -837,8 +837,9 @@ class Server:
                     gone = True       # the connection was reset or dropped by put()
                     break
             if not gone and not self._stop.is_set():
-                # wait_s counts from the sends' end here, and fabric-ctl's --timeout from after its relay post, so this
-                # window can close first: said, so a close at its end is not read as an agentd that went away (j249).
+                # This window starts when sent-all is written; fabric-ctl's --timeout starts (t0) only after its hand-off
+                # has read sent-all, so this window can close first: said, so a close at its end is not read as an agentd
+                # that went away (j249).
                 put({"event": "end"})
         finally:
             if timer is not None:

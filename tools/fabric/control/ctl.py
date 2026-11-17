@@ -2448,8 +2448,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         try:
             got = session.poll(0.5)   # the wait of the loop's turn: a reply is read the moment it comes
             if session.ended:
-                # agentd's own window is over (it counts from its sends, ours from after the relay post): the relay
-                # still answers, and nothing was lost, so no line (j249).
+                # agentd's own window is over (it starts when it writes sent-all, ours at t0, after the hand-off has read
+                # it): no line, since the close that follows is expected; the loop goes on with the relay if it is up (j249).
                 session.close()
                 session = None
             return got

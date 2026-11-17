@@ -306,8 +306,8 @@ class AgentdDual(Base):
         self.assertTrue(until(lambda: self.left == [0]), "and the daemon leaves once the session is over")
 
     def test_a_session_whose_window_is_over_says_so_before_it_closes_and_a_close_without_it_is_still_an_error(self):
-        # j249: agentd's wait_s counts from its sends, fabric-ctl's --timeout from after its relay post, so the window can
-        # end first; that close must not read as an agentd that went away.
+        # j249: agentd's wait_s starts when it writes sent-all, fabric-ctl's --timeout after its hand-off has read it, so
+        # the window can end first; that close must not read as an agentd that went away.
         record = body("win", **{"from": "h/alice", "to": ["h/op"]})
         session = link.Session(link.socket_path(), record, ["h/op"], 1)
         self.addCleanup(session.close)
@@ -332,6 +332,13 @@ class AgentdDual(Base):
         with self.assertRaisesRegex(RuntimeError, "closed the connection"):
             gone.poll(2)
         self.assertFalse(gone.ended)
+        # and one that closes with the request unread resets the socket: one RuntimeError line, not an OSError traceback
+        reset = link.Session(path, record, ["h/op"], 1)
+        self.addCleanup(reset.close)
+        srv.accept()[0].close()
+        with self.assertRaisesRegex(RuntimeError, "dropped the connection"):
+            for _ in range(20):
+                reset.poll(0.5)
 
     def test_a_ctl_session_holds_a_restart_back_only_for_the_cap(self):
         with mock.patch.object(link, "HOLD_MAX_S", 0.3):
