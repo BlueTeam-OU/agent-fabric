@@ -38,7 +38,7 @@
       "deploy/id_ecdsa",
       "notes/CLAUDE.md",
       "CLAUDE.local.md",
-      "docs/AGENTS.md",
+      "notes/AGENTS.md",
       "exports/.gitignore",
       ".netrc",
       "vault.kdbx"
