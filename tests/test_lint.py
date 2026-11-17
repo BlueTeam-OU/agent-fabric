@@ -295,14 +295,20 @@ def case_secrets_are_refused_by_shape() -> None:
             "password: (redacted)", "api_key: ${OPENROUTER_API_KEY}", "secret: none", "A bearer token is sent on every call."]
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        for leak in leaks:
-            write(dom(fabric, "domain", "leak.md"), SLICE.replace("A claim with provenance.", f"Set {leak} and retry."))
-            code, out = run_lint(fabric)
-            assert code == 1 and "credential" in out, f"a secret passed: {leak!r}\n{out}"
-        for text in fine:
-            write(dom(fabric, "domain", "leak.md"), SLICE.replace("A claim with provenance.", text))
-            code, out = run_lint(fabric)
-            assert code == 0, f"a harmless line was refused: {text!r}\n{out}"
+        # One run per list, not per entry: each entry sits in its own file and the finding names the file, so every
+        # entry is still judged on its own; a lint run costs a process start.
+        for i, leak in enumerate(leaks):
+            write(dom(fabric, "domain", f"leak{i}.md"), SLICE.replace("A claim with provenance.", f"Set {leak} and retry."))
+        code, out = run_lint(fabric)
+        assert code == 1, out
+        for i, leak in enumerate(leaks):
+            assert any(f"leak{i}.md" in ln and "credential" in ln for ln in out.splitlines()), f"a secret passed: {leak!r}\n{out}"
+        for f in os.listdir(dom(fabric, "domain")):
+            os.remove(dom(fabric, "domain", f))
+        for i, text in enumerate(fine):
+            write(dom(fabric, "domain", f"fine{i}.md"), SLICE.replace("A claim with provenance.", text))
+        code, out = run_lint(fabric)
+        assert code == 0, f"a harmless line was refused: {fine!r}\n{out}"
 
 
 def case_a_persons_name_is_refused_everywhere() -> None:
@@ -1060,11 +1066,19 @@ def case_i18n_dictionary_is_complete_and_keeps_its_identifiers() -> None:
         # A control character in a value reaches a session's context. A
         # NEWLINE most of all: it prints a second line there, which the
         # reader cannot tell from a line the tool itself wrote.
-        for bad in ("\x07", "\n", "\t", "\u009b", "\u2028", "\u202e", "\u200b", "\U000E0041"):
-            write(ident(fabric, "locale", "ge", "ka-GE.json"),
-                  json.dumps({**good, "inbox.others-header": f"ᲐᲠ ᲐᲠᲘᲡ{bad} (SPEC §17):"}, ensure_ascii=False))
-            code, out = run_lint(fabric)
-            assert code == 1 and "carries a control character" in out, f"{bad!r} passed:\n{out}"
+        # One run for all eight: each rides its own key (the default dictionary gains the keys, so none is "not in" it),
+        # and the finding names the key it found one in.
+        bads = ("\x07", "\n", "\t", "\u009b", "\u2028", "\u202e", "\u200b", "\U000E0041")
+        write(os.path.join(fabric, "communication", "gzcoord", "i18n", "en-US.json"),
+              json.dumps({**default, **{f"ctl.k{i}": "plain" for i in range(len(bads))}}))
+        write(ident(fabric, "locale", "ge", "ka-GE.json"),
+              json.dumps({**good, **{f"ctl.k{i}": f"ᲐᲠ ᲐᲠᲘᲡ{bad} (SPEC §17):" for i, bad in enumerate(bads)}}, ensure_ascii=False))
+        code, out = run_lint(fabric)
+        assert code == 1, out
+        for i, bad in enumerate(bads):
+            assert f"ctl.k{i} carries a control character" in out, f"{bad!r} passed:\n{out}"
+        assert "inbox.others-header carries" not in out, out
+        write(os.path.join(fabric, "communication", "gzcoord", "i18n", "en-US.json"), json.dumps(default))
 
         # The schema states the key shape and nothing else does, so lint
         # SAYS when it cannot be read instead of quietly restating it.
