@@ -122,7 +122,11 @@ CONTRACT, frozen from the Node:
             --held              is this account's inbox held (planning)?
   env       CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL (together, or over a
             project's integration), CLAUDE_BRIDGE_AUTH_TOKEN (after the
-            synced file), AGENT_FABRIC_ROOT, AGENT_FABRIC_STATE_DIR,
+            synced file); none of the three, nor the project's relay
+            section, is read in transport mode carrier-only.
+            GZCOORD_TRANSPORT_MODE overrides the account's mode for this
+            command (said on stderr; a value that is no mode ends it with
+            exit 7), AGENT_FABRIC_ROOT, AGENT_FABRIC_STATE_DIR,
             AGENT_FABRIC_HOLD_DIR, GZCOORD_JOURNAL=off, GZCOORD_RELAY_UNIT,
             GZCOORD_TEST_BUS_ANY=1, XDG_RUNTIME_DIR, HOME,
             GZCOORD_DEFAULT_LOCALE_ONLY
@@ -738,7 +742,20 @@ def main(argv: list[str]) -> int:
             if r.get("sessionEnded") and mode_moved["v"]:
                 mode_moved["v"] = False
                 try:
-                    tp = open_mux()
+                    # The integration and token the new mode needs are resolved afresh: a watch begun in carrier-only holds
+                    # the carrier's config and no token, which a relay mode must never be built from.
+                    new_cfg, new_account_mode = resolve_integration(who.get("project"), os.environ, t, ep.state_dir())
+                    new_carrier_only = new_account_mode is not None and new_account_mode["mode"] == transport.mode.CARRIER_ONLY
+                    new_tok = None if new_carrier_only else token(root, new_cfg)
+                    if not new_cfg["configured"]:
+                        raise transport.ModeError(f"transport mode {tp.mode if new_account_mode is None else new_account_mode['mode']} "
+                                                  f"needs the project's relay configuration: {new_cfg['reason']}")
+                    if not new_tok and not new_carrier_only:
+                        raise transport.ModeError(f"transport mode {new_account_mode['mode'] if new_account_mode else '?'} needs the relay token, "
+                                                  "and none is found")
+                    cfg, tok, carrier_only = new_cfg, new_tok, new_carrier_only
+                    relay_url, channel = cfg["relay_url"], cfg["channel"]
+                    tp = open_mux(new_account_mode)
                 except transport.ModeError as e:
                     # The watch keeps the transport it has, and asks again at the next poll: a damaged file is said, never read as a mode.
                     mode_watch.current = tp.mode

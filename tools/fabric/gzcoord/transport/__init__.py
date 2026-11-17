@@ -62,7 +62,8 @@ def open_transport(cfg: dict | None, *, token: str, me: dict, journal_off: bool 
     relay_leads = account_mode == mode.RELAY_RECORD
     relay = None
     if relay_leads or (account_mode == mode.CARRIER_RECORD and not record_only and not journal_off):
-        if cfg is None:
+        if cfg is None or cfg.get("relay_url") is None:
+            # A None URL would be read as the default relay by the relay's api; the carrier-only config must never reach here.
             raise ModeError(f"transport mode {account_mode} needs the project's relay configuration")
         relay = RelayTransport(cfg["relay_url"], cfg["channel"], me["address"], token,
                                call_timeout=None if relay_leads else relay_transport.MIRROR_CALL_S)

@@ -11,6 +11,8 @@ CONTRACT, frozen from the Node:
             AGENT_FABRIC_FALLBACK_DIR and CLAUDE_PID (the fallback
             reminder), AGENT_FABRIC_JOBS_AUTO_INTAKE=1 (off unless exactly
             1), GZCOORD_PRESENCE_WAIT_MS (the presence CLI's),
+            GZCOORD_TRANSPORT_MODE (the mode of this command, over the
+            account's own; said on stderr),
             AGENT_FABRIC_HOSTS_REGISTRY / AGENT_FABRIC_OPERATOR (the hosts
             registry a REQUEST's job intake reads)
   stdout    `sent seq <n> <TYPE> <id>` and nothing else
@@ -20,10 +22,12 @@ CONTRACT, frozen from the Node:
             <address>'s job list`, or why it was not
   exit      0 sent (a dry run: validated and resolved); 1 usage or
             unreadable input, or the id could not be written into the
-            file; 2 invalid, FROM not this login, an id already sent with
+            file; 2 invalid, a GZCOORD_TRANSPORT_MODE that names no mode,
+            FROM not this login, an id already sent with
             other text, a control channel, a journal that cannot keep
             the message, or (GZCOORD_JOURNAL=off) a bypass that cannot
-            be recorded; 3 not configured, no token, relay unreachable,
+            be recorded; 3 not configured, no token (neither
+            applies in carrier-only, which reads no relay setting), relay unreachable,
             the token refused, or a post whose outcome is unknown (it may
             have been delivered); 4 an addressee with no session, silent,
             not placed (no account), or presence not askable — unless

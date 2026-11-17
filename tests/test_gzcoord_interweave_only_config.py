@@ -193,6 +193,27 @@ def cases(w: G.World) -> None:
     out, err = p.communicate(timeout=100)
     check("  and a state file that changes under it does not end its arm: no mode change is announced, exit 0",
           p.returncode == 0 and "transport mode is now" not in err, f"{p.returncode} {out!r} {err!r}")
+    # A watch begun in carrier-only holds no relay config and no token; moved to a relay mode it must resolve both afresh, never
+    # build a relay from the carrier's config (review of #638, F1). No relay section: the move is refused, said, and the watch stays.
+    set_mode(w, mode.CARRIER_ONLY)
+    p = subprocess.Popen([INBOX, "--until-delivery", "--deadline", "16"], env=w.env, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=w.base)
+    time.sleep(3)
+    set_mode(w, mode.RELAY_RECORD)
+    out, err = p.communicate(timeout=100)
+    check("a carrier-only watch moved to relay-record with no relay section keeps its transport and says why: no relay is built",
+          p.returncode == 0 and "transport mode is now" not in err and "needs the project's relay configuration" in err,
+          f"{p.returncode} {out!r} {err!r}")
+    # With the relay named and a token: the move is taken, and the relay is built from the real config.
+    set_mode(w, mode.CARRIER_ONLY)
+    p = subprocess.Popen([INBOX, "--until-delivery", "--deadline", "16"], env={**w.env, **RELAY_NAMED(w), "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture"},
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=w.base)
+    time.sleep(3)
+    set_mode(w, mode.CARRIER_RECORD)
+    out, err = p.communicate(timeout=100)
+    check("a carrier-only watch moved to carrier-record with the relay named and a token takes the move",
+          p.returncode == 0 and "transport mode is now carrier-record" in err, f"{p.returncode} {out!r} {err!r}")
+    set_mode(w, mode.CARRIER_ONLY)
     # An unknown override: the watch refuses with the mode's line and exit 7.
     r = w.run([INBOX, "--until-delivery", "--deadline", "4"], **{mode.ENV: "bogus"})
     check("override 'bogus': the watch is refused, exit 7, the line names the variable and the modes", r.returncode == 7 and mode.ENV in r.stdout
@@ -224,11 +245,28 @@ def unit_watcher(base: str) -> None:
             os.environ[mode.ENV] = old
 
 
+def unit_presence() -> None:
+    """The presence child reads the command's mode, override included (review of #638, F2): the dual leg would answer anyway, so
+    only a direct read shows it."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from control import presence
+    old = os.environ.get(mode.ENV)
+    try:
+        os.environ[mode.ENV] = mode.CARRIER_ONLY
+        check("the presence child's mode read is the override", presence._read_mode() == mode.CARRIER_ONLY)
+    finally:
+        if old is None:
+            os.environ.pop(mode.ENV, None)
+        else:
+            os.environ[mode.ENV] = old
+
+
 def main() -> int:
     base = tempfile.mkdtemp(prefix="g2c-")
     w = None
     try:
         unit_watcher(base)
+        unit_presence()
         w = G.World(base, relay=False)
         check("the carrier is up, the account is in carrier-only, the project has no relay section, the environment names no relay"
               " and holds no token, and the relay's port is closed",
