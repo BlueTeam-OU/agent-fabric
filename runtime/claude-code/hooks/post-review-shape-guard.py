@@ -116,11 +116,13 @@ name is
     expansion or not (`xargs -r rm -f < list.txt`, `git ls-files -z | xargs -0
     grep -l 'post-review'`); `xargs -n 1 grep …` is not. An expansion after
     any wrapper option (`sudo -n grep -n x "$f"`) is refused with cause
-    `word`; `sudo -n grep -n x f < in` passes. A `find` after a wrapper's
-    option or operand is not followed, so its -exec words count wherever the
-    open phase stands: `sudo -n find . -exec grep -l 'post-review' {} +` and
-    `env -i find …` are refused `wrapper`, while `sudo find …` and `timeout 60
-    find …` pass. The deny's reason names which of
+    `word`; `sudo -n grep -n x f < in` passes. A `find` the walk may read as
+    a wrapper's option value or as its operand (`sudo -n find`, `env -i find`,
+    `runuser -u me find`, `chroot /srv/ip find`) is not followed, so its -exec
+    words count wherever the open phase stands: `sudo -n find . -exec grep -l
+    'post-review' {} +` is refused `wrapper`, while `sudo find …`, `timeout 60
+    find …`, `chroot /srv/x find …` and `sg grp find …` pass. The deny's reason
+    names which of
     the four causes it fell to (the word, the wrapper, the bare-form rule, the
     guard being unable to decide). A
     redirection's fd and target are no word at all;
