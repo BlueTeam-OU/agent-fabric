@@ -291,7 +291,12 @@ def main() -> int:
                        # Review of #268, F1: an empty expansion glued to the name, which bash runs as kill.
                        ("an empty quoted expansion glued to kill", '"$x"kill $\'\\x31\\x32\\x33\\x34\''),
                        ("an empty braced expansion glued to kill", "${x}kill $'\\x31\\x32\\x33\\x34'"),
-                       ("a glued kill with a brace list", '"$x"kill 12{3,}4')):
+                       ("a glued kill with a brace list", '"$x"kill 12{3,}4'),
+                       # Re-review round 4, F13, the accepted cost: a function body running python3 beside a write
+                       # from a here-document keeps that body judged, so its brace list asks (with `make t` it
+                       # does not, above).
+                       ("a function body running python3 beside a write",
+                        "run(){ (timeout 300 python3 t.py); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun")):
         check(f"a kill tool with a brace expansion still asks: {label}", g.unevaluated(cmd) is not None, cmd)
     # A here-document a data reader takes is data for the pid and kill-word search too (j866 / OBSERVATION
     # 01a1d8ab: a gzcoord-send body reporting a watch's pid was denied as killing it). Any other reader keeps its body
@@ -399,20 +404,20 @@ def main() -> int:
               ("cat > k.sh, then bash a variable", "cat > k.sh <<'X'\n{kill}\nX\nf=k.sh; bash \"$f\""),
               ("cat <<X | bash", "cat <<'X' | bash\n{kill}\nX"),
               # Review of #637, F6: the file reaches a shell through a pipe or a stdin redirect, no operand names it.
-              # Kills: the no-operand runner rule in _runs_what_it_writes.
+              # Kills: the runner-anywhere rule in _runs_what_it_writes.
               ("cat k.sh | bash", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | bash"),
               ("bash < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash < k.sh"),
               ("sh -s < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nsh -s < k.sh"),
               ("cat k.sh | sudo bash", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sudo bash"),
               # Re-review of #637, F6: the runner has operands, yet reads the file from its stdin. Kills: the fed
-              # rule (fed_segments) in _runs_what_it_writes.
+              # runner-anywhere rule in _runs_what_it_writes.
               ("bash -s x < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash -s x < k.sh"),
               ("cat k.sh | bash -s x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | bash -s x"),
               ("bash /dev/stdin < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash /dev/stdin < k.sh"),
               ("cat k.sh | sh /dev/stdin", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sh /dev/stdin"),
               ("cat k.sh | sudo python3 -u x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sudo python3 -u x"),
-              # Review of #637, F7: a program other than cat and tee stores the body. Kills: the openers in
-              # _written_names.
+              # Review of #637, F7: a program other than cat and tee stores the body. Kills: the opener rule (a
+              # non-reader opener stores the body) in _runs_what_it_writes.
               ("cp /dev/stdin k.sh", "cp /dev/stdin k.sh <<'X'\n{kill}\nX\nbash k.sh"),
               ("dd of=k.sh", "dd of=k.sh <<'X'\n{kill}\nX\nbash k.sh"),
               ("install /dev/stdin k.sh", "install -m755 /dev/stdin k.sh <<'X'\n{kill}\nX\n./k.sh"),
@@ -447,6 +452,31 @@ def main() -> int:
               ("tee -- -k.sh, then bash ./-k.sh", "tee -- -k.sh <<'X' >/dev/null\n{kill}\nX\nbash ./-k.sh"),
               # Round 3, F13: the cost as the rule applies it. A write from a heredoc beside any runner denies, though
               # nothing runs the file.
+              # Re-review round 4, F15: the file run by its bare name from a PATH directory, by `.` behind a prefix,
+              # or inside `env -S` text. Kills: the written-name mention test, the `.` behind a prefix, and the
+              # whitespace split before _is_runner.
+              ("chmod +x ~/.local/bin/k && k", "cat > ~/.local/bin/k <<'X'\n{kill}\nX\nchmod +x ~/.local/bin/k && k"),
+              ("nohup k", "cat > ~/.local/bin/k <<'X'\n{kill}\nX\nchmod +x ~/.local/bin/k && nohup k"),
+              ("timeout 5 k, written with tee",
+               "tee ~/bin/k <<'X' >/dev/null\n{kill}\nX\nchmod +x ~/bin/k; timeout 5 k"),
+              ("PATH=.:$PATH k.sh", "cat > k.sh <<'X'\n{kill}\nX\nchmod +x k.sh; PATH=.:$PATH k.sh"),
+              ("env PATH=. k.sh", "cat > k.sh <<'X'\n{kill}\nX\nenv PATH=. k.sh"),
+              ("command . k.sh", "cat > k.sh <<'X'\n{kill}\nX\ncommand . k.sh"),
+              ("builtin . k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbuiltin . k.sh"),
+              ("env -S 'bash k.sh'", "cat > k.sh <<'X'\n{kill}\nX\nenv -S 'bash k.sh'"),
+              # Each of the three rules alone, the file's name absent from the word that runs it (a link `j`): the bare
+              # name behind a prefix (mention), `.` behind a prefix, and a runner inside one word of text (split).
+              ("nohup k, no slash or expansion", "cat > k <<'X'\n{kill}\nX\nchmod +x k; nohup k"),
+              ("command . j, a link to the file", "cat > k.sh <<'X'\n{kill}\nX\nln -s k.sh j; command . j"),
+              ("env -S 'bash j', a link to the file", "cat > k.sh <<'X'\n{kill}\nX\nln -s k.sh j; env -S 'bash j'"),
+              # Re-review round 4, section 2: a wrapper the guard knows no option table for hides a path-run. Kills:
+              # the `/` word in any position of a segment that is no data reader's.
+              ("flock /tmp/l ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nflock /tmp/l ./k.sh"),
+              ("ionice -c3 ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nionice -c3 ./k.sh"),
+              ("strace -f ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nstrace -f ./k.sh"),
+              ("watch -n1 ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nwatch -n1 ./k.sh"),
+              # Re-review round 4, F13: a runner word as an argument counts, a cost of the rule.
+              ("cat > k.sh, then grep bash notes.txt", "cat > k.sh <<'X'\n{kill}\nX\ngrep bash notes.txt"),
               ("cat > k.sh, then python3 t.py", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py"),
               ("cat > k.sh, then python3 t.py < in.txt", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py < in.txt"),
               ("cat > k.sh, then another file run", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py && bash other.sh"),

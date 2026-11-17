@@ -46,12 +46,14 @@ by its /proc command line — outside a quoted here-document's body in an
 input of data readers alone (drop_data_heredoc_bodies, _drop_bodies); a negative `kill` operand
 (-1, a group) is refused outright; an operand held in a variable or a substitution asks.
 A body a command stores in a file (a redirection, tee, or a here-document opened by anything but a data reader) is
-kept judged when anywhere in the rest of that command there is a runner (a shell, an interpreter, `source`, `eval`), a
-path in command position (`./k.sh`) or a word it cannot read (_runs_what_it_writes); the decision is the command's
-whole, never one segment's. The cost, accepted: a command that writes a file from a here-document and also runs
-anything (`python3 t.py`, `echo hi | python3`) is denied though it never runs the file, a rephrase; only a command that
-runs nothing at all stays allowed with its body dropped. The file under another name (`mv k.sh j.sh && bash j.sh`) and
-a program that runs a file and is no runner (`awk -f`) are not followed.
+kept judged when anywhere in the rest of that command there is a runner word (a shell, an interpreter, `source`,
+`eval`; an argument counts: `grep bash notes.txt`), a `/` word outside a data reader's segment (`./k.sh`, `flock /tmp/l
+./k.sh`), `.` or `exec`, a word it cannot read, or a mention of the written file's name (`k` run from PATH); the
+decision is the command's whole, never one segment's (_runs_what_it_writes). The cost, accepted: a command that writes
+a file from a here-document and also holds one of these (`python3 t.py`, `grep bash notes.txt`, `echo hi | python3`) is
+denied though it never runs the file, a rephrase. A write beside commands that are none of these (`chmod +x k.sh && cat
+k.sh`, `find . -name k.sh | grep k`) stays allowed with its body dropped. The file under another name (`mv k.sh j.sh &&
+bash j.sh`) and a program that runs a file and is no runner (`awk -f`) are not followed.
 
 SCOPE. This guard stops a session killing its own tree by accident or by a straightforward command. A session that
 deliberately hides the kill (text read from elsewhere at run time, built from pieces, a renamed copy) is not stopped by
@@ -481,7 +483,8 @@ def _written_names(rest: str, rest_segments: list[list[str]], openers: list[str]
     _writes_file reads them. And, failing closed, every operand of an opening line (`openers`: the lines whose
     here-document body was dropped) whose command is no pure data reader: `cp /dev/stdin k.sh <<'X'` and `dd of=k.sh
     <<'X'` store the body as well, and the guard knows no program's way of naming its output, so each operand (and the
-    value of a `key=value` one) counts. One pass and one set: a command of thousands of words stays linear."""
+    value of a `key=value` one) counts. These are the names _runs_what_it_writes looks for in a command word. One pass
+    and one set: a command of thousands of words stays linear."""
     names = [m.group(1) for m in WRITE_REDIRECT.finditer(rest)]
     for words in rest_segments:
         tee = next((i for i, name in enumerate(words) if os.path.basename(name) == "tee"), None)
@@ -502,6 +505,17 @@ def _is_runner(w: str) -> bool:
     return base in RUNNERS or bool(INTERPRETER.fullmatch(base))
 
 
+def _mentions(names: set[str]):
+    """A test for whether a word mentions one of `names` as a whole word (not inside a longer name: the characters
+    `[\\w.-]` on either side join it to one). A name made of those characters only is found among the word's maximal
+    runs of them, a set lookup, so thousands of names cost the words and not their product; any other name is searched
+    as a pattern."""
+    plain = {n for n in names if re.fullmatch(r"[\w.-]+", n)}
+    odd = sorted(names - plain, key=len, reverse=True)
+    pattern = re.compile(r"(?<![\w.-])(?:" + "|".join(map(re.escape, odd)) + r")(?![\w.-])") if odd else None
+    return lambda w: any(t in plain for t in re.findall(r"[\w.-]+", w)) or bool(pattern and pattern.search(w))
+
+
 def _runs_what_it_writes(rest: str, openers: list[str]) -> bool:
     """Whether the command, its here-document bodies dropped, may run a file it wrote. Judged on the whole command,
     never segment by segment, and it fails closed, because three review rounds each found a spelling past a rule that
@@ -509,34 +523,48 @@ def _runs_what_it_writes(rest: str, openers: list[str]) -> bool:
     a tee operand names a file (_written_names), or when a here-document's opening command is no pure data reader
     (not DATA_READERS: `sort -ok.sh`, `cp /dev/stdin k.sh`, `dd of=k.sh`, `git commit -F-`), which may store it under a
     name the guard cannot read. Then the body stays judged when ANYWHERE in the rest of the command there is
-    - a runner word: a shell, an interpreter, `source`, `eval`, in any position and any segment, so a stdin inherited
-      from a group, a subshell, a loop or `exec <` (`( bash -s x ) < k.sh`) is no way out; or `.`, or `exec`, as a
-      command word;
-    - a word with a `/` in command position (after separators, `(`, `{`, `then`/`do`, assignments, and, behind a prefix
-      such as `timeout 5` or `sudo`, any of its words): `./k.sh`, `"$PWD/k.sh"`, `timeout 5 ./k.sh`;
-    - a word the guard cannot read ($f, a substitution) in command position, by the same reckoning.
-    The cost, accepted: a command that writes a file from a here-document and also holds any runner or path-run
-    (`python3 t.py`, `echo hi | python3`, `./other.sh`, a `git commit -F-` message beside `bash x`) keeps the body
-    judged, a false deny and a rephrase. Only a command that runs nothing at all stays allowed with its body dropped.
+    - a runner word: a shell, an interpreter, `source`, `eval`, in any position and any segment and in any
+      whitespace-separated part of a word (`env -S 'bash k.sh'`), so a stdin inherited from a group, a subshell, a loop
+      or `exec <` (`( bash -s x ) < k.sh`) is no way out; or `.`, or `exec`, as a command word, or `.` behind a prefix
+      (`command . k.sh`);
+    - a word with a `/` in a segment whose first word is no pure data reader: `./k.sh`, `"$PWD/k.sh"`, `timeout 5
+      ./k.sh`, and `flock /tmp/l ./k.sh`, where the wrapper is no prefix the guard knows. The opening line of a
+      here-document is judged by its command position alone, since its operands (`cp /dev/stdin k.sh`) name the store;
+    - a word the guard cannot read ($f, a substitution) in command position, by the same reckoning (behind a prefix
+      such as `timeout 5` or `sudo`, any of its words);
+    - a mention of a written file's name, whole-word, in command position or anywhere behind a prefix: the file run
+      by its bare name from a PATH directory (`chmod +x ~/.local/bin/k && nohup k`, `env PATH=. k.sh`).
+    The cost, accepted: a command that writes a file from a here-document and also holds any runner word, an argument
+    included (`python3 t.py`, `grep bash notes.txt`, `echo hi | python3`), or a path-run (`./other.sh`), keeps the body
+    judged, a false deny and a rephrase. A write beside commands that are none of these (`chmod +x k.sh && cat k.sh`,
+    `find . -name k.sh | grep k`) stays allowed.
 
     Not covered: the file under another name (`mv k.sh j.sh && bash j.sh`, `cp k.sh j.sh`), and a program that runs a
     file and is no runner (`awk -f k.awk`)."""
     parsed = segments(rest)
-    stores = any(words and os.path.basename(words[0]) not in DATA_READERS
-                 for line in openers for words in segments(line)) or bool(_written_names(rest, parsed, openers))
+    names = _written_names(rest, parsed, openers)
+    stores = bool(names) or any(words and os.path.basename(words[0]) not in DATA_READERS
+                                for line in openers for words in segments(line))
     if not stores:
         return False
-    for words in parsed:
+    mention = _mentions(names)
+    opening = {tuple(words) for line in openers for words in segments(line)}
+    for raw in parsed:
+        words = raw
         while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
             words = words[1:]
         if not words:
             continue
-        # `.` and `exec` are runners as the command word only: elsewhere they are an argument (`find .`).
-        if any(w != "." and _is_runner(w) for w in words) or words[0] in (".", "exec"):
+        prefixed = os.path.basename(words[0]) in PREFIXES
+        # `.` and `exec` are runners as the command word only (`find .` is no run), or behind a prefix (`command .`).
+        if any(w2 != "." and _is_runner(w2) for w in words for w2 in w.split()) or words[0] in (".", "exec") \
+                or (prefixed and "." in words[1:]):
             return True
         # Behind a prefix every word is a candidate for the command it wraps (`timeout 5 ./k.sh`, `env -i $f`).
-        position = words if os.path.basename(words[0]) in PREFIXES else words[:1]
-        if any("/" in w or "$" in w or "`" in w for w in position):
+        position = words if prefixed else words[:1]
+        if any("$" in w or "`" in w or mention(w) for w in position):
+            return True
+        if any("/" in w for w in (position if tuple(raw) in opening or words[0] in DATA_READERS else words)):
             return True
     return False
 
