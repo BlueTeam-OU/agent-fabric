@@ -223,6 +223,11 @@ def cases(w: G.World) -> None:
         time.sleep(3)
         quiet_before = len(seen)
         set_mode(w, mode.CARRIER_RECORD)
+        time.sleep(3)
+        # The mirror is read only after the carrier's wait returns, so a carrier arrival (not the clock) is what makes the
+        # moved watch ask the relay it built; waiting for the deadline raced the deadline itself.
+        _, nudge = text("INFO", 31, PEER, ME)
+        w.push(nudge)
         out, err = p.communicate(timeout=100)
     finally:
         relay.shutdown()
