@@ -366,6 +366,8 @@ def live_text(cmd: str) -> tuple[str, str]:
         elif full[:1] == "-" or ASSIGN.match(full):
             # Never a command's name, whatever the part after a `/` says (`env TAG=/tmp/echo $c`, `--chdir=/tmp/echo`): the
             # phase is open, as a wrapper's option leaves it (codex round 3 of #637, F1).
+            if full in EXEC_FLAGS and s.phase == "open":
+                s.fed = s.exec = True           # a find swallowed as an operand (`chroot /srv/ip find`) still runs its -exec
             s.phase = "open"
             if s.env and (full == "--split-string" or full.startswith("--split-string=")
                           or (full[:1] == "-" and full[1:2] != "-" and "S" in full)):
@@ -373,7 +375,9 @@ def live_text(cmd: str) -> tuple[str, str]:
         elif s.phase == "open" and s.operands and not after_option:
             s.operands -= 1                         # `sg test $c`: `test` is the group, not the command
             if name not in PLAIN:                   # but `runuser -u me env -S …` may be the command: it sets its flags
+                left = s.operands
                 literal(s, name, full)
+                s.operands = left                   # a directory named `ip` is no wrapper: the count stays as decremented
         elif not (after_option and name in PLAIN):
             literal(s, name, full)
         if s.phase == "open":

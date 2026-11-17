@@ -196,6 +196,13 @@ def main() -> int:
         ("chroot --userspec, then env -S", "chroot --userspec=me:me / env -S 'fabric-pr post-review 1' < r.md"),
         ("runuser -u, then xargs", "runuser -u me xargs -r fabric-pr < list"),
         ("chroot --userspec, then xargs", "chroot --userspec=me:me / xargs -r fabric-pr < list"),
+        # #637 F19/F16: a find swallowed as an operand (the operand named like a wrapper, or after an option-led one)
+        # still has its -exec judged. Mutation: drop the `full in EXEC_FLAGS and s.phase == "open"` line in end_word(),
+        # or the `s.operands = left` line after the operands-branch literal().
+        ("chroot to a directory named ip, find -exec {}",
+         "chroot /srv/ip find /x -name 'fabric-pr' -exec {} post-review 1 \\; < r.md"),
+        ("sg su, find -execdir {}", "sg su find /x -name 'fabric-pr' -execdir {} post-review 1 \\; < r.md"),
+        ("runuser -u, find -exec {}", "runuser -u me find /x -name 'fabric-pr' -exec {} post-review 1 \\; < r.md"),
         ("chroot with a plain directory name", held + "chroot test $c < r.md"),
         ("ip netns exec with a plain name", held + "ip netns exec test $c < r.md"),
         ("ip -n netns exec with a plain name", held + "ip -n netns exec echo $c < r.md"),
@@ -272,6 +279,7 @@ def main() -> int:
         ("a single-quoted grep of .", "grep -rn 'fabric-pr post-review' ."),
         ("rg of .", "rg 'fabric-pr post-review' ."),
         ("git grep -- .", "git grep -n 'fabric-pr post-review' -- ."),
+        ("chroot then find -exec grep, no <, no words", "chroot /srv/x find . -name x -exec grep -l y {} \\;"),
         ("find . piped to xargs grep", "find . -name '*.md' | xargs grep -l 'fabric-pr post-review'"),
         ("git add . then a quoted-heredoc commit", "git add . && git commit -F- <<'EOF'\nfabric-pr post-review 12\nEOF"),
         ("a <<- heredoc ended by a tab-indented delimiter", "cat <<-'EOF'\n\tfabric-pr post-review 1\n\tEOF\nls"),
