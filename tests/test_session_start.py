@@ -122,6 +122,16 @@ def langid_present(tmp: str) -> dict:
     return {"AGENT_FABRIC_LANGID_DIR": os.path.join(tmp, "langid")}
 
 
+def operator_remote(tmp: str) -> dict:
+    """Where bootstrap's operator-checkout step clones from: an empty repository of the case's own, blueteam-fabric's state
+    today. The step's default is the real GitHub remote by ssh, which every bootstrap run in this file reached for (a
+    clone, then a fetch per run) and which answers by the machine's keys. The step's own behaviour is
+    tests/test_operator_checkout.py's."""
+    bare = os.path.join(tmp, "operator-remote.git")
+    subprocess.run(["git", "init", "-q", "--bare", bare], check=True, env=git_env(), timeout=60)
+    return {"AGENT_FABRIC_OPERATOR_CLONE_URL": bare}
+
+
 def run_hook(payload: dict, env: dict) -> subprocess.CompletedProcess:
     return subprocess.run(["bash", HOOK], input=json.dumps(payload), capture_output=True, text=True, env=env)
 
@@ -511,6 +521,10 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
            "CLAUDE_BRIDGE_URL": "http://127.0.0.1:1", "GZCOORD_CHANNEL": "fixture:chan"}
     fake = os.path.join(tmp, "bin", "claude")
     os.makedirs(os.path.dirname(fake))
+    # A watch that ends with the kill that follows the hook: killing the bash alone leaves its `sleep` holding the
+    # captured stdout open, and the case then waited out every sleep (20 s each, 80 s in all, for no CPU). Its argv stays
+    # `bash -c … node …`, which is what is_watch reads.
+    WATCH_BODY = 'trap "kill \\$p" TERM; sleep 20 & p=$!; wait; :'
     payload = os.path.join(tmp, "payload.json")
     with open(payload, "w", encoding="utf-8") as fh:
         json.dump({"cwd": tmp, "session_id": "sess-w", "source": "resume"}, fh)
@@ -518,10 +532,10 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
         # The fake watches carry real argv (bash -c with a trailing `:`, so bash stays and keeps its argv): `exec -a` would put a whole command
         # line into argv[0], one word holding spaces, which is exactly what is_watch no longer reads as a watch.
         fh.write("#!/bin/bash\n"  # not env: env re-execs bash and the process is no longer named claude
-                 "if [ \"$1\" = watch ]; then (exec bash -c 'sleep 20; :' node inbox.mjs --follow) & w=$!; sleep 0.3; fi\n"
-                 "if [ \"$1\" = until ]; then (exec bash -c 'sleep 20; :' node /home/x/.local/bin/gzcoord-inbox --until-delivery) & w=$!; sleep 0.3; fi\n"
-                 "if [ \"$1\" = wait ]; then (exec bash -c 'sleep 20; :' gzcoord-inbox --wait) & w=$!; sleep 0.3; fi\n"
-                 "if [ \"$1\" = named ]; then (exec bash -c 'sleep 20; :' node /home/x/.local/bin/gzcoord-inbox --follow) & w=$!; sleep 0.3; fi\n"
+                 f"if [ \"$1\" = watch ]; then (exec bash -c '{WATCH_BODY}' node inbox.mjs --follow) & w=$!; sleep 0.3; fi\n"
+                 f"if [ \"$1\" = until ]; then (exec bash -c '{WATCH_BODY}' node /home/x/.local/bin/gzcoord-inbox --until-delivery) & w=$!; sleep 0.3; fi\n"
+                 f"if [ \"$1\" = wait ]; then (exec bash -c '{WATCH_BODY}' gzcoord-inbox --wait) & w=$!; sleep 0.3; fi\n"
+                 f"if [ \"$1\" = named ]; then (exec bash -c '{WATCH_BODY}' node /home/x/.local/bin/gzcoord-inbox --follow) & w=$!; sleep 0.3; fi\n"
                  f"bash {HOOK} < {payload}\n"
                  "[ -n \"${w:-}\" ] && kill $w\n")
     os.chmod(fake, 0o755)
@@ -565,7 +579,7 @@ def test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_a
             os.makedirs(projects); os.makedirs(home)
             if os.path.exists(calls): os.unlink(calls)
             env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, f"state-{defer}"),
-                   "XDG_RUNTIME_DIR": runtime_dir, "PATH": bindir + os.pathsep + os.environ["PATH"], **langid_present(tmp)}
+                   "XDG_RUNTIME_DIR": runtime_dir, "PATH": bindir + os.pathsep + os.environ["PATH"], **langid_present(tmp), **operator_remote(tmp)}
             env.pop("CLAUDE_CONFIG_DIR", None)
             env.pop("AGENT_FABRIC_LOCAL_BIN", None)  # else the command links go to a real directory
             # The units follow XDG_CONFIG_HOME, which a CI runner sets to its
@@ -594,7 +608,7 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     # A runtime dir with no bus: the control agent's unit is installed and
     # never handed to THIS account's real user manager.
     runtime_dir = os.path.join(tmp, "run"); os.makedirs(runtime_dir)
-    env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "XDG_RUNTIME_DIR": runtime_dir, **langid_present(tmp)}
+    env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "XDG_RUNTIME_DIR": runtime_dir, **langid_present(tmp), **operator_remote(tmp)}
     env.pop("CLAUDE_CONFIG_DIR", None)
     env.pop("AGENT_FABRIC_LOCAL_BIN", None)  # else the command links go to a real directory
     # The units follow XDG_CONFIG_HOME, which a CI runner sets to its real
@@ -628,6 +642,9 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
     unit = os.path.join(home, ".config", "systemd", "user", "agent-fabric-agentd.service")
     assert os.path.isfile(unit), "the control agent's unit is installed per account"
+    origin = subprocess.run(["git", "-C", os.path.join(projects, "blueteam-fabric"), "config", "--get", "remote.origin.url"],
+                            capture_output=True, text=True, env=git_env(), timeout=60).stdout.strip()
+    assert origin == env["AGENT_FABRIC_OPERATOR_CLONE_URL"], f"the operator checkout came from {origin!r}, not the case's own remote"
     trusted = {d for d, v in json.load(open(os.path.join(home, ".claude.json"), encoding="utf-8"))["projects"].items()
                if v.get("hasTrustDialogAccepted") is True}
     assert trusted == {os.path.realpath(projects), os.path.realpath(root)}, \
@@ -711,26 +728,20 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     assert os.path.isfile(retired + ".before-agent-fabric"), "the human's backup was touched"
     with open(retired, "w", encoding="utf-8") as fh:
         fh.write("---\ndescription: my own role command\n---\nnothing to do with the fabric\n")
+    # One bootstrap for what three states of the account each said (a run takes about two CPU-seconds): the human's own
+    # role command stays; an existing settings file keeps its own entries; and entries from an EARLIER bootstrap out of
+    # another checkout are replaced, not kept beside the new ones: an account that moved from a shared path to its own
+    # clone must end up with one set of hooks.
+    with open(os.path.join(projects, ".claude", "settings.json"), "w", encoding="utf-8") as fh:
+        json.dump({"permissions": {"allow": ["Bash(ls:*)"]}, "env": {"MY_OWN": "x"}, "hooks": {"SessionStart": [
+            {"hooks": [{"type": "command", "command": "echo mine"}]},
+            {"hooks": [{"type": "command", "command": "bash \"/somewhere/else/agent-fabric/runtime/claude-code/hooks/session-start.sh\""}]}]}}, fh)
     proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     assert os.path.isfile(retired), "a command the human wrote was removed"
-    os.remove(retired); os.remove(retired + ".before-agent-fabric")
-    # An existing settings file keeps its own entries.
-    with open(os.path.join(projects, ".claude", "settings.json"), "w", encoding="utf-8") as fh:
-        json.dump({"permissions": {"allow": ["Bash(ls:*)"]}, "env": {"MY_OWN": "x"}, "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo mine"}]}]}}, fh)
-    proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
     settings = json.load(open(os.path.join(projects, ".claude", "settings.json"), encoding="utf-8"))
     assert settings["env"] == {"MY_OWN": "x", "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"}, settings["env"]
     assert settings["permissions"] == {"allow": ["Bash(ls:*)"]}
     assert any("echo mine" in json.dumps(g) for g in settings["hooks"]["SessionStart"])
-    assert any("session-start.sh" in json.dumps(g) for g in settings["hooks"]["SessionStart"])
-    # Entries from an EARLIER bootstrap out of another checkout are replaced,
-    # not kept beside the new ones: an account that moved from a shared path
-    # to its own clone must end up with one set of hooks.
-    with open(os.path.join(projects, ".claude", "settings.json"), "w", encoding="utf-8") as fh:
-        json.dump({"hooks": {"SessionStart": [{"hooks": [{"type": "command",
-                   "command": "bash \"/somewhere/else/agent-fabric/runtime/claude-code/hooks/session-start.sh\""}]}]}}, fh)
-    proc = subprocess.run(["bash", bootstrap, "--projects", projects], capture_output=True, text=True, env=env)
-    settings = json.load(open(os.path.join(projects, ".claude", "settings.json"), encoding="utf-8"))
     starts = [json.dumps(g) for g in settings["hooks"]["SessionStart"]]
     assert not any("/somewhere/else" in g for g in starts), starts
     assert sum("session-start.sh" in g for g in starts) == 1, starts
