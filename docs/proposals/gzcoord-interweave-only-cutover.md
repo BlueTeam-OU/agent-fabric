@@ -2,7 +2,7 @@
 
 **Status 2026-11-15.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, and D6, D7 and
 D8 on 2026-11-15, each as recommended (§7). D3's first half is done: #573 merged on 2026-11-13.
-D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
+W1 is done: #573's real-carrier read-back is the 2026-11-15 drill's record. D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
 and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in §4 change when
 each gate's word is given. W3 to W14 and W17 are done (§5): W6, W7 and W8 merged as
 #613, W7's Stop-hook probe is on #612, W11 and W17's code are #623, and W17's records
@@ -180,7 +180,9 @@ not amended; what the carrier observes of ordering and loss is the evidence its 
 **Gate 1: InterWeave becomes the transport of record** (ADR-064 rule 11, as written). Evidence:
 
 1. #573 merged (done, 2026-11-13), and its missing read-back done: a message through the real
-   carrier to a second account, shown once, then found on the relay after its return.
+   carrier to a second account, shown once, then found on the relay after its return. Filed:
+   the 2026-11-15 drill's twelve carrier-only pairs, one traced by hand
+   (`docs/live-checks/2026-11-15-relay-outage-drill.md`, "#573's real-carrier read-back").
 2. The rollback drill: `fabric-ctl <login> interweave-stop` on two accounts in the
    middle of a window with traffic, then `interweave-start`; `gzcoord-carrier parity --drill`
    reads `nothing_lost`. Run on 2026-11-12 on all 30 accounts for 30 minutes: nothing lost
@@ -243,7 +245,7 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 
 | id | piece | surface | accepted when | size | needs |
 |---|---|---|---|---|---|
-| W1 | Land #573; do its real-carrier read-back; file the 2026-11-12 drill | PD (python-dev-03); FC for the record | the PR's suite; the read-back's three facts (shown once, on the relay after return, a `gzcoord-backfill.jsonl` line) in a live check | #573 merged (2026-11-13); the drill's record filed (#612); the read-back still to file | - |
+| W1 | Land #573; do its real-carrier read-back; file the 2026-11-12 drill | PD (python-dev-03); FC for the record | the PR's suite; the read-back's three facts (shown once, on the relay after return, a `gzcoord-backfill.jsonl` line) in a live check | **Done.** #573 merged (2026-11-13); the drill's record filed (#612); the read-back filed from the 2026-11-15 drill (j879) | - |
 | W2 | The two drills and the fresh parity report (gate 1, items 2 to 4); trace the misses and duplicates | FC runs and files; PD reads `carrier/engine.py` `send_due` and `Adapter.post` for the causes | the report's "what it lacks" section is empty; each miss has a cause a reviewer can find in the computed file | S, mostly operations | W1 |
 | W3 | **Done, #581.** Journal-first `--replay` and `--history`: a MESSAGE-ID is answered from the journal in every mode; `--json` gains `carrier` and `sender_verified`; a relay seq is still answered from the relay while one is configured | PD (`inbox.py` `main`, `inbox_parts/records.py`; reads through `episodic.open_readonly`, so no supply-tier file changes) | a test with the relay refusing every connection: a row journaled by the carrier alone replays with exit 0, one not addressed exits 2; `jobsparts/records.py` `fetch_message` adds the job | M | - |
 | W4 | **Done, on this PR, #604.** `verify_grant`: a journal row a carrier other than the relay brought counts only with `sender_verified` true and that sender equal to `FROM`; a relay-brought row is judged as the relay's record always was, until the relay stops carrying GZCoord at gate 2 | DX (`tools/fabric/github/arm.py`); FC for ADR-041 rule 7 (amended 2026-11-14) | `tests/test_arm_cli.py`: a grant the carrier alone delivered arms with the relay down; an unverified sender on such a row is refused | S | W3, D4 |
@@ -263,7 +265,7 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W16 | The relay retired (gate 3): control on InterWeave alone, the state stream replaced, the relay unit, its token, its backup timer and `secret_relay.py` removed | PD, FC | sized when gate 3 is asked for | L | gate 3 |
 
 W3 to W14 and W17 are done. What is left, and in this order: W2 (the two drills and the
-parity report), which needs W1's read-back first; then the gates. W15 and W16
+parity report; W1 is done); then the gates. W15 and W16
 follow gate 2 and gate 3. The staged switches of §6 are operations, not code:
 fabric-coordinator's, on the owner's word.
 
@@ -381,10 +383,10 @@ recommended:
 
 ## 8. What happens first
 
-W3 to W14 and W17 are done, and #573 is merged. What is left, in this order:
+W1, W3 to W14 and W17 are done: #573 is merged, the 2026-11-12 drills are filed, and its
+real-carrier read-back is the 2026-11-15 drill's record. What is left, in this order:
 
-1. **W1's remainder**: the real-carrier read-back of #573 (the 2026-11-12 drills are filed).
-2. **W2**: the rollback drill, a judged relay-outage drill, and a parity report with no
+1. **W2**: the rollback drill, a judged relay-outage drill, and a parity report with no
    untraced miss. With W1 this is everything gate 1 asks for.
-3. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
+2. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
    gate 3.

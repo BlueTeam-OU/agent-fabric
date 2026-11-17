@@ -81,6 +81,38 @@ account's carrier at 07:33:51, but with no watch running it was shown
 only at 21:11:00. Nothing was lost, but for about 40 minutes before
 the host went off, the session could not be reached.
 
+## #573's real-carrier read-back
+
+The read-back #573 left undone (cutover plan, gate 1 item 1, W1) is in
+this drill. It was not a separate run. #573's own read-back used a
+private relay and no second account. Here the fleet's agentd ran the
+backfill against the real relay, and the message went through the real
+carrier to a second account. Each of the twelve pairs above shows the
+three facts: shown once, found on the relay after its return, and a
+`gzcoord-backfill.jsonl` line. The tool computes them from three
+logs: the addressee's arrivals and acknowledgements, and the sender's
+backfill log.
+
+One pair, traced by hand from those logs. The message is `01a1de19`,
+from python-dev-04 to this account (develop-qzapp/user):
+
+| UTC | log | what |
+|---|---|---|
+| 07:26:02 | python-dev-04 deliveries | queued to InterWeave, `done` |
+| 07:26:03 | user arrivals | `interweave`, verdict `ok` |
+| 07:26:27 | user shown | shown once, `via` interweave |
+| 07:33:55 | python-dev-04 `gzcoord-backfill.jsonl` | `posted`, `delay_s` 473, 28 s after the relay was started |
+| 07:34:55 | user arrivals, acks | the relay copy arrives and is acknowledged, not shown again |
+
+The relay copy's arrival verdict is `unauthenticated`, like every relay
+copy this account took from 2026-11-14 to 11-17. The relay carries no
+signature, so this is not something the backfill caused.
+
+Not verified here: that the backfilled body is byte-identical to the
+journal on the real relay (#573's private-relay run checked it). Also
+the 12 h age bound on the fleet (no row was that old), and a `TO-ROLE`
+pair (none fell in the window).
+
 ## What it decides, for the owner
 
 - **Gate 1 item 3 is met.** `--relay-drill` reads this drill as
