@@ -68,6 +68,13 @@ def cases(w: G.World) -> None:
               r.returncode == 0 and r.stdout == f"sent INFO {mid}\n" and sent_through_carrier(w, before),
               f"{r.returncode} {r.stdout!r} {r.stderr!r}")
 
+        # A token that is malformed (a line break) is refused where one is read; carrier-only reads none, so it never meets it.
+        mid, path = send_file(w, 30)
+        before = posted()
+        r = w.run([SEND, path], CLAUDE_BRIDGE_AUTH_TOKEN="a\nb")
+        check("carrier-only with a malformed relay token in the environment: the send still goes through (no token is read)",
+              r.returncode == 0 and sent_through_carrier(w, before), f"{r.returncode} {r.stdout!r} {r.stderr!r}")
+
         # (1) the two other modes refuse as today: no relay section, then a relay and no token. Nothing is posted.
         for m in (mode.RELAY_RECORD, mode.CARRIER_RECORD):
             set_mode(w, m)
