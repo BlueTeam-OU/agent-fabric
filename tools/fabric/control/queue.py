@@ -12,9 +12,11 @@ same argv, stdout and exits). Env read: CLAUDE_BRIDGE_URL,
 FABRIC_CONTROL_CHANNEL, FABRIC_STATE_CHANNEL, FABRIC_CONTROL_CONFIG (another
 control config file, so another pool_holder; agentd's control_config),
 AGENT_FABRIC_HOSTS_REGISTRY (who is placed, who holds the pool),
-FABRIC_QUEUE_WAIT_MS (how long the holder may take to answer, 10 s):
+FABRIC_QUEUE_WAIT_MS (how long the holder may take to answer, 10 s), FABRIC_STATE_READ (`op`: ask the accounts
+for their state records under any carrier, as the second carrier alone always does; any other non-empty value is refused, exit 3):
   waits                 {"waits": {<message id>: [<address>, …]}, "accounts": n,
-                         "stale": {<address>: <age s, or null>}}; exit 0, 2, 3
+                         "stale": {<address>: <age s, or null>}}; exit 0, 2, 3. Asked of the accounts it adds
+                         "unknown": {<address>: <why>} for each that gave no usable record; exit 3 when none did
   pool-list [<role>]    {"holder", "answer"}; exit 0, 2, 3, 4
   pool-claim <pool id>  the same; "sent" true / false / absent on exit 3
   job-state <login> <j<n>|message id>
@@ -57,6 +59,7 @@ else:
 import roots  # noqa: E402
 from control import carrier_cfg, gzcoord, js  # noqa: E402
 from control.jobs import JOB_ID  # noqa: E402
+from control import state_read, state_record  # noqa: E402
 from control.pool import POOL_ID, ROLE_SLUG, STATES_REPLAY, STATES_STALE_MS, pool_holder  # noqa: E402
 from control.sessions import MESSAGE_ID, date_parse  # noqa: E402
 
@@ -121,10 +124,27 @@ def waits_from(rows: list, placed: set, now_ms: float | None = None) -> dict:
     return {"waits": waits, "accounts": len(newest), "stale": stale}
 
 
-def read_waits(*, call, cfg: dict, placed: set) -> dict:
-    page = call("/api/messages?" + js.search_params({"channel": cfg["state_channel"], "limit": js.string(STATES_REPLAY), "full": "1"}))
-    messages = page.get("messages") if isinstance(page, dict) else None
-    return waits_from(messages if isinstance(messages, list) else [], placed)
+def read_waits(*, call, cfg: dict, placed: set, ask=None) -> dict:
+    """{"waits", "accounts", "stale"} of waits_from; with `ask` (state_read.ask, bound to this account) the records are asked
+    of the placed accounts, not read from the relay's history, and the answer also says `unknown`: {address: why} for each
+    account that gave no record, since "accounts" alone would read an account that did not answer as one that waits on nothing."""
+    if ask is None:
+        page = call("/api/messages?" + js.search_params({"channel": cfg["state_channel"], "limit": js.string(STATES_REPLAY), "full": "1"}))
+        messages = page.get("messages") if isinstance(page, dict) else None
+        return waits_from(messages if isinstance(messages, list) else [], placed)
+    answers = ask(sorted(placed))
+    unknown = {addr: a["error"] for addr, a in answers.items() if "error" in a}
+    rows = []
+    for addr, a in answers.items():
+        if "record" not in a:
+            continue
+        row = {"content": js.stringify(a["record"])}
+        # A record waits_from drops (a waits_on that is no list of message ids) is no answer either, never "waits on nothing".
+        if waits_from([row], {addr})["accounts"] == 0:
+            unknown[addr] = f"{addr}'s state record has not the shape agentd writes"
+        else:
+            rows.append(row)
+    return {**waits_from(rows, placed), "unknown": unknown}
 
 
 def budget_spent(path: str) -> BudgetSpent:
@@ -347,6 +367,27 @@ def cli(argv: list[str] | None = None, out=print, err=lambda m: print(m, file=sy
         out(js.stringify({"error": str(e), "sent": False}))
         return 3
     cfg = agentd.control_config()
+    try:
+        via_op = cmd == "waits" and state_read.use_op(cfg, say=err)
+    except RuntimeError as e:   # a misspelt FABRIC_STATE_READ: refused, said, never read as "off"
+        out(js.stringify({"error": str(e)}))
+        return 3
+    if via_op:
+        # No relay here: with the second carrier alone there may be none to reach, and no token to read it with.
+        try:
+            me = gzcoord.identity(gzcoord.whoami() if who is None else who)["address"]
+            asker = state_read.asker(cfg, me=me, own_file=os.path.join(agentd.state_dir(), state_record.RECORD_FILE), new_id=agentd.new_id,
+                                     say=lambda m: None, wait_s=max(0.0, min(state_read.ASK_WAIT_S if wait_ms is None else wait_ms / 1000, budget_left() / 1000)))
+            read = read_waits(call=None, cfg=cfg, placed=placed_accounts(registry), ask=asker)
+            if read["unknown"] and not read["accounts"]:
+                # Nobody gave a record: a board of no waits would read as "nobody waits", which nobody said.
+                out(js.stringify({"error": "no account gave a state record: " + "; ".join(f"{a}: {w}" for a, w in sorted(read["unknown"].items()))}))
+                return 3
+            out(js.stringify(read))
+            return 0
+        except Exception as e:  # noqa: BLE001 — every failure is one {"error"} line, exit 3, as below
+            out(js.stringify({"error": f"the state op could not be asked: {e}"}))  # not relay_error: no relay is involved here
+            return 3
     try:
         r = relay(who, cfg, call=call)
     except Unreadable as e:
