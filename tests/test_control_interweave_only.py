@@ -9,7 +9,6 @@ The config's own parse (the third word, and a typo still refused) is held here t
 """
 from __future__ import annotations
 
-import io
 import itertools
 import json
 import os
