@@ -89,6 +89,25 @@ def main() -> int:
     check("a drill pair that neither carrier delivered is nothing-lost false (the control)",
           lost["drill"]["nothing_lost"] is False and [x["mid"] for x in lost["drill"]["pairs"]] == [m2], str(lost["drill"]))
 
+    # A broadcast from alpha: the relay hands alpha its own copy back, the carrier never sends to its sender (rule 6).
+    mb = mid(120, 20)
+    bcast = [arr(mb, "h/alpha", "relay", 121), arr(mb, B, "relay", 121), arr(mb, B, "interweave", 121),
+             arr(mb, C, "relay", 121)]
+    bsend = {"alpha": [{"mid": mb, "to": "beta", "enc": "plain", "queued": ISO(120), "state": "done"}]}
+    own = P.compute(bcast, bsend, {mb: "broadcast"}, (T0, T0 + 1000), host="h")
+    check("the sender's own copy of its broadcast is no InterWeave miss, and is listed apart",
+          [x["addressee"] for x in own["own_copies"]] == ["h/alpha"] and
+          not any(x["addressee"] == "h/alpha" for x in own["missed"]), str(own["missed"]))
+    check("  control: a member the sender recorded no delivery to (gamma) is still a miss",
+          [(x["addressee"], x["carrier"]) for x in own["missed"]] == [("h/gamma", "interweave")], str(own["missed"]))
+    check("  the cause says gamma has no InterWeave arrival in the collection",
+          "no InterWeave arrival in the collection" in own["missed"][0]["cause"], own["missed"][0]["cause"])
+    check("  and the markdown says how many pairs were not counted", "1 pair(s) whose addressee is the message's own sender" in P.render_markdown(own))
+    later = bcast + [arr(mid(500, 21), C, "interweave", 501)]
+    lat = P.compute(later, bsend, {mb: "broadcast"}, (T0, T0 + 1000), host="h")
+    check("  an addressee that began receiving later names its first InterWeave arrival",
+          "first InterWeave arrival in the collection is" in [x for x in lat["missed"] if x["addressee"] == "h/gamma" and x["mid"] == mb][0]["cause"])
+
     narrow = P.compute(arrivals, senders, kinds, (T0 + 40, T0 + 100), host="h")
     check("the window selects pairs by their first copy (m4, m6, and the lost pair queued at 70)", narrow["pairs"] == 3, str(narrow["pairs"]))
 

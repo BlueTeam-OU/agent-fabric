@@ -524,12 +524,22 @@ def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[st
         for r in recs:
             sent[(r["mid"], f"{host}/{r['to']}" if host else r["to"])] = (login, r)
     first = {k: min(parse_t(a["t"]) for c in v.values() for a in c) for k, v in pairs.items()}
+    # The carrier sends a broadcast or a TO-ROLE to every roster member but its own sender (engine.Carrier.recipients,
+    # CARRIER-CONTRACT.md rule 6), where the relay hands the sender its own copy back: that pair is no InterWeave miss.
+    sender_logins = defaultdict(set)
+    for (m_, _), (login, _) in sent.items():
+        sender_logins[m_].add(login)
+    first_iw: dict[str, float] = {}
+    for (_, addressee), v in pairs.items():
+        for a in v.get("interweave", []):
+            first_iw[addressee] = min(first_iw.get(addressee, float("inf")), parse_t(a["t"]))
     inside = {k for k, t in first.items() if window[0] <= t < window[1]}
     inside |= {k for k, (_, r) in sent.items() if k not in pairs and r.get("queued") and r["state"] != "done"
                and window[0] <= parse_t(r["queued"]) < window[1]}
 
     per = {c: {"delivered": 0, "missed": 0, "duplicates": 0, "mismatch": 0} for c in CARRIERS}
     missed: list[dict] = []
+    own_copies: list[dict] = []
     stranded: list[dict] = []
     late = {k: {"relay": 0, "interweave": 0} for k in ("direct", "role", "broadcast", "unknown")}
     for key in sorted(inside):
@@ -547,15 +557,18 @@ def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[st
                 per[c]["mismatch"] += sum(1 for g in got if g["verdict"] == "mismatch")
                 if created is not None and min(parse_t(g["t"]) for g in got) - created > offline_after:
                     late[kind][c] += 1
+            elif c == "interweave" and addressee.rpartition("/")[2] in sender_logins.get(mid, ()):
+                own_copies.append({"mid": mid, "addressee": addressee})
             else:
                 per[c]["missed"] += 1
-                missed.append({"mid": mid, "addressee": addressee, "carrier": c, "cause": _cause(c, key, sent, copies)})
+                missed.append({"mid": mid, "addressee": addressee, "carrier": c,
+                               "cause": _cause(c, key, sent, copies, first_iw.get(addressee), created)})
     encs = defaultdict(set)
     for login, recs in senders.items():
         for r in recs:
             if r.get("queued") and window[0] <= parse_t(r["queued"]) < window[1]:
                 encs[r["enc"]].add(r["mid"])
-    out = {"window": window, "pairs": len(inside), "carriers": per, "missed": missed, "stranded": stranded,
+    out = {"window": window, "pairs": len(inside), "carriers": per, "missed": missed, "own_copies": own_copies, "stranded": stranded,
            "late": late, "offline_after_s": offline_after,
            "messages": {e: len(encs[e]) for e in ("plain", "compressed", "chunked")}}
     if drill:
@@ -571,11 +584,19 @@ def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[st
     return out
 
 
-def _cause(carrier: str, key: tuple, sent: dict, copies: dict) -> str:
+def _cause(carrier: str, key: tuple, sent: dict, copies: dict, addressee_first: float | None = None,
+           made: float | None = None) -> str:
     if carrier == "interweave":
         rec = sent.get(key)
         if rec is None:
-            return "the sender recorded no InterWeave delivery (not carried: no roster row, carrier off or sender had none)"
+            # Which of the three the sender's refusal was is on its stderr only (adapter.Adapter.post_result); what the
+            # collection can say is whether the addressee was receiving by InterWeave at all yet.
+            said = "the sender recorded no InterWeave delivery (not carried: no roster row, carrier off or sender had none)"
+            if addressee_first is None:
+                return said + "; the addressee has no InterWeave arrival in the collection"
+            if made is not None and made < addressee_first:
+                return said + f"; the addressee's first InterWeave arrival in the collection is {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(addressee_first))}, later"
+            return said
         login, r = rec
         if r["state"] == "blocked":
             return f"sent by {login}, refused by the daemon and still outstanding ({r.get('code')})"
@@ -627,6 +648,8 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
         L.append(f"| {c} | {p['delivered']} | {p['missed']} | {p['duplicates']} | {p['mismatch']} |")
     L += ["", "## Pairs a carrier missed, with the cause", ""]
     L += [f"- {m['mid']} to {m['addressee']}, {m['carrier']}: {m['cause']}" for m in rep["missed"]] or ["- none"]
+    L += ["", f"Not counted as InterWeave misses: {len(rep['own_copies'])} pair(s) whose addressee is the message's own sender "
+          "(a broadcast or TO-ROLE: the relay returns the sender its copy, the carrier never sends to its sender)."]
     L += ["", "## Pairs the sender recorded sending, no copy arrived and no receipt came", ""]
     L += [f"- {m['mid']} to {m['addressee']} (sender {m['sender']}, {m['state']})" for m in rep["stranded"]] or ["- none"]
     L += ["", f"## Delivered to an addressee that was away (first copy over {int(rep['offline_after_s'])} s after the message was made)", "",
