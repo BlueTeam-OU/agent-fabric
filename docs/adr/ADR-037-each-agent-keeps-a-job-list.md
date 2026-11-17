@@ -196,7 +196,7 @@ Why these choices:
    (A 2026-10-31). `list`, `next` and `block` re-check a blocker at
    most every ten minutes and never one that cleared, while `start`
    and `switch <id>` decide on a fresh check, since a refusal read
-   from a ten-minute-old "waiting" is wrong; a job whose
+   from a ten-minute-old "waiting" is wrong (A 2026-11-17); a job whose
    blockers have all cleared reads "blocker cleared", is listed first
    and is taken first by `next`, and `--stored` reads the cache without
    checking a blocker or reaching the state stream, which the session-start
@@ -419,3 +419,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-11-09 | A peer's job is read by its waiter | §5 rule 8: a non-operator reads a `job:` blocker and re-points a `request:` blocker through the public `job-state` op, which answers one job's state to the sender of the request it was taken from; a re-point that would make a seen cycle is refused, never stored; rule 14 lists the re-point as no transition; built in #527 |
 | 2026-11-10 | A landed branch, and a merge before deliver | §5 rule 10 step 3: a blocked job whose recorded branch a pull request landed counts as a job with no branch and gets the open pull request or a new branch; step 1 and rule 14's `done` row: `fabric-jobs done <id> <artifact>...` records the named artifacts, each of which must have landed; built in #541 |
 | 2026-11-11 | No copy for a job with no branch, a pause the push fence leaves unpushed, a request this login cannot read | §5 rule 14: `start` needs no working copy for a job with no branch; `pause`, when the push fence refuses the session's pushes, records the unpushed branch and head, which `start` and `switch` say to push; rule 8: a non-REQUEST's answer clears its `request:` blocker without a board, and `block` refuses a `request:` id the journal does not hold; built in #556 |
+| 2026-11-17 | start and switch decide on a fresh blocker check | §5 rule 8: the ten-minute re-check bound is `list`'s, `next`'s and `block`'s; `start` and `switch <id>` decide on a fresh check; built in #537 |

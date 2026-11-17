@@ -348,11 +348,12 @@ def main() -> int:
     check("D6: a TO-ROLE message read by a holder of another role is acknowledged and not shown",
           "r7" in w.acks and "subject-7" not in r.stdout, f"{w.acks}\n{r.stdout}{r.stderr}")
     bind(w, "python-dev")
-    w.pages = [[rec7]]   # served again: a relay that lost its acknowledgement, or a second listing
+    w.pages = [[rec7]]   # served again: as after a lost or refused acknowledgement, or a second listing
     r = w.drain()
-    # Decided (fabric-coordinator, j905): kept. Only a relay that lost an acknowledgement serves a record again, and
-    # then the record is judged again by the role held now. That fault errs towards showing a message to a holder of
-    # its role, never towards losing it, which a per-record arrival decision would not improve enough to keep state for.
+    # Decided (fabric-coordinator, j905): kept. A record is served again only after a lost or refused acknowledgement,
+    # a retransmission under its MESSAGE-ID or a second listing, and then it is judged again by the role held now. That
+    # errs towards showing a message to a holder of its role, never towards losing it, which a per-record arrival
+    # decision would not improve enough to keep state for.
     check("D6 limit: a TO-ROLE record served again is judged again, by the role held at that read",
           "subject-7" in r.stdout, r.stdout + r.stderr)
     w.close()
