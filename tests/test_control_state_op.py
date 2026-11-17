@@ -348,8 +348,22 @@ class Override(Tmp):
 
 class Beside(unittest.TestCase):
     def test_pool_claim_is_answered_off_the_thread_its_claimant_replies_arrive_on(self):
-        self.assertIn("pool-claim", agentd.BESIDE_LOOP_WHEN_ASKING)
-        self.assertNotIn("pool-claim", agentd.BESIDE_LOOP_OPS)   # the relay and dual paths keep it inline
+        self.assertTrue(agentd.beside_loop("pool-claim", True))
+        self.assertFalse(agentd.beside_loop("pool-claim", False))   # the relay and dual paths keep it inline
+        self.assertTrue(agentd.beside_loop("disk", False))          # positive control: the ones always beside the loop are
+        self.assertFalse(agentd.beside_loop("presence", True))
+
+    def test_a_misspelt_override_in_the_daemon_is_said_and_the_carrier_alone_decides(self):
+        said = []
+        orig = agentd._stderr
+        agentd._stderr = said.append
+        self.addCleanup(setattr, agentd, "_stderr", orig)
+        for carrier, asks in (("interweave", True), ("relay", False), ("dual", False)):
+            with self.subTest(carrier):
+                got = agentd.state_asker_of({"control_carrier": carrier}, me=ME, own_file="f", new_id=lambda: "q", env={"FABRIC_STATE_READ": "Op"})
+                self.assertEqual(got is not None, asks)
+        self.assertEqual(len(said), 3)
+        self.assertIn("override is ignored", said[0])
 
 
 class Table(Tmp):

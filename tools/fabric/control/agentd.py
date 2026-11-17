@@ -297,6 +297,21 @@ BESIDE_LOOP_OPS = ["disk", "gateway", CARRIER_NAME, "branches", "drift"]
 # answer comes in on the thread that handles requests, so the claim must not be handled there. Its race is the pool's own flock, not
 # this loop's one-at-a-time. Where the relay is read, the claim stays inline as it was.
 BESIDE_LOOP_WHEN_ASKING = ["pool-claim"]
+
+
+def beside_loop(op: str, asking: bool) -> bool:
+    """Whether an op is answered on a thread of its own; `asking` is whether this daemon's readers ask the state op."""
+    return op in BESIDE_LOOP_OPS or (asking and op in BESIDE_LOOP_WHEN_ASKING)
+
+
+def state_asker_of(cfg: dict, *, me: str, own_file: str, new_id: Callable[[], str], env: dict | None = None) -> Callable[[list], dict] | None:
+    """The readers' ask, or None where they read the relay. A misspelt FABRIC_STATE_READ is said and ignored, never fatal: a daemon
+    that dies of it answers nothing at all; the carrier alone then decides (the second carrier alone asks the op, the others read the relay)."""
+    try:
+        return state_read.asker(cfg, me=me, own_file=own_file, new_id=new_id, env=env)
+    except RuntimeError as e:
+        _stderr(f"agentd: {e}: the override is ignored")
+        return state_read.asker(cfg, me=me, own_file=own_file, new_id=new_id, env={})
 # One disk scan per daemon, shared by every request that arrives while it
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).
@@ -1132,13 +1147,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         return call("/api/send", method="POST",
                     body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(content)}))
     # A claimant's role is what its own control agent last said on the state channel.
-    try:
-        state_asker = state_read.asker(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=new_id)
-    except RuntimeError as e:
-        # A daemon that dies of a misspelt reader override answers nothing at all; it says so and goes on as the carrier alone decides
-        # (the second carrier alone asks the op, the others read the relay), as without the override.
-        _stderr(f"agentd: {e}: the override is ignored")
-        state_asker = state_read.asker(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=new_id, env={})
+    state_asker = state_asker_of(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=new_id)
     ctx["pool_opts"] = {"role_of": role_from_stream(call=call, cfg=cfg, ask=state_asker)}
     # The account's GZCoord inbox is the project's channel on the relay this daemon already reaches
     # (status says its read position: tools/fabric/drift.py); a project with none says so.
@@ -1320,7 +1329,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
                 _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]}){tag}{control_link.id_tail(request['id'])}")
                 beside(a, True, via)
             return
-        if request["op"] in BESIDE_LOOP_OPS or (request["op"] in BESIDE_LOOP_WHEN_ASKING and state_asker is not None):
+        if beside_loop(request["op"], state_asker is not None):
             beside(a, False, via)
             return
         with inline_lock:
