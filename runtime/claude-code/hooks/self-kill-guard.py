@@ -47,7 +47,8 @@ input of data readers alone (drop_data_heredoc_bodies, _drop_bodies); a negative
 (-1, a group) is refused outright; an operand held in a variable or a substitution asks.
 A body stored in a file the same command runs is kept judged (_runs_what_it_writes), with limits: the file under
 another name (`mv k.sh j.sh && bash j.sh`) and a program that runs a file and is no shell or interpreter (`awk -f`)
-are not followed.
+are not followed. It fails closed, so a command that writes a file and also pipes anything into an interpreter
+(`echo hi | python3`) keeps its bodies judged: a false deny, a rephrase.
 Seven review rounds on #69 and #70 each found a spelling a
 re-implementation of procps's rules misread; procps does not misread
 itself. The second layer only adds denials.
@@ -473,18 +474,44 @@ def _written_names(rest: str, openers: list[str]) -> set[str]:
     return {n for n in (os.path.basename(re.sub(r"['\"\\]", "", n)) for n in names) if n and n not in nowhere}
 
 
+def _runner_start(words: list[str]) -> int | None:
+    """Where a simple command's own runner word stands: the command word itself or the one after a prefix (`sudo
+    bash`, `timeout 5 python3`); None when the command runs nothing but possibly a file by its own name."""
+    while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+        words = words[1:]
+    if not words or not (os.path.basename(words[0]) in PREFIXES or _is_runner(words[0])):
+        return None
+    return next((i for i, w in enumerate(words) if _is_runner(w)), None)
+
+
+def _is_runner(w: str) -> bool:
+    base = os.path.basename(w)
+    return base in RUNNERS or bool(INTERPRETER.fullmatch(base))
+
+
 def _runs_what_it_writes(rest: str, openers: list[str]) -> bool:
-    """Whether the command, its here-document bodies dropped, runs a file it wrote: a simple command whose own word is
-    the written file (`./k.sh`, `"$PWD/k.sh"`), or a shell, interpreter, `source` or `.` given it as an operand, in a
-    word of its own or inside a payload (`bash -c 'bash k.sh'`). A runner or a prefix (`timeout 5 ./k.sh`, `xargs
-    bash`) given an operand the guard cannot read ($f, a substitution) counts too: fail closed, as _strip_bodies
-    does. So does a runner with no file operand at all (`cat k.sh | bash`, `bash < k.sh`, `sh -s < k.sh`): it reads
-    what it is fed, and the guard does not follow a pipe or a `<` to its source. Only a runner that names the file
-    counts, not any shell or interpreter in the command with a file of its own (`python3 t.py` beside a `cat > f`
-    runs another file); writing a file and not running it stays allowed.
+    """Whether the command, its here-document bodies dropped, may run a file it wrote. It fails closed, because two
+    review rounds each found a spelling past a rule that tried to say exactly which word names the file:
+    - a here-document whose opening command is no pure data reader (not DATA_READERS: `sort -ok.sh`, `sort
+      --output=k.sh`, `cp /dev/stdin k.sh`, `dd of=k.sh`) may store the body under a name the guard cannot read, so
+      any runner segment in the command (a shell, interpreter, `source` or `.`, also after a prefix) keeps the body;
+    - a runner segment fed by a pipe or a `<` redirection (`cat k.sh | bash -s x`, `bash /dev/stdin < k.sh`) counts
+      whatever its operands, as soon as the command writes any file: it reads what it is fed, and the guard does not
+      follow a pipe or a `<` to its source;
+    - otherwise a simple command whose own word is a written file (`./k.sh`, `"$PWD/k.sh"`), or a runner or a prefix
+      with an operand that names one, in a word of its own or inside a payload (`bash -c 'bash k.sh'`), or that the
+      guard cannot read ($f, a substitution); and a runner with no file operand at all.
+    The cost, accepted: a command that writes a file and also pipes anything into an interpreter (`echo hi |
+    python3`) keeps its body judged, a rephrase. Writing a file and running no runner stays allowed, and so does a
+    runner that is fed nothing and names another file of its own (`python3 t.py` beside a `cat > f`).
 
     Not covered: the file under another name (`mv k.sh j.sh && bash j.sh`, `cp k.sh j.sh`), and a program that runs a
     file and is no RUNNER (`awk -f k.awk`)."""
+    fed = fed_segments(rest)
+    if any(words and os.path.basename(words[0]) not in DATA_READERS
+           for line in openers for words in segments(line)) \
+            and any(_runner_start(words) is not None for words, _ in fed):
+        return True
     names = _written_names(rest, openers)
     if not names:
         return False
@@ -493,11 +520,7 @@ def _runs_what_it_writes(rest: str, openers: list[str]) -> bool:
 
     def unreadable(w: str) -> bool:
         return "$" in w or "`" in w
-
-    def runner(w: str) -> bool:
-        base = os.path.basename(w)
-        return base in RUNNERS or bool(INTERPRETER.fullmatch(base))
-    for words in segments(rest):
+    for words, is_fed in fed:
         while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
             words = words[1:]
         if not words:
@@ -505,11 +528,11 @@ def _runs_what_it_writes(rest: str, openers: list[str]) -> bool:
         head = os.path.basename(words[0])
         if mention.search(words[0]) or unreadable(words[0]):
             return True
-        if head in PREFIXES or runner(head):
+        if head in PREFIXES or _is_runner(head):
             if any(mention.search(w) or (head not in PREFIXES and unreadable(w)) for w in words[1:]):
                 return True
-            start = next((i for i, w in enumerate(words) if runner(w)), None)
-            if start is not None and not any(not w.startswith("-") for w in words[start + 1:]):
+            start = _runner_start(words)
+            if start is not None and (is_fed or not any(not w.startswith("-") for w in words[start + 1:])):
                 return True
     return False
 
@@ -599,15 +622,23 @@ def segments(piece: str) -> list[list[str]]:
     the raw text first made a quoted argument that mentions a kill a
     command of its own). A redirection — any operator holding < or >, `>|`
     and `)>` included — and the word after it are not arguments."""
+    return [words for words, _ in fed_segments(piece)]
+
+
+def fed_segments(piece: str) -> list[tuple[list[str], bool]]:
+    """segments, each with whether it reads its stdin from somewhere the words do not show: the command after a `|` or
+    `|&`, or one with a `<` redirection (a file, a here-document or here-string, a process substitution). The
+    redirection and its target are not among the words, so _runs_what_it_writes reads this instead. A line the lexer
+    cannot read (an unbalanced quote) counts every segment as fed: fail closed."""
     lex = shlex.shlex(strip_non_arguments(piece), posix=True, punctuation_chars="();<>|&\n")
     lex.commenters = ""
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
-    out, cur = [], []
+    out, cur, fed = [], [], False
     try:
         toks = list(lex)
     except ValueError:   # an unbalanced quote: the plain words, as before
-        return [seg.split() for seg in re.split(r"[|;&\n]+", piece)]
+        return [(seg.split(), True) for seg in re.split(r"[|;&\n]+", piece)]
     skip = False
     for tok in toks:
         if skip:
@@ -616,13 +647,15 @@ def segments(piece: str) -> list[list[str]]:
         if tok and set(tok) <= set("|;&\n()<>"):
             if any(ch in tok for ch in "|;\n()") and not (set(tok) <= set("<>&|") and ("<" in tok or ">" in tok)) \
                     or tok in ("&", "&&"):
-                out.append(cur)
-                cur = []
+                out.append((cur, fed))
+                cur, fed = [], ("|" in tok and "||" not in tok) or "<" in tok
+            elif "<" in tok:
+                fed = True
             if "<" in tok or ">" in tok:
                 skip = True    # the redirection's target: a file, or the fd of >&1
             continue
         cur.append(tok)
-    out.append(cur)
+    out.append((cur, fed))
     return out
 
 

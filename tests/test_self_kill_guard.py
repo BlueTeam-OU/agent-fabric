@@ -404,11 +404,25 @@ def main() -> int:
               ("bash < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash < k.sh"),
               ("sh -s < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nsh -s < k.sh"),
               ("cat k.sh | sudo bash", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sudo bash"),
+              # Re-review of #637, F6: the runner has operands, yet reads the file from its stdin. Kills: the fed
+              # rule (fed_segments) in _runs_what_it_writes.
+              ("bash -s x < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash -s x < k.sh"),
+              ("cat k.sh | bash -s x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | bash -s x"),
+              ("bash /dev/stdin < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash /dev/stdin < k.sh"),
+              ("cat k.sh | sh /dev/stdin", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sh /dev/stdin"),
+              ("cat k.sh | sudo python3 -u x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sudo python3 -u x"),
               # Review of #637, F7: a program other than cat and tee stores the body. Kills: the openers in
               # _written_names.
               ("cp /dev/stdin k.sh", "cp /dev/stdin k.sh <<'X'\n{kill}\nX\nbash k.sh"),
               ("dd of=k.sh", "dd of=k.sh <<'X'\n{kill}\nX\nbash k.sh"),
               ("install /dev/stdin k.sh", "install -m755 /dev/stdin k.sh <<'X'\n{kill}\nX\n./k.sh"),
+              # Re-review of #637, F7: the output named inside an option of a non-reader. Kills: the opener rule (any
+              # runner segment keeps the body) in _runs_what_it_writes.
+              # Re-review of #637, R3: the accepted cost, an unrelated pipe into an interpreter denies.
+              ("an unrelated echo hi | python3", "cat > k.sh <<'X'\n{kill}\nX\necho hi | python3"),
+              ("sort -ok.sh", "sort -ok.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("sort --output=k.sh", "sort --output=k.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("sort -o k.sh, then ./k.sh by python3", "sort -o k.sh <<'X'\n{kill}\nX\npython3 k.sh"),
               ("cat <<X | cp /dev/stdin k.sh", "cat <<'X' | cp /dev/stdin k.sh\n{kill}\nX\nsource k.sh"))
     for label, tmpl in stored:
         d = by_pid(tmpl.format(kill=f"kill {W}"))
@@ -423,6 +437,9 @@ def main() -> int:
                         ("cat > k.sh, then chmod and cat it", "cat > k.sh <<'X'\n{kill}\nX\nchmod +x k.sh && cat k.sh"),
                         ("cp /dev/stdin k.sh, not run", "cp /dev/stdin k.sh <<'X'\n{kill}\nX"),
                         ("dd of=k.sh, then cat it", "dd of=k.sh <<'X'\n{kill}\nX\ncat k.sh | grep x"),
+                        ("sort -ok.sh, not run", "sort -ok.sh <<'X'\n{kill}\nX\ncat k.sh"),
+                        ("write, then a runner fed nothing and naming another file",
+                         "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py"),
                         ("a commit message", "git commit -F- <<'EOF'\nfix: {kill} no longer runs\nEOF"),
                         ("cat <<X | grep pkill", "cat <<'X' | grep pkill\n{kill}\nX")):
         # By pid a file write already keeps the body (_data_only, review of #612 P3), so only the readers are pinned (git is no data reader).
