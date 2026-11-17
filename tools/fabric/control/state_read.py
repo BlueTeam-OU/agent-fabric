@@ -28,11 +28,9 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
-from control import js, state_record  # noqa: E402
-from gzcoord.carrier import CARRIER_NAME  # noqa: E402
+from control import carrier_cfg, js, state_record  # noqa: E402
 
 ENV_OVERRIDE = "FABRIC_STATE_READ"
-CARRIER_SECOND_ONLY = CARRIER_NAME
 ASK_WAIT_S = 10.0   # the whole fan-out, however many accounts: they answer at once or not within it
 ASK_POLL_S = 0.5
 
@@ -47,7 +45,7 @@ def use_op(cfg: dict, env: dict | None = None, say: Callable[[str], None] | None
         say(f"{ENV_OVERRIDE}=op: state records are asked of the accounts, not read from the relay"
             f" (control_carrier is {cfg.get('control_carrier')!r})")
         return True
-    return cfg.get("control_carrier") == CARRIER_SECOND_ONLY
+    return not carrier_cfg.uses_relay(cfg)
 
 
 def _open_leg(request: dict, to: list, wait_s: float):

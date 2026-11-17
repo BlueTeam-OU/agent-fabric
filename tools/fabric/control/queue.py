@@ -360,11 +360,11 @@ def cli(argv: list[str] | None = None, out=print, err=lambda m: print(m, file=sy
         try:
             me = gzcoord.identity(gzcoord.whoami() if who is None else who)["address"]
             asker = state_read.asker(cfg, me=me, own_file=os.path.join(agentd.state_dir(), state_record.RECORD_FILE), new_id=agentd.new_id,
-                                     say=lambda m: None, wait_s=max(0.0, min(state_read.ASK_WAIT_S, budget_left() / 1000)))
+                                     say=lambda m: None, wait_s=max(0.0, min(state_read.ASK_WAIT_S if wait_ms is None else wait_ms / 1000, budget_left() / 1000)))
             out(js.stringify(read_waits(call=None, cfg=cfg, placed=placed_accounts(registry), ask=asker)))
             return 0
         except Exception as e:  # noqa: BLE001 — every failure is one {"error"} line, exit 3, as below
-            out(js.stringify({"error": relay_error(e, cfg)}))
+            out(js.stringify({"error": f"the state op could not be asked: {e}"}))  # not relay_error: no relay is involved here
             return 3
     try:
         r = relay(who, cfg, call=call)

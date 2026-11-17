@@ -1268,7 +1268,7 @@ class Resident(Daemon):
         state = self.scratch("agentd-state-")
         r = self.with_relay()
         d = self.start(r.url(), AGENT_FABRIC_STATE_DIR=state, FABRIC_STATE_CHANNEL="test:state:control")
-        self.until(lambda: any(h == "/api/send" for h in r.hits), "no state record posted", d)
+        self.until(lambda: any(json.loads(x["content"]).get("kind") == "state" for x in r.rows), "no state record posted", d)
         posted = next(json.loads(x["content"]) for x in r.rows if json.loads(x["content"]).get("kind") == "state")
         self.until(lambda: r.waits() > 0, "the daemon never waited", d)   # a request older than the prime is not read
         r.add("develop-qzapp/user", request(op="state"))
@@ -1288,7 +1288,9 @@ class Resident(Daemon):
         d = self.start(r.url(), AGENT_FABRIC_STATE_DIR=state, FABRIC_STATE_CHANNEL="test:state:control", FABRIC_CONTROL_CARRIER="interweave")
         files = lambda: [os.path.join(dp, n) for dp, _dn, ns in os.walk(state) for n in ns if n == "state-record.json"]  # noqa: E731
         self.until(lambda: bool(files()), "no state record kept", d)
-        self.until(lambda: r.waits() > 0, "the daemon never waited", d)
+        # The record is stored before the poster decides whether to post, so a post would follow within moments of the file;
+        # the first case above is the positive control that the same daemon does post to the relay otherwise.
+        time.sleep(1.0)
         with r.lock:
             channels = [c for c, _b in r.posts]
         self.assertNotIn("test:state:control", channels)

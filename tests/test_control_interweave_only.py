@@ -169,7 +169,7 @@ class Cli(Net):
         reg = os.path.join(d, "registry.json")
         with open(reg, "w", encoding="utf-8") as fh:
             json.dump({"hosts": {"h": {"operator": "user"}}, "placement": {"alice": "h", "bob": "h", "user": "h"}}, fh)
-        agentd_stub = SimpleNamespace(control_config=lambda: CFG, new_id=lambda: f"q{next(IDS)}", operator_addresses=lambda registry=None: ["h/user"])
+        agentd_stub = SimpleNamespace(control_config=lambda: CFG, new_id=lambda: f"q{next(IDS)}", state_dir=lambda: d, operator_addresses=lambda registry=None: ["h/user"])
         lines: list[str] = []
         env = {"HOME": d, "AGENT_FABRIC_ROOT": os.path.join(d, "ws", "fabric")}
         if token:
@@ -206,16 +206,18 @@ class Cli(Net):
         with self.holder_is_bob():
             rc, out = self.run_cli(["pool-list"], token=None)
         self.assertEqual((rc, out[0]["answer"]), (0, {"status": "ok", "pool": []}))
-        rc, out = self.run_cli(["waits"], token=None)   # the state stream is the relay's still: unknown, said, never an empty board
-        self.assertEqual(rc, 3)
-        self.assertIn("no CLAUDE_BRIDGE_AUTH_TOKEN", out[0]["error"])
-        self.assertNotIn("waits", out[0])
+        # The state stream is asked of the accounts (the `state` op), so waits needs neither the relay nor a token; an account that
+        # does not answer is unknown, said, never a board that reads as no claims.
+        rc, out = self.run_cli(["waits"], token=None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(sorted(out[0]["unknown"]), ["h/alice", "h/bob", "h/user"])
+        self.assertEqual(self.relay.calls, [])
 
-    def test_waits_with_the_relay_down_is_an_error_line_and_not_an_empty_board(self):
+    def test_waits_with_the_relay_down_reads_the_op_and_says_who_did_not_answer(self):
         rc, out = self.run_cli(["waits"])
-        self.assertEqual(rc, 3)
-        self.assertIn("error", out[0])
-        self.assertNotIn("waits", out[0])
+        self.assertEqual(rc, 0)
+        self.assertIn("did not answer", out[0]["unknown"]["h/bob"])
+        self.assertEqual(self.relay.calls, [])
 
     def test_a_holder_that_does_not_answer_is_exit_3_sent_true(self):
         with self.holder_is_bob():
@@ -226,26 +228,28 @@ class Cli(Net):
 
 
 class Readers(unittest.TestCase):
-    """The state stream stays on the relay under interweave (its own contract, not this one): a reader that cannot read it
-    says unknown, never an account with no sessions or an empty board."""
+    """Relay mode reads the relay's state stream: a reader that cannot read it says unknown, never an account with no sessions
+    or an empty board. Under the second carrier alone the readers ask the accounts instead (test_control_state_op)."""
 
     def test_the_pool_claim_reader_of_a_refused_stream_is_an_error_and_not_a_record(self):
         got = pool.state_reader(call=Relay(), cfg=CFG)(ALICE)
         self.assertEqual(list(got), ["error"])
         self.assertIn("state stream could not be read", got["error"])
 
-    def test_fabric_ctl_states_with_the_relay_refusing_is_exit_3_and_names_the_relay(self):
+    def test_fabric_ctl_states_with_the_relay_refusing_asks_the_accounts_and_never_the_relay(self):
         from control import ctl
+        calls = []
         with tempfile.TemporaryDirectory() as d:
             reg = os.path.join(d, "registry.json")
             with open(reg, "w", encoding="utf-8") as fh:
                 json.dump({"hosts": {"h": {"operator": "op"}}, "placement": {"alice": "h"}}, fh)
             out, err = [], []
-            with mock.patch.dict(os.environ, {"FABRIC_CONTROL_CARRIER": "interweave"}):
-                rc = ctl.main(["alice", "states"], registry=reg, call=lambda p, **kw: (_ for _ in ()).throw(gzcoord.ApiError("refused", connection_refused=True)),
+            with mock.patch.dict(os.environ, {"FABRIC_CONTROL_CARRIER": "interweave", "XDG_RUNTIME_DIR": d}):
+                rc = ctl.main(["alice", "states"], registry=reg, call=lambda p, **kw: calls.append(p),
                               who={"host": "h", "agent": "op"}, token="t", out=out.append, err=err.append)
-        self.assertEqual((rc, out), (3, []))
-        self.assertTrue(any("relay" in e for e in err), err)
+        self.assertEqual(calls, [])
+        self.assertEqual(rc, 1, (out, err))
+        self.assertIn("unknown", out[0])
 
 
 class Config(unittest.TestCase):
