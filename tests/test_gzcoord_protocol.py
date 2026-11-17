@@ -1997,7 +1997,7 @@ def _unit_fixture():
 
 def _unit_case(show: str, want_started: bool, curl: str | None = None, slept: list | None = None) -> dict:
     """`slept` collects the relay poll's waits instead of waiting them: a unit that stays silent is polled 16 times at 0.5 s,
-    8 s of nothing. The poll's own probes are real (a refused connection answers at once)."""
+    8 s of nothing. The poll's probes still run, through this case's `curl` stand-in (which answers at once)."""
     runtime, home, binp, xdg = _unit_fixture()
     log = os.path.join(runtime, "systemctl.log")
     for name, body in (("systemctl", f'if [[ "$2" == show ]]; then printf %b {json.dumps(show)}; exit 0; fi\n'
