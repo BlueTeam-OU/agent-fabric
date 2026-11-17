@@ -24,6 +24,8 @@ from gzcoord.carrier import server  # noqa: E402
 from gzcoord.transport import mode  # noqa: E402
 
 WITHIN = 60   # the plan's bound: "a running watch takes a changed mode within a minute"
+POLL_S = 0.5  # GZCOORD_MODE_POLL_S: the watch's mode poll, shortened so a case waits for the poll's event, not 5 s of it
+QUIET = 6 * POLL_S   # a window with no line in it: six polls of the watch, as 12 s was two and a half of the 5 s default
 
 
 class Watch(unittest.TestCase):
@@ -39,7 +41,7 @@ class Watch(unittest.TestCase):
         self.stub = P.Stub(answer)
         self.addCleanup(self.stub.close)
         self.env = P.cmd_env(CLAUDE_BRIDGE_URL=self.stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan",
-                             AGENT_FABRIC_SECRET_STORE=P.id_store(), GZCOORD_UNTIL_DELIVERY_DOWN_S="30")
+                             AGENT_FABRIC_SECRET_STORE=P.id_store(), GZCOORD_UNTIL_DELIVERY_DOWN_S="30", GZCOORD_MODE_POLL_S=str(POLL_S))
         # The carrier a watch in carrier-record or carrier-only waits on: it holds each `wait` for a moment and lists nothing.
         self.carrier_waits = 0
 
@@ -115,7 +117,7 @@ class Watch(unittest.TestCase):
 
     def test_a_watch_that_is_not_moved_says_nothing_of_modes(self):
         self.start()
-        self.assertIsNone(self.line_matching("transport mode", 12), "the control: no change, no line (poll interval is 5 s)")
+        self.assertIsNone(self.line_matching("transport mode", QUIET), "the control: no change, no line (the poll interval is POLL_S)")
         mode.write("carrier-record", "h1/op", self.dir)       # the positive control: the same watch does see a change
         self.assertIsNotNone(self.line_matching("transport mode is now carrier-record", WITHIN))
 
@@ -125,8 +127,8 @@ class Watch(unittest.TestCase):
         with open(self.file, "w", encoding="utf-8") as fh:
             fh.write("{")
         self.assertIsNotNone(self.line_matching("the watch keeps transport mode carrier-record", WITHIN), "the damage is said")
-        self.assertIsNone(self.line_matching("transport mode is now", 12), "and not obeyed")
-        self.assertIsNone(self.line_matching("the watch keeps transport mode", 12), "nor said again: the control is the first line above")
+        self.assertIsNone(self.line_matching("transport mode is now", QUIET), "and not obeyed")
+        self.assertIsNone(self.line_matching("the watch keeps transport mode", QUIET), "nor said again: the control is the first line above")
         self.assertIsNone(self.proc.poll())
         mode.write("carrier-only", "h1/op", self.dir)
         self.assertIsNotNone(self.line_matching("transport mode is now carrier-only", WITHIN))
@@ -162,7 +164,7 @@ class Watch(unittest.TestCase):
         mode.write("carrier-only", "h1/op", self.dir)
         self.assertIsNotNone(self.line_matching("transport-mode.json broke; the watch keeps transport mode carrier-record", WITHIN),
                              "the damage met by the reopen is said, with the mode the watch keeps")
-        self.assertIsNone(self.line_matching("transport-mode.json broke", 14), "and the polls after it, of the same damage, say nothing")
+        self.assertIsNone(self.line_matching("transport-mode.json broke", QUIET), "and the polls after it, of the same damage, say nothing")
         self.assertIsNone(self.proc.poll(), "the control: the watch lived through those polls, so their silence is not an exit")
 
     def test_a_watch_that_starts_on_a_damaged_file_ends_with_exit_7_and_says_why_on_stdout(self):

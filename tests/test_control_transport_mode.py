@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -126,6 +127,14 @@ class Watching(Scratch):
     def test_the_bound_a_default_watch_keeps_is_inside_the_minute(self):
         from gzcoord import inbox
         self.assertLessEqual(inbox.MODE_POLL_S, 30)
+
+    def test_the_poll_is_5_s_unless_a_test_shortens_it(self):
+        # Alone, with only PATH: this suite's own environment may carry the seam. Unset and empty are the same default.
+        tools = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "fabric")
+        for env in ({}, {"GZCOORD_MODE_POLL_S": ""}):
+            r = subprocess.run([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); from gzcoord import inbox; print(inbox.MODE_POLL_S)", tools],
+                               env={"PATH": os.environ["PATH"], **env}, capture_output=True, text=True, timeout=60)
+            self.assertEqual(r.stdout.strip(), "5.0", f"{env}: {r.stdout}{r.stderr}")
 
     def test_a_file_that_cannot_be_read_keeps_the_mode_is_said_once_and_a_later_good_one_is_a_change(self):
         # Started on carrier-record: a reader that took damage for the default would move it to relay-record.

@@ -253,7 +253,9 @@ DEADLINE_USAGE = "gzcoord inbox: --deadline takes a number of seconds above 0 an
 
 # How long --until-delivery rides out an unreachable relay before it exits
 # to tell the session; --follow never gives up (its Monitor shows each line).
-MODE_POLL_S = 5.0     # how often a running watch reads the account's transport mode; the plan's bound is a minute
+# How often a running watch reads the account's transport mode; the plan's bound is a minute. The environment is a seam for
+# tests, which wait for the poll's event rather than out several fixed 5 s polls; a test of the default reads this constant.
+MODE_POLL_S = float(os.environ.get("GZCOORD_MODE_POLL_S") or 5.0)
 UNTIL_DELIVERY_DOWN_S = float(os.environ.get("GZCOORD_UNTIL_DELIVERY_DOWN_S") or 900)
 # Seconds between tries while the relay does not answer. The environment is a seam for tests, which wait for the retry's
 # event rather than out a fixed 30 s; a test of the default reads this constant.

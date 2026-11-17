@@ -2446,7 +2446,13 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         if session is None:
             return []
         try:
-            return session.poll(0.5)   # the wait of the loop's turn: a reply is read the moment it comes
+            got = session.poll(0.5)   # the wait of the loop's turn: a reply is read the moment it comes
+            if session.ended:
+                # agentd's own window is over (it starts when it writes sent-all, ours at t0, after the hand-off has read
+                # it): no line, since the close that follows is expected; the loop goes on with the relay if it is up (j249).
+                session.close()
+                session = None
+            return got
         except RuntimeError as e:
             err(f"fabric-ctl: {CARRIER_LABEL}: {e}; the relay carries alone")
             session.close()
