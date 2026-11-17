@@ -397,7 +397,19 @@ def main() -> int:
               ("cat > k.sh, then run through timeout", "cat > k.sh <<'X'\n{kill}\nX\ntimeout 5 ./k.sh"),
               ("cat > k.sh, then bash -c 'bash k.sh'", "cat > k.sh <<'X'\n{kill}\nX\nbash -c 'bash k.sh'"),
               ("cat > k.sh, then bash a variable", "cat > k.sh <<'X'\n{kill}\nX\nf=k.sh; bash \"$f\""),
-              ("cat <<X | bash", "cat <<'X' | bash\n{kill}\nX"))
+              ("cat <<X | bash", "cat <<'X' | bash\n{kill}\nX"),
+              # Review of #637, F6: the file reaches a shell through a pipe or a stdin redirect, no operand names it.
+              # Kills: the no-operand runner rule in _runs_what_it_writes.
+              ("cat k.sh | bash", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | bash"),
+              ("bash < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash < k.sh"),
+              ("sh -s < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nsh -s < k.sh"),
+              ("cat k.sh | sudo bash", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sudo bash"),
+              # Review of #637, F7: a program other than cat and tee stores the body. Kills: the openers in
+              # _written_names.
+              ("cp /dev/stdin k.sh", "cp /dev/stdin k.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("dd of=k.sh", "dd of=k.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("install /dev/stdin k.sh", "install -m755 /dev/stdin k.sh <<'X'\n{kill}\nX\n./k.sh"),
+              ("cat <<X | cp /dev/stdin k.sh", "cat <<'X' | cp /dev/stdin k.sh\n{kill}\nX\nsource k.sh"))
     for label, tmpl in stored:
         d = by_pid(tmpl.format(kill=f"kill {W}"))
         check(f"a stored body the command runs denies by pid: {label}", d is not None and d[0] == "deny"
@@ -409,6 +421,8 @@ def main() -> int:
                         ("tee k.sh, not run", "tee k.sh <<'X' >/dev/null\n{kill}\nX"),
                         ("cat > k.sh, then another file run", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py && bash other.sh"),
                         ("cat > k.sh, then chmod and cat it", "cat > k.sh <<'X'\n{kill}\nX\nchmod +x k.sh && cat k.sh"),
+                        ("cp /dev/stdin k.sh, not run", "cp /dev/stdin k.sh <<'X'\n{kill}\nX"),
+                        ("dd of=k.sh, then cat it", "dd of=k.sh <<'X'\n{kill}\nX\ncat k.sh | grep x"),
                         ("a commit message", "git commit -F- <<'EOF'\nfix: {kill} no longer runs\nEOF"),
                         ("cat <<X | grep pkill", "cat <<'X' | grep pkill\n{kill}\nX")):
         # By pid a file write already keeps the body (_data_only, review of #612 P3), so only the readers are pinned (git is no data reader).

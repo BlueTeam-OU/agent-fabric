@@ -45,6 +45,9 @@ is a candidate, refused when it is claude, of the tree, or an inbox watch
 by its /proc command line — outside a quoted here-document's body in an
 input of data readers alone (drop_data_heredoc_bodies, _drop_bodies); a negative `kill` operand
 (-1, a group) is refused outright; an operand held in a variable or a substitution asks.
+A body stored in a file the same command runs is kept judged (_runs_what_it_writes), with limits: the file under
+another name (`mv k.sh j.sh && bash j.sh`) and a program that runs a file and is no shell or interpreter (`awk -f`)
+are not followed.
 Seven review rounds on #69 and #70 each found a spelling a
 re-implementation of procps's rules misread; procps does not misread
 itself. The second layer only adds denials.
@@ -343,11 +346,12 @@ def _drop_bodies(text: str, takes) -> str:
     """_strip_bodies, except that nothing is dropped when the same command runs what it writes (_runs_what_it_writes):
     a body stored in a file and run in the same command is code, whatever reads it first. `cat > k.sh <<'X'` NL
     `pkill -f claude-fable` NL `X` NL `bash k.sh` passed with the body dropped (review of #612, fix round 1d6d87fa)."""
-    rest = _strip_bodies(text, takes)
-    return text if rest != text and _runs_what_it_writes(rest) else rest
+    openers: list[str] = []
+    rest = _strip_bodies(text, takes, openers)
+    return text if rest != text and _runs_what_it_writes(rest, openers) else rest
 
 
-def _strip_bodies(text: str, takes) -> str:
+def _strip_bodies(text: str, takes, opened: list[str] | None = None) -> str:
     """The text with the here-document bodies dropped that are surely data, each up to its delimiter line. The one
     rule for both drops (drop_heredoc_bodies, drop_data_heredoc_bodies), and it fails closed: a body is dropped only
     when the guard is sure bash will not run it, and any doubt keeps it, and everything after it, judged. A false deny
@@ -365,7 +369,8 @@ def _strip_bodies(text: str, takes) -> str:
     3. A command line heredoc_operators cannot read surely (None: `$'…'`, `((`, a quote it cannot balance) opens no
        droppable here-document, and everything from it on is judged.
     4. An operator whose delimiter line is not there drops nothing (review of #70, eighth round).
-    The opening line and every line after a body stay: a kill there still runs."""
+    The opening line and every line after a body stay: a kill there still runs. `opened`, when given, collects the
+    opening line of each here-document whose body is dropped (_written_names reads what that line may write)."""
     lines, out, i = text.split("\n"), [], 0
     while i < len(lines):
         end_of_line = _logical_end(lines, i)
@@ -382,6 +387,8 @@ def _strip_bodies(text: str, takes) -> str:
             if end is None:
                 return "\n".join(out + lines[i:])
             i = end + 1
+            if opened is not None:
+                opened.append(joined)
     return "\n".join(out)
 
 
@@ -444,45 +451,65 @@ RUNNERS = NESTED | {"perl", "ruby", "node", "source", "."}
 INTERPRETER = re.compile(r"python[\d.]*")
 
 
-def _written_names(rest: str) -> list[str]:
-    """The base names of the files a command writes: each redirection's target (a `cat <<'X' > k.sh` as well as `cat >
+def _written_names(rest: str, openers: list[str]) -> set[str]:
+    """The base names of the files a command may write: each redirection's target (a `cat <<'X' > k.sh` as well as `cat >
     k.sh <<'X'`) and each file operand of tee (`tee k.sh <<'X'`), read from the text with its bodies dropped, as
-    _writes_file reads them."""
+    _writes_file reads them. And, failing closed, every operand of an opening line (`openers`: the lines whose
+    here-document body was dropped) whose command is no pure data reader: `cp /dev/stdin k.sh <<'X'` and `dd of=k.sh
+    <<'X'` store the body as well, and the guard knows no program's way of naming its output, so each operand (and the
+    value of a `key=value` one) counts. One pass and one set: a command of thousands of words stays linear."""
     names = [m.group(1) for m in WRITE_REDIRECT.finditer(rest)]
     for words in segments(rest):
-        names += [w for i, name in enumerate(words) if os.path.basename(name) == "tee" for w in words[i + 1:]
-                  if not w.startswith("-")]
-    bare = (os.path.basename(re.sub(r"['\"\\]", "", n)) for n in names)
-    return [n for n in bare if n and n not in {os.path.basename(f) for f in NO_FILE}]
+        tee = next((i for i, name in enumerate(words) if os.path.basename(name) == "tee"), None)
+        if tee is not None:
+            names += [w for w in words[tee + 1:] if not w.startswith("-")]
+    for line in openers:
+        for words in segments(line):
+            if words and os.path.basename(words[0]) not in DATA_READERS:
+                for w in words[1:]:
+                    if not w.startswith("-"):
+                        names += [w, w.partition("=")[2]]
+    nowhere = {os.path.basename(f) for f in NO_FILE}
+    return {n for n in (os.path.basename(re.sub(r"['\"\\]", "", n)) for n in names) if n and n not in nowhere}
 
 
-def _runs_what_it_writes(rest: str) -> bool:
+def _runs_what_it_writes(rest: str, openers: list[str]) -> bool:
     """Whether the command, its here-document bodies dropped, runs a file it wrote: a simple command whose own word is
     the written file (`./k.sh`, `"$PWD/k.sh"`), or a shell, interpreter, `source` or `.` given it as an operand, in a
     word of its own or inside a payload (`bash -c 'bash k.sh'`). A runner or a prefix (`timeout 5 ./k.sh`, `xargs
     bash`) given an operand the guard cannot read ($f, a substitution) counts too: fail closed, as _strip_bodies
-    does. Only a runner that names the file counts, not any shell or interpreter in the command (`python3 t.py`
-    beside a `cat > f` runs another file); writing a file and not running it stays allowed."""
-    names = _written_names(rest)
+    does. So does a runner with no file operand at all (`cat k.sh | bash`, `bash < k.sh`, `sh -s < k.sh`): it reads
+    what it is fed, and the guard does not follow a pipe or a `<` to its source. Only a runner that names the file
+    counts, not any shell or interpreter in the command with a file of its own (`python3 t.py` beside a `cat > f`
+    runs another file); writing a file and not running it stays allowed.
+
+    Not covered: the file under another name (`mv k.sh j.sh && bash j.sh`, `cp k.sh j.sh`), and a program that runs a
+    file and is no RUNNER (`awk -f k.awk`)."""
+    names = _written_names(rest, openers)
     if not names:
         return False
-    mentions = [re.compile(r"(?<![\w.-])" + re.escape(n) + r"(?![\w.-])") for n in names]
-
-    def named(w: str) -> bool:
-        return any(m.search(w) for m in mentions)
+    mention = re.compile(r"(?<![\w.-])(?:" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+                         + r")(?![\w.-])")
 
     def unreadable(w: str) -> bool:
         return "$" in w or "`" in w
+
+    def runner(w: str) -> bool:
+        base = os.path.basename(w)
+        return base in RUNNERS or bool(INTERPRETER.fullmatch(base))
     for words in segments(rest):
         while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
             words = words[1:]
         if not words:
             continue
         head = os.path.basename(words[0])
-        if named(words[0]) or unreadable(words[0]):
+        if mention.search(words[0]) or unreadable(words[0]):
             return True
-        if head in PREFIXES or head in RUNNERS or INTERPRETER.fullmatch(head):
-            if any(named(w) or (head not in PREFIXES and unreadable(w)) for w in words[1:]):
+        if head in PREFIXES or runner(head):
+            if any(mention.search(w) or (head not in PREFIXES and unreadable(w)) for w in words[1:]):
+                return True
+            start = next((i for i, w in enumerate(words) if runner(w)), None)
+            if start is not None and not any(not w.startswith("-") for w in words[start + 1:]):
                 return True
     return False
 
