@@ -1,8 +1,8 @@
 {
-  "description": "blueteam-accounting's rules for fabric-pr arm. The repository is BlueTeam OÜ's private accounting working repository, kept by its accountant-ee holder: calendar, close notes, working papers and the filing record; the books themselves are in SmartAccounts. It has no build. boundary.paths: the harness wiring (.claude/, .mcp.json), CI (.github/), an environment file at any depth (.env*), a certificate or key file (*.pem, *.key, .ssh/, id_rsa/id_ecdsa/id_ed25519), and the words secret, credential and token anywhere. boundary.exempt is dropped first, but never under .claude/ or .github/ and never for a path that matches one of those sensitive patterns: Markdown, which is the notes and working papers, and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary. No direct-to-main rule: every change is a pull request. Written 2026-11-17, at registration (j924).",
+  "description": "blueteam-accounting's rules for fabric-pr arm. The repository is BlueTeam OÜ's private accounting working repository, kept by its accountant-ee holder: calendar, close notes, working papers and the filing record; the books themselves are in SmartAccounts. It has no build. boundary.paths: the harness wiring (.claude/, .mcp.json, the root CLAUDE.md and AGENTS.md that steer every session, .gitignore that keeps exports and env files out), CI (.github/), an environment file at any depth (.env*), a certificate or key file (*.pem, *.key, *.p12, *.pfx, *.asc, *.gpg, *.crt, *.cer, *.der, .ssh/, id_rsa/id_ecdsa/id_ed25519), and the words secret, credential, token and key anywhere. boundary.exempt is dropped first, but never under .claude/ or .github/, never for the root CLAUDE.md and AGENTS.md, and never for a path that matches a sensitive pattern: Markdown, which is the notes and working papers, and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary. No direct-to-main rule: every change is a pull request. Written 2026-11-17, at registration (job j924).",
   "boundary": {
-    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.github/|(^|/)\\.env|\\.pem$|\\.key$|(^|/)\\.ssh/|(^|/)id_(rsa|ecdsa|ed25519)|secret|credential|token",
-    "exempt": "^(?!\\.claude/|\\.github/)(?!.*(?:(?:^|/)\\.env|\\.pem$|\\.key$|(?:^|/)\\.ssh/|(?:^|/)id_(?:rsa|ecdsa|ed25519)|secret|credential|token))(.*\\.md$|\\.agent-fabric/)",
+    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.github/|^CLAUDE\\.md$|^AGENTS\\.md$|^\\.gitignore$|(?:^|/)\\.env|\\.(?:pem|key|p12|pfx|asc|gpg|crt|cer|der)$|(?:^|/)\\.ssh/|(?:^|/)id_(?:rsa|ecdsa|ed25519)|secret|credential|token|key",
+    "exempt": "^(?!\\.claude/|\\.github/|CLAUDE\\.md$|AGENTS\\.md$)(?!.*(?:(?:^|/)\\.env|\\.(?:pem|key|p12|pfx|asc|gpg|crt|cer|der)$|(?:^|/)\\.ssh/|(?:^|/)id_(?:rsa|ecdsa|ed25519)|secret|credential|token|key))(.*\\.md$|\\.agent-fabric/)",
     "cases": [
       ".claude/settings.json",
       ".github/workflows/ci.yml",
@@ -15,7 +15,17 @@
       ".agent-fabric/.env",
       ".agent-fabric/secrets.json",
       "credentials/access.md",
-      "notes/token-rotation.md"
+      "notes/token-rotation.md",
+      "certs/emta.key",
+      "eid/signing.p12",
+      "cert.pfx",
+      "backup.gpg",
+      "x.asc",
+      "notes/api-key.json",
+      "smartaccounts-apikey.txt",
+      "CLAUDE.md",
+      "AGENTS.md",
+      ".gitignore"
     ]
   },
   "waiver_role": null
