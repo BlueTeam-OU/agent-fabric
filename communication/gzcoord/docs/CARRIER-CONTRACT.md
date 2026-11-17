@@ -14,7 +14,7 @@ carrier on one host.
 | profile name (every account) | `gzcoord` |
 | endpoint id leased by the carrier | `gzcoord` |
 | client kind presented in the IPC `hello` | `automated-client` |
-| roster port range | 47100-47199: loopback for a row without `host`; a row with one listens on the wildcard address and is dialled at its host's address, but at loopback by an account whose own row names the same `host` (an account whose row names none dials it at the host's address) |
+| roster port range | 47100-47199: a row without `host` listens on loopback, a row with one on the wildcard address. A peer is dialled at loopback exactly when its row host (§4: its `host`, else the dialling agent's own host) is the dialling agent's own host, the host part of its identity address; otherwise at its host's address. The same rule decides recipients (§4), senders (§5) and the dial (`roster.row_host`) |
 | message media type | `application/vnd.agentfabric.gzcoord.v1` |
 | compressed message | same, plus `;ce=deflate` (zlib; the only codec) |
 | chunk media type | `application/vnd.agentfabric.gzcoord-chunk.v1` |
@@ -257,6 +257,13 @@ time), and drains its event queue as part of holding the lease. It reads the
 roster from the account's checkout at the fabric's origin/main and
 re-reads it when its file changes. A roster that fails to verify leaves
 the carrier running with no recipient, never with the last good one.
+
+An account's own row names no `host` or its identity address's host. One
+naming another host is refused with both hosts named (exit 2), by `run`
+before the carrier starts and by `render-config`: the engine would address
+messages from one host while the config dials as if from the other. A
+roster re-read after start whose own row disagrees is a roster that fails
+to verify: the carrier keeps running and carries nothing.
 
 The carrier never carries `fabric:control` (ADR-029): the control plane
 stays on the relay (ADR-064 rule 12).
