@@ -25,6 +25,8 @@ sys.path.insert(0, os.path.join(HERE, "tests"))
 import test_gzcoord_carrier_control_link as base  # noqa: E402
 from control import agentd, gzcoord, pool, presence, queue  # noqa: E402
 from gzcoord.carrier import control_link as cc  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402
+own_instance_tree()
 
 ALICE, BOB = "h/alice", "h/bob"
 ONLINE = {"status": "ok", "online": True, "sessions": 1, "since": "2026-11-13T07:00:00.000Z", "role": "python-dev", "project": "x"}
