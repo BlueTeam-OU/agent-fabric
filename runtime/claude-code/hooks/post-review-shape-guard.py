@@ -109,12 +109,16 @@ name is
     last part says. A wrapper with a positional operand before its command
     (`sg GROUP`, `chroot DIR`, `ip netns exec NAME`, `runuser`, `su`) takes the
     first word that is no option as that operand, so the next PLAIN name does
-    not end the open phase either. The cost: any wrapper whose option precedes
-    its command is refused beside a `<`, `fabric-pr` or post-review text,
-    expansion or not (`sudo -n grep -n x "$f"`, `xargs -r rm -f < list.txt`,
-    `git ls-files -z | xargs -0 grep -l 'post-review'`); `sudo grep …` and
-    `xargs -n 1 grep …` are not. The deny's reason names which of the three
-    causes it fell to (the word, the wrapper, the bare-form rule). A
+    not end the open phase either (a non-PLAIN one is still read as a command
+    too, so `runuser -u me env -S '…'` sets env's flag). The cost: `xargs`,
+    `parallel`, `find -exec` and `env -S`, whose command line never names a
+    PLAIN command, are refused beside a `<`, `fabric-pr` or post-review text,
+    expansion or not (`xargs -r rm -f < list.txt`, `git ls-files -z | xargs -0
+    grep -l 'post-review'`); `xargs -n 1 grep …` is not. An expansion after
+    any wrapper option (`sudo -n grep -n x "$f"`) is refused with cause
+    `word`; `sudo -n grep -n x f < in` passes. The deny's reason names which of
+    the four causes it fell to (the word, the wrapper, the bare-form rule, the
+    guard being unable to decide). A
     redirection's fd and target are no word at all;
   - what `xargs` and `find -exec` run, unless a PLAIN command is named
     there: `xargs grep -n foo` is a grep, `xargs env` and `xargs -I X env
@@ -216,9 +220,10 @@ REASON = ("Post the review as the bare command `fabric-pr post-review [--repo <o
 CAUSES = {
     "word": " Refused for: a command word the walk cannot name (an expansion, substitution, glob, brace list or extglob; "
             "`\"$R\"/bin/fabric-pr` is one).",
-    "wrapper": " Refused for: a wrapper whose option comes before its command (`sudo -n`, `xargs -r`, `env -S`, "
-               "`find -exec`) beside a `<` or the words.",
+    "wrapper": " Refused for: a command line that names no plain command (`xargs`, `parallel`, `find -exec`, `env -S`) "
+               "beside a `<` or the words.",
     "bare": " Refused for: the bare-form rule, the call names fabric-pr with post-review and is not the bare command.",
+    "undecided": " Refused for: the guard could not decide (its command table is unreadable).",
 }
 
 
@@ -367,6 +372,8 @@ def live_text(cmd: str) -> tuple[str, str]:
                 dynamic = dynamic or "wrapper"      # `env -S 'text'` runs the text as a command line
         elif s.phase == "open" and s.operands and not after_option:
             s.operands -= 1                         # `sg test $c`: `test` is the group, not the command
+            if name not in PLAIN:                   # but `runuser -u me env -S …` may be the command: it sets its flags
+                literal(s, name, full)
         elif not (after_option and name in PLAIN):
             literal(s, name, full)
         if s.phase == "open":
@@ -632,7 +639,7 @@ def main() -> int:
     try:
         cause = refusal(cmd) if isinstance(cmd, str) else ""
     except Exception:                       # a guard that cannot decide refuses: over-reporting costs a rephrase
-        cause = "bare"
+        cause = "undecided"
     if cause:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": REASON + CAUSES[cause]}},

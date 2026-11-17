@@ -186,10 +186,16 @@ def main() -> int:
         ("an extglob @( in the command word", "shopt -s extglob\n/tmp/b/fabric-p@(r) post-review 1 < r.md"),
         ("an extglob +( in the command word", "shopt -s extglob\n/tmp/b/fabric-p+(r) post-review 1 < r.md"),
         ("an extglob !( in the command word", "shopt -s extglob\n/tmp/b/fabric-pr!(x) post-review 1 < r.md"),
-        ("an extglob ?( in the command word", "shopt -s extglob\nfabric-pr?(x) post-review 1 < r.md"),
+        ("an extglob @( in a path-less command word", "shopt -s extglob\nfabric-pr@(x) post-review 1 < r.md"),
         # A wrapper's positional operand is no command: a PLAIN name there does not end the open phase. Mutation:
         # post-review-shape-guard.py end_word(), drop the `s.phase == "open" and s.operands` branch.
         ("sg with a plain group name", held + "sg test $c < r.md"),
+        # #637 F16: an option-led operand then a non-PLAIN command still sets env's and xargs's flags. Mutation:
+        # drop the `literal(s, name, full)` call in the operands branch of end_word().
+        ("runuser -u, then env -S", "runuser -u me env -S 'fabric-pr post-review 1' < r.md"),
+        ("chroot --userspec, then env -S", "chroot --userspec=me:me / env -S 'fabric-pr post-review 1' < r.md"),
+        ("runuser -u, then xargs", "runuser -u me xargs -r fabric-pr < list"),
+        ("chroot --userspec, then xargs", "chroot --userspec=me:me / xargs -r fabric-pr < list"),
         ("chroot with a plain directory name", held + "chroot test $c < r.md"),
         ("ip netns exec with a plain name", held + "ip netns exec test $c < r.md"),
         ("ip -n netns exec with a plain name", held + "ip -n netns exec echo $c < r.md"),
@@ -232,8 +238,8 @@ def main() -> int:
         ("a double-quoted commit message", 'git commit -m "post-review: bare form\n\nfabric-pr post-review 12 < r.md"'),
         ("a double-quoted grep", 'grep -E "arm|fabric-pr post-review" docs'),
         ("a redirection target named post-review", "fabric-pr arm 3 > post-review.log"),
-        # Review of #637, F12: the costs of failing closed, pinned as decisions. Any wrapper whose option precedes its
-        # command is refused beside a `<` or the words, an expansion or not; a root before the script whenever the line
+        # Review of #637, F12: the costs of failing closed, pinned as decisions. xargs, parallel, find -exec and env -S
+        # are refused beside a `<` or the words, an expansion or not; a root before the script whenever the line
         # holds fabric-pr.
         ("xargs -r of rm, an input and no expansion", "xargs -r rm -f < list.txt"),
         ("xargs -n1 after an input", "grep -c x < f | xargs -n1 echo"),
@@ -340,7 +346,7 @@ def main() -> int:
     # The reason names the cause class the command was refused for (review of #637, F12).
     for label, cmd, clause in (("a wrapped call", refused[0][1], "the bare-form rule"),
                                ("an unnameable word", held + "$c < r.md", "cannot name"),
-                               ("a wrapper's option before its command", "xargs -r rm -f < list.txt", "wrapper whose option")):
+                               ("a wrapper's option before its command", "xargs -r rm -f < list.txt", "names no plain command")):
         try:
             why = json.loads(run(json.dumps({"tool_input": {"command": cmd}})))["hookSpecificOutput"]["permissionDecisionReason"]
         except (ValueError, KeyError) as e:
@@ -370,6 +376,9 @@ def main() -> int:
         out = run_copy(allowed[0][1])
         check("unreadable commands.json: the bare form is refused, not passed",
               '"permissionDecision":"deny"' in out, out)
+        why = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"] if out else ""
+        check("unreadable commands.json: the reason names the undecided cause, not the bare-form rule",
+              "could not decide" in why and "bare-form" not in why, why[-160:])
         check("unreadable commands.json: a command without post-review is passed", run_copy("ls -la") == "")
 
     # Control: the guard is registered where every session runs it, in both settings files.
