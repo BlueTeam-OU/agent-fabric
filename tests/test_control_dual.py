@@ -128,6 +128,12 @@ class Dual(Scratch):
         with open(os.path.join(ctl.state_dir(), "control-arrivals.jsonl"), encoding="utf-8") as fh:
             return [json.loads(l) for l in fh]
 
+    def relay_arrived(self) -> bool:
+        try:
+            return any(a["carrier"] == "relay" and a["kind"] == "reply" for a in self.arrivals())
+        except FileNotFoundError:
+            return False
+
     def request_of(self, login: str) -> dict:
         self.assertTrue(until(lambda: self.nodes[login].requests), self.nodes["op"].logs + self.nodes[login].logs)
         return self.nodes[login].requests[0][0]
@@ -173,7 +179,8 @@ class Dual(Scratch):
         box = self.run_ctl("alice", "ping", "--json", "--timeout", "10")
         req = self.request_of("alice")
         self.answer("alice", req, interweave=False, relay_data={"agentd": {"pid": 666}})
-        time.sleep(0.8)
+        # ctl has read the relay copy (it logs the arrival) before the other one comes
+        self.assertTrue(until(lambda: self.relay_arrived()), self.err)
         self.answer("alice", req, relay=False, data={"agentd": {"pid": 1}})
         self.assertEqual(self.finish(box), 0, self.err)
         row = self.rows()[0]
@@ -208,8 +215,7 @@ class Dual(Scratch):
         self.relay.down = True
         box = self.run_ctl("alice", "bob", "ping", "--json", "--timeout", "15")
         self.answer("alice", self.request_of("alice"), relay=False)
-        leave.request("source changed")   # the operator's own upgrade moved the code, mid-command
-        time.sleep(0.5)
+        self.assertFalse(leave.request("source changed"))   # the operator's own upgrade moved the code, mid-command; decided before it returns
         self.assertEqual(exits, [], "the operator's agentd stayed up for the command")
         self.answer("bob", self.request_of("bob"), relay=False)
         self.assertEqual(self.finish(box), 0, self.err)
@@ -329,10 +335,19 @@ class Dual(Scratch):
             self.out.clear()
             self.relay.sent.clear()
             # the read op needs no key; the three actions are refused for want of one — either way nothing may reach alice
-            ctl.main(["alice", op, "--timeout", "1"], registry=self.registry, call=self.relay, who=WHO, token="t", out=self.out.append, err=self.err.append)
+            box = self.run_ctl("alice", op, "--timeout", "10")
+            self.assertTrue(until(lambda: self.relay.sent))
             self.assertEqual([r["op"] for r in self.relay.sent], [op], f"positive control: {op} went by the relay, signed and whole")
-        time.sleep(0.5)
-        self.assertEqual(self.nodes["alice"].requests, [], "not one of the four went by the second carrier")
+            self.relay.add_reply({"v": 1, "kind": "reply", "id": f"rp-{op}", "in_reply_to": self.relay.sent[0]["id"], "from": "h/alice", "op": op,
+                                  "ok": True, "data": {}})   # answered, so ctl ends at once and not at its timeout
+            self.finish(box)
+        # A ping by the same route is the positive control and the bound: the second carrier's directory is read in order, so
+        # the four would have come before it.
+        box = self.run_ctl("alice", "ping", "--json", "--timeout", "5")
+        self.request_of("alice")
+        self.assertEqual([r["op"] for r, _ in self.nodes["alice"].requests], ["ping"], "not one of the four went by the second carrier")
+        self.answer("alice", self.nodes["alice"].requests[0][0])
+        self.assertEqual(self.finish(box), 0, self.err)
         self.assertEqual([l for l in self.nodes["op"].logs if "relay only" in l], [])
 
     def test_interweave_evidence_goes_by_both(self):
@@ -365,10 +380,12 @@ class Dual(Scratch):
                 self.out.clear()
                 box = self.run_ctl("alice", "ping", "--json", "--timeout", "10")
                 self.assertTrue(until(lambda: self.relay.sent))
+                rid = self.relay.sent[0]["id"]
                 self.relay.sent.clear()
-                self.relay.add_reply({"v": 1, "kind": "reply", "id": "x", "in_reply_to": "9", "from": "h/alice", "op": "ping", "ok": True, "data": {}})
-                self.finish(box, 12)
+                self.relay.add_reply({"v": 1, "kind": "reply", "id": "x", "in_reply_to": rid, "from": "h/alice", "op": "ping", "ok": True, "data": {}})
+                self.assertEqual(self.finish(box, 12), 0, self.err)
         row = self.rows()[0]
+        self.assertEqual(row["status"], "ok", "positive control: the reply was taken, not waited out")
         self.assertNotIn("carrier", row, "a relay run's rows are as they were")
         self.assertNotIn("relay_copy", row)
         self.assertEqual(self.nodes["alice"].requests, [], "and nothing went by the second carrier")
@@ -376,15 +393,17 @@ class Dual(Scratch):
 
     def test_a_reply_a_peer_wrote_in_another_accounts_name_never_becomes_that_accounts_row(self):
         self.boot("alice", "bob")
-        box = self.run_ctl("alice", "ping", "--json", "--timeout", "6")
+        box = self.run_ctl("alice", "ping", "--json", "--timeout", "3")
         req = self.request_of("alice")
         forged = {"v": 1, "kind": "reply", "id": "forged", "in_reply_to": req["id"], "from": "h/alice", "op": "ping", "ok": True, "data": {"agentd": {"pid": 666}}}
         bob = self.nodes["bob"]
         ok, why = bob.child.settle(bob.child.send(f"{PEERS['op']}/fabric-control", link.frame(forged)), 5)
         self.assertTrue(ok, why)
+        # dropped, and said so, while ctl is still waiting: the "no answer" below is the drop's and not a timeout that came first
+        self.assertTrue(until(lambda: any("says it is from" in l for l in self.nodes["op"].logs), 2.0), self.nodes["op"].logs)
+        self.assertFalse(self.done.is_set(), "ctl was still waiting when the forged copy was dropped")
         self.finish(box)
         self.assertEqual(self.rows()[0]["status"], "no answer", "alice never answered; bob's copy in her name was dropped at the carrier")
-        self.assertTrue(any("says it is from" in l for l in self.nodes["op"].logs))
 
 
 if __name__ == "__main__":

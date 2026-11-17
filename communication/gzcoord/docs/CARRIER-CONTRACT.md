@@ -242,8 +242,9 @@ The ledger's pending line comes before the relay acknowledgement: a relay
 record is acknowledged only once the ledger holds a line for it, so an
 inbox that dies between the two loses nothing; the relay redelivers and
 the ledger decides.
-With `GZCOORD_JOURNAL=off` the adapters do not call the carrier and the
-carrier refuses to start (ADR-064 rule 8).
+With `GZCOORD_JOURNAL=off` the adapters do not call the carrier in
+`relay-record`; in a carrier mode a send goes to it, with its bypass
+line, and a receive is refused; `run` refuses to start (ADR-064 rule 8).
 
 ## 7. The carrier process
 
