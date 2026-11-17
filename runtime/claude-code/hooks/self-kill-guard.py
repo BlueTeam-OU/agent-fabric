@@ -45,6 +45,23 @@ is a candidate, refused when it is claude, of the tree, or an inbox watch
 by its /proc command line — outside a quoted here-document's body in an
 input of data readers alone (drop_data_heredoc_bodies, _drop_bodies); a negative `kill` operand
 (-1, a group) is refused outright; an operand held in a variable or a substitution asks.
+A body a command stores in a file (a redirection, tee, or a here-document opened by anything but a data reader) is
+kept judged when anywhere in the rest of that command there is a runner word (a shell, an interpreter, `source`,
+`eval`; an argument counts: `grep bash notes.txt`), or a `/` word in a segment that is neither a data reader's nor
+part of a here-document's opening line (`./k.sh`, `flock /tmp/l ./k.sh` on a later line); or, as the command word or
+any word behind a known prefix (PREFIXES), `.` (`exec` as the command word only), a word it cannot read, or a mention
+of the written file's name (`k` run from PATH). The decision is the command's whole, never one segment's
+(_runs_what_it_writes). The cost, accepted: a command that writes a file from a here-document and also holds one of
+these (`python3 t.py`, `grep bash notes.txt`, `echo hi | python3`, `ls /tmp`, `mkdir -p /tmp/x`, `cat > cat`) is
+denied though it never runs the file, a rephrase. A write beside commands that are none of these (`chmod +x k.sh && cat
+k.sh`, `find . -name k.sh | grep k`) stays allowed with its body dropped. The file under another name (`mv k.sh j.sh &&
+bash j.sh`) and a program that runs a file and is no runner (`awk -f`) are not followed.
+
+SCOPE. This guard stops a session killing its own tree by accident or by a straightforward command. A session that
+deliberately hides the kill (text read from elsewhere at run time, built from pieces, a renamed copy) is not stopped by
+any static reading of bash, and is out of scope. What is not static is the second layer's pgrep ground truth against
+the live tree, where it applies.
+
 Seven review rounds on #69 and #70 each found a spelling a
 re-implementation of procps's rules misread; procps does not misread
 itself. The second layer only adds denials.
@@ -340,6 +357,15 @@ def _logical_end(lines: list[str], i: int) -> int:
 
 
 def _drop_bodies(text: str, takes) -> str:
+    """_strip_bodies, except that nothing is dropped when the same command runs what it writes (_runs_what_it_writes):
+    a body stored in a file and run in the same command is code, whatever reads it first. `cat > k.sh <<'X'` NL
+    `pkill -f claude-fable` NL `X` NL `bash k.sh` passed with the body dropped (review of #612, fix round 1d6d87fa)."""
+    openers: list[str] = []
+    rest = _strip_bodies(text, takes, openers)
+    return text if rest != text and _runs_what_it_writes(rest, openers) else rest
+
+
+def _strip_bodies(text: str, takes, opened: list[str] | None = None) -> str:
     """The text with the here-document bodies dropped that are surely data, each up to its delimiter line. The one
     rule for both drops (drop_heredoc_bodies, drop_data_heredoc_bodies), and it fails closed: a body is dropped only
     when the guard is sure bash will not run it, and any doubt keeps it, and everything after it, judged. A false deny
@@ -357,7 +383,8 @@ def _drop_bodies(text: str, takes) -> str:
     3. A command line heredoc_operators cannot read surely (None: `$'…'`, `((`, a quote it cannot balance) opens no
        droppable here-document, and everything from it on is judged.
     4. An operator whose delimiter line is not there drops nothing (review of #70, eighth round).
-    The opening line and every line after a body stay: a kill there still runs."""
+    The opening line and every line after a body stay: a kill there still runs. `opened`, when given, collects the
+    opening line of each here-document whose body is dropped (_written_names reads what that line may write)."""
     lines, out, i = text.split("\n"), [], 0
     while i < len(lines):
         end_of_line = _logical_end(lines, i)
@@ -374,6 +401,8 @@ def _drop_bodies(text: str, takes) -> str:
             if end is None:
                 return "\n".join(out + lines[i:])
             i = end + 1
+            if opened is not None:
+                opened.append(joined)
     return "\n".join(out)
 
 
@@ -419,15 +448,136 @@ def _writes_file(text: str, pieces: list[list[str]]) -> bool:
         return True
     for words in pieces:
         if words and os.path.basename(words[0]) == "tee":
-            skip = False
+            skip, options = False, True
             for w in words[1:]:
                 if skip:
                     skip = False
                 elif "<" in w or ">" in w:
                     # An operator standing alone (`<< X`, `> f`) takes the next word as its own.
                     skip = w.rstrip("-") and set(w.rstrip("-")) <= set("<>&|")
-                elif not w.startswith("-") and w not in NO_FILE:
+                elif options and w == "--":
+                    options = False
+                elif not (options and w.startswith("-")) and w not in NO_FILE:
                     return True
+    return False
+
+
+# What runs a file or a text it is given: the shells of NESTED, the interpreters, `source` and `.`.
+RUNNERS = NESTED | {"perl", "ruby", "node", "source", "."}
+# Written names outside [\w.-] (`k@x`, `a b`) are searched as one alternation; a real command writes a handful, so past
+# this many _mentions fails closed rather than spend the hook's budget (codex round 5 of #637, F1).
+ODD_NAMES_CAP = 32
+INTERPRETER = re.compile(r"python[\d.]*")
+
+
+def _tee_files(operands: list[str]) -> list[str]:
+    """tee's file operands: a word starting with `-` is an option until a `--`, and every word after it is a file
+    (`tee -- -k.sh` writes `-k.sh`)."""
+    files, options = [], True
+    for w in operands:
+        if options and w == "--":
+            options = False
+        elif not (options and w.startswith("-")):
+            files.append(w)
+    return files
+
+
+def _written_names(rest: str, rest_segments: list[list[str]], openers: list[str]) -> set[str]:
+    """The base names of the files a command may write: each redirection's target (a `cat <<'X' > k.sh` as well as `cat >
+    k.sh <<'X'`) and each file operand of tee (`tee k.sh <<'X'`), read from the text with its bodies dropped, as
+    _writes_file reads them. And, failing closed, every operand of an opening line (`openers`: the lines whose
+    here-document body was dropped) whose command is no pure data reader: `cp /dev/stdin k.sh <<'X'` and `dd of=k.sh
+    <<'X'` store the body as well, and the guard knows no program's way of naming its output, so each operand (and the
+    value of a `key=value` one) counts. These are the names _runs_what_it_writes looks for in a command word. One pass
+    and one set: a command of thousands of words stays linear."""
+    names = [m.group(1) for m in WRITE_REDIRECT.finditer(rest)]
+    for words in rest_segments:
+        tee = next((i for i, name in enumerate(words) if os.path.basename(name) == "tee"), None)
+        if tee is not None:
+            names += _tee_files(words[tee + 1:])
+    for line in openers:
+        for words in segments(line):
+            if words and os.path.basename(words[0]) not in DATA_READERS:
+                for w in words[1:]:
+                    if not w.startswith("-"):
+                        names += [w, w.partition("=")[2]]
+    nowhere = {os.path.basename(f) for f in NO_FILE}
+    return {n for n in (os.path.basename(re.sub(r"['\"\\]", "", n)) for n in names) if n and n not in nowhere}
+
+
+def _is_runner(w: str) -> bool:
+    base = os.path.basename(w)
+    return base in RUNNERS or bool(INTERPRETER.fullmatch(base))
+
+
+def _mentions(names: set[str]):
+    """A test for whether a word mentions one of `names` as a whole word (not inside a longer name: the characters
+    `[\\w.-]` on either side join it to one). A name made of those characters only is found among the word's maximal
+    runs of them, a set lookup, so thousands of names cost the words and not their product; any other name is searched
+    as a pattern. Past ODD_NAMES_CAP such names every word counts as a mention, failing closed: an alternation of
+    thousands, tried at each character of each word, took a crafted command past the hook's 5 s budget, where no
+    decision is a pass (codex round 5 of #637, F1)."""
+    plain = {n for n in names if re.fullmatch(r"[\w.-]+", n)}
+    odd = sorted(names - plain, key=len, reverse=True)
+    if len(odd) > ODD_NAMES_CAP:
+        return lambda w: True
+    pattern = re.compile(r"(?<![\w.-])(?:" + "|".join(map(re.escape, odd)) + r")(?![\w.-])") if odd else None
+    return lambda w: any(t in plain for t in re.findall(r"[\w.-]+", w)) or bool(pattern and pattern.search(w))
+
+
+def _runs_what_it_writes(rest: str, openers: list[str]) -> bool:
+    """Whether the command, its here-document bodies dropped, may run a file it wrote. Judged on the whole command,
+    never segment by segment, and it fails closed, because three review rounds each found a spelling past a rule that
+    tried to say which word names the file or which segment runs it. The command stores a body when a redirection or
+    a tee operand names a file (_written_names), or when a here-document's opening command is no pure data reader
+    (not DATA_READERS: `sort -ok.sh`, `cp /dev/stdin k.sh`, `dd of=k.sh`, `git commit -F-`), which may store it under a
+    name the guard cannot read. Then the body stays judged when ANYWHERE in the rest of the command there is
+    - a runner word: a shell, an interpreter, `source`, `eval`, in any position and any segment and in any
+      whitespace-separated part of a word (`env -S 'bash k.sh'`), so a stdin inherited from a group, a subshell, a loop
+      or `exec <` (`( bash -s x ) < k.sh`) is no way out; or `.`, or `exec`, as a command word, or `.` behind a prefix
+      (`command . k.sh`);
+    - a word with a `/` in a segment whose first word is no pure data reader: `./k.sh`, `"$PWD/k.sh"`, `timeout 5
+      ./k.sh`, and `flock /tmp/l ./k.sh`, where the wrapper is no prefix the guard knows. The opening line of a
+      here-document is judged by its command position alone, since its operands (`cp /dev/stdin k.sh`) name the store;
+    - a word the guard cannot read ($f, a substitution) in command position, by the same reckoning (behind a prefix
+      such as `timeout 5` or `sudo`, any of its words);
+    - a mention of a written file's name, whole-word, in command position or anywhere behind a prefix: the file run
+      by its bare name from a PATH directory (`chmod +x ~/.local/bin/k && nohup k`, `env PATH=. k.sh`).
+    The cost, accepted: a command that writes a file from a here-document and also holds any runner word, an argument
+    included (`python3 t.py`, `grep bash notes.txt`, `echo hi | python3`), or any `/` word outside a data reader
+    (`./other.sh`, `ls /tmp`, `cd /repo && ls`, `mkdir -p /tmp/x`, `chmod +x ./k.sh`), or a file named like a command
+    it holds (`cat > cat`), keeps the body judged, a false deny and a rephrase. A write beside commands that are none of
+    these (`chmod +x k.sh && cat k.sh`, `find . -name k.sh | grep k`) stays allowed.
+
+    Not covered: the file under another name (`mv k.sh j.sh && bash j.sh`, `cp k.sh j.sh`), a path-run behind a
+    wrapper on the here-document's opening line itself (`cat > k.sh <<'X' && flock /tmp/l ./k.sh`), an
+    unreadable word or bare name behind a wrapper the guard does not know (`ionice -c3 "$f"`), and a program that runs a
+    file and is no runner (`awk -f k.awk`)."""
+    parsed = segments(rest)
+    names = _written_names(rest, parsed, openers)
+    stores = bool(names) or any(words and os.path.basename(words[0]) not in DATA_READERS
+                                for line in openers for words in segments(line))
+    if not stores:
+        return False
+    mention = _mentions(names)
+    opening = {tuple(words) for line in openers for words in segments(line)}
+    for raw in parsed:
+        words = raw
+        while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+            words = words[1:]
+        if not words:
+            continue
+        prefixed = os.path.basename(words[0]) in PREFIXES
+        # `.` and `exec` are runners as the command word only (`find .` is no run), or behind a prefix (`command .`).
+        if any(w2 != "." and _is_runner(w2) for w in words for w2 in w.split()) or words[0] in (".", "exec") \
+                or (prefixed and "." in words[1:]):
+            return True
+        # Behind a prefix every word is a candidate for the command it wraps (`timeout 5 ./k.sh`, `env -i $f`).
+        position = words if prefixed else words[:1]
+        if any("$" in w or "`" in w or mention(w) for w in position):
+            return True
+        if any("/" in w for w in (position if tuple(raw) in opening or words[0] in DATA_READERS else words)):
+            return True
     return False
 
 
@@ -510,12 +660,21 @@ def strip_non_arguments(text: str) -> str:
     return "".join(out)
 
 
+# The operators the lexer may glue into one punctuation token (`|<`, `|&`, `<(`, `>(`, `|(`), longest first, so that
+# no word, and no boundary, hides inside one of them.
+OPERATOR = re.compile(r"&>>|<<<|<<-?|>>|\|&|&&|\|\||;;|&>|>&|<&|<>|>\||[|;&\n()<>]")
+BOUNDARIES = {"|", "||", "|&", ";", ";;", "&", "&&", "\n", "(", ")"}
+
+
 def segments(piece: str) -> list[list[str]]:
     """The simple commands of a command line, each as its words, split on
     |, ;, &, newlines and a subshell's parentheses OUTSIDE quotes (splitting
     the raw text first made a quoted argument that mentions a kill a
     command of its own). A redirection — any operator holding < or >, `>|`
-    and `)>` included — and the word after it are not arguments."""
+    and `)>` included — and the word after it are not arguments. A glued
+    operator token (`|<`, `|&`, `<(`) is taken apart first, so a word after it
+    still starts a segment of its own. A line the lexer cannot read (an
+    unbalanced quote) is split on its plain separators."""
     lex = shlex.shlex(strip_non_arguments(piece), posix=True, punctuation_chars="();<>|&\n")
     lex.commenters = ""
     lex.whitespace = " \t\r"
@@ -523,20 +682,22 @@ def segments(piece: str) -> list[list[str]]:
     out, cur = [], []
     try:
         toks = list(lex)
-    except ValueError:   # an unbalanced quote: the plain words, as before
+    except ValueError:
         return [seg.split() for seg in re.split(r"[|;&\n]+", piece)]
     skip = False
     for tok in toks:
+        if tok and set(tok) <= set("|;&\n()<>"):
+            for op in OPERATOR.findall(tok):
+                if op in BOUNDARIES:
+                    out.append(cur)
+                    cur = []
+                    # A boundary ends a redirection that had no target; `<(` and `>(` open a command of their own.
+                    skip = False
+                elif "<" in op or ">" in op:
+                    skip = True    # the redirection's target: a file, or the fd of >&1
+            continue
         if skip:
             skip = False
-            continue
-        if tok and set(tok) <= set("|;&\n()<>"):
-            if any(ch in tok for ch in "|;\n()") and not (set(tok) <= set("<>&|") and ("<" in tok or ">" in tok)) \
-                    or tok in ("&", "&&"):
-                out.append(cur)
-                cur = []
-            if "<" in tok or ">" in tok:
-                skip = True    # the redirection's target: a file, or the fd of >&1
             continue
         cur.append(tok)
     out.append(cur)
@@ -926,8 +1087,15 @@ def _names_inbox(words: list[str], k: int) -> bool:
     try:
         read = _canonical().canonical(named)
     except Exception:  # noqa: BLE001 - TableError or a module that cannot load: the spelled name, as before
-        return named[0] == INBOX
+        return _spelled(named) == INBOX
     return read is not None and read[0] == INBOX
+
+
+def _spelled(named: list[str]) -> str:
+    """The command as typed, with no table to read it by: the watch's two spellings, the script and the
+    dispatcher's `fabric gzcoord inbox`, so the unreadable-table fallback names the watch in either, not one.
+    Compared as INBOX_SPOKEN's words, never as a bare `fabric` (ADR-068 rule 7: no command name is guessed)."""
+    return INBOX if named[:3] == INBOX_SPOKEN.split() else named[0]
 
 
 _CANONICAL = []

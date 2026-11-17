@@ -32,7 +32,7 @@ def _loaded_stems(tree: ast.AST | None) -> frozenset[str]:
     """Every stem the module loads: imports it, or calls `_load("<stem>")`, lint's by-path loader. Read from the syntax
     tree, so a comment or a docstring that names the checker is not a load. One walk answers for every mechanism."""
     stems: set[str] = set()
-    for node in ast.walk(tree) if tree is not None else ():
+    for node in syntax_tree.walk(tree) if tree is not None else ():
         if isinstance(node, ast.Import):
             stems.update(a.name.split(".")[-1] for a in node.names)
         elif isinstance(node, ast.ImportFrom):
@@ -52,7 +52,8 @@ def _run_rules(root: str) -> list[str]:
     """The lint rule modules lint.py imports, in any of the three spellings of a package's module: a rule module nothing
     imports never runs."""
     names: set[str] = set()
-    for n in ast.walk(_tree(root, LINT) or ast.Module(body=[], type_ignores=[])):
+    lint = _tree(root, LINT)
+    for n in syntax_tree.walk(lint) if lint is not None else ():
         if isinstance(n, ast.ImportFrom) and str(n.module or "").startswith("fabric_lint_rules."):
             names.add(str(n.module).split(".")[-1])
         elif isinstance(n, ast.ImportFrom) and n.module == "fabric_lint_rules":

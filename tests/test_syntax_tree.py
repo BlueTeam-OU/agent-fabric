@@ -59,6 +59,16 @@ def case_parsed_once() -> None:
     assert load("state_writes")._syntax_tree() is st
 
 
+def case_walk_is_ast_walk_held_once() -> None:
+    tree = st.parse("def f(a):\n    return [a, (a, 1)]\n", "w.py")
+    nodes = st.walk(tree)
+    # Breadth-first order is part of the contract: the rules append findings in the order they visit nodes.
+    assert nodes == list(ast.walk(tree)), "walk() is not ast.walk's nodes in ast.walk's order"
+    assert st.walk(tree) is nodes, "a second walk of the same tree was computed again"
+    st.clear()
+    assert st.walk(tree) is not nodes, "clear() kept the node list"
+
+
 def case_changed_file_is_reread() -> None:
     sw = load("state_writes")
     rel = "tools/fabric/x.py"

@@ -182,7 +182,7 @@ def scan(rel: str, text: str, writers: dict[str, str]) -> list[str]:
     resolves = False
     writes: list[tuple[int, str]] = []
     locks: list[str] = []
-    for node in ast.walk(tree):
+    for node in _syntax_tree().walk(tree):
         if isinstance(node, ast.arg) and node.arg == STATE_PARAM:
             resolves = True
         if judged and _reads_env(node):
