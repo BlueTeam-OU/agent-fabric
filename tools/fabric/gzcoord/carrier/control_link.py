@@ -1025,6 +1025,12 @@ class Leg:
             raise LegFailed(f"not sent to {', '.join(f'{a} ({session.sent[a][1]})' for a in lost)}", handed=not certain)
         return cls(session, record["id"], early)
 
+    @property
+    def failed_sends(self) -> dict[str, str]:
+        """{address: why} of the addresses the request did not reach: Leg.open raises only when none was reached, so a caller
+        that waits for every address would otherwise wait out its whole window for one it never asked."""
+        return {a: why for a, (ok, why) in self._session.sent.items() if not ok}
+
     def replies(self, timeout_s: float) -> list[tuple[str, dict]]:
         """(sender, record) for each reply to this request that arrived within the time. A connection that
         closed ends the leg (`lost`): nothing more will come by it."""

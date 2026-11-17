@@ -38,8 +38,8 @@ that is missing, stale, unreadable or reports no claims is unknown, and unknown 
 SERIALIZED, by a lock: every change to the file is one read-modify-write
 under flock on `pool.json.lock` (`_locked`). It is not serial by
 construction: pool-add is an action that agentd starts in a thread of its
-own while pool-claim is answered in the loop, so two requests can read the
-same pool; and the holder's account may answer through more than one
+own and pool-claim is answered in the loop (or in one, where the claimant's
+state is asked of the account), so two requests can read the same pool; and the holder's account may answer through more than one
 process. The kernel drops the lock with its holder; a holder that does not
 let go within POOL_LOCK_WAIT_S is a refusal the asker reads, never a write
 over what it has not seen. What the relay verifies about a sender
@@ -339,11 +339,21 @@ def pool_list(request: dict, *, me: str, holder: str | None, file: str) -> dict:
         return _refused(str(e))
 
 
-def state_reader(*, call, cfg: dict, now: Callable[[], float] = lambda: datetime.now(timezone.utc).timestamp() * 1000):
+def state_reader(*, call, cfg: dict, now: Callable[[], float] = lambda: datetime.now(timezone.utc).timestamp() * 1000, ask=None):
     """`state_of(address)` -> {"record": its newest state record within STATES_STALE_MS} or {"error": why there is none}: read from
     the state channel's last STATES_REPLAY records, one read for each call of state_of. A record older than the bound, none from the
-    address, or a stream that cannot be read says nothing of the address (its binding, and what it holds, are unknown)."""
+    address, or a stream that cannot be read says nothing of the address (its binding, and what it holds, are unknown).
+    With `ask` (state_read.ask, bound to this account) the record is asked of the account itself, as the relay's history is
+    not there to read: the same bound applies to the record's own ts, and an account that does not answer is the same
+    error, its binding unknown."""
     def state_of(address: str) -> dict:
+        if ask is not None:
+            said = ask([address])[address]
+            if "error" in said:
+                return said
+            if not (now() - date_parse(said["record"]["ts"]) <= STATES_STALE_MS):
+                return {"error": f"no state record from {address} in the last {js.string(STATES_STALE_MS / 60000)} min: its binding is unknown"}
+            return said
         try:
             page = call("/api/messages?" + js.search_params({"channel": cfg.get("state_channel", js.UNDEFINED),
                                                              "limit": js.string(STATES_REPLAY), "full": "1"}))
@@ -379,10 +389,10 @@ def state_reader(*, call, cfg: dict, now: Callable[[], float] = lambda: datetime
     return state_of
 
 
-def role_from_stream(*, call, cfg: dict, now: Callable[[], float] = lambda: datetime.now(timezone.utc).timestamp() * 1000):
+def role_from_stream(*, call, cfg: dict, now: Callable[[], float] = lambda: datetime.now(timezone.utc).timestamp() * 1000, ask=None):
     """The claimant's role as its control agent last reported it, read from
     the state channel: {"role"} or {"error"}."""
-    state_of = state_reader(call=call, cfg=cfg, now=now)
+    state_of = state_reader(call=call, cfg=cfg, now=now, ask=ask)
 
     def role_of(address: str) -> dict:
         said = state_of(address)

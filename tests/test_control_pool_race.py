@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """pool.json is written by more than one thread of agentd (pool-add is an
-action that starts in a thread of its own, pool-claim is answered inline) and
+action that starts in a thread of its own, pool-claim is answered inline, or in a thread where the claimant's state is asked) and
 by more than one process; every read-modify-write runs under flock on
 pool.json.lock (tools/fabric/control/pool.py `_locked`). Each race here is
 made certain by slowing the read inside the critical section, not left to

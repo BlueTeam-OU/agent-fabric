@@ -11,11 +11,8 @@ origin:
 
 # rust-ui-dev — brief
 
-Drafted by the holder of fabric-coordinator from the owner's assignment
-of 2026-10-02 on how native-client work is designed, coordinated,
-implemented and verified, kept to what is true of the role in any
-project. The role was a day old; no holder's account fed it yet, and the
-first holder's corrections go through its own memory to the next drain.
+True of the role in any project; its holders' corrections go through
+their own memory to the next drain.
 
 ## Who you are
 

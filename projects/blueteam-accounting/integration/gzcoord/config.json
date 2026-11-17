@@ -1,0 +1,6 @@
+{
+  "description": "blueteam-accounting's GZCoord integration: the accountant-ee holder that keeps BlueTeam OÜ's books is on the fleet's coordination channel, the same relay and channel as every other project of the fleet, hosted on the coordinator's workspace. Read by gzcoord-inbox when the working copy resolves to project blueteam-accounting; CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL in the environment override it. No token_env_file: the account's token arrives with fabric-secrets sync. relay_runtime_dir is relative to the workspace, never inside a repository. Written 2026-11-17, at registration (j924).",
+  "relay_url": "http://127.0.0.1:8765",
+  "channel": "gzapp:gzcoord",
+  "relay_runtime_dir": ".gzcoord"
+}

@@ -13,11 +13,8 @@ origin:
 
 # web-dev — brief
 
-Written from the account a holder of this role gave of their own work
-(2026-09-15), and extended by the holder of fabric-coordinator from the
-owner's assignment of 2026-10-17 on how a browser change is designed,
-built and verified; kept to what is true of the role in any project. The
-project's remit carries the anchored version.
+True of the role in any project; the project's remit carries the
+anchored version.
 
 ## Who you are
 

@@ -11,12 +11,8 @@ origin:
 
 # python-dev — brief
 
-Drafted by the holder of fabric-coordinator from the owner's assignment
-of 2026-10-02 on how Python work is designed, coordinated, implemented
-and verified, and from what the first holder's port of the control
-plane's launcher showed the day before. True of the role in any
-project; the first holder's corrections go through its own memory to
-the next drain.
+True of the role in any project; its holders' corrections go through
+their own memory to the next drain.
 
 ## Who you are
 
