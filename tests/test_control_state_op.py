@@ -184,6 +184,13 @@ class Ask(Tmp):
         got = self.ask({A: reply_of(A, None, why="no state record has been written yet")})
         self.assertIn("no state record has been written yet", got[A]["error"])
 
+    def test_a_peers_reason_reaches_a_terminal_without_its_control_characters(self):
+        got = self.ask({A: reply_of(A, None, why="\x1b]0;pwned\x07\x1b[2J" + "x" * 500)})
+        why = got[A]["error"]
+        self.assertFalse(any(ord(c) < 32 or 127 <= ord(c) < 160 for c in why), repr(why))
+        self.assertIn("pwned", why)   # the positive control: the text is kept, only its controls are not
+        self.assertLess(len(why), 300)
+
     def test_answers_that_are_not_the_asked_accounts_are_unknown(self):
         cases = {
             "sender is not the one in the record": {A: reply_of(B, record(B))},
@@ -302,6 +309,13 @@ class Waits(Tmp):
         self.assertEqual(got["accounts"], 2)
         self.assertEqual(got["unknown"], {C: "h/c did not answer"})
 
+    def test_a_valid_record_with_a_waits_on_that_is_no_list_is_unknown_not_a_wait_on_nothing(self):
+        bad = {**record(A), "waits_on": "not a list"}
+        got = queue.read_waits(call=refuse, cfg=CFG, placed={A, B}, ask=lambda addrs: {A: {"record": bad}, B: {"record": record(B)}})
+        self.assertEqual(got["accounts"], 1)   # the positive control: B's record counts
+        self.assertIn(A, got["unknown"])
+        self.assertNotIn(B, got["unknown"])
+
     def test_without_ask_the_answer_has_no_unknown_key(self):
         page = {"messages": [{"content": js.stringify(record(A))}]}
         got = queue.read_waits(call=lambda *_a, **_k: page, cfg=CFG, placed={A})
@@ -410,6 +424,12 @@ class Table(Tmp):
                 self.assertTrue(lines[2].startswith("b") and "unknown" in lines[2] and "working" not in lines[2], lines[2])
         self.assertNotIn("unknown", ctl._table_state([row("b", B, self.live(B, role="python-dev"))])[1])   # the positive control
 
+    def test_a_peers_reason_in_the_table_has_no_control_characters(self):
+        none = {"status": "ok", "host": "h", "account": "b", "state": {"address": B, "state": None, "why": "\x1b[2Jboom"}}
+        line = ctl._table_state([none])[1]
+        self.assertIn("boom", line)
+        self.assertNotIn("\x1b", line)
+
 
 class Main(Tmp):
     """fabric-ctl's own entry, the carrier named by the environment, the relay refusing every call and holding no token."""
@@ -463,6 +483,12 @@ class States(Tmp):
         self.assertEqual((by[B]["state"], by[B]["sessions"]), ("unknown", []))
         self.assertEqual(by[B]["why"], "h/b did not answer within 3 s")
         self.assertEqual(calls, [[A, B]])
+
+    def test_a_reason_with_control_characters_is_printed_without_them(self):
+        _, rows, *_ = self.run_states({A: {"error": "h/a said \x1b[2J\x07 boom"}, B: {"record": record(B)}}, json_out=False)
+        text = "".join(rows)
+        self.assertIn("boom", text)
+        self.assertFalse(any(c in text for c in "\x1b\x07"), repr(text))
 
     def test_all_answering_exits_0(self):
         rc, rows, *_ = self.run_states({A: {"record": record(A)}, B: {"record": record(B)}})

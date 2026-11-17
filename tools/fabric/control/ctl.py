@@ -204,7 +204,7 @@ VERBS: tuple[Verb, ...] = (
                   ("--restart", "resume a session on the result")) + COMMON),
     Verb("presence", "Whether each account has a session running, since when, as which role.", "fabric-ctl all presence",
          usage=(("<login|all> presence", "any placed account may ask"),), options=COMMON),
-    Verb("state", "Each account's newest state record, as the account itself keeps and answers it: the same rows as states, asked of the accounts.",
+    Verb("state", "Each account's newest state record, as the account itself keeps and answers it: one table row each, asked of the accounts under any carrier.",
          "fabric-ctl all state", usage=(("<login|all> state", "any placed account may ask"),), options=COMMON),
     Verb("jobs", "Each account's stored job list.", "fabric-ctl all jobs", usage=(("<login|all> jobs", None),), options=COMMON),
     Verb("tools", "Each account's missing required tools, from its hourly report.", "fabric-ctl all tools",
@@ -284,7 +284,7 @@ VERBS: tuple[Verb, ...] = (
     Verb("drift", "Each account: the files the fabric wrote there that are edited or missing, and what bootstrap --dry-run would change that the record does not explain. Nothing changed.",
          "fabric-ctl all drift", usage=(("<login|all> drift", "each account: the files the fabric wrote there that are edited or missing, and what bootstrap --dry-run would change that the record does not explain; nothing changed"),),
          options=COMMON),
-    Verb("states", "What each account's sessions are doing (working, blocked, idle), from agentd's state records. Reads the channel; no request is sent.",
+    Verb("states", "What each account's sessions are doing (working, blocked, idle), from agentd's state records. Reads the channel (with the second carrier alone, asks each account's agentd instead).",
          "fabric-ctl all states --follow", usage=(("<login|all> states [--follow] [--json]", None),), args="[--follow] [--json]",
          options=(("--follow", "keep waiting and print an account's row whenever it changes"), JSON_OPT)),
     Verb("switch", "The account switch controller's mode and move log (ADR-052). Any other account has none.", "fabric-ctl fabric-coordinator switch",
@@ -1604,7 +1604,7 @@ def _table_state(rs: list) -> list[str]:
             continue
         rec = dig(s, "state")
         if not isinstance(rec, dict):
-            lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('unknown', 8)} {S(nullish(dig(s, 'why'), 'no record'))}"))
+            lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('unknown', 8)} {printable(nullish(dig(s, 'why'), 'no record'))}"))
             continue
         # The reply is a peer's word: shown as r's state only when it says it is r's and is the record agentd writes (what `states` holds
         # every record to), else unknown.
@@ -1614,7 +1614,7 @@ def _table_state(rs: list) -> list[str]:
             continue
         row = state_row(S(nullish(rec.get("from"), r["account"])), rec)
         lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(printable(row['state']), 8)} {pad_end(printable(nullish(row.get('role'), '-')), 18)} "
-                              f"{len(row['sessions'])}{'  (' + row['why'] + ')' if row.get('why') else ''}"))
+                              f"{len(row['sessions'])}{'  (' + printable(row['why']) + ')' if row.get('why') else ''}"))
     return lines
 
 
@@ -2897,7 +2897,7 @@ def states(args: dict, expected: list[dict], *, call: Callable[..., Any], cfg: d
             return js.stringify(row)
         n = len(row["sessions"])
         return (f"{pad_end(row['address'], 32)} {pad_end(printable(row['state']), 8)} {pad_end(printable(nullish(row.get('role'), '-')), 18)} "
-                f"{n} session{'' if n == 1 else 's'}{'  since ' + printable(row['since']) if T(row.get('since')) else ''}{'  (' + row['why'] + ')' if row.get('why') else ''}")
+                f"{n} session{'' if n == 1 else 's'}{'  since ' + printable(row['since']) if T(row.get('since')) else ''}{'  (' + printable(row['why']) + ')' if row.get('why') else ''}")
     latest: dict[str, dict] = {}
     why_missing: dict[str, str] = {}
     shown: dict[str, str] = {}   # address → the row last printed, without its ts: a heartbeat that says nothing new prints nothing

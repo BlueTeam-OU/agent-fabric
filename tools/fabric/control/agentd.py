@@ -28,7 +28,7 @@ A `since_id_not_found` (the relay's history was cleared) re-primes.
 
 THE FENCE, v1. A request is answered only when its `from` is a host
 operator's address as runtime/hosts/registry.json places it — except a
-PUBLIC op (control/ops PUBLIC_OPS: `presence`, `pool-list`, `pool-claim` and `job-state`), answered for any placed
+PUBLIC op (control/ops PUBLIC_OPS: `presence`, `pool-list`, `pool-claim`, `job-state` and `state`), answered for any placed
 <host>/<login>, since every sender needs it and a relay-token holder
 could already get it by forging an operator's `from` on an unsigned
 read op (pool-claim is the one unsigned op that writes: one field, the
@@ -60,9 +60,10 @@ goes through the same accept(), the same seen-set and the same action ledger, so
 deliver(): the reply goes by the relay (the record) and, at once, by the other carrier to the sender's PeerId. With
 the key absent or "relay" none of it starts, and every line this daemon writes is what it was.
 With control_carrier naming the second carrier alone it is the only one: the daemon neither reads nor posts the relay's control channel
-(no prime, no poll, no reply post), so a relay that refuses every connection changes nothing it answers. What it still
-posts to the relay is the state stream (sessions.StateWatcher, ADR-029 rule 16), which has no other carrier yet; a
-failure of that is said, never read as an account with no sessions. --once reads the relay once and is refused there.
+(no prime, no poll, no reply post), so a relay that refuses every connection changes nothing it answers. It posts
+nothing to the relay either: the state stream's replacement is the public op `state` (state_record.py), answered from the newest
+record sessions.StateWatcher keeps in the state dir (ADR-029 rule 16); a failure to keep it is raised, never read as an
+account with no sessions. --once reads the relay once and is refused there.
 
 CONTRACT, frozen from agentd.mjs. Kept byte for byte: every
 record posted (key order, ids, timestamps' shape), every refusal's reason
@@ -1147,7 +1148,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     def post(content: dict) -> Any:
         return call("/api/send", method="POST",
                     body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(content)}))
-    # A claimant's role is what its own control agent last said on the state channel.
+    # A claimant's role is what its own control agent last said: asked of it under the second carrier, read from the state channel else.
     state_asker = state_asker_of(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=new_id)
     ctx["pool_opts"] = {"role_of": role_from_stream(call=call, cfg=cfg, ask=state_asker)}
     # The account's GZCoord inbox is the project's channel on the relay this daemon already reaches
@@ -1218,7 +1219,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         # First at start, in its own thread: the Node did not await it, and a
         # relay that is down must not hold the read loop's start behind the post.
         Ticker("session state", states.tick, sessions.STATE_POLL_MS / 1000).start()
-        # The pool holder's own end of a claim; the stream is read once for a claimant, as a claim is checked.
+        # The pool holder's own end of a claim; the claimant's state is read (or asked) once, as a claim is checked.
         state_of = state_reader(call=call, cfg=cfg, ask=state_asker)
         Ticker("pool claims", lambda: pool_claims_tick(me=me["address"], holder=lambda: pool_holder(control_config()),
                                                        file=lambda: os.path.join(state_dir(), POOL_FILE), state_of=state_of),

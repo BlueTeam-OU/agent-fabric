@@ -12,9 +12,11 @@ same argv, stdout and exits). Env read: CLAUDE_BRIDGE_URL,
 FABRIC_CONTROL_CHANNEL, FABRIC_STATE_CHANNEL, FABRIC_CONTROL_CONFIG (another
 control config file, so another pool_holder; agentd's control_config),
 AGENT_FABRIC_HOSTS_REGISTRY (who is placed, who holds the pool),
-FABRIC_QUEUE_WAIT_MS (how long the holder may take to answer, 10 s):
+FABRIC_QUEUE_WAIT_MS (how long the holder may take to answer, 10 s), FABRIC_STATE_READ (`op`: ask the accounts
+for their state records under any carrier, as the second carrier alone always does; any other non-empty value is refused, exit 3):
   waits                 {"waits": {<message id>: [<address>, …]}, "accounts": n,
-                         "stale": {<address>: <age s, or null>}}; exit 0, 2, 3
+                         "stale": {<address>: <age s, or null>}}; exit 0, 2, 3. Asked of the accounts it adds
+                         "unknown": {<address>: <why>} for each that gave no usable record; exit 3 when none did
   pool-list [<role>]    {"holder", "answer"}; exit 0, 2, 3, 4
   pool-claim <pool id>  the same; "sent" true / false / absent on exit 3
   job-state <login> <j<n>|message id>
@@ -131,8 +133,18 @@ def read_waits(*, call, cfg: dict, placed: set, ask=None) -> dict:
         messages = page.get("messages") if isinstance(page, dict) else None
         return waits_from(messages if isinstance(messages, list) else [], placed)
     answers = ask(sorted(placed))
-    rows = [{"content": js.stringify(a["record"])} for a in answers.values() if "record" in a]
-    return {**waits_from(rows, placed), "unknown": {addr: a["error"] for addr, a in answers.items() if "error" in a}}
+    unknown = {addr: a["error"] for addr, a in answers.items() if "error" in a}
+    rows = []
+    for addr, a in answers.items():
+        if "record" not in a:
+            continue
+        row = {"content": js.stringify(a["record"])}
+        # A record waits_from drops (a waits_on that is no list of message ids) is no answer either, never "waits on nothing".
+        if waits_from([row], {addr})["accounts"] == 0:
+            unknown[addr] = f"{addr}'s state record has not the shape agentd writes"
+        else:
+            rows.append(row)
+    return {**waits_from(rows, placed), "unknown": unknown}
 
 
 def budget_spent(path: str) -> BudgetSpent:
@@ -366,7 +378,12 @@ def cli(argv: list[str] | None = None, out=print, err=lambda m: print(m, file=sy
             me = gzcoord.identity(gzcoord.whoami() if who is None else who)["address"]
             asker = state_read.asker(cfg, me=me, own_file=os.path.join(agentd.state_dir(), state_record.RECORD_FILE), new_id=agentd.new_id,
                                      say=lambda m: None, wait_s=max(0.0, min(state_read.ASK_WAIT_S if wait_ms is None else wait_ms / 1000, budget_left() / 1000)))
-            out(js.stringify(read_waits(call=None, cfg=cfg, placed=placed_accounts(registry), ask=asker)))
+            read = read_waits(call=None, cfg=cfg, placed=placed_accounts(registry), ask=asker)
+            if read["unknown"] and not read["accounts"]:
+                # Nobody gave a record: a board of no waits would read as "nobody waits", which nobody said.
+                out(js.stringify({"error": "no account gave a state record: " + "; ".join(f"{a}: {w}" for a, w in sorted(read["unknown"].items()))}))
+                return 3
+            out(js.stringify(read))
             return 0
         except Exception as e:  # noqa: BLE001 — every failure is one {"error"} line, exit 3, as below
             out(js.stringify({"error": f"the state op could not be asked: {e}"}))  # not relay_error: no relay is involved here

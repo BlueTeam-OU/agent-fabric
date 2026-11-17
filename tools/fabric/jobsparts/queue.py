@@ -70,6 +70,10 @@ def stream_waits(doc: dict, *, stored: bool = False) -> tuple[dict[str, list[str
     if not isinstance(waits, dict):
         print("fabric-jobs: the state stream's answer has no waits: stored priorities decide", file=sys.stderr)
         return None, {}
+    unknown = said.get("unknown")
+    if isinstance(unknown, dict) and unknown:
+        # Asked of the accounts, one that gave no record may wait on any request: said, and the ranking stands without it.
+        print(f"fabric-jobs: no state record from {', '.join(sorted(map(str, unknown)))}: what they wait on is unknown", file=sys.stderr)
     stale = said.get("stale")
     if not isinstance(stale, dict):
         # The ranking stands; what is unknown is only how old each wait is.

@@ -208,15 +208,21 @@ class Cli(Net):
         self.assertEqual((rc, out[0]["answer"]), (0, {"status": "ok", "pool": []}))
         # The state stream is asked of the accounts (the `state` op), so waits needs neither the relay nor a token; an account that
         # does not answer is unknown, said, never a board that reads as no claims.
+        # With none of them answering there is nothing to rank by: exit 3, every account named, not a board of no waits.
         rc, out = self.run_cli(["waits"], token=None)
-        self.assertEqual(rc, 0)
-        self.assertEqual(sorted(out[0]["unknown"]), ["h/alice", "h/bob", "h/user"])
+        self.assertEqual(rc, 3)
+        self.assertIn("no account gave a state record", out[0]["error"])
+        for who in ("h/alice", "h/bob", "h/user"):
+            self.assertIn(who, out[0]["error"])
         self.assertEqual(self.relay.calls, [])
 
     def test_waits_with_the_relay_down_reads_the_op_and_says_who_did_not_answer(self):
+        self.bob_answers({"state": {"address": "h/bob", "state": {"kind": "state", "v": 1, "from": "h/bob", "ts": "2026-11-13T07:00:00.000Z"}}}, "state")
         rc, out = self.run_cli(["waits"])
         self.assertEqual(rc, 0)
-        self.assertIn("did not answer", out[0]["unknown"]["h/bob"])
+        self.assertEqual(out[0]["accounts"], 1)   # bob's record is the one that was given
+        self.assertIn("was not asked", out[0]["unknown"]["h/user"])
+        self.assertNotIn("h/bob", out[0]["unknown"])
         self.assertEqual(self.relay.calls, [])
 
     def test_a_holder_that_does_not_answer_is_exit_3_sent_true(self):

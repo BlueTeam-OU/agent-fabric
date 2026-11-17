@@ -19,6 +19,7 @@ CONTRACT
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from typing import Any, Callable
@@ -66,8 +67,14 @@ def _accepted(address: str, sender: str, reply: dict) -> dict:
         return {"error": f"{address}'s answer does not say it is {address}'s"}
     rec = data.get("state")
     if rec is None:
-        return {"error": f"{address} has no state record to give ({data.get('why') or 'no reason given'})"}
+        return {"error": f"{address} has no state record to give ({_quoted(data.get('why')) or 'no reason given'})"}
     return _record(address, rec)
+
+
+def _quoted(why: Any) -> str:
+    """A peer's own words, kept to what is safe to print: the reason reaches an operator's terminal, so an escape sequence
+    (a window title, the clipboard) never does, and a long one is cut."""
+    return re.sub("[\u0000-\u001f\u007f-\u009f]", "?", why if isinstance(why, str) else "")[:200]
 
 
 def _record(address: str, rec: Any) -> dict:
