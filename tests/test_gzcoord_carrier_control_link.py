@@ -445,6 +445,66 @@ class Inbound(Net):
         self.assertGreaterEqual(inbox.dropped, 4)
         self.assertTrue(any("dropped the oldest" in l for l in logs))
 
+    def test_close_returns_only_after_the_handler_has_finished(self):
+        # j157: a handler writing the arrival log after close() re-created the scratch dir its owner had removed.
+        started, finished = threading.Event(), []
+
+        def slow(ev):
+            started.set()
+            time.sleep(0.3)
+            finished.append(ev["n"])
+        inbox = cc.Inbox(slow, lambda l: None)
+        inbox.start()
+        inbox.put({"n": 1})
+        self.assertTrue(started.wait(5))
+        inbox.close()
+        self.assertEqual(finished, [1], "the handler was still running when close() returned")
+
+    def test_close_drops_the_backlog_and_says_so_and_names_a_handler_that_outlives_the_wait(self):
+        gate, seen, logs = threading.Event(), [], []
+
+        def slow(ev):
+            gate.wait(5)
+            seen.append(ev["n"])
+        inbox = cc.Inbox(slow, logs.append)
+        inbox.start()
+        for n in range(4):
+            inbox.put({"n": n})
+        self.assertTrue(until(lambda: not inbox._q or len(inbox._q) == 3))
+        with mock.patch.object(cc, "CLOSE_WAIT_S", 0.1):
+            inbox.close()
+        self.assertTrue(any("dropped" in l and "InterWeave alone is lost" in l for l in logs), logs)
+        self.assertTrue(any("still running" in l for l in logs), logs)
+        gate.set()
+        self.assertTrue(until(lambda: not inbox._thread.is_alive()))
+        self.assertEqual(seen, [0], "only the message in hand was handled after close")
+
+    def test_a_message_put_after_close_is_not_handled(self):
+        seen, logs = [], []
+        inbox = cc.Inbox(lambda ev: seen.append(ev["n"]), logs.append)
+        inbox.start()
+        inbox.close()
+        inbox.put({"n": 1})
+        self.assertTrue(any("read after close" in l for l in logs), logs)
+        self.assertFalse(inbox._thread.is_alive())
+        self.assertEqual((seen, len(inbox._q)), ([], 0))
+
+    def test_close_from_the_handler_itself_does_not_wait_for_itself(self):
+        done = threading.Event()
+        box = []
+
+        def handle(ev):
+            box[0].close()
+            done.set()
+        inbox = cc.Inbox(handle, lambda l: None)
+        box.append(inbox)
+        inbox.start()
+        inbox.put({"n": 1})
+        self.assertTrue(done.wait(5))
+
+    def test_close_of_an_inbox_never_started_returns(self):
+        cc.Inbox(lambda ev: None, lambda l: None).close()
+
     def test_one_message_that_breaks_the_handler_does_not_end_the_queue(self):
         done, logs = [], []
 

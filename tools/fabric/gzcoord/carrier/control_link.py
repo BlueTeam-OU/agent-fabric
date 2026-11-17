@@ -267,6 +267,9 @@ def failed(why: str) -> Send:
     return s
 
 
+CLOSE_WAIT_S = 3.0
+
+
 class Inbox:
     """Messages read from the child, bounded at INBOUND_MAX: the reader only enqueues, so a slow handler never
     stops the child's stdout. Full: the OLDEST is dropped with a line (a request is stale after ttl_s anyway)."""
@@ -284,6 +287,9 @@ class Inbox:
 
     def put(self, event: dict) -> None:
         with self._cv:
+            if self._stop:   # _run no longer handles anything after close: without this line the message would vanish unsaid
+                self._log("inbox closed: dropped a message read after close; one that came by InterWeave alone is lost")
+                return
             if len(self._q) >= self._limit:
                 self._q.popleft()
                 self.dropped += 1
@@ -294,14 +300,25 @@ class Inbox:
     def close(self) -> None:
         with self._cv:
             self._stop = True
+            dropped = len(self._q)
+            self._q.clear()
             self._cv.notify()
+        if dropped:
+            self._log(f"inbox closed with {dropped} unhandled message(s): dropped; one that came by InterWeave alone is lost")
+        # A handler still running when close() returned writes the arrival log (makedirs included) after its
+        # owner removed the directory, which re-creates it. Short, because agentd's Leaver calls this holding the
+        # lock the handler may be waiting on: the wait must not stretch a leave. Never on the thread itself.
+        if self._thread.is_alive() and threading.current_thread() is not self._thread:
+            self._thread.join(timeout=CLOSE_WAIT_S)
+            if self._thread.is_alive():
+                self._log(f"inbox handler still running {CLOSE_WAIT_S:g} s after close")
 
     def _run(self) -> None:
         while True:
             with self._cv:
                 while not self._q and not self._stop:
                     self._cv.wait()
-                if self._stop and not self._q:
+                if self._stop:
                     return
                 event = self._q.popleft()
             try:
