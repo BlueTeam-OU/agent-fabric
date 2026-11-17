@@ -348,12 +348,17 @@ class Override(Tmp):
 
 class Beside(unittest.TestCase):
     def test_pool_claim_is_answered_off_the_thread_its_claimant_replies_arrive_on(self):
-        self.assertIn("pool-claim", agentd.BESIDE_LOOP_OPS)
+        self.assertIn("pool-claim", agentd.BESIDE_LOOP_WHEN_ASKING)
+        self.assertNotIn("pool-claim", agentd.BESIDE_LOOP_OPS)   # the relay and dual paths keep it inline
 
 
 class Table(Tmp):
+    @staticmethod
+    def live(address, **more):   # fresh against the clock ctl.state_row reads, which a fixed timestamp stops being
+        return {**record(address, **more), "ts": iso(__import__("time").time() * 1000)}
+
     def test_the_state_verb_prints_a_row_per_account_and_unknown_with_a_reason(self):
-        good = {"status": "ok", "host": "h", "account": "a", "state": {"address": A, "state": record(A, role="python-dev")}}
+        good = {"status": "ok", "host": "h", "account": "a", "state": {"address": A, "state": self.live(A, role="python-dev")}}
         none = {"status": "ok", "host": "h", "account": "b", "state": {"address": B, "state": None, "why": "no state record has been written yet"}}
         lines = ctl._table_state([good, none])
         self.assertIn("a", lines[1])
@@ -364,18 +369,18 @@ class Table(Tmp):
         def row(account, address, rec):
             return {"status": "ok", "host": "h", "account": account, "state": {"address": address, "state": rec}}
         cases = {
-            "another account's record": row("b", B, record(A)),
-            "another account's address": row("b", A, record(B)),
-            "not a state record": row("b", B, {**record(B), "kind": "up"}),
-            "not v1": row("b", B, {**record(B), "v": 7}),
+            "another account's record": row("b", B, self.live(A)),
+            "another account's address": row("b", A, self.live(B)),
+            "not a state record": row("b", B, {**self.live(B), "kind": "up"}),
+            "not v1": row("b", B, {**self.live(B), "v": 7}),
             "no ts": row("b", B, {"sessions": []}),
         }
         for name, bad in cases.items():
             with self.subTest(name):
-                lines = ctl._table_state([row("a", A, record(A, role="python-dev")), bad])
+                lines = ctl._table_state([row("a", A, self.live(A, role="python-dev")), bad])
                 self.assertEqual(len(lines), 3)
                 self.assertTrue(lines[2].startswith("b") and "unknown" in lines[2] and "working" not in lines[2], lines[2])
-        self.assertNotIn("unknown", ctl._table_state([row("b", B, record(B, role="python-dev"))])[1])   # the positive control
+        self.assertNotIn("unknown", ctl._table_state([row("b", B, self.live(B, role="python-dev"))])[1])   # the positive control
 
 
 class Main(Tmp):

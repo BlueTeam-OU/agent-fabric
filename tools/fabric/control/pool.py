@@ -38,8 +38,8 @@ that is missing, stale, unreadable or reports no claims is unknown, and unknown 
 SERIALIZED, by a lock: every change to the file is one read-modify-write
 under flock on `pool.json.lock` (`_locked`). It is not serial by
 construction: pool-add is an action that agentd starts in a thread of its
-own while pool-claim is answered in the loop, so two requests can read the
-same pool; and the holder's account may answer through more than one
+own and pool-claim is answered in the loop (or in one, where the claimant's
+state is asked of the account), so two requests can read the same pool; and the holder's account may answer through more than one
 process. The kernel drops the lock with its holder; a holder that does not
 let go within POOL_LOCK_WAIT_S is a refusal the asker reads, never a write
 over what it has not seen. What the relay verifies about a sender

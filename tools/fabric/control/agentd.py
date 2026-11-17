@@ -292,9 +292,11 @@ LEDGER_LOCK_WAIT_S = 5.0
 # minutes, and the loop must keep answering behind it. `gateway` hashes
 # the installed binary and runs it, up to ten seconds; `branches` asks git of every working copy of the account
 # (a status per copy and per linked worktree), up to a minute each.
-# `pool-claim` asks its claimant's state over the carrier: its answer comes in on the thread that handles requests, so the
-# claim must not be handled there. Its race is the pool's own flock, not this loop's one-at-a-time.
-BESIDE_LOOP_OPS = ["disk", "gateway", CARRIER_NAME, "branches", "drift", "pool-claim"]
+BESIDE_LOOP_OPS = ["disk", "gateway", CARRIER_NAME, "branches", "drift"]
+# Beside the loop too, but only where the reader asks the op: `pool-claim` then asks its claimant's state over the carrier, whose
+# answer comes in on the thread that handles requests, so the claim must not be handled there. Its race is the pool's own flock, not
+# this loop's one-at-a-time. Where the relay is read, the claim stays inline as it was.
+BESIDE_LOOP_WHEN_ASKING = ["pool-claim"]
 # One disk scan per daemon, shared by every request that arrives while it
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).
@@ -1133,9 +1135,10 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     try:
         state_asker = state_read.asker(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=new_id)
     except RuntimeError as e:
-        # A daemon that dies of a misspelt reader override answers nothing at all; it says so and reads the relay, as without the override.
+        # A daemon that dies of a misspelt reader override answers nothing at all; it says so and goes on as the carrier alone decides
+        # (the second carrier alone asks the op, the others read the relay), as without the override.
         _stderr(f"agentd: {e}: the override is ignored")
-        state_asker = None
+        state_asker = state_read.asker(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=new_id, env={})
     ctx["pool_opts"] = {"role_of": role_from_stream(call=call, cfg=cfg, ask=state_asker)}
     # The account's GZCoord inbox is the project's channel on the relay this daemon already reaches
     # (status says its read position: tools/fabric/drift.py); a project with none says so.
@@ -1317,7 +1320,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
                 _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]}){tag}{control_link.id_tail(request['id'])}")
                 beside(a, True, via)
             return
-        if request["op"] in BESIDE_LOOP_OPS:
+        if request["op"] in BESIDE_LOOP_OPS or (request["op"] in BESIDE_LOOP_WHEN_ASKING and state_asker is not None):
             beside(a, False, via)
             return
         with inline_lock:
