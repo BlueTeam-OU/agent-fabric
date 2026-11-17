@@ -190,8 +190,9 @@ not amended; what the carrier observes of ordering and loss is the evidence its 
    restart inside the outage (the 2026-11-09 report says that property was not exercised) and
    last past 15 minutes, so the watch's give-up (§2.2) is seen. The 2026-11-12 drill's record:
    the three properties hold, and the fourth fails by age. The collected logs do not show the
-   watch restart or the give-up. Whether to re-run with the backfill deployed is the owner's
-   choice.
+   watch restart or the give-up. Re-run on 2026-11-15 with the backfill deployed: passing,
+   all four properties hold, and the give-up and restarts are seen on every account
+   (`docs/live-checks/2026-11-15-relay-outage-drill.md`).
 4. A fresh parity report over a window after 2026-11-09 in which every InterWeave miss has a
    cause other than "the sender recorded no InterWeave delivery", or that cause is itself
    traced; and the duplicate copies explained. Under InterWeave only a miss is a lost message.
