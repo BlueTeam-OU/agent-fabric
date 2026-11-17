@@ -482,12 +482,17 @@ def point_origin_at_registry(w: Worker, pid: str, remote: str) -> None:
     if not remote:
         return
     repo = os.path.join(w.home, "projects", pid)
-    got = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.url"], stderr=subprocess.DEVNULL)
-    have = (got.stdout or "").strip("\n") if got.returncode == 0 else ""
-    pushurl = ""
-    if have:
-        push = w.as_login(["git", "-C", repo, "config", "--get", "remote.origin.pushurl"], stderr=subprocess.DEVNULL)
-        pushurl = (push.stdout or "").strip("\n") if push.returncode == 0 else ""
+    # One read of both settings (the account's shell costs a login each): --null keeps a value with a newline in it whole,
+    # and the last of each key wins, as --get gives it. No url, however it failed, is "unreadable".
+    got = w.as_login(["git", "-C", repo, "config", "--null", "--get-regexp", r"^remote\.origin\.(url|pushurl)$"],
+                     stderr=subprocess.DEVNULL)
+    seen: dict[str, str] = {}
+    if got.returncode == 0:
+        for entry in (got.stdout or "").split("\0"):
+            key, _, value = entry.partition("\n")
+            seen[key.lower()] = value
+    have = seen.get("remote.origin.url", "")
+    pushurl = seen.get("remote.origin.pushurl", "")
     plan = pc.plan_origin(remote, have, pushurl)
     if plan.action == "unreadable":
         w.say(f"6. {pid}: origin not readable; left as it is")

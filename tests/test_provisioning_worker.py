@@ -245,7 +245,7 @@ def main() -> int:
     ssh = "git@github.com:BlueTeam-OU/agent-fabric.git"
     https = "https://github.com/BlueTeam-OU/agent-fabric.git"
 
-    def step6(origin: str | None, *argv: str, pushurl: str | None = None, as_project: bool = True, present: bool = True):
+    def step6(origin: str | None, *argv: str, pushurl: str | None = None, as_project: bool = True, present: bool = True, earlier: str | None = None):
         """Run finish up to the end of step 6 with a present clone whose remote.origin.url reads `origin` (None: unreadable)."""
         seen: list = []
 
@@ -255,14 +255,12 @@ def main() -> int:
                 return subprocess.CompletedProcess(cmd, 2, stdout="", stderr="")
             if not present and "test" in cmd:
                 return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
-            if "remote.origin.pushurl" in cmd:
-                if pushurl is None:
-                    return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
-                return subprocess.CompletedProcess(cmd, 0, stdout=pushurl + "\n", stderr=None)
-            if "remote.origin.url" in cmd:
-                if origin is None:
-                    return subprocess.CompletedProcess(cmd, 128, stdout="", stderr="")
-                return subprocess.CompletedProcess(cmd, 0, stdout=origin + "\n", stderr=None)
+            if "--get-regexp" in cmd:
+                # One call answers both, as git does with --null: `key\nvalue\0`, only the keys that are set; none is status 1.
+                found = [f"remote.origin.url\n{earlier}\0"] if earlier is not None else []
+                found += [f"remote.origin.url\n{origin}\0"] if origin is not None else []
+                found += [f"remote.origin.pushurl\n{pushurl}\0"] if pushurl is not None else []
+                return subprocess.CompletedProcess(cmd, 0 if found else 1, stdout="".join(found), stderr=None)
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         out = io.StringIO()
         w = make_worker(*(["--clone", f"agent-fabric={ssh}"] if as_project else []), *argv)
@@ -292,6 +290,14 @@ def main() -> int:
     check("a push URL of its own is said, not rewritten", not sets(seen) and f"origin has its own push URL {https}" in said, f"{sets(seen)} {said}")
     seen, said = step6(https, pushurl=ssh)
     check("…and none is said when it is the registry remote", len(sets(seen)) == 1 and "push URL" not in said, f"{sets(seen)} {said}")
+    seen, said = step6(https)
+    check("origin and push URL are read in one call, not two",
+          len([c for c in seen if "config" in c]) == 1 and not any("remote.origin.url" in c for c in seen), str(seen))
+    seen, said = step6(ssh, earlier=https)
+    check("two origin URLs: the last is the one, as --get reads it", not sets(seen), f"{sets(seen)} {said}")
+    seen, said = step6(None, pushurl=https)
+    check("a push URL with no origin is no answer: left as it is, and said", not sets(seen) and "origin not readable; left as it is" in said
+          and "push URL" not in said, f"{sets(seen)} {said}")
     seen, said = step6(None)
     check("an origin that cannot be read is left as it is, and said", not sets(seen) and "origin not readable; left as it is" in said, f"{sets(seen)} {said}")
 
