@@ -590,9 +590,38 @@ def main(argv: list[str]) -> int:
     off = bypass.is_off()
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
     ep = _episodic()
-    def open_mux(resolved: dict | None = None) -> transport.TransportMux:
-        return transport.open_transport(cfg, token=tok or "", me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now,
+    def open_mux(resolved: dict | None = None, use_cfg: dict | None = None, use_tok: str | None = None) -> transport.TransportMux:
+        return transport.open_transport(use_cfg or cfg, token=(tok if use_cfg is None else use_tok) or "", me=me, journal_off=off,
+                                        state_dir=ep.state_dir(), iso_now=ep.now,
                                         journal_newest=lambda n: journal_newest(ep, n), account_mode=resolved)
+
+    def moved_integration() -> tuple[dict, str | None, dict]:
+        """The integration, token and Mode a watch needs after its account's mode moved. A watch begun in carrier-only holds the
+        carrier's config and no token, which a relay mode must never be built from, so both are resolved afresh with every check
+        the start makes; any refusal is a ModeError, and the caller keeps the transport it has."""
+        new_cfg, new_mode = resolve_integration(who.get("project"), os.environ, t, ep.state_dir())
+        if new_mode is None:      # a mode that cannot be read: open_transport would say it; here nothing is rebuilt
+            raise transport.ModeError("the transport mode cannot be read")
+        name = new_mode["mode"]
+        if not new_cfg["configured"]:
+            raise transport.ModeError(f"transport mode {name} needs the project's relay configuration: {new_cfg['reason']}")
+        try:
+            assert_not_control_channel(new_cfg["channel"], t)
+        except ControlChannel as e:
+            raise transport.ModeError(f"transport mode {name}: {e}") from None
+        if name == transport.mode.CARRIER_ONLY:
+            return new_cfg, None, new_mode
+        try:
+            new_tok = token(root, new_cfg)
+        except (TokenRefused, OSError) as e:       # the message names no part of the token
+            raise transport.ModeError(f"transport mode {name}: {e}") from None
+        if not new_tok:
+            raise transport.ModeError(f"transport mode {name} needs the relay token, and none is found")
+        # The hosting working copy's relay is started here as at the start, which carrier-only skipped.
+        up_now = transport.start_hosted(new_cfg, t)
+        if up_now.get("note"):
+            print(t("start.error", {"detail": up_now["note"]}), file=sys.stderr, flush=True)
+        return new_cfg, new_tok, new_mode
 
     try:
         tp = open_mux(account_mode)
@@ -742,20 +771,11 @@ def main(argv: list[str]) -> int:
             if r.get("sessionEnded") and mode_moved["v"]:
                 mode_moved["v"] = False
                 try:
-                    # The integration and token the new mode needs are resolved afresh: a watch begun in carrier-only holds
-                    # the carrier's config and no token, which a relay mode must never be built from.
-                    new_cfg, new_account_mode = resolve_integration(who.get("project"), os.environ, t, ep.state_dir())
-                    new_carrier_only = new_account_mode is not None and new_account_mode["mode"] == transport.mode.CARRIER_ONLY
-                    new_tok = None if new_carrier_only else token(root, new_cfg)
-                    if not new_cfg["configured"]:
-                        raise transport.ModeError(f"transport mode {tp.mode if new_account_mode is None else new_account_mode['mode']} "
-                                                  f"needs the project's relay configuration: {new_cfg['reason']}")
-                    if not new_tok and not new_carrier_only:
-                        raise transport.ModeError(f"transport mode {new_account_mode['mode'] if new_account_mode else '?'} needs the relay token, "
-                                                  "and none is found")
-                    cfg, tok, carrier_only = new_cfg, new_tok, new_carrier_only
+                    new_cfg, new_tok, new_account_mode = moved_integration()
+                    tp = open_mux(new_account_mode, new_cfg, new_tok)
+                    # Only now: a refused move leaves the watch's labels describing the transport it kept.
+                    cfg, tok, carrier_only = new_cfg, new_tok, new_account_mode["mode"] == transport.mode.CARRIER_ONLY
                     relay_url, channel = cfg["relay_url"], cfg["channel"]
-                    tp = open_mux(new_account_mode)
                 except transport.ModeError as e:
                     # The watch keeps the transport it has, and asks again at the next poll: a damaged file is said, never read as a mode.
                     mode_watch.current = tp.mode

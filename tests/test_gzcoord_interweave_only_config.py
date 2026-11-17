@@ -11,10 +11,14 @@ first part), through the real entry points with a real carrier and a relay that 
 Plain script: prints ok/FAIL, exit 1 on any failure. The world is test_gzcoord_carrier_only_gate2's."""
 from __future__ import annotations
 
+import http.server
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
+import threading
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
@@ -172,10 +176,8 @@ def cases(w: G.World) -> None:
     # moves it to carrier-only, where it waits and delivers, and says so.
     set_mode(w, mode.RELAY_RECORD)
     wmid, wbody = text("INFO", 29, PEER, ME)
-    import subprocess
     p = subprocess.Popen([INBOX, "--until-delivery", "--deadline", "40"], env={**w.env, **OVERRIDE}, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=w.base)
-    import time
     time.sleep(3)
     early = p.poll()
     w.push(wbody)
@@ -204,15 +206,47 @@ def cases(w: G.World) -> None:
     check("a carrier-only watch moved to relay-record with no relay section keeps its transport and says why: no relay is built",
           p.returncode == 0 and "transport mode is now" not in err and "needs the project's relay configuration" in err,
           f"{p.returncode} {out!r} {err!r}")
-    # With the relay named and a token: the move is taken, and the relay is built from the real config.
-    set_mode(w, mode.CARRIER_ONLY)
-    p = subprocess.Popen([INBOX, "--until-delivery", "--deadline", "16"], env={**w.env, **RELAY_NAMED(w), "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture"},
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=w.base)
-    time.sleep(3)
-    set_mode(w, mode.CARRIER_RECORD)
-    out, err = p.communicate(timeout=100)
+    # With the relay named and a token: the move is taken, and the relay is built from the real config: the stand-in relay sees
+    # the resolved channel and the resolved token (review of #638, F7), not the carrier's config and an empty one.
+    seen: list[tuple[str, str]] = []
+    relay = http.server.ThreadingHTTPServer(("127.0.0.1", 0), type("H", (http.server.BaseHTTPRequestHandler,), {
+        "do_GET": lambda h: (seen.append((h.path, h.headers.get("Authorization", ""))), h.send_response(200), h.send_header("Content-Length", "2"),
+                             h.end_headers(), h.wfile.write(b"{}"))[0],
+        "log_message": lambda *a: None}))
+    threading.Thread(target=relay.serve_forever, daemon=True).start()
+    stand_in = {"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}", "GZCOORD_CHANNEL": "fixture:chan",
+                "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture"}
+    try:
+        set_mode(w, mode.CARRIER_ONLY)
+        p = subprocess.Popen([INBOX, "--until-delivery", "--deadline", "16"], env={**w.env, **stand_in},
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=w.base)
+        time.sleep(3)
+        quiet_before = len(seen)
+        set_mode(w, mode.CARRIER_RECORD)
+        out, err = p.communicate(timeout=100)
+    finally:
+        relay.shutdown()
+        relay.server_close()
+    after = seen[quiet_before:]
     check("a carrier-only watch moved to carrier-record with the relay named and a token takes the move",
           p.returncode == 0 and "transport mode is now carrier-record" in err, f"{p.returncode} {out!r} {err!r}")
+    check("  and the relay it builds is the resolved one: asked on the project's channel with the resolved token, none of it before the move",
+          quiet_before == 0 and after and all("channel=fixture%3Achan" in path and auth == "Bearer tok-fixture" for path, auth in after),
+          f"before={quiet_before} after={after[:3]}")
+    # F4 and F6: a move the start would have refused is refused at the move too, and the watch keeps its transport.
+    for what, extra, wants in (("a control channel", {"GZCOORD_CHANNEL": "fixture:control", "CLAUDE_BRIDGE_URL": "http://127.0.0.1:9",
+                                                       "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture"}, "control"),
+                               ("a malformed token", {"GZCOORD_CHANNEL": "fixture:chan", "CLAUDE_BRIDGE_URL": "http://127.0.0.1:9",
+                                                      "CLAUDE_BRIDGE_AUTH_TOKEN": "a\nb"}, "line break")):
+        set_mode(w, mode.CARRIER_ONLY)
+        p = subprocess.Popen([INBOX, "--until-delivery", "--deadline", "16"], env={**w.env, **extra}, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=w.base)
+        time.sleep(3)
+        set_mode(w, mode.CARRIER_RECORD)
+        out, err = p.communicate(timeout=100)
+        check(f"a carrier-only watch moved to carrier-record with {what}: refused with the reason, the watch keeps its transport, exit 0",
+              p.returncode == 0 and "transport mode is now" not in err and wants in err and "Traceback" not in err,
+              f"{p.returncode} {out!r} {err!r}")
     set_mode(w, mode.CARRIER_ONLY)
     # An unknown override: the watch refuses with the mode's line and exit 7.
     r = w.run([INBOX, "--until-delivery", "--deadline", "4"], **{mode.ENV: "bogus"})
