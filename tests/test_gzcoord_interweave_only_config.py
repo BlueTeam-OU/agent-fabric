@@ -218,23 +218,30 @@ def cases(w: G.World) -> None:
                 "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture"}
     try:
         set_mode(w, mode.CARRIER_ONLY)
-        p = subprocess.Popen([INBOX, "--until-delivery", "--deadline", "16"], env={**w.env, **stand_in},
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, cwd=w.base)
-        time.sleep(3)
-        quiet_before = len(seen)
-        set_mode(w, mode.CARRIER_RECORD)
-        time.sleep(3)
-        # The mirror is read only after the carrier's wait returns, so a carrier arrival (not the clock) is what makes the
-        # moved watch ask the relay it built; waiting for the deadline raced the deadline itself.
-        _, nudge = text("INFO", 31, PEER, ME)
-        w.push(nudge)
-        out, err = p.communicate(timeout=100)
+        errfile = os.path.join(w.base, "moved-watch.err")
+        with open(errfile, "w") as errout:
+            p = subprocess.Popen([INBOX, "--until-delivery", "--deadline", "40"], env={**w.env, **stand_in, "GZCOORD_MODE_POLL_S": "0.5"},
+                                 stdout=subprocess.PIPE, stderr=errout, text=True, stdin=subprocess.DEVNULL, cwd=w.base)
+            time.sleep(3)
+            quiet_before = len(seen)
+            set_mode(w, mode.CARRIER_RECORD)
+
+            def stderr_text() -> str:
+                with open(errfile) as f:
+                    return f.read()
+            # The mirror is read only after the carrier's wait returns, so a carrier arrival makes the moved watch ask the relay it
+            # built; the arrival is pushed once the watch has said it moved, never on a clock, or an unmoved watch delivers it.
+            moved = until(lambda: "transport mode is now" in stderr_text(), 25)
+            _, nudge = text("INFO", 31, PEER, ME)
+            w.push(nudge)
+            out, _ = p.communicate(timeout=100)
+        err = stderr_text()
     finally:
         relay.shutdown()
         relay.server_close()
     after = seen[quiet_before:]
     check("a carrier-only watch moved to carrier-record with the relay named and a token takes the move",
-          p.returncode == 0 and "transport mode is now carrier-record" in err, f"{p.returncode} {out!r} {err!r}")
+          moved and p.returncode == 0 and "transport mode is now carrier-record" in err, f"{p.returncode} {out!r} {err!r}")
     check("  and the relay it builds is the resolved one: asked on the project's channel with the resolved token, none of it before the move",
           quiet_before == 0 and after and all("channel=fixture%3Achan" in path and auth == "Bearer tok-fixture" for path, auth in after),
           f"before={quiet_before} after={after[:3]}")

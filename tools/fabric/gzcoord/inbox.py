@@ -509,16 +509,22 @@ def main(argv: list[str]) -> int:
         print(t("start.error", {"detail": str(e)}), file=refusal_out)
         return 2
     relay_url, channel = cfg["relay_url"], cfg["channel"]
+    def start_relay(for_cfg: dict) -> dict:
+        """Start the hosting working copy's relay and say what happened, at the start and at a move out of carrier-only alike."""
+        up_ = transport.start_hosted(for_cfg, t)
+        if up_.get("started"):
+            print(t("start.relay-started-unit", {"unit": up_["unit"]}) if up_.get("unit")
+                  else t("start.relay-started-pid", {"pid": up_.get("pid")}), file=sys.stderr)
+        elif up_.get("note"):
+            print(t("start.error", {"detail": up_["note"]}), file=sys.stderr)
+        return up_
+
     # What this session owns first: the hosting working copy starts its
     # relay here, so a session restart is also the relay's.
     # Not in carrier-only: nothing in that mode's inbox path may start or probe the relay. A mode that cannot be read
     # does not decide it here; open_mux below refuses it in one line.
-    up = {"hosted": False, "started": False} if carrier_only else transport.start_hosted(cfg, t)
-    if up.get("started"):
-        print(t("start.relay-started-unit", {"unit": up["unit"]}) if up.get("unit")
-              else t("start.relay-started-pid", {"pid": up.get("pid")}), file=sys.stderr)
-    elif up.get("note"):
-        print(t("start.error", {"detail": up["note"]}), file=sys.stderr)
+    if not carrier_only:
+        start_relay(cfg)
     # No relay token in carrier-only: it is neither looked for nor needed.
     tok = None if carrier_only else token(root, cfg)
     if not tok and not carrier_only and history_given:
@@ -617,10 +623,6 @@ def main(argv: list[str]) -> int:
             raise transport.ModeError(f"transport mode {name}: {e}") from None
         if not new_tok:
             raise transport.ModeError(f"transport mode {name} needs the relay token, and none is found")
-        # The hosting working copy's relay is started here as at the start, which carrier-only skipped.
-        up_now = transport.start_hosted(new_cfg, t)
-        if up_now.get("note"):
-            print(t("start.error", {"detail": up_now["note"]}), file=sys.stderr, flush=True)
         return new_cfg, new_tok, new_mode
 
     try:
@@ -773,6 +775,10 @@ def main(argv: list[str]) -> int:
                 try:
                     new_cfg, new_tok, new_account_mode = moved_integration()
                     tp = open_mux(new_account_mode, new_cfg, new_tok)
+                    # Only after the mux is accepted, so a move it refuses starts nothing at every retry; carrier-only skipped
+                    # the start, and a hosting working copy's relay is not otherwise up.
+                    if new_account_mode["mode"] != transport.mode.CARRIER_ONLY:
+                        start_relay(new_cfg)
                     # Only now: a refused move leaves the watch's labels describing the transport it kept.
                     cfg, tok, carrier_only = new_cfg, new_tok, new_account_mode["mode"] == transport.mode.CARRIER_ONLY
                     relay_url, channel = cfg["relay_url"], cfg["channel"]
