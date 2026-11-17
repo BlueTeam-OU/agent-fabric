@@ -245,6 +245,58 @@ def cases(w: G.World) -> None:
     check("  and the relay it builds is the resolved one: asked on the project's channel with the resolved token, none of it before the move",
           quiet_before == 0 and after and all("channel=fixture%3Achan" in path and auth == "Bearer tok-fixture" for path, auth in after),
           f"before={quiet_before} after={after[:3]}")
+    # Review of #638, F1: the hosted relay is started by a move out of carrier-only, which skipped the start, and by no other
+    # move. A fake relay binary in the workspace's runtime dir records each start; the relay is configured and down at the move.
+    runtime = os.path.join(os.path.dirname(w.env["AGENT_FABRIC_ROOT"]), ".gzcoord")
+    os.makedirs(os.path.join(runtime, "venv", "bin"), exist_ok=True)
+    started = os.path.join(runtime, "started")
+    binary = os.path.join(runtime, "venv", "bin", "claude-bridge")
+    with open(binary, "w") as fh:
+        fh.write(f"#!/bin/sh\necho started >> {started}\n")
+    os.chmod(binary, 0o755)
+    with open(os.path.join(runtime, "bridge-token"), "w") as fh:
+        fh.write("tok-fixture\n")
+
+    def moved_watch(url: str, begin: str, move_to: str, relay_alive_until_move: http.server.HTTPServer | None) -> tuple[str, int]:
+        if os.path.exists(started):
+            os.unlink(started)
+        set_mode(w, begin)
+        errfile = os.path.join(w.base, "hosted-watch.err")
+        with open(errfile, "w") as errout:
+            hp = subprocess.Popen([INBOX, "--until-delivery", "--deadline", "40"], stdout=subprocess.DEVNULL, stderr=errout, text=True,
+                                  env={**w.env, "CLAUDE_BRIDGE_URL": url, "GZCOORD_CHANNEL": "fixture:chan",
+                                       "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture", "GZCOORD_MODE_POLL_S": "0.5"},
+                                  stdin=subprocess.DEVNULL, cwd=w.base)
+            time.sleep(3)
+            if relay_alive_until_move is not None:
+                relay_alive_until_move.shutdown()
+                relay_alive_until_move.server_close()
+            set_mode(w, move_to)
+
+            def said() -> str:
+                with open(errfile) as f:
+                    return f.read()
+            ok = until(lambda: "transport mode is now" in said(), 40)
+            time.sleep(1)
+            n = len(open(started).read().split()) if os.path.exists(started) else 0
+            hp.terminate()
+            hp.wait(timeout=30)
+        return said(), (n if ok else -1)
+
+    def status_relay() -> http.server.ThreadingHTTPServer:
+        up = http.server.ThreadingHTTPServer(("127.0.0.1", 0), type("S", (http.server.BaseHTTPRequestHandler,), {
+            "do_GET": lambda h: (h.send_response(200), h.send_header("Content-Length", "2"), h.end_headers(), h.wfile.write(b"{}"))[0],
+            "log_message": lambda *a: None}))
+        threading.Thread(target=up.serve_forever, daemon=True).start()
+        return up
+
+    live = status_relay()
+    _, n_between = moved_watch(f"http://127.0.0.1:{live.server_address[1]}", mode.CARRIER_RECORD, mode.RELAY_RECORD, live)
+    check("a watch moved between the two relay modes starts no hosted relay, though the relay is down at the move",
+          n_between == 0, f"starts={n_between}")
+    _, n_out = moved_watch("http://127.0.0.1:9", mode.CARRIER_ONLY, mode.CARRIER_RECORD, None)
+    check("positive control: a watch moved out of carrier-only starts the hosted relay once",
+          n_out == 1, f"starts={n_out}")
     # F4 and F6: a move the start would have refused is refused at the move too, and the watch keeps its transport.
     for what, extra, wants in (("a control channel", {"GZCOORD_CHANNEL": "fixture:control", "CLAUDE_BRIDGE_URL": "http://127.0.0.1:9",
                                                        "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture"}, "control"),

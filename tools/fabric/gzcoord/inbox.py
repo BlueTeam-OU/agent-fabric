@@ -775,9 +775,9 @@ def main(argv: list[str]) -> int:
                 try:
                     new_cfg, new_tok, new_account_mode = moved_integration()
                     tp = open_mux(new_account_mode, new_cfg, new_tok)
-                    # Only after the mux is accepted, so a move it refuses starts nothing at every retry; carrier-only skipped
-                    # the start, and a hosting working copy's relay is not otherwise up.
-                    if new_account_mode["mode"] != transport.mode.CARRIER_ONLY:
+                    # Only after the mux is accepted, so a move it refuses starts nothing at every retry, and only for a move out
+                    # of carrier-only, the one start that was skipped: a move between the relay modes did not start it before.
+                    if carrier_only and new_account_mode["mode"] != transport.mode.CARRIER_ONLY:
                         start_relay(new_cfg)
                     # Only now: a refused move leaves the watch's labels describing the transport it kept.
                     cfg, tok, carrier_only = new_cfg, new_tok, new_account_mode["mode"] == transport.mode.CARRIER_ONLY
