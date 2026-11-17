@@ -185,6 +185,7 @@ class Ask(Tmp):
             "record is not a state record": {A: reply_of(A, {**record(A), "kind": "up"})},
             "no ts": {A: reply_of(A, {k: v for k, v in record(A).items() if k != "ts"})},
             "refused": {A: reply_of(A, record(A), ok=False)},
+            "the reply's own from is another's": {A: {**reply_of(A, record(A)), "from": B}},
         }
         for name, answers in cases.items():
             with self.subTest(name):
@@ -312,6 +313,30 @@ class Table(Tmp):
         self.assertIn("a", lines[1])
         self.assertTrue(lines[2].startswith("b") and "unknown" in lines[2] and "no state record has been written yet" in lines[2])
         self.assertIn("state", ctl.VERB)
+
+
+class Main(Tmp):
+    """fabric-ctl's own entry, the carrier named by the environment, the relay refusing every call and holding no token."""
+
+    def test_states_through_main_asks_the_op_and_never_the_relay(self):
+        reg = os.path.join(self.dir, "registry.json")
+        with open(reg, "w") as fh:
+            json.dump({"hosts": {"h": {"operator": "op"}}, "placement": {"a": "h", "b": "h", "op": "h"}}, fh)
+        old = os.environ.get("FABRIC_CONTROL_CARRIER")
+        os.environ["FABRIC_CONTROL_CARRIER"] = "interweave"
+        self.addCleanup(lambda: os.environ.__setitem__("FABRIC_CONTROL_CARRIER", old) if old is not None else os.environ.pop("FABRIC_CONTROL_CARRIER"))
+        orig = state_read.ask
+        self.addCleanup(setattr, state_read, "ask", orig)
+        state_read.ask = lambda addrs, **kw: orig(addrs, **{**kw, "wait_s": 0.2, "open_leg": lambda r, to, w: FakeLeg([("h/a", reply_of("h/a", record("h/a", ago_ms=1000)))])})
+        out, err = [], []
+        rc = ctl.main(["a", "b", "states", "--json"], registry=reg, call=refuse, who={"host": "h", "agent": "op"}, token=None,
+                      out=out.append, err=err.append, sleep=lambda _s: None, now=lambda: __import__("time").time())
+        rows = {json.loads(x)["address"]: json.loads(x) for x in out}
+        self.assertEqual(rc, 1, (out, err))
+        self.assertEqual(rows["h/a"]["state"] in ("none", "unknown"), True)
+        self.assertEqual(rows["h/b"]["state"], "unknown")
+        self.assertIn("did not answer", rows["h/b"]["why"])
+        self.assertFalse([e for e in err if "relay" in e or "TOKEN" in e], err)
 
 
 class States(Tmp):
