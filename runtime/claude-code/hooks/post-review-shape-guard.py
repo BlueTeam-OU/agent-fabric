@@ -116,7 +116,11 @@ name is
     expansion or not (`xargs -r rm -f < list.txt`, `git ls-files -z | xargs -0
     grep -l 'post-review'`); `xargs -n 1 grep …` is not. An expansion after
     any wrapper option (`sudo -n grep -n x "$f"`) is refused with cause
-    `word`; `sudo -n grep -n x f < in` passes. The deny's reason names which of
+    `word`; `sudo -n grep -n x f < in` passes. A `find` after a wrapper's
+    option or operand is not followed, so its -exec words count wherever the
+    open phase stands: `sudo -n find . -exec grep -l 'post-review' {} +` and
+    `env -i find …` are refused `wrapper`, while `sudo find …` and `timeout 60
+    find …` pass. The deny's reason names which of
     the four causes it fell to (the word, the wrapper, the bare-form rule, the
     guard being unable to decide). A
     redirection's fd and target are no word at all;
@@ -375,9 +379,7 @@ def live_text(cmd: str) -> tuple[str, str]:
         elif s.phase == "open" and s.operands and not after_option:
             s.operands -= 1                         # `sg test $c`: `test` is the group, not the command
             if name not in PLAIN:                   # but `runuser -u me env -S …` may be the command: it sets its flags
-                left = s.operands
                 literal(s, name, full)
-                s.operands = left                   # a directory named `ip` is no wrapper: the count stays as decremented
         elif not (after_option and name in PLAIN):
             literal(s, name, full)
         if s.phase == "open":

@@ -197,12 +197,19 @@ def main() -> int:
         ("runuser -u, then xargs", "runuser -u me xargs -r fabric-pr < list"),
         ("chroot --userspec, then xargs", "chroot --userspec=me:me / xargs -r fabric-pr < list"),
         # #637 F19/F16: a find swallowed as an operand (the operand named like a wrapper, or after an option-led one)
-        # still has its -exec judged. Mutation: drop the `full in EXEC_FLAGS and s.phase == "open"` line in end_word(),
-        # or the `s.operands = left` line after the operands-branch literal().
+        # still has its -exec judged. Mutation: drop the `full in EXEC_FLAGS and s.phase == "open"` line in end_word()
+        # and all three pass.
         ("chroot to a directory named ip, find -exec {}",
          "chroot /srv/ip find /x -name 'fabric-pr' -exec {} post-review 1 \\; < r.md"),
         ("sg su, find -execdir {}", "sg su find /x -name 'fabric-pr' -execdir {} post-review 1 \\; < r.md"),
         ("runuser -u, find -exec {}", "runuser -u me find /x -name 'fabric-pr' -exec {} post-review 1 \\; < r.md"),
+        # #637 round 6, F22: a real wrapper in the operand slot after an option-led operand takes its own operand, so
+        # the expansion after it is the command. Mutation: restore the operand count after the operands-branch
+        # literal() and all four pass.
+        ("runuser -u, then sg GROUP $c", "runuser -u me sg test \"$c\" post-review 1 < r.md"),
+        ("runuser -u, then ip netns exec NAME $c", "runuser -u me ip netns exec test \"$c\" post-review 1 < r.md"),
+        ("chroot --userspec, then sg GROUP $c", "chroot --userspec=me:me / sg test \"$c\" post-review 1 < r.md"),
+        ("runuser -u, then su USER -c $c", "runuser -u me su test -c \"$c\" < r.md"),
         ("chroot with a plain directory name", held + "chroot test $c < r.md"),
         ("ip netns exec with a plain name", held + "ip netns exec test $c < r.md"),
         ("ip -n netns exec with a plain name", held + "ip -n netns exec echo $c < r.md"),
@@ -279,7 +286,7 @@ def main() -> int:
         ("a single-quoted grep of .", "grep -rn 'fabric-pr post-review' ."),
         ("rg of .", "rg 'fabric-pr post-review' ."),
         ("git grep -- .", "git grep -n 'fabric-pr post-review' -- ."),
-        ("chroot then find -exec grep, no <, no words", "chroot /srv/x find . -name x -exec grep -l y {} \\;"),
+        ("chroot DIR, then find -exec grep", "chroot /srv/x find . -name x -exec grep -l y {} \\; < /dev/null"),
         ("find . piped to xargs grep", "find . -name '*.md' | xargs grep -l 'fabric-pr post-review'"),
         ("git add . then a quoted-heredoc commit", "git add . && git commit -F- <<'EOF'\nfabric-pr post-review 12\nEOF"),
         ("a <<- heredoc ended by a tab-indented delimiter", "cat <<-'EOF'\n\tfabric-pr post-review 1\n\tEOF\nls"),
