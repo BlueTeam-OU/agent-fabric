@@ -102,8 +102,9 @@ class Base(Scratch):
         self.thread = threading.Thread(target=agentd.main, kwargs={"argv": self.argv, "stop": self.stop}, daemon=True)
         self.thread.start()
         self.addCleanup(self.shutdown)
-        self.relay.until_waiting()
-        if self.carrier == "dual" and not self.argv:
+        if self.carrier != "interweave":   # InterWeave alone never polls: there is no wait to wait for
+            self.relay.until_waiting()
+        if self.carrier in ("dual", "interweave") and not self.argv:
             self.assertTrue(until(lambda: os.path.isdir(os.path.join(self.net, PEERS["alice"]))), self.logs)   # its child is up
         self.op = Node(self, self.net, "op")
         self.replies: list[tuple[dict, str]] = []
@@ -392,6 +393,50 @@ class AgentdDual(Base):
         self.assertIn(link.Running.stop.__name__, [getattr(h, "__name__", "") for h in agentd.EXIT_HOOKS])
         agentd.run_exit_hooks()
         self.assertFalse(os.path.exists(os.path.join(self.runtime, "agent-fabric", "control.sock")), "the exit hook took the socket down")
+
+
+class AgentdInterweave(Base):
+    """control_carrier "interweave": the second carrier alone. The relay is never read, never posted to and never needed:
+    every case below runs with the fake relay recording each path, and most close it first."""
+    carrier = "interweave"
+
+    def test_a_request_is_answered_by_the_carrier_and_the_relay_is_never_touched(self):
+        got = self.watch("iw1")
+        self.send_iw(body("iw1"))
+        self.assertTrue(until(lambda: got), self.logs)
+        self.assertEqual(got[0][1], "h/alice")
+        self.assertEqual(self.relay.hits, [], "no prime, no poll, no reply post")
+        self.assertTrue(any("answered ping for h/op (iw1) (via interweave)" in l for l in self.logs), self.logs)
+        self.assertTrue(any("on InterWeave alone" in l for l in self.logs), self.logs)
+        self.assertFalse(any("the relay stays the record" in l for l in self.logs), self.logs)
+
+    def test_a_relay_that_refuses_every_connection_changes_nothing(self):
+        self.relay.close()
+        got = self.watch("iw2")
+        self.send_iw(body("iw2"))
+        self.assertTrue(until(lambda: got), self.logs)
+        self.assertFalse(any("relay unreachable" in l or "not posted" in l for l in self.logs), self.logs)
+
+    def test_a_request_left_on_the_relay_is_not_answered(self):
+        self.relay.add("h/op", json.dumps(body("on-relay")))
+        got = self.watch("after")
+        self.send_iw(body("after"))   # the positive control and the bound: the carrier answers, the relay's row would have by now
+        self.assertTrue(until(lambda: got), self.logs)
+        self.assertEqual(self.relay_replies("on-relay"), [])
+        self.assertEqual(self.relay.hits, [])
+
+
+class AgentdInterweaveOnce(Base):
+    """--once is one read of the relay's control channel: refused, never an empty pass that exits 0."""
+    carrier = "interweave"
+    argv = ["--once"]
+
+    def test_a_one_shot_is_refused_by_name(self):
+        self.thread.join(timeout=30)
+        self.assertFalse(self.thread.is_alive())
+        self.assertTrue(any("--once reads the relay's control channel" in l for l in self.logs), self.logs)
+        self.assertEqual(self.relay.hits, [])
+        self.assertFalse(os.path.exists(self.argv_file), "no child was started")
 
 
 class AgentdOnce(Base):

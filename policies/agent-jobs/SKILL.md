@@ -55,6 +55,7 @@ fabric-jobs add "<artifact>" --priority high                      # blocking | h
 | It waits on another agent's request being done | `fabric-jobs block <id> --on-request <MESSAGE-ID>` |
 | Its artifact exists | `fabric-jobs deliver <id> <pr-or-commit>...` |
 | The artifact landed and nothing is owed | `fabric-jobs done <id>` |
+| It landed before `deliver` ran (a pull request already merged) | `fabric-jobs done <id> <owner/repo#N or commit>`: the artifacts named are recorded and are the evidence |
 | Its work leaves no repository artifact (a cleanup) | `fabric-jobs done <id> --no-artifact "<what was done>"` |
 | It will not be done | `fabric-jobs drop <id> "<why>"` |
 | An artifact was entered by mistake | `fabric-jobs retract <id> <artifact>`, exactly as `show` lists it; any state, done included |

@@ -61,17 +61,33 @@ def _assigned(node: ast.AST) -> list[tuple[list[str], ast.AST]]:
     return []
 
 
-def _own_statements(fn: ast.AST) -> list[ast.AST]:
-    """The nodes of a function's or class's own body in source order, not
-    crossing into the functions, lambdas and classes nested in it."""
+def _children(node: ast.AST) -> list[ast.AST]:
+    """ast.iter_child_nodes as a list, in its order, without its generator layers: this and _own_statements visit every node of
+    the corpus (j914: 5.2M calls of the generic one in one lint)."""
     out: list[ast.AST] = []
-    stack = list(ast.iter_child_nodes(fn))
+    for name in node._fields:
+        value = getattr(node, name, None)
+        if isinstance(value, ast.AST):
+            out.append(value)
+        elif isinstance(value, list):
+            out.extend(v for v in value if isinstance(v, ast.AST))
+    return out
+
+
+def _own_statements(fn: ast.AST) -> list[ast.AST]:
+    """The assignments of a function's or class's own body in source order, not
+    crossing into the functions, lambdas and classes nested in it. Only
+    assignments: _scope_bindings reads nothing else, and sorting the rest was a
+    fifth of this rule's time."""
+    out: list[ast.AST] = []
+    stack = _children(fn)
     while stack:
         node = stack.pop()
-        out.append(node)
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            out.append(node)
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
-            stack.extend(ast.iter_child_nodes(node))
-    return sorted(out, key=lambda n: (getattr(n, "lineno", 0), getattr(n, "col_offset", 0)))
+            stack.extend(_children(node))
+    return sorted(out, key=lambda n: (n.lineno, n.col_offset))
 
 
 def _scope_bindings(nodes: list[ast.AST]) -> tuple[dict[str, int], set[str]]:
@@ -119,7 +135,8 @@ class _Module:
         # body; class_binds: every (class, X) the body binds at all
         self.class_patterns: dict[tuple[str, str], int] = {}
         self.class_binds: set[tuple[str, str]] = set()
-        self.class_names = {n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
+        nodes = syntax_tree.walk(tree)
+        self.class_names = {n.name for n in nodes if isinstance(n, ast.ClassDef)}
         # a class's bases that are classes of this module
         self.class_bases: dict[str, list[str]] = {}
         # asname -> (level, module, name) for `from module import name`
@@ -127,7 +144,7 @@ class _Module:
         # asname -> dotted module for `import module`
         self.imports: dict[str, str] = {}
         self._scope(tree, None, {}, frozenset())
-        for node in ast.walk(tree):
+        for node in nodes:
             if isinstance(node, ast.ImportFrom):
                 for a in node.names:
                     self.froms[a.asname or a.name] = (node.level, node.module or "", a.name)
@@ -142,7 +159,7 @@ class _Module:
         """Walk one scope: the module's (fn None), a class body's, or a
         function's. A nested function sees its enclosing function's names (a
         closure) unless it binds them itself."""
-        for child in ast.iter_child_nodes(node):
+        for child in _children(node):
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 params = {a.arg for a in ast.walk(child.args) if isinstance(a, ast.arg)}
                 patterns, names_bound = _scope_bindings(_own_statements(child))

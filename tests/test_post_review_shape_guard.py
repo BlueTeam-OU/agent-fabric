@@ -118,6 +118,131 @@ def main() -> int:
         ("a heredoc fed to a shell by path after 2>&1",
          "2>&1 /usr/bin/bash <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
     ]
+    # A command word the walk cannot name, with post-review text or an input on the line (#631 reviews F1, F2; j830).
+    # Mutation: post-review-shape-guard.py refused(), `return dynamic` made `return False` (and live_text's flag ignored).
+    held = "read -r c <<< 'fabric-pr post-review 1'; "
+    unnameable = [
+        # What the reviews of #631 named.
+        ("a command held in a variable", "x='fabric-pr post-review 1'; $x < r.md"),
+        ("read into a variable, run", held + "$c"),
+        ("$SHELL -c", "$SHELL -c 'fabric-pr post-review 1 < r.md'"),
+        ("an expansion glued to a letter", "read -r c <<< 'abric-pr post-review 1'; f$c < r.md"),
+        ("an expansion glued to a letter, the text after it", "c=val; e$c 'fabric-pr post-review 1 < r.md'"),
+        ("after timeout 5s", held + "timeout 5s $c < r.md"),
+        ("after sudo -u root", held + "sudo -u root $c < r.md"),
+        ("after a leading redirection", held + "2>/dev/null $c < r.md"),
+        ("after setsid, a wrapper nobody listed", held + "setsid $c < r.md"),
+        ("after stdbuf -oL", held + "stdbuf -oL $c < r.md"),
+        ("xargs with another replace string", "xargs -0 -I X env -S X <<< 'fabric-pr post-review 1'"),
+        ("xargs with {} and env", "xargs -0 -I{} env {} <<< 'fabric-pr post-review 1'"),
+        ("the name in a variable, the verb after it", "c='fabric-pr'; \"${c}\" post-review 1"),
+        ("a redirection before an expansion holding the whole line", "c='fabric-pr post-review 1'; 2>/dev/null $c"),
+        ("an expansion in the shell's path", "c=bash; /bin/${c} -c 'fabric-pr post-review 1'"),
+        # Review of #637, F1: a word with a mark anywhere outside single quotes is unnamed, a `/` before it included.
+        ("a slash in a substitution operator", held + "${c/z/z} < r.md"),
+        ("a slash in a trailing-slash strip", held + "${c%/} < r.md"),
+        ("a slash in a prefix strip", held + "${c##*/} < r.md"),
+        ("a slash after a word-split expansion", "c='fabric-pr post-review 1 .'; $c/ < r.md"),
+        ("a slash inside a double-quoted operator", held + '"${c//z/z}" < r.md'),
+        ("a slash in a default, after the word split", held + "${d:-x/y}$c/ < r.md"),
+        ("an unquoted root before the script", "R='fabric-pr post-review 1 .'; $R/bin/fabric-pr < r.md"),
+        ("a slash after the marks of a brace list", "{fabric-pr,'post-review',--repo,o/n,1} < r.md"),
+        ("a slash in ANSI-C text, the name spelled by escapes", "$'/x/\\x66abric-pr' post-review 1 < r.md"),
+        ("a slash in ANSI-C text, a shell", "$'/bin/\\x62ash' -c 'fabric-pr post-review 1 < r.md'"),
+        # Costs of failing closed: a quoted root names the script no more than an unquoted one.
+        ("a double-quoted root before the script", 'cd /x && "$R"/bin/fabric-pr arm 3 --dry-run < r.md'),
+        ("a double-quoted expansion before the slash", 'c=x; "${c}"/bin/fabric-pr arm 3 < /dev/null'),
+        ("an unquoted root, beside the name only", 'cd "$d" && $ROOT/bin/fabric-pr arm 3 --dry-run'),
+        # F2, F10: the walk does not know an option's value from the command, so a word after an option is never the
+        # PLAIN command, and an unnamed word counts whether or not it is a value.
+        ("env -u with a plain value", held + "env -u echo $c < r.md"),
+        ("exec -a with a plain value", held + "exec -a echo $c < r.md"),
+        ("sudo -u with a plain value", held + "sudo -u test $c < r.md"),
+        ("xargs -I with a plain replace string", "xargs -I echo env -S echo <<< 'fabric-pr post-review 1'"),
+        ("timeout -s with a plain value", held + "timeout -s true 5 $c < r.md"),
+        ("nice -n then exec, with a plain value", held + "nice -n true exec -a printf $c"),
+        ("env with an option cluster", held + "env -vu echo $c < r.md"),
+        ("sudo with an option cluster", held + "sudo -Eu test $c < r.md"),
+        ("xargs with an option cluster", "xargs -rI echo env -S echo <<< 'fabric-pr post-review 1'"),
+        ("env with an abbreviated long option", held + "env --uns echo $c < r.md"),
+        ("a wrapper nobody listed, with an option value", held + "strace -o echo $c < r.md"),
+        ("env with a flag before -u", held + "env -E -u echo $c < r.md"),
+        ("sudo --user=value", held + "sudo --user=test $c < r.md"),
+        ("env -u with the value held", held + "env -u $c < r.md"),
+        ("sudo -u with the value held", held + "sudo -u $c < r.md"),
+        ("timeout -s with the value held", held + "timeout -s $c < r.md"),
+        ("exec -a with the value held", held + "exec -a $c < r.md"),
+        ("nice -n with the value held", held + "nice -n $c < r.md"),
+        ("env -u with a glob and the value held", held + "env -u *$c < r.md"),
+        # Codex round 3 of #637, F1: an assignment word and a word starting with `-` are never a command's name, a
+        # path-valued one included. Mutation: post-review-shape-guard.py end_word(), drop the `full[:1] == "-" or
+        # ASSIGN.match(full)` branch.
+        ("env with a path-valued assignment", held + "env TAG=/tmp/echo $c < r.md"),
+        ("env with a second path-valued assignment", held + "env A=1 B=/usr/bin/true $c < r.md"),
+        ("env with a glued long option", held + "env --chdir=/tmp/echo $c < r.md"),
+        ("env with a glued short option value", held + "env -C/tmp/echo $c < r.md"),
+        # Extglob: the shell picks the letters of a word with `@(`, `+(`, `!(`, `?(` or `*(` in it, and the walk reads
+        # `(` as a separator. Mutation: drop the `if c == "(" and s.uq and s.uq[-1] in "@+!?*"` mark in live_text().
+        ("an extglob @( in the command word", "shopt -s extglob\n/tmp/b/fabric-p@(r) post-review 1 < r.md"),
+        ("an extglob +( in the command word", "shopt -s extglob\n/tmp/b/fabric-p+(r) post-review 1 < r.md"),
+        ("an extglob !( in the command word", "shopt -s extglob\n/tmp/b/fabric-pr!(x) post-review 1 < r.md"),
+        ("an extglob @( in a path-less command word", "shopt -s extglob\nfabric-pr@(x) post-review 1 < r.md"),
+        # A wrapper's positional operand is no command: a PLAIN name there does not end the open phase. Mutation:
+        # post-review-shape-guard.py end_word(), drop the `s.phase == "open" and s.operands` branch.
+        ("sg with a plain group name", held + "sg test $c < r.md"),
+        # #637 F16: an option-led operand then a non-PLAIN command still sets env's and xargs's flags. Mutation:
+        # drop the `literal(s, name, full)` call in the operands branch of end_word().
+        ("runuser -u, then env -S", "runuser -u me env -S 'fabric-pr post-review 1' < r.md"),
+        ("chroot --userspec, then env -S", "chroot --userspec=me:me / env -S 'fabric-pr post-review 1' < r.md"),
+        ("runuser -u, then xargs", "runuser -u me xargs -r fabric-pr < list"),
+        ("chroot --userspec, then xargs", "chroot --userspec=me:me / xargs -r fabric-pr < list"),
+        # #637 F19/F16: a find swallowed as an operand (the operand named like a wrapper, or after an option-led one)
+        # still has its -exec judged. Mutation: drop the `full in EXEC_FLAGS and s.phase == "open"` line in end_word()
+        # and all three pass.
+        ("chroot to a directory named ip, find -exec {}",
+         "chroot /srv/ip find /x -name 'fabric-pr' -exec {} post-review 1 \\; < r.md"),
+        ("sg su, find -execdir {}", "sg su find /x -name 'fabric-pr' -execdir {} post-review 1 \\; < r.md"),
+        ("runuser -u, find -exec {}", "runuser -u me find /x -name 'fabric-pr' -exec {} post-review 1 \\; < r.md"),
+        # #637 round 6, F22: a real wrapper in the operand slot after an option-led operand takes its own operand, so
+        # the expansion after it is the command. Mutation: restore the operand count after the operands-branch
+        # literal() and all four pass.
+        ("runuser -u, then sg GROUP $c", "runuser -u me sg test \"$c\" post-review 1 < r.md"),
+        ("runuser -u, then ip netns exec NAME $c", "runuser -u me ip netns exec test \"$c\" post-review 1 < r.md"),
+        ("chroot --userspec, then sg GROUP $c", "chroot --userspec=me:me / sg test \"$c\" post-review 1 < r.md"),
+        ("runuser -u, then su USER -c $c", "runuser -u me su test -c \"$c\" < r.md"),
+        ("chroot with a plain directory name", held + "chroot test $c < r.md"),
+        ("ip netns exec with a plain name", held + "ip netns exec test $c < r.md"),
+        ("ip -n netns exec with a plain name", held + "ip -n netns exec echo $c < r.md"),
+        ("runuser with a plain user", held + "runuser test $c < r.md"),
+        ("runuser -u with a value and a plain operand", held + "runuser -u test echo $c < r.md"),
+        # F3: a second `-exec` is judged as the first is.
+        ("a second find -exec of an expansion",
+         "c='fabric-pr post-review 1'; find . -maxdepth 0 -exec true \\; -exec $c \\;"),
+        ("a third find -exec of an expansion",
+         "c='fabric-pr post-review 1'; find . -exec true \\; -exec echo {} + -exec $c \\;"),
+        # F4: the dispatcher runs its noun as a command.
+        ("the dispatcher with its noun held", "read -r c <<< 'pr post-review 1'; fabric $c < r.md"),
+        ("the dispatcher with the whole line held", "read -r c <<< 'pr post-review 1'; fabric \"$c\" < r.md"),
+        # Shapes they did not name.
+        ("a command substitution as the command word", "$(echo fabric-pr) post-review 12 < r.md"),
+        ("backticks as the command word", "`printf fabric-pr` post-review 12 < r.md"),
+        ("ANSI-C quoting spelling the name", "$'\\x66abric-pr' post-review 12 < r.md"),
+        ("a glob in the command word", "fabric-p? post-review 12 < r.md"),
+        ("a bracket glob in the command word", "/opt/bin/fabric-p[r] post-review 12 < r.md"),
+        ("a brace expansion in the command word", "{fabric-pr,x} post-review 12 < r.md"),
+        ("xargs feeding a wrapper", "xargs env <<< 'fabric-pr post-review 1'"),
+        ("xargs with a command it does not name", "xargs nice -n 5 <<< 'fabric-pr post-review 1'"),
+        ("find -exec of an expansion", "c='fabric-pr post-review 1'; find . -maxdepth 0 -exec $c \\;"),
+        ("find -exec of a wrapper", "find . -maxdepth 0 -exec env -S 'fabric-pr post-review 1' \\;"),
+        ("env -S", "env -S 'fabric-pr post-review 1 < r.md'"),
+        ("a loop over quoted lines", "for c in 'fabric-pr post-review 1'; do $c < r.md; done"),
+        ("a substitution held in a variable", "cmd=$(echo 'fabric-pr post-review 1'); $cmd < r.md"),
+        ("an expansion after exec and nice", held + "nice -n 5 exec $c"),
+        ("a parameter operator in the command word", held + "${c%% *} 1 < r.md"),
+        ("an expansion in a pipeline's second command", "echo 'fabric-pr post-review 1' | $SHELL"),
+        ("after a here-string and a brace group", "{ read -r c <<< 'fabric-pr post-review 1'; }; \"$c\""),
+        ("a substitution glued into the name", "fabric-$(echo pr) post-review 12 < r.md"),
+    ]
     # Mentions the shell may run, refused on purpose: the deny names the way through (single quotes, a quoted heredoc,
     # a file). Pinned so a change to what is over-reported is a decision, not a drift.
     over_reported = [
@@ -127,6 +252,15 @@ def main() -> int:
         ("a double-quoted commit message", 'git commit -m "post-review: bare form\n\nfabric-pr post-review 12 < r.md"'),
         ("a double-quoted grep", 'grep -E "arm|fabric-pr post-review" docs'),
         ("a redirection target named post-review", "fabric-pr arm 3 > post-review.log"),
+        # Review of #637, F12: the costs of failing closed, pinned as decisions. xargs, parallel, find -exec and env -S
+        # are refused beside a `<` or the words, an expansion or not; a root before the script whenever the line
+        # holds fabric-pr.
+        ("xargs -r of rm, an input and no expansion", "xargs -r rm -f < list.txt"),
+        ("xargs -n1 after an input", "grep -c x < f | xargs -n1 echo"),
+        ("xargs -0 of grep over the words", "git ls-files -z | xargs -0 grep -l 'post-review'"),
+        ("a quoted root before the script, no post-review", '"$R"/bin/fabric-pr gate 12'),
+        ("a quoted root before the script, after a cd", 'cd "$WT" && "$WT"/bin/fabric-pr arm 3'),
+        ("sudo -n of grep with an expanded argument", "sudo -n grep -n x \"$f\" < /dev/null"),
         ("a bare runner name as an argument", "grep -rn 'fabric-pr post-review' bash"),
     ]
     allowed = [
@@ -152,6 +286,7 @@ def main() -> int:
         ("a single-quoted grep of .", "grep -rn 'fabric-pr post-review' ."),
         ("rg of .", "rg 'fabric-pr post-review' ."),
         ("git grep -- .", "git grep -n 'fabric-pr post-review' -- ."),
+        ("chroot DIR, then find -exec grep", "chroot /srv/x find . -name x -exec grep -l y {} \\; < /dev/null"),
         ("find . piped to xargs grep", "find . -name '*.md' | xargs grep -l 'fabric-pr post-review'"),
         ("git add . then a quoted-heredoc commit", "git add . && git commit -F- <<'EOF'\nfabric-pr post-review 12\nEOF"),
         ("a <<- heredoc ended by a tab-indented delimiter", "cat <<-'EOF'\n\tfabric-pr post-review 1\n\tEOF\nls"),
@@ -162,8 +297,38 @@ def main() -> int:
         ("a single-quoted grep of a directory named ssh", "grep -rn 'fabric-pr post-review' runtime/ssh"),
         ("a single-quoted grep of tests/bash/", "grep -rln 'fabric-pr post-review' tests/bash/x.sh docs/flock"),
         ("git log of a path ending in sh", "git log -S 'fabric-pr post-review' -- policies/watch"),
+        # Expansions that are arguments, or a command the walk can name, beside text that mentions the words.
+        ("xargs of a plain command", "xargs grep -n foo"),
+        ("xargs of grep over the words", "git ls-files | xargs grep -ln 'fabric-pr post-review'"),
+        ("fabric-pr gate", "fabric-pr gate 12"),
+        ("fabric-pr with an expanded argument", 'fabric-pr arm "$n" --dry-run'),
+        ("a script path under a literal directory, an expanded argument", 'cd "$d" && bin/fabric-pr arm 3 --dry-run'),
+        ("an ordinary pipeline", "git log --oneline | head -5 | wc -l"),
+        ("an ordinary pipeline with an input and expansions", 'sort < "$f" | uniq -c | head -3'),
+        ("a while-read loop over a file", 'while read -r l; do echo "$l"; done < list.txt'),
+        ("a commit message from a heredoc in a substitution, the words in it",
+         "git commit -m \"$(cat <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF\n)\" && git status"),
+        ("an assignment from a substitution", "x=$(date +%s) && git log -S 'post-review' -- docs"),
+        ("sudo of a plain command with an expansion", 'sudo grep -n \'fabric-pr post-review\' "$f"'),
+        ("timeout of a plain command with an expansion", 'timeout 60 grep -rn \'post-review\' "$d"'),
+        ("find -exec of grep with an expanded -name", 'find . -name "$p" -exec grep -l \'fabric-pr post-review\' {} +'),
+        ("gh comment with an expanded number", 'gh pr comment "$n" --body \'fabric-pr post-review 12\''),
+        ("a for loop over an expansion", 'for f in $files; do grep -l \'post-review\' "$f"; done'),
+        ("sed over a variable file", 'sed -i \'s/post-review/x/\' "$f"'),
+        ("the test builtin with a glob-looking bracket", "[ -f x ] && grep -n 'post-review' x < /dev/null"),
+        ("a stderr redirect before a plain command", "2>/dev/null grep -n 'post-review' bin/fabric-pr"),
+        # F5: `[[` is the test builtin, as `[` is.
+        ("the [[ test beside post-review text", "[[ -f x ]] && grep -n 'post-review' x"),
+        ("the [[ test beside a redirection", "[[ -f x ]] && cat < x"),
+        # F1, F2 and F3 must not refuse what they name correctly. F11's case (an operator's slash in an argument) is
+        # dropped, and nothing replaces it: a word with a mark is unnamed wherever its slash stands, so no passing case
+        # can tell a slash rule from none.
+        ("sg with a group, then a plain command", 'sg test grep -n \'post-review\' "$f"'),
+        ("an env assignment, then a plain command", 'env TAG=1 grep -n \'post-review\' "$f"'),
+        ("sudo -u with a value, then a plain command", 'sudo -u test grep -n \'post-review\' "$f"'),
+        ("a second find -exec of grep", "find . -exec true \\; -exec grep -l 'post-review' \"$f\" {} +"),
     ]
-    for label, cmd in refused:
+    for label, cmd in refused + unnameable:
         check(f"refused: {label}", g.refused(cmd), cmd[:200])
     for label, cmd in over_reported:
         check(f"over-reported: {label}", g.refused(cmd), cmd)
@@ -193,6 +358,15 @@ def main() -> int:
     except (ValueError, KeyError) as e:
         good, d = False, e
     check("hook: a deny decision naming the bare form", good, d)
+    # The reason names the cause class the command was refused for (review of #637, F12).
+    for label, cmd, clause in (("a wrapped call", refused[0][1], "the bare-form rule"),
+                               ("an unnameable word", held + "$c < r.md", "cannot name"),
+                               ("a wrapper's option before its command", "xargs -r rm -f < list.txt", "names no plain command")):
+        try:
+            why = json.loads(run(json.dumps({"tool_input": {"command": cmd}})))["hookSpecificOutput"]["permissionDecisionReason"]
+        except (ValueError, KeyError) as e:
+            why = str(e)
+        check(f"hook: the reason names the cause: {label}", "Refused for: " in why and clause in why, why[-160:])
     check("hook: nothing on the bare form", run(json.dumps({"tool_input": {"command": allowed[0][1]}})) == "")
     for label, payload in (("not JSON", "{"), ("no tool_input", "{}"), ("tool_input a string", '{"tool_input": "x"}'),
                            ("command a number", '{"tool_input": {"command": 3}}')):
@@ -217,6 +391,9 @@ def main() -> int:
         out = run_copy(allowed[0][1])
         check("unreadable commands.json: the bare form is refused, not passed",
               '"permissionDecision":"deny"' in out, out)
+        why = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"] if out else ""
+        check("unreadable commands.json: the reason names the undecided cause, not the bare-form rule",
+              "could not decide" in why and "bare-form" not in why, why[-160:])
         check("unreadable commands.json: a command without post-review is passed", run_copy("ls -la") == "")
 
     # Control: the guard is registered where every session runs it, in both settings files.

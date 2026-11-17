@@ -734,6 +734,15 @@ class SocketCases(Net):
         self.assertIn("no answer from the child", s.sent["h/alice"][1])
         self.assertEqual(self.nodes["alice"].requests, [], "and nothing was left to arrive later")
 
+    def test_stopping_the_server_ends_its_accept_thread(self):
+        # close() alone leaves an accept() already blocked in the kernel, and that thread outlived the server: in a suite
+        # that starts a server per case it answered a later case's connection from a carrier that had been stopped.
+        def accepting():
+            return [t for t in threading.enumerate() if t.name == "control-carrier-socket" and t.is_alive()]
+        self.assertTrue(until(lambda: accepting()), "positive control: the running server has its accept thread")
+        self.server.stop()
+        self.assertTrue(until(lambda: not accepting(), 3.0), "the accept thread is gone after stop()")
+
     def test_a_stale_socket_is_replaced_and_a_live_one_is_never_taken(self):
         other = cc.Server(self.path, self.nodes["op"].carrier, "h/op")
         with self.assertRaises(OSError) as cm:
