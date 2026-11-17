@@ -707,6 +707,44 @@ def main() -> int:
             time.sleep(0.3)
             check("…and no process of that suite is left", not runs_left(base)
                   and subprocess.run(["pgrep", "-f", os.path.join(base, "tests", "test_deaf.py")], capture_output=True).returncode == 1)
+        # A group INT reaches the runner, and run.py's TERM follows at once: one red had the TERM handler run nested inside
+        # the INT handler's stopping.set(), which holds the Event's lock, and the runner hung until run.py KILLed it (j863).
+        # The race is microseconds wide, so the nesting is forced here: set() raises TERM while it holds the lock.
+        nest = os.path.join(sandbox, "nest.py")
+        write(nest, (
+            "import signal, sys, threading\n"
+            "sys.dont_write_bytecode = True\n"
+            f"sys.path.insert(0, {TESTS!r})\n"
+            "import run_python_suites as r\n"
+            "nested = []\n"
+            "class Nesting(threading.Event):\n"
+            "    def set(self):\n"
+            "        with self._cond:\n"
+            "            if not nested:\n"
+            "                nested.append(1)\n"
+            "                signal.raise_signal(signal.SIGTERM)\n"
+            "            self._flag = True\n"
+            "            self._cond.notify_all()\n"
+            "r.stopping = Nesting()\n"
+            "terms = []\n"
+            "r.end_trees = lambda procs, sig: terms.append(sig)\n"
+            "timers = []\n"
+            "Timer = threading.Timer\n"
+            "r.threading.Timer = lambda *a, **k: timers.append(1) or Timer(3600, lambda: None)\n"
+            "for s in (signal.SIGINT, signal.SIGTERM):\n"
+            "    signal.signal(s, r.on_stop)\n"
+            "r.on_stop(signal.SIGINT, None)\n"
+            "print(len(nested), r.stop_signal, r.stopping.is_set(), terms.count(signal.SIGTERM), len(timers), flush=True)\n"
+            "import os; os._exit(0)\n"))
+        try:
+            # subprocess.run's timeout KILLs: a hung handler ignores TERM, which is the defect.
+            r = subprocess.run([sys.executable, nest], capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL)
+            got = (r.returncode, r.stdout.split(), r.stderr[-300:])
+        except subprocess.TimeoutExpired:
+            got = ("hung", [], "")
+        check("TERM nested inside the INT handler's stopping.set(): the handler returns, the stop is INT's, the suites get TERM "
+              "once and one killer is started (control: the nested TERM was raised)",
+              got[0] == 0 and got[1] == ["1", str(int(signal.SIGINT)), "True", "1", "1"], got)
         base = fresh(scripts={"good.sh": "#!/usr/bin/env bash\necho fine\n"})
         grandchild = os.path.join(sandbox, "gc-KILL")
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "static"], cwd=base, stdout=subprocess.DEVNULL,
