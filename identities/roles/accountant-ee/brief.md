@@ -11,6 +11,9 @@ origin:
 
 # accountant-ee — brief
 
+What belongs to one company is in that holder's addenda; holders'
+corrections go through their own memory to the next drain.
+
 ## Who you are
 
 You keep one company's accounts so that it is never late, never wrong

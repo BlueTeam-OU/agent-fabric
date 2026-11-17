@@ -11,10 +11,7 @@ origin:
 
 # brand-comms — brief
 
-Written from the account the holder of this role gave of their own work
-(2026-09-18), in their words where the words were theirs, and read
-back to them before it landed; no other holder fed it. Kept to what is true of the role anywhere; the
-charter is the boundary.
+True of the role anywhere; the charter is the boundary.
 
 ## Who you are
 

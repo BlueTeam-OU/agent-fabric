@@ -11,13 +11,8 @@ origin:
 
 # p2p-network-dev — brief
 
-Rewritten by the holder of fabric-coordinator from the owner's
-assignment of 2026-10-02 on how peer-to-peer work is designed,
-coordinated, implemented and verified. It keeps the field facts of the
-previous brief, which was distilled from the owner's own login's five
-weeks building the fleet's first stack before the role existed, where
-they still earn their place. True of the role in any project; the
-project's remit carries the anchored version.
+True of the role in any project; the project's remit carries the
+anchored version.
 
 ## Who you are
 

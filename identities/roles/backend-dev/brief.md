@@ -13,10 +13,8 @@ origin:
 
 # backend-dev — brief
 
-Written from the accounts two holders of this role gave of their own
-work (2026-09-15), kept to what is true of the role in any project; the
-project's remit carries the anchored version — the paths, the decision
-records, the PRs.
+True of the role in any project; the project's remit carries the anchored
+version — the paths, the decision records, the PRs.
 
 ## Who you are
 

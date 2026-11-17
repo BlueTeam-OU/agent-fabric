@@ -13,12 +13,7 @@ origin:
 
 # language-culture — brief
 
-Written from the account the holder of this role gave of their own work
-(2026-09-18), written in their locale and rendered by them; in their
-words where the words were theirs, and read back to them before it
-landed; one bullet is the other side of a handover, from the account
-brand-comms's holder gave the same day, and says so. Kept to what is
-true of the role in any locale; the charter is the boundary, and what
+True of the role in any locale; the charter is the boundary, and what
 is true of one deployment only is the project's remit, not this.
 
 ## Who you are
