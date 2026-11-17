@@ -761,6 +761,26 @@ def main() -> int:
                            (["vim", "/x/notes.txt"], False),
                            (["sleep", "60"], False)):
             check(f"is_inbox {argv}: {want}", g.is_inbox(argv) is want)
+        # Wrappers and assignments before the dispatcher's spelling (round 1 of #546, F4), read by the table and,
+        # with the table unreadable, by the spelled name (F5): the same answer either way.
+        class _Unreadable:
+            def canonical(self, *a, **k):
+                raise ValueError("unreadable table")
+        wrapped = ((["X=1", "env", "command", "fabric", "gzcoord", "inbox"], True),
+                   (["env", "-i", "fabric", "gzcoord", "inbox", "--until-delivery"], True),
+                   (["command", "gzcoord-inbox"], True),
+                   (["/x/bin/fabric", "gzcoord", "inbox"], True),
+                   (["timeout", "600", "fabric", "gzcoord", "inbox", "--wait"], True),
+                   (["env", "-i", "fabric", "gzcoord", "send", "m.txt"], False),
+                   (["command", "fabric", "gzcoord"], False))
+        saved = list(g._CANONICAL)
+        try:
+            for table, label in ((saved, "table read"), ([_Unreadable()], "table unreadable")):
+                g._CANONICAL[:] = table
+                for argv, want in wrapped:
+                    check(f"is_inbox ({label}) {argv}: {want}", g.is_inbox(argv) is want)
+        finally:
+            g._CANONICAL[:] = saved
         # A process is named by pid and name, never by its argv, which may
         # carry a token (review of #242, C6): the sibling's sentinel is in
         # no reason, though the sibling is refused by name in several.

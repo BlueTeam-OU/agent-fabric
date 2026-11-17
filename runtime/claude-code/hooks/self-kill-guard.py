@@ -982,8 +982,15 @@ def _names_inbox(words: list[str], k: int) -> bool:
     try:
         read = _canonical().canonical(named)
     except Exception:  # noqa: BLE001 - TableError or a module that cannot load: the spelled name, as before
-        return named[0] == INBOX
+        return _spelled(named) == INBOX
     return read is not None and read[0] == INBOX
+
+
+def _spelled(named: list[str]) -> str:
+    """The command as typed, with no table to read it by: the watch's two spellings, the script and the
+    dispatcher's `fabric gzcoord inbox`, so the unreadable-table fallback names the watch in either, not one.
+    Compared as INBOX_SPOKEN's words, never as a bare `fabric` (ADR-068 rule 7: no command name is guessed)."""
+    return INBOX if named[:3] == INBOX_SPOKEN.split() else named[0]
 
 
 _CANONICAL = []
