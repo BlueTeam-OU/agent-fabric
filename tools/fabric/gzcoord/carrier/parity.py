@@ -37,7 +37,12 @@ arrived for, and whose receipt has not come, is listed as stranded; one whose
 receipt came is a message the addressee filtered out (a TO-ROLE it does not
 hold, or a broadcast it is not addressed by), which is no pair at all. The
 arrival logs hold only copies ADDRESSED to their owner, so a non-holder of a
-role is never counted as a miss of either carrier.
+role is never counted as a miss of either carrier. The sender's own copy of
+its broadcast or TO-ROLE (the relay returns it, the carrier never sends to its
+sender, CARRIER-CONTRACT.md rule 6) is listed apart as `own_copies`, not
+counted as an InterWeave miss, so delivered plus missed is less than the pairs
+by that many; it is known from the sender's own recorded deliveries of that
+MESSAGE-ID, and a pair the sender recorded nothing for stays a miss.
 
 Its fourth property reads the SENDER's relay backfill log (gzcoord/backfill.py, collected as backfills): for each pair held
 by the carrier alone, the column "relay record" says whether the relay's record got the message afterwards (posted or present,

@@ -73,6 +73,8 @@ def main() -> int:
           "refused by the daemon and still outstanding (UnauthorizedPeer)" in causes[(m2, "interweave")], str(causes))
     check("  a message the sender never queued says so", "recorded no InterWeave delivery" in causes[(m6, "interweave")])
     check("  a relay miss says the inbox recorded no relay copy", "no relay copy" in causes[(m4, "relay")])
+    check("  and no first-arrival clause when the addressee was already receiving before the message",
+          "first InterWeave arrival" not in causes[(m6, "interweave")], causes[(m6, "interweave")])
     check("the stranded pair is listed with the sender's state; the receipted delivery to a non-holder is no pair",
           [(x["sender"], x["state"]) for x in rep["stranded"]] == [("alpha", "posted")], str(rep["stranded"]))
     check("  and the filtering member is not a miss of either carrier (7 pairs, not 8)", rep["pairs"] == 7 and
@@ -103,6 +105,15 @@ def main() -> int:
     check("  the cause says gamma has no InterWeave arrival in the collection",
           "no InterWeave arrival in the collection" in own["missed"][0]["cause"], own["missed"][0]["cause"])
     check("  and the markdown says how many pairs were not counted", "1 pair(s) whose addressee is the message's own sender" in P.render_markdown(own))
+    # A second broadcast, from beta: the sender is known per MESSAGE-ID, so alpha, who sent mb, still misses beta's mc.
+    mc = mid(130, 22)
+    both = bcast + [arr(mc, "h/alpha", "relay", 131), arr(mc, B, "relay", 131), arr(mc, C, "relay", 131), arr(mc, C, "interweave", 131)]
+    both_send = {**bsend, "beta": [{"mid": mc, "to": "gamma", "enc": "plain", "queued": ISO(130), "state": "done"}]}
+    two = P.compute(both, both_send, {mb: "broadcast", mc: "broadcast"}, (T0, T0 + 1000), host="h")
+    check("two senders: each sender's own copy is listed apart, each for its own message only",
+          sorted((x["mid"], x["addressee"]) for x in two["own_copies"]) == sorted([(mb, "h/alpha"), (mc, B)]), str(two["own_copies"]))
+    check("  and another message's sender is still a miss (alpha did not send mc)",
+          (mc, "h/alpha") in [(x["mid"], x["addressee"]) for x in two["missed"]], str(two["missed"]))
     later = bcast + [arr(mid(500, 21), C, "interweave", 501)]
     lat = P.compute(later, bsend, {mb: "broadcast"}, (T0, T0 + 1000), host="h")
     check("  an addressee that began receiving later names its first InterWeave arrival",
