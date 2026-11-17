@@ -287,7 +287,7 @@ class Inbox:
 
     def put(self, event: dict) -> None:
         with self._cv:
-            if self._stop:   # a message read after close would be handled behind the owner's back
+            if self._stop:   # _run no longer handles anything after close: without this line the message would vanish unsaid
                 self._log("inbox closed: dropped a message read after close; one that came by InterWeave alone is lost")
                 return
             if len(self._q) >= self._limit:
