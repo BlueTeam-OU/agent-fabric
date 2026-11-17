@@ -1091,7 +1091,7 @@ def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed
     """Start the child, the router and fabric-ctl's socket. Nothing here can stop agentd answering on the relay:
     a program that is not installed, a roster that does not verify and a socket that cannot be bound are each
     said and the account is on the relay alone until they are mended. With `relay_off` (control_carrier names the
-    second carrier alone) there is no relay to fall back to: the same failures leave the account answering nothing, and say so."""
+    second carrier alone) there is no relay to fall back to: fabric-ctl cannot send, and what the child does without the socket is its own."""
     env = os.environ if env is None else env
     from control.upgrade import state_dir
     host = me.partition("/")[0]
@@ -1102,7 +1102,7 @@ def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed
     path = socket_path(env)
     if path is None:
         log("XDG_RUNTIME_DIR is not set: fabric-ctl has no socket to hand its sends to, and "
-            + ("this account answers nothing until it is set" if relay_off else "sends by the relay alone"))
+            + ("fabric-ctl cannot send to this account's agentd" if relay_off else "sends by the relay alone"))
     else:
         server = Server(path, carrier, me, log, hold)
         try:

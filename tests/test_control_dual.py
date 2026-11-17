@@ -500,7 +500,26 @@ class Interweave(Harness):
         self.assertEqual(self.run_with_session(session_with("no roster row for this peer")), 3)
         self.assertTrue(any("nothing sent" in e for e in self.err), self.err)
 
-    def test_a_signing_failure_on_a_later_account_sends_to_none_of_them(self):
+    def test_each_request_is_built_and_signed_just_before_its_own_send(self):
+        # A request's ts is when it was built and its ttl_s runs from there: signed up front, a late account's would arrive expired.
+        from control import breakglass
+        self.boot("alice", "bob")
+        events: list = []
+        real = ctl.build_request
+
+        def spy(args, **kw):
+            events.append("build " + kw["to"][0])
+            return real(args, **kw)
+
+        def via(request, target, **kw):
+            events.append("send " + target["address"])
+            return breakglass.Outcome("refused", detail="x", exit=3)
+        with mock.patch.object(ctl, "build_request", spy), mock.patch.object(breakglass, "via_hostexec", via):
+            ctl.main(["all", "interweave-stop", "--json", "--timeout", "10"], registry=self.registry, call=self.relay, who=WHO,
+                     token="t", out=self.out.append, err=self.err.append)
+        self.assertEqual(events, ["build h/alice", "send h/alice", "build h/bob", "send h/bob"])
+
+    def test_a_signing_failure_on_a_later_account_prints_the_rows_so_far_and_names_the_untried(self):
         from control import breakglass
         self.boot("alice", "bob")
         calls = []
@@ -510,11 +529,18 @@ class Interweave(Harness):
             if request["to"] == ["h/bob"]:
                 raise RuntimeError("openssl: could not spawn")
             return real(request, key)
-        with mock.patch.object(ctl, "sign_request", flaky), mock.patch.object(breakglass, "via_hostexec", lambda *a, **k: calls.append(a)):
+
+        def via(request, target, **kw):
+            calls.append(target["address"])
+            ok = {"v": 1, "kind": "reply", "id": "r", "in_reply_to": request["id"], "from": target["address"], "op": request["op"],
+                  "ok": True, "data": {request["op"]: {"status": "stopped"}}}
+            return breakglass.Outcome("reply", ok, exit=0)
+        with mock.patch.object(ctl, "sign_request", flaky), mock.patch.object(breakglass, "via_hostexec", via):
             rc = ctl.main(["all", "interweave-stop", "--json", "--timeout", "10"], registry=self.registry, call=self.relay, who=WHO,
                           token="t", out=self.out.append, err=self.err.append)
-        self.assertEqual((rc, calls, self.out), (3, [], []))
-        self.assertTrue(any("could not spawn" in e and "nothing sent" in e for e in self.err), self.err)
+        self.assertEqual((rc, calls), (3, ["h/alice"]))
+        self.assertEqual([(r["account"], r["status"]) for r in self.rows()], [("alice", "ok"), ("bob", "no answer")])
+        self.assertTrue(any("could not spawn" in e and "not sent to bob" in e for e in self.err), self.err)
 
     def test_a_relay_only_action_goes_through_hostexec_one_signed_request_per_account_and_says_so(self):
         from control import breakglass

@@ -2563,8 +2563,8 @@ def _second_carrier(request: dict, expected: list[dict], args: dict, err: Callab
     """Hand the request to the operator's own agentd for one direct send per target (ADR-029 rule 18): (session,
     replies that came with the sends, the addresses a send went out to, whether a request that went to no account may still have been
     handed to agentd: a session that was made and then failed, or sends whose failure does not say they never left). Any failure to reach agentd is one line
-    and `(None, [], set())`: the relay has the request too, so the run goes on as a relay run and its rows say so. With relay_alone False (control_carrier names the second carrier alone) there is
-    no relay copy, and the caller says that nothing was sent."""
+    and `(None, [], set(), handed)`: the relay has the request too, so the run goes on as a relay run and its rows say so. With relay_alone False (control_carrier names the second carrier alone) there is
+    no relay copy, and the caller says that nothing was sent, or that it is unknown when `handed`."""
     carries = "; the relay carries alone" if relay_alone else ""
     path = link.socket_path()
     if path is None:
@@ -2608,18 +2608,18 @@ def _relay_only_by_hostexec(args: dict, expected: list[dict], *, me: dict, cfg: 
     if "error" in k:
         err(f"fabric-ctl: {k['error']} — an action is signed or not sent")
         return 3
-    # Every request is signed before the first one is sent: a signing failure on a later account would otherwise leave the
-    # earlier accounts' actions run and their rows unprinted, and the rest untried.
-    signed: list[tuple[dict, dict]] = []
-    for target in expected:
-        try:
-            signed.append((sign_request(build_request(args, id=new_id(), from_=me["address"], to=[target["address"]], cfg=cfg), k["key"]), target))
-        except Exception as e:  # noqa: BLE001 — the signer's own words, as for a relay run
-            err(f"fabric-ctl: {e}; nothing sent")
-            return 3
     replies: list[dict] = []
     rc = 0
-    for request, target in signed:
+    for i, target in enumerate(expected):
+        # Built and signed here, not for all targets first: a request's `ts` is when it was built, its ttl_s runs from it, and
+        # each call below can take the whole --timeout, so a request signed up front would reach a late account expired.
+        try:
+            request = sign_request(build_request(args, id=new_id(), from_=me["address"], to=[target["address"]], cfg=cfg), k["key"])
+        except Exception as e:  # noqa: BLE001 — the signer's own words, as for a relay run
+            untried = ", ".join(t["login"] for t in expected[i:])
+            err(f"fabric-ctl: {e}; not sent to {untried}")
+            rc = max(rc, 3)
+            break
         try:
             o = breakglass.via_hostexec(request, target, timeout=args["timeout"], registry=registry)
         except breakglass.JournalError as e:
