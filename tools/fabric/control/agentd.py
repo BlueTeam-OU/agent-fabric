@@ -53,7 +53,7 @@ Every reply arrives: a section that cannot be read says so inline.
 Relay down: one line on stderr, retry every 30 s; a refused token is
 re-read once from the synced file (a rotation), then reported.
 
-THE SECOND CARRIER (ADR-029 rule 18), only when runtime/control/config.json `control_carrier` is "dual" (or
+THE SECOND CARRIER (ADR-029 rule 18), only when runtime/control/config.json `control_carrier` is "dual" or "interweave" (or
 FABRIC_CONTROL_CARRIER says so): gzcoord/carrier/control_link.py holds the supervised child, the roster check of who
 sent what and fabric-ctl's socket. This file adds the one decision path, handle(): a request from either carrier
 goes through the same accept(), the same seen-set and the same action ledger, so one on both is answered once; and

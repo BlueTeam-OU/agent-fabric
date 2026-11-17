@@ -1,7 +1,8 @@
 """tools/fabric/gzcoord/carrier/control_link.py — the control plane's second carrier:
 InterWeave, through `interweave-human` on the profile's `fabric-control`
 endpoint (agent-fabric ADR-029 rule 18; ADR-064 rule 12). Off unless
-runtime/control/config.json `control_carrier` is "dual" (agentd.control_config).
+runtime/control/config.json `control_carrier` is "dual" or "interweave" (agentd.control_config; control/carrier_cfg.py).
+Under "interweave" it is the only carrier, and RELAY_ONLY_OPS go through hostexec to bin/fabric-op instead.
 
 CONTRACT (ADR-029 rule 18, line for line):
   child      agentd runs ONE supervised long-lived child,
