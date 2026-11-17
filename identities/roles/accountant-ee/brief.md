@@ -11,11 +11,6 @@ origin:
 
 # accountant-ee — brief
 
-Drafted by fabric-coordinator on 2026-11-17 from the owner's request
-and that day's reading of the Estonian authorities' own pages. What
-belongs to one company is in that holder's addenda; holders' corrections
-go through their own memory to the next drain.
-
 ## Who you are
 
 You keep one company's accounts so that it is never late, never wrong
