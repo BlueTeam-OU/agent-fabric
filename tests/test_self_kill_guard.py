@@ -383,6 +383,43 @@ def main() -> int:
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a pattern kill the broad here-document drop must keep denies: {label}",
               d is not None and d[0] == "deny", d)
+    # Review of #612, fix round 1d6d87fa: a body stored in a file the same command runs is code. Each shape, for the
+    # pattern reading (the broad drop) and for the pid reading (the data drop). Kills: _runs_what_it_writes -> False.
+    stored = (("cat > k.sh, then bash it", "cat > k.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("cat > k.sh, then ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\n./k.sh"),
+              ("cat > k.sh, then \"$PWD/k.sh\"", "cat > k.sh <<'X'\n{kill}\nX\n\"$PWD/k.sh\""),
+              ("chmod +x k.sh && ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nchmod +x k.sh && ./k.sh"),
+              ("tee k.sh, then sh it", "tee k.sh <<'X' >/dev/null\n{kill}\nX\nsh k.sh"),
+              ("cat <<X > k.sh, redirection after the operator", "cat <<'X' > k.sh\n{kill}\nX\nbash k.sh"),
+              ("cat > k.sh, then python3 it", "cat > k.sh <<'X'\n{kill}\nX\npython3 k.sh"),
+              ("cat > k.sh, then source it", "cat > k.sh <<'X'\n{kill}\nX\nsource k.sh"),
+              ("cat > k.sh, then . it", "cat > k.sh <<'X'\n{kill}\nX\n. ./k.sh"),
+              ("cat > k.sh, then run through timeout", "cat > k.sh <<'X'\n{kill}\nX\ntimeout 5 ./k.sh"),
+              ("cat > k.sh, then bash -c 'bash k.sh'", "cat > k.sh <<'X'\n{kill}\nX\nbash -c 'bash k.sh'"),
+              ("cat > k.sh, then bash a variable", "cat > k.sh <<'X'\n{kill}\nX\nf=k.sh; bash \"$f\""),
+              ("cat <<X | bash", "cat <<'X' | bash\n{kill}\nX"))
+    for label, tmpl in stored:
+        d = by_pid(tmpl.format(kill=f"kill {W}"))
+        check(f"a stored body the command runs denies by pid: {label}", d is not None and d[0] == "deny"
+              and "inbox watch" in d[1], d)
+        d = g.decision(tmpl.format(kill="pkill -f claude-fable"), CLAUDE, shell=False)
+        check(f"a stored body the command runs denies by pattern: {label}", d is not None and d[0] == "deny", d)
+    # Writing the file and not running it, or a body that is only data, stays allowed.
+    for label, tmpl in (("cat > k.sh, not run", "cat > k.sh <<'X'\n{kill}\nX"),
+                        ("tee k.sh, not run", "tee k.sh <<'X' >/dev/null\n{kill}\nX"),
+                        ("cat > k.sh, then another file run", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py && bash other.sh"),
+                        ("cat > k.sh, then chmod and cat it", "cat > k.sh <<'X'\n{kill}\nX\nchmod +x k.sh && cat k.sh"),
+                        ("a commit message", "git commit -F- <<'EOF'\nfix: {kill} no longer runs\nEOF"),
+                        ("cat <<X | grep pkill", "cat <<'X' | grep pkill\n{kill}\nX")):
+        # By pid a file write already keeps the body (_data_only, review of #612 P3), so only the readers are pinned (git is no data reader).
+        if label.startswith("cat <<X"):
+            d = by_pid(tmpl.format(kill=f"kill {W}"))
+            check(f"a body no command runs stays allowed by pid: {label}", d is None, d)
+        d = g.decision(tmpl.format(kill="pkill -f claude-fable"), CLAUDE, shell=False)
+        check(f"a body no command runs stays allowed by pattern: {label}", d is None, d)
+    check("a stored body's {a,b} asks only when the file is run",
+          g.unevaluated("cat > f <<'EOF'\nkill 1{a,b}\nEOF") is None
+          and g.unevaluated("cat > f <<'EOF'\nkill 1{a,b}\nEOF\nbash f") is not None)
     check("…a quoted body's pkill stays data for the broad drop",
           g.decision("git commit -F - <<'EOF'\n$(pkill -f claude-fable)\nEOF", CLAUDE, shell=False) is None)
     d = by_pid(f"kill {W}")

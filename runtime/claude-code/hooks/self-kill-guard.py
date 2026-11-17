@@ -340,6 +340,14 @@ def _logical_end(lines: list[str], i: int) -> int:
 
 
 def _drop_bodies(text: str, takes) -> str:
+    """_strip_bodies, except that nothing is dropped when the same command runs what it writes (_runs_what_it_writes):
+    a body stored in a file and run in the same command is code, whatever reads it first. `cat > k.sh <<'X'` NL
+    `pkill -f claude-fable` NL `X` NL `bash k.sh` passed with the body dropped (review of #612, fix round 1d6d87fa)."""
+    rest = _strip_bodies(text, takes)
+    return text if rest != text and _runs_what_it_writes(rest) else rest
+
+
+def _strip_bodies(text: str, takes) -> str:
     """The text with the here-document bodies dropped that are surely data, each up to its delimiter line. The one
     rule for both drops (drop_heredoc_bodies, drop_data_heredoc_bodies), and it fails closed: a body is dropped only
     when the guard is sure bash will not run it, and any doubt keeps it, and everything after it, judged. A false deny
@@ -428,6 +436,54 @@ def _writes_file(text: str, pieces: list[list[str]]) -> bool:
                     skip = w.rstrip("-") and set(w.rstrip("-")) <= set("<>&|")
                 elif not w.startswith("-") and w not in NO_FILE:
                     return True
+    return False
+
+
+# What runs a file or a text it is given: the shells of NESTED, the interpreters, `source` and `.`.
+RUNNERS = NESTED | {"perl", "ruby", "node", "source", "."}
+INTERPRETER = re.compile(r"python[\d.]*")
+
+
+def _written_names(rest: str) -> list[str]:
+    """The base names of the files a command writes: each redirection's target (a `cat <<'X' > k.sh` as well as `cat >
+    k.sh <<'X'`) and each file operand of tee (`tee k.sh <<'X'`), read from the text with its bodies dropped, as
+    _writes_file reads them."""
+    names = [m.group(1) for m in WRITE_REDIRECT.finditer(rest)]
+    for words in segments(rest):
+        names += [w for i, name in enumerate(words) if os.path.basename(name) == "tee" for w in words[i + 1:]
+                  if not w.startswith("-")]
+    bare = (os.path.basename(re.sub(r"['\"\\]", "", n)) for n in names)
+    return [n for n in bare if n and n not in {os.path.basename(f) for f in NO_FILE}]
+
+
+def _runs_what_it_writes(rest: str) -> bool:
+    """Whether the command, its here-document bodies dropped, runs a file it wrote: a simple command whose own word is
+    the written file (`./k.sh`, `"$PWD/k.sh"`), or a shell, interpreter, `source` or `.` given it as an operand, in a
+    word of its own or inside a payload (`bash -c 'bash k.sh'`). A runner or a prefix (`timeout 5 ./k.sh`, `xargs
+    bash`) given an operand the guard cannot read ($f, a substitution) counts too: fail closed, as _strip_bodies
+    does. Only a runner that names the file counts, not any shell or interpreter in the command (`python3 t.py`
+    beside a `cat > f` runs another file); writing a file and not running it stays allowed."""
+    names = _written_names(rest)
+    if not names:
+        return False
+    mentions = [re.compile(r"(?<![\w.-])" + re.escape(n) + r"(?![\w.-])") for n in names]
+
+    def named(w: str) -> bool:
+        return any(m.search(w) for m in mentions)
+
+    def unreadable(w: str) -> bool:
+        return "$" in w or "`" in w
+    for words in segments(rest):
+        while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+            words = words[1:]
+        if not words:
+            continue
+        head = os.path.basename(words[0])
+        if named(words[0]) or unreadable(words[0]):
+            return True
+        if head in PREFIXES or head in RUNNERS or INTERPRETER.fullmatch(head):
+            if any(named(w) or (head not in PREFIXES and unreadable(w)) for w in words[1:]):
+                return True
     return False
 
 
