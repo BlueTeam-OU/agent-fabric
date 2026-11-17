@@ -37,13 +37,17 @@ MAX_FRAME = 131072
 _B64U = re.compile(r"[A-Za-z0-9_-]*")
 IPC_VERSION = {"major": 2, "minor": 0}
 SILENCE_TIMEOUT = 120.0
-# Error codes of the daemon that mean "the session is gone", not "the send
-# failed" (ADR-0055 decision 2).
-SESSION_CODES = frozenset({"BackendUnavailable", "ShuttingDown"})
+# The one answer code that says the LOCAL daemon is stopping. BackendUnavailable
+# is not here: on a response it is also how a REMOTE peer's shutdown refusal
+# reaches the sender (InterWeave TRANSPORT.md, Error model), with this
+# session's connection and lease whole. A session ends with its connection
+# (a `close` frame or end of stream), which the reader sees and raises as
+# SessionLost; the code of an answer never decides it (OBSERVATION 01a1e907).
+SESSION_CODES = frozenset({"ShuttingDown"})
 # A refusal a later attempt under the same message_id can mend (ADR-0055
 # decision 2); anything else is the sender's to see.
 RETRYABLE_CODES = frozenset({"RemoteEndpointUnavailable", "PeerUnreachable", "PeerUnknown",
-                             "Overloaded", "Timeout"})
+                             "Overloaded", "Timeout", "BackendUnavailable"})
 
 
 class IpcError(Exception):
@@ -62,8 +66,18 @@ class IpcError(Exception):
 
 
 class SessionLost(IpcError):
+    # Its code is BackendUnavailable for the log line only; what makes it a
+    # lost session is the type, since an answer with that code is not one.
     def __init__(self, message: str = "") -> None:
         super().__init__("BackendUnavailable", message)
+
+    @property
+    def session_lost(self) -> bool:
+        return True
+
+    @property
+    def retryable(self) -> bool:
+        return False
 
 
 class IpcTimeout(Exception):

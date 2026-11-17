@@ -72,6 +72,18 @@ def main() -> int:
         check("UnauthorizedPeer is the sender's to see, not retried",
               isinstance(e2, ipc.IpcError) and e2.code == "UnauthorizedPeer" and not e2.retryable and not e2.session_lost)
 
+        daemon.send_answers = ["BackendUnavailable", "ShuttingDown"]
+        e3 = raised(lambda: s.direct_send("p", "gzcoord", MID, "a/b", b"x"))
+        alive_after = s.alive
+        e4 = raised(lambda: s.direct_send("p", "gzcoord", MID, "a/b", b"x"))
+        # A remote peer's shutdown refusal arrives as an ordinary answer with this
+        # session's connection whole (OBSERVATION 01a1e907).
+        check("an answered BackendUnavailable is retryable and does not end the session",
+              isinstance(e3, ipc.IpcError) and not isinstance(e3, ipc.SessionLost) and e3.code == "BackendUnavailable"
+              and e3.retryable and not e3.session_lost and alive_after)
+        check("an answered ShuttingDown is the local daemon stopping: session lost",
+              isinstance(e4, ipc.IpcError) and e4.code == "ShuttingDown" and e4.session_lost)
+
         daemon.send_answers = ["hang"]
         t0 = time.monotonic()
         e = raised(lambda: s.request("direct.send", {"peer": "p", "message_id": MID, "payload": {"bytes": ""}}, timeout=0.3))
