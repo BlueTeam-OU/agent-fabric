@@ -28,7 +28,7 @@ A `since_id_not_found` (the relay's history was cleared) re-primes.
 
 THE FENCE, v1. A request is answered only when its `from` is a host
 operator's address as runtime/hosts/registry.json places it — except a
-PUBLIC op (control/ops PUBLIC_OPS: `presence`, `pool-list`, `pool-claim` and `job-state`), answered for any placed
+PUBLIC op (control/ops PUBLIC_OPS: `presence`, `pool-list`, `pool-claim`, `job-state` and `state`), answered for any placed
 <host>/<login>, since every sender needs it and a relay-token holder
 could already get it by forging an operator's `from` on an unsigned
 read op (pool-claim is the one unsigned op that writes: one field, the
@@ -60,9 +60,10 @@ goes through the same accept(), the same seen-set and the same action ledger, so
 deliver(): the reply goes by the relay (the record) and, at once, by the other carrier to the sender's PeerId. With
 the key absent or "relay" none of it starts, and every line this daemon writes is what it was.
 With control_carrier naming the second carrier alone it is the only one: the daemon neither reads nor posts the relay's control channel
-(no prime, no poll, no reply post), so a relay that refuses every connection changes nothing it answers. What it still
-posts to the relay is the state stream (sessions.StateWatcher, ADR-029 rule 16), which has no other carrier yet; a
-failure of that is said, never read as an account with no sessions. --once reads the relay once and is refused there.
+(no prime, no poll, no reply post), so a relay that refuses every connection changes nothing it answers. It posts
+nothing to the relay either: the state stream's replacement is the public op `state` (state_record.py), answered from the newest
+record sessions.StateWatcher keeps in the state dir (ADR-029 rule 16); a failure to keep it is raised, never read as an
+account with no sessions. --once reads the relay once and is refused there.
 
 CONTRACT, frozen from agentd.mjs. Kept byte for byte: every
 record posted (key order, ids, timestamps' shape), every refusal's reason
@@ -136,6 +137,7 @@ from control import hold as hold_mod  # noqa: E402
 from control import transport_mode as mode_mod  # noqa: E402
 from control.branches_op import branches_sweep  # noqa: E402
 from control.local import local_prune  # noqa: E402
+from control import state_read, state_record  # noqa: E402
 from control.pool import POOL_FILE, pool_add, pool_claim, pool_holder, pool_list, reconcile, role_from_stream, state_reader  # noqa: E402
 from control.secrets import secrets_sync  # noqa: E402
 from control.selftest import secrets_selftest  # noqa: E402
@@ -292,6 +294,26 @@ LEDGER_LOCK_WAIT_S = 5.0
 # the installed binary and runs it, up to ten seconds; `branches` asks git of every working copy of the account
 # (a status per copy and per linked worktree), up to a minute each.
 BESIDE_LOOP_OPS = ["disk", "gateway", CARRIER_NAME, "branches", "drift"]
+# Beside the loop too, but only where the reader asks the op: `pool-claim` then asks its claimant's state over the carrier, whose
+# answer comes in on the thread that handles requests, so the claim must not be handled there. Its race is the pool's own flock, not
+# this loop's one-at-a-time. Where the relay is read, the claim stays inline as it was.
+BESIDE_LOOP_WHEN_ASKING = ["pool-claim"]
+
+
+def beside_loop(op: str, asking: bool) -> bool:
+    """Whether an op is answered on a thread of its own; `asking` is whether this daemon's readers ask the state op."""
+    return op in BESIDE_LOOP_OPS or (asking and op in BESIDE_LOOP_WHEN_ASKING)
+
+
+def state_asker_of(cfg: dict, *, me: str, own_file: str, new_id: Callable[[], str], env: dict | None = None) -> Callable[[list], dict] | None:
+    """The readers' ask, or None where they read the relay. A misspelt FABRIC_STATE_READ is said and ignored, never fatal: a daemon
+    that dies of it answers nothing at all; the carrier alone then decides (the second carrier alone asks the op, the others read the relay)."""
+    try:
+        return state_read.asker(cfg, me=me, own_file=own_file, new_id=new_id, env=env)
+    except RuntimeError as e:
+        _stderr(f"agentd: {e}: the override is ignored")
+        return state_read.asker(cfg, me=me, own_file=own_file, new_id=new_id, env={})
+
 # One disk scan per daemon, shared by every request that arrives while it
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).
@@ -822,12 +844,24 @@ def leaver(inflight: set, exit: Callable[[int], None] | None = None, log: Callab
     return Leaver(inflight, exit, log)
 
 
-def state_poster(call: Callable[..., Any], cfg: dict, address: str) -> Callable[[dict], Any]:
-    """How a state record leaves: on the state channel, never the control
-    channel, whose replies would push it out of a reader's window (ADR-029
-    rule 16)."""
-    return lambda content: call("/api/send", method="POST",
-                                body=js.stringify({"channel": cfg["state_channel"], "sender": address, "content": js.stringify(content)}))
+def state_poster(call: Callable[..., Any], cfg: dict, address: str, file: str | None = None) -> Callable[[dict], Any]:
+    """How a state record leaves: kept in `file` (the `state` op answers from it, state_record.py) in every carrier mode,
+    then on the state channel, never the control channel, whose replies would push it out of a reader's window (ADR-029
+    rule 16). With the second carrier alone nothing is posted: the relay stores the history the readers no longer read. The record is
+    kept before it is posted, so a failed post is retried with the file already telling the truth."""
+    def post(content: dict) -> Any:
+        if file is not None:
+            try:
+                state_record.store(file, content)
+            except (OSError, TypeError, ValueError) as e:
+                if cfg.get("control_carrier") == CARRIER_SECOND_ONLY:
+                    raise   # the record is all there is to read: a failure to keep it is the tick's to say
+                _stderr(f"agentd: the state record could not be kept ({type(e).__name__}); it is posted anyway, the relay being the reader")
+        if cfg.get("control_carrier") == CARRIER_SECOND_ONLY:
+            return None
+        return call("/api/send", method="POST",
+                    body=js.stringify({"channel": cfg["state_channel"], "sender": address, "content": js.stringify(content)}))
+    return post
 
 
 def up_record(address: str) -> dict:
@@ -900,6 +934,8 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {"local-prune": local_prune(request, home=home, root=root)}
     elif op == "branches-sweep":
         data = {"branches-sweep": branches_sweep(request, home=home, root=root, **(ctx.get("branches_opts") or {}))}
+    elif op == state_record.STATE_OP:
+        data = {state_record.STATE_OP: state_record.state(request, me=me, file=os.path.join(state_dir(), state_record.RECORD_FILE))}
     elif op == "secrets-selftest":
         data = {"secrets-selftest": secrets_selftest(request, home=home, root=root, **(ctx.get("selftest_opts") or {}))}
     else:
@@ -1112,8 +1148,9 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     def post(content: dict) -> Any:
         return call("/api/send", method="POST",
                     body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(content)}))
-    # A claimant's role is what its own control agent last said on the state channel.
-    ctx["pool_opts"] = {"role_of": role_from_stream(call=call, cfg=cfg)}
+    # A claimant's role is what its own control agent last said: asked of it under the second carrier, read from the state channel else.
+    state_asker = state_asker_of(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=new_id)
+    ctx["pool_opts"] = {"role_of": role_from_stream(call=call, cfg=cfg, ask=state_asker)}
     # The account's GZCoord inbox is the project's channel on the relay this daemon already reaches
     # (status says its read position: tools/fabric/drift.py); a project with none says so.
     # `call` reaches the control relay; the project's channel may sit on another one, reached with the same token.
@@ -1176,14 +1213,14 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
             codex_token.start(Ticker, _stderr, agents=placed_agents)
         # What the account's sessions are doing, posted when it changes
         # (sessions.py); first at start, so a restart re-says it.
-        states = sessions.StateWatcher(address=me["address"], post=state_poster(call, cfg, me["address"]),
+        states = sessions.StateWatcher(address=me["address"], post=state_poster(call, cfg, me["address"], os.path.join(state_dir(), state_record.RECORD_FILE)),
                                        file=os.path.join(state_dir(), sessions.STATE_FILE), agent=who.get("agent"),
                                        jobs=os.path.join(state_dir(), "jobs.json"))
         # First at start, in its own thread: the Node did not await it, and a
         # relay that is down must not hold the read loop's start behind the post.
         Ticker("session state", states.tick, sessions.STATE_POLL_MS / 1000).start()
-        # The pool holder's own end of a claim; the stream is read once for a claimant, as a claim is checked.
-        state_of = state_reader(call=call, cfg=cfg)
+        # The pool holder's own end of a claim; the claimant's state is read (or asked) once, as a claim is checked.
+        state_of = state_reader(call=call, cfg=cfg, ask=state_asker)
         Ticker("pool claims", lambda: pool_claims_tick(me=me["address"], holder=lambda: pool_holder(control_config()),
                                                        file=lambda: os.path.join(state_dir(), POOL_FILE), state_of=state_of),
                POOL_CLAIMS_EVERY_S, first_s=tools_mod.first_run_delay_s(me["address"])).start()
@@ -1294,7 +1331,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
                 _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]}){tag}{control_link.id_tail(request['id'])}")
                 beside(a, True, via)
             return
-        if request["op"] in BESIDE_LOOP_OPS:
+        if beside_loop(request["op"], state_asker is not None):
             beside(a, False, via)
             return
         with inline_lock:

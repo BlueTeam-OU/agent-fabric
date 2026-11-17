@@ -11,12 +11,8 @@ origin:
 
 # domain-transit — brief
 
-Written by fabric-coordinator from the role's own project work (a
-shop-to-transit matching tool for an informal bus network, read on
-2026-09-15) and its remit in the platform it serves; no holder replied
-to the broadcast. Extended from the owner's assignment of 2026-10-17 on
-how transit work is defined, traced and validated. Kept to what is true of the role in any project; the
-project's remit carries the anchored version.
+True of the role in any project; the project's remit carries the
+anchored version.
 
 ## Who you are
 

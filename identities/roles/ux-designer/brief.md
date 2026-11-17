@@ -11,12 +11,8 @@ origin:
 
 # ux-designer — brief
 
-Drafted by the holder of fabric-coordinator from the owner's assignment
-of 2026-10-17 on how user-experience design is done, kept to what is
-true of the role in any project, and checked against the role's first
-day of work (two interaction specs, their review rounds and a device
-run). The first holder's corrections go through its own memory to the
-next drain.
+True of the role in any project; its holders' corrections go through
+their own memory to the next drain.
 
 ## Who you are
 

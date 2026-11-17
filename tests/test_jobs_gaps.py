@@ -107,6 +107,21 @@ def main() -> int:
           message == f"no answer within {jobs.QUEUE_TIMEOUT_S} s" and sent is None, (message, sent))
     check("...and the bound is the one the call runs under", bounds == [jobs.QUEUE_TIMEOUT_S], bounds)
 
+    print("waits that name accounts which gave no state record")
+    import contextlib
+    import io
+    queue_globals = jobs.stream_waits.__globals__   # the part's own namespace is the one that calls ask_queue
+    real_ask = queue_globals["ask_queue"]
+    queue_globals["ask_queue"] = lambda *_a, **_k: {"waits": {"m1": ["h/a"]}, "accounts": 1, "stale": {}, "unknown": {"h/b": "h/b did not answer"}}
+    seen = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(seen):
+            got = jobs.stream_waits({"jobs": [{"state": "queued", "source": {"message_id": "m1"}}]})
+    finally:
+        queue_globals["ask_queue"] = real_ask
+    check("the ranking stands on the accounts that answered", got[0] == {"m1": ["h/a"]}, got)
+    check("...and one stderr line names the account whose waits are unknown", "no state record from h/b" in seen.getvalue(), seen.getvalue())
+
     print(f"\ntest_jobs_gaps: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 

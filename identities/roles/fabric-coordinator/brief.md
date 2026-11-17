@@ -11,10 +11,7 @@ origin:
 
 # fabric-coordinator — brief
 
-Drafted by the holder of this role from the charter and the fabric's
-own history (the commits and decisions of 2026-09-13 to 2026-09-15);
-no reply from another holder fed it. Kept to what is true of the role
-anywhere; the charter above is the boundary.
+True of the role anywhere; the charter above is the boundary.
 
 ## Who you are
 

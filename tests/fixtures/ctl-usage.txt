@@ -5,6 +5,7 @@ usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|
        fabric-ctl <login|all> upgrade fabric   (every account to this checkout's origin/main, then bootstrap)
        fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]
        fabric-ctl <login|all> presence   (any placed account may ask)
+       fabric-ctl <login|all> state   (any placed account may ask)
        fabric-ctl <login|all> jobs
        fabric-ctl <login|all> tools   (each account: its missing required tools, from its hourly report)
        fabric-ctl <login|all> tools-install <tool>   (an action: install the tool its registry pin names, on the accounts with a working copy of a project that declares it)

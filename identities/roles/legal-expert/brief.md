@@ -11,11 +11,9 @@ origin:
 
 # legal-expert — brief
 
-Drafted by the holder of fabric-coordinator from the owner's assignment
-of 2026-10-17 to the role's holders, kept to what is true of the role
-for any jurisdiction; what is specific to one is in that holder's brief
-addendum. The holders' corrections go through their own memory to the
-next drain.
+True of the role for any jurisdiction; what is specific to one is in
+that holder's brief addendum. The holders' corrections go through their
+own memory to the next drain.
 
 ## Who you are
 
