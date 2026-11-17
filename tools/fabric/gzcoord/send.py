@@ -454,7 +454,12 @@ def main(argv: list[str]) -> int:
             print(t("send.id-minted", {"id": minted, "file": file}), file=sys.stderr)
 
     root = inbox.inbox_root(who)
-    cfg = inbox.integration_config(who.get("project"), os.environ, t)
+    try:
+        cfg, account_mode = inbox.resolve_integration(who.get("project"), os.environ, t)
+    except transport.ModeError as e:       # a GZCOORD_TRANSPORT_MODE that names no mode
+        print(f"gzcoord: not sent: {e}", file=sys.stderr)
+        return 2
+    carrier_only = account_mode is not None and account_mode["mode"] == transport.mode.CARRIER_ONLY
     if not cfg["configured"]:
         print(t("send.not-configured", {"reason": cfg["reason"]}), file=sys.stderr)
         return 3
@@ -463,7 +468,8 @@ def main(argv: list[str]) -> int:
     except inbox.ControlChannel as e:
         print(t("send.error-not-sent", {"detail": str(e)}), file=sys.stderr)
         return 2
-    relay_url, channel = cfg["relay_url"], cfg["channel"]
+    # Carrier-only has no relay to name: the dry run's line and nothing else reads it there.
+    relay_url, channel = cfg["relay_url"] or f"the {CARRIER_LABEL} carrier", cfg["channel"]
     tax_path = gzmsg.find_taxonomy(root)
     taxonomy = gzmsg.load_taxonomy(tax_path) if tax_path else None
     me = inbox.identity(who, taxonomy)
@@ -567,15 +573,17 @@ def main(argv: list[str]) -> int:
         print(t("send.would-post", {"type": msg["type"], "id": mid, "address": me["address"], "channel": channel,
                                     "relay_url": relay_url}), file=sys.stderr)
         return 0
-    tok = inbox.token(root, cfg)
+    # No relay token in carrier-only: nothing of this send reaches the relay, so none is looked for, and none is needed.
+    tok = None if carrier_only else inbox.token(root, cfg)
     # Is anyone there? A message to a login with no session waits in the
     # relay until one starts, and a TO-ROLE with no running holder reaches
     # nobody now. The sender decides — --force sends anyway (the owner,
     # 2026-09-25). A broadcast is not checked.
     # An address no host places has been said and forced above; presence could
     # only say it again.
-    if tok and not unplaced:
-        pres = asked_presence(msg["metadata"], me["address"], tok)
+    if (tok or carrier_only) and not unplaced:
+        # The presence child's stdin schema wants a token string; in carrier-only it asks the account's own agentd alone.
+        pres = asked_presence(msg["metadata"], me["address"], tok or "")
         # Said, never silent: the contract is that a TO is checked.
         if pres.get("skipped"):
             print(t("send.presence-skipped"), file=sys.stderr)
@@ -608,14 +616,15 @@ def main(argv: list[str]) -> int:
                     print(t("send.presence-not-sent"), file=sys.stderr)
                 return 4
             print(t("send.presence-forced"), file=sys.stderr)
-    if not tok:
+    if not tok and not carrier_only:
         print(t("send.no-token"), file=sys.stderr)
         return 3
     where = [*(["--project", who["project"]] if who.get("project") else []),
              *(["--working-copy", who["working_copy"]] if who.get("working_copy") else [])]
     # Before the journal keeps anything: a mode that cannot be read refuses the send, and a row kept first would stay pending.
     try:
-        tp = transport.open_transport(cfg, token=tok, me=me, journal_off=_journal_off(), for_send=True)
+        tp = transport.open_transport(cfg, token=tok or "", me=me, journal_off=_journal_off(), for_send=True,
+                                      account_mode=account_mode)
     except transport.ModeError as e:
         print(f"gzcoord: not sent: {e}", file=sys.stderr)
         return 2

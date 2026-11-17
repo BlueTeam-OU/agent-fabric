@@ -45,7 +45,7 @@ def start_hosted(cfg: dict, t: i18n.Printer | None = None) -> dict:
 def open_transport(cfg: dict | None, *, token: str, me: dict, journal_off: bool = False, state_dir: str | None = None,
                    iso_now: Callable[[], str] | None = None,
                    journal_newest: Callable[[int], list[dict]] | None = None, record_only: bool = False,
-                   for_send: bool = False) -> TransportMux:
+                   for_send: bool = False, account_mode: dict | None = None) -> TransportMux:
     """`cfg` is the project's integration config (inbox_parts.config.integration_config) and must be a configured one
     wherever a relay is built (None is for carrier-only alone); `me` the login's identity (its `address` is the consumer and
     the sender). `state_dir` and `iso_now` give the receiving side its logs; without them the mux only sends. `journal_newest`
@@ -53,8 +53,9 @@ def open_transport(cfg: dict | None, *, token: str, me: dict, journal_off: bool 
     carrier as primary cannot answer `newest`. The mode is read from `state_dir` when given, else from the account's own
     state directory. `record_only` is the read of the record (--replay, --history): the primary alone, no mirror, no logs, in
     whatever mode the account is in. `journal_off` with `for_send` is a send's route (above); `journal_off` alone is a
-    receive's, refused in the carrier modes."""
-    account_mode = mode.read(state_dir)["mode"]
+    receive's, refused in the carrier modes. `account_mode` is a Mode the caller already resolved with mode.effective (it said
+    the override then); without it the mode is resolved here, saying the override on stderr."""
+    account_mode = (account_mode or mode.effective(state_dir, say=mode.say_stderr))["mode"]
     if journal_off and not for_send and not record_only and account_mode != mode.RELAY_RECORD:
         raise ModeError(f"transport mode {account_mode} has no receiving with GZCOORD_JOURNAL=off: the carrier starts only with a "
                         "journal (ADR-064 rule 8); the human relay is the break-glass")

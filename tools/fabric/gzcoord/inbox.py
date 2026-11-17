@@ -224,6 +224,7 @@ from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
 # name a test can replace here: the parts call one another directly, so
 # replacing any other name on inbox changes main() and nothing it calls.
 from .inbox_parts.config import workspace, relay_runtime_dir, integration_config, default_relay  # noqa: F401
+from .inbox_parts.config import resolve_integration  # noqa: F401
 from .inbox_parts.config import ControlChannel, assert_not_control_channel, git_toplevel  # noqa: F401
 from .inbox_parts.config import inbox_root  # noqa: F401
 from .inbox_parts.tokens import synced_var, TokenRefused, checked_token, synced_token, token  # noqa: F401
@@ -453,7 +454,12 @@ def main(argv: list[str]) -> int:
             print(t("held.not-held", {"reason": h["reason"]}))
         return 0 if h["held"] else 1
     root = inbox_root(who)
-    cfg = integration_config(who.get("project"), os.environ, t)
+    try:
+        cfg, account_mode = resolve_integration(who.get("project"), os.environ, t, _episodic().state_dir())
+    except transport.ModeError as e:       # a GZCOORD_TRANSPORT_MODE that names no mode
+        print(f"gzcoord-inbox: {e}", file=sys.stdout if until_delivery else sys.stderr)
+        return 7
+    carrier_only = account_mode is not None and account_mode["mode"] == transport.mode.CARRIER_ONLY
 
     def own_identity() -> dict:
         tax_path = gzmsg.find_taxonomy(root)
@@ -503,20 +509,17 @@ def main(argv: list[str]) -> int:
     # relay here, so a session restart is also the relay's.
     # Not in carrier-only: nothing in that mode's inbox path may start or probe the relay. A mode that cannot be read
     # does not decide it here; open_mux below refuses it in one line.
-    try:
-        relay_not_wanted = transport.mode.read(_episodic().state_dir())["mode"] == transport.mode.CARRIER_ONLY
-    except transport.ModeError:
-        relay_not_wanted = False
-    up = {"hosted": False, "started": False} if relay_not_wanted else transport.start_hosted(cfg, t)
+    up = {"hosted": False, "started": False} if carrier_only else transport.start_hosted(cfg, t)
     if up.get("started"):
         print(t("start.relay-started-unit", {"unit": up["unit"]}) if up.get("unit")
               else t("start.relay-started-pid", {"pid": up.get("pid")}), file=sys.stderr)
     elif up.get("note"):
         print(t("start.error", {"detail": up["note"]}), file=sys.stderr)
-    tok = token(root, cfg)
-    if not tok and history_given:
+    # No relay token in carrier-only: it is neither looked for nor needed.
+    tok = None if carrier_only else token(root, cfg)
+    if not tok and not carrier_only and history_given:
         return history_from_journal()
-    if not tok:
+    if not tok and not carrier_only:
         print(t("start.no-token", {"token_file": cfg["token_env_file"] if cfg.get("token_env_file") is not None
                                    else t("config.no-token-file")}), file=refusal_out)
         return 3 if until_delivery else 0
@@ -539,7 +542,7 @@ def main(argv: list[str]) -> int:
     if history_given or replay_which:
         # The record the primary keeps, read whole; no cursor moves, so no mirror and no logs.
         try:
-            primary = transport.open_transport(cfg, token=tok, me=me, record_only=True,
+            primary = transport.open_transport(cfg, token=tok or "", me=me, record_only=True, account_mode=account_mode,
                                                journal_newest=lambda n: journal_newest(_episodic(), n)).primary
         except transport.ModeError as e:
             print(f"gzcoord-inbox: {e}", file=refusal_out)
@@ -583,12 +586,12 @@ def main(argv: list[str]) -> int:
     off = bypass.is_off()
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
     ep = _episodic()
-    def open_mux() -> transport.TransportMux:
-        return transport.open_transport(cfg, token=tok, me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now,
-                                        journal_newest=lambda n: journal_newest(ep, n))
+    def open_mux(resolved: dict | None = None) -> transport.TransportMux:
+        return transport.open_transport(cfg, token=tok or "", me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now,
+                                        journal_newest=lambda n: journal_newest(ep, n), account_mode=resolved)
 
     try:
-        tp = open_mux()
+        tp = open_mux(account_mode)
     except transport.ModeError as e:
         print(f"gzcoord-inbox: {e}", file=refusal_out)
         return 7
