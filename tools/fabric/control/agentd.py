@@ -292,7 +292,9 @@ LEDGER_LOCK_WAIT_S = 5.0
 # minutes, and the loop must keep answering behind it. `gateway` hashes
 # the installed binary and runs it, up to ten seconds; `branches` asks git of every working copy of the account
 # (a status per copy and per linked worktree), up to a minute each.
-BESIDE_LOOP_OPS = ["disk", "gateway", CARRIER_NAME, "branches", "drift"]
+# `pool-claim` asks its claimant's state over the carrier: its answer comes in on the thread that handles requests, so the
+# claim must not be handled there. Its race is the pool's own flock, not this loop's one-at-a-time.
+BESIDE_LOOP_OPS = ["disk", "gateway", CARRIER_NAME, "branches", "drift", "pool-claim"]
 # One disk scan per daemon, shared by every request that arrives while it
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).
@@ -830,7 +832,12 @@ def state_poster(call: Callable[..., Any], cfg: dict, address: str, file: str | 
     kept before it is posted, so a failed post is retried with the file already telling the truth."""
     def post(content: dict) -> Any:
         if file is not None:
-            state_record.store(file, content)
+            try:
+                state_record.store(file, content)
+            except (OSError, TypeError, ValueError) as e:
+                if cfg.get("control_carrier") == CARRIER_SECOND_ONLY:
+                    raise   # the record is all there is to read: a failure to keep it is the tick's to say
+                _stderr(f"agentd: the state record could not be kept ({type(e).__name__}); it is posted anyway, the relay being the reader")
         if cfg.get("control_carrier") == CARRIER_SECOND_ONLY:
             return None
         return call("/api/send", method="POST",
@@ -1123,7 +1130,12 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         return call("/api/send", method="POST",
                     body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(content)}))
     # A claimant's role is what its own control agent last said on the state channel.
-    state_asker = state_read.asker(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=new_id)
+    try:
+        state_asker = state_read.asker(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=new_id)
+    except RuntimeError as e:
+        # A daemon that dies of a misspelt reader override answers nothing at all; it says so and reads the relay, as without the override.
+        _stderr(f"agentd: {e}: the override is ignored")
+        state_asker = None
     ctx["pool_opts"] = {"role_of": role_from_stream(call=call, cfg=cfg, ask=state_asker)}
     # The account's GZCoord inbox is the project's channel on the relay this daemon already reaches
     # (status says its read position: tools/fabric/drift.py); a project with none says so.

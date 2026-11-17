@@ -44,8 +44,8 @@ def reply_of(address: str, rec, *, claimed: str | None = None, why: str | None =
 
 
 class FakeLeg:
-    def __init__(self, replies, lost=False):
-        self.todo, self.lost, self.closed = list(replies), lost, False
+    def __init__(self, replies, lost=False, failed=None):
+        self.todo, self.lost, self.closed, self.failed_sends = list(replies), lost, False, dict(failed or {})
 
     def replies(self, _t):
         out, self.todo = self.todo, []
@@ -62,7 +62,7 @@ class Tmp(unittest.TestCase):
         self.file = os.path.join(self.dir, state_record.RECORD_FILE)
         self.clock = [0.0]
 
-    def ask(self, answers: dict, addresses=None, lost=False, boom=None, **kw):
+    def ask(self, answers: dict, addresses=None, lost=False, boom=None, failed=None, **kw):
         """state_read.ask over a fake leg that answers {sender: reply}; the legs opened are kept in self.legs."""
         self.legs, self.sent = [], []
 
@@ -70,7 +70,7 @@ class Tmp(unittest.TestCase):
             self.sent.append((request, to))
             if boom:
                 raise boom
-            leg = FakeLeg([(s, r) for s, r in answers.items()], lost=lost)
+            leg = FakeLeg([(s, r) for s, r in answers.items()], lost=lost, failed=failed)
             self.legs.append(leg)
             return leg
 
@@ -139,6 +139,14 @@ class Poster(Tmp):
         self.assertEqual(self.posted("interweave"), [])
         self.assertEqual(state_record.load(self.file), record(ME))
 
+    def test_a_file_that_cannot_be_kept_still_posts_to_the_relay_but_not_with_the_second_carrier_alone(self):
+        self.file = os.path.join(self.dir, "no-such-dir", "state-record.json")
+        for carrier in ("relay", "dual"):
+            with self.subTest(carrier):
+                self.assertEqual(len(self.posted(carrier)), 1)
+        with self.assertRaises(OSError):
+            self.posted("interweave")
+
     def test_the_file_is_kept_before_a_post_that_fails(self):
         def refuse(*_a, **_k):
             raise ConnectionRefusedError("refused")
@@ -200,6 +208,20 @@ class Ask(Tmp):
         self.assertEqual(self.sent, [])
         os.unlink(self.file)
         self.assertIn("no state record", self.ask({}, addresses=[ME])[ME]["error"])
+
+    def test_the_own_record_is_held_to_the_same_shape_as_a_peers(self):
+        for bad in ({"v": 1}, {**record(ME), "kind": "up"}, {**record(ME), "from": A}, {**record(ME), "v": 2}):
+            with self.subTest(bad):
+                state_record.store(self.file, bad)
+                got = self.ask({}, addresses=[ME])
+                self.assertIn("error", got[ME])
+                self.assertNotIn("record", got[ME])
+
+    def test_an_account_the_request_never_reached_is_said_and_not_waited_for(self):
+        got = self.ask({A: reply_of(A, record(A))}, addresses=[A, B], failed={B: "no roster row"})
+        self.assertEqual(got[B], {"error": "h/b was not asked: no roster row"})
+        self.assertIn("record", got[A])
+        self.assertLessEqual(self.clock[0], 3, "the window was not run out for an account that was never asked")
 
     def test_a_leg_that_cannot_be_opened_is_every_asked_account_unknown(self):
         got = self.ask({}, addresses=[A, B], boom=RuntimeError("no socket"))
@@ -305,14 +327,55 @@ class Waits(Tmp):
         self.assertEqual(json.loads(out[0])["waits"], {self.MID: ["h/a"]})
 
 
+class Override(Tmp):
+    def test_a_misspelt_override_is_a_line_and_an_exit_code_never_a_traceback(self):
+        old = os.environ.get("FABRIC_STATE_READ")
+        os.environ["FABRIC_STATE_READ"] = "Op"
+        self.addCleanup(lambda: os.environ.__setitem__("FABRIC_STATE_READ", old) if old is not None else os.environ.pop("FABRIC_STATE_READ"))
+        out = []
+        agentd_stub = __import__("types").SimpleNamespace(control_config=lambda: {**CFG, "control_carrier": "relay"}, new_id=lambda: "q", state_dir=lambda: self.dir)
+        rc = queue.cli(["waits"], out=out.append, err=lambda m: None, agentd=agentd_stub, who={"agent": "me", "host": "h", "role": None, "project": None})
+        self.assertEqual(rc, 3)
+        self.assertIn("FABRIC_STATE_READ", json.loads(out[0])["error"])
+        reg = os.path.join(self.dir, "registry.json")
+        with open(reg, "w") as fh:
+            json.dump({"hosts": {"h": {"operator": "op"}}, "placement": {"a": "h", "op": "h"}}, fh)
+        err = []
+        rc = ctl.main(["a", "states"], registry=reg, call=refuse, who={"host": "h", "agent": "op"}, token=None, out=lambda m: None, err=err.append)
+        self.assertEqual(rc, 2)
+        self.assertTrue(any("FABRIC_STATE_READ" in e for e in err), err)
+
+
+class Beside(unittest.TestCase):
+    def test_pool_claim_is_answered_off_the_thread_its_claimant_replies_arrive_on(self):
+        self.assertIn("pool-claim", agentd.BESIDE_LOOP_OPS)
+
+
 class Table(Tmp):
     def test_the_state_verb_prints_a_row_per_account_and_unknown_with_a_reason(self):
-        good = {"status": "ok", "account": "a", "state": {"address": A, "state": record(A, role="python-dev")}}
-        none = {"status": "ok", "account": "b", "state": {"address": B, "state": None, "why": "no state record has been written yet"}}
+        good = {"status": "ok", "host": "h", "account": "a", "state": {"address": A, "state": record(A, role="python-dev")}}
+        none = {"status": "ok", "host": "h", "account": "b", "state": {"address": B, "state": None, "why": "no state record has been written yet"}}
         lines = ctl._table_state([good, none])
         self.assertIn("a", lines[1])
         self.assertTrue(lines[2].startswith("b") and "unknown" in lines[2] and "no state record has been written yet" in lines[2])
         self.assertIn("state", ctl.VERB)
+
+    def test_an_answer_that_is_not_the_asked_accounts_state_record_is_unknown_and_never_stops_the_table(self):
+        def row(account, address, rec):
+            return {"status": "ok", "host": "h", "account": account, "state": {"address": address, "state": rec}}
+        cases = {
+            "another account's record": row("b", B, record(A)),
+            "another account's address": row("b", A, record(B)),
+            "not a state record": row("b", B, {**record(B), "kind": "up"}),
+            "not v1": row("b", B, {**record(B), "v": 7}),
+            "no ts": row("b", B, {"sessions": []}),
+        }
+        for name, bad in cases.items():
+            with self.subTest(name):
+                lines = ctl._table_state([row("a", A, record(A, role="python-dev")), bad])
+                self.assertEqual(len(lines), 3)
+                self.assertTrue(lines[2].startswith("b") and "unknown" in lines[2] and "working" not in lines[2], lines[2])
+        self.assertNotIn("unknown", ctl._table_state([row("b", B, record(B, role="python-dev"))])[1])   # the positive control
 
 
 class Main(Tmp):
@@ -327,13 +390,16 @@ class Main(Tmp):
         self.addCleanup(lambda: os.environ.__setitem__("FABRIC_CONTROL_CARRIER", old) if old is not None else os.environ.pop("FABRIC_CONTROL_CARRIER"))
         orig = state_read.ask
         self.addCleanup(setattr, state_read, "ask", orig)
-        state_read.ask = lambda addrs, **kw: orig(addrs, **{**kw, "wait_s": 0.2, "open_leg": lambda r, to, w: FakeLeg([("h/a", reply_of("h/a", record("h/a", ago_ms=1000)))])})
+        real_ms = __import__("time").time() * 1000   # the record is fresh against the clock main reads, not the fixed one
+        fresh = {**record("h/a"), "ts": iso(real_ms)}
+        state_read.ask = lambda addrs, **kw: orig(addrs, **{**kw, "wait_s": 0.2, "open_leg": lambda r, to, w: FakeLeg([("h/a", reply_of("h/a", fresh))])})
         out, err = [], []
         rc = ctl.main(["a", "b", "states", "--json"], registry=reg, call=refuse, who={"host": "h", "agent": "op"}, token=None,
                       out=out.append, err=err.append, sleep=lambda _s: None, now=lambda: __import__("time").time())
         rows = {json.loads(x)["address"]: json.loads(x) for x in out}
         self.assertEqual(rc, 1, (out, err))
-        self.assertEqual(rows["h/a"]["state"] in ("none", "unknown"), True)
+        self.assertEqual(rows["h/a"]["state"], "none")
+        self.assertNotIn("why", rows["h/a"])
         self.assertEqual(rows["h/b"]["state"], "unknown")
         self.assertIn("did not answer", rows["h/b"]["why"])
         self.assertFalse([e for e in err if "relay" in e or "TOKEN" in e], err)

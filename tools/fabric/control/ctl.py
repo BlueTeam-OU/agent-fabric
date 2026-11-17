@@ -1606,6 +1606,12 @@ def _table_state(rs: list) -> list[str]:
         if not isinstance(rec, dict):
             lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('unknown', 8)} {S(nullish(dig(s, 'why'), 'no record'))}"))
             continue
+        # The reply is a peer's word: shown as r's state only when it says it is r's and is the record agentd writes (what `states` holds
+        # every record to), else unknown.
+        address = f"{r['host']}/{r['account']}"
+        if dig(s, "address") != address or state_record_of({"content": js.stringify(rec)}, {address}) is None:
+            lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end('unknown', 8)} the answer is not a state record of {address}"))
+            continue
         row = state_row(S(nullish(rec.get("from"), r["account"])), rec)
         lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(printable(row['state']), 8)} {pad_end(printable(nullish(row.get('role'), '-')), 18)} "
                               f"{len(row['sessions'])}{'  (' + row['why'] + ')' if row.get('why') else ''}"))
@@ -2344,8 +2350,12 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
             tok = synced_token()   # `??`: a token that is empty is a token, and refused as one
     api_call = call or (lambda p, **init: api(tok, p, relay_url=cfg["relay_url"], **init))
     if args["op"] == "states":
-        asker = state_read.asker(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=agentd.new_id,
-                                 say=err)
+        try:
+            asker = state_read.asker(cfg, me=me["address"], own_file=os.path.join(state_dir(), state_record.RECORD_FILE), new_id=agentd.new_id,
+                                     say=err)
+        except RuntimeError as e:   # a misspelt FABRIC_STATE_READ: refused, said, never read as "off"
+            err(f"fabric-ctl: {e}")
+            return 2
         if asker is not None:
             # The op, not the channel: the relay is not touched, so no token is needed, and a placed account may ask (a public op).
             if me["address"] not in agentd.operator_addresses(registry) and me["address"] not in agentd.account_addresses(registry):

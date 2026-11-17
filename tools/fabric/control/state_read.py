@@ -67,6 +67,12 @@ def _accepted(address: str, sender: str, reply: dict) -> dict:
     rec = data.get("state")
     if rec is None:
         return {"error": f"{address} has no state record to give ({data.get('why') or 'no reason given'})"}
+    return _record(address, rec)
+
+
+def _record(address: str, rec: Any) -> dict:
+    """{"record"} when `rec` has the shape every reader of it reads, else {"error"}: a record from the account's own file is held
+    to it as one from a peer is."""
     if (not isinstance(rec, dict) or rec.get("kind") != "state" or not (js.is_integer(rec.get("v")) and rec["v"] == 1)
             or rec.get("from") != address or not isinstance(rec.get("ts"), str)):
         return {"error": f"{address}'s state record is not a v1 state record from it"}
@@ -84,7 +90,7 @@ def ask(addresses: list[str], *, me: str, own_file: str, new_id: Callable[[], st
             except state_record.StateRecordError as e:
                 out[a] = {"error": str(e)}
                 continue
-            out[a] = {"record": rec} if rec is not None else {"error": f"{a} has written no state record yet"}
+            out[a] = _record(a, rec) if rec is not None else {"error": f"{a} has written no state record yet"}
         elif a not in others:
             others.append(a)
     if others:
@@ -99,7 +105,8 @@ def _fan_out(others: list[str], *, me: str, new_id, open_leg, wait_s: float, now
         leg = open_leg(request, others, wait_s)
     except RuntimeError as e:
         return {a: {"error": f"{a} was not asked: {e}"} for a in others}
-    answers: dict[str, dict] = {}
+    failed = leg.failed_sends if isinstance(getattr(leg, "failed_sends", None), dict) else {}
+    answers: dict[str, dict] = {a: {"error": f"{a} was not asked: {why}"} for a, why in failed.items() if a in others}
     try:
         deadline = now() + wait_s
         while len(answers) < len(others) and not leg.lost and now() < deadline:

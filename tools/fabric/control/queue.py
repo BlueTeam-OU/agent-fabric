@@ -355,7 +355,12 @@ def cli(argv: list[str] | None = None, out=print, err=lambda m: print(m, file=sy
         out(js.stringify({"error": str(e), "sent": False}))
         return 3
     cfg = agentd.control_config()
-    if cmd == "waits" and state_read.use_op(cfg, say=err):
+    try:
+        via_op = cmd == "waits" and state_read.use_op(cfg, say=err)
+    except RuntimeError as e:   # a misspelt FABRIC_STATE_READ: refused, said, never read as "off"
+        out(js.stringify({"error": str(e)}))
+        return 3
+    if via_op:
         # No relay here: with the second carrier alone there may be none to reach, and no token to read it with.
         try:
             me = gzcoord.identity(gzcoord.whoami() if who is None else who)["address"]

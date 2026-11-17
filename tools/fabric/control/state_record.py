@@ -7,7 +7,7 @@ each agentd keeps the one record it last posted and answers for it.
 CONTRACT
   store(file, record)    writes the record, JSON and a newline, mode 0600: a temporary file in the same directory,
                          fsynced, renamed over `file`. A reader never sees half a record; a failure leaves the old
-                         record and raises OSError, and removes its temporary file.
+                         record, removes its temporary file and raises (OSError, or TypeError for a record JSON cannot hold).
   load(file)             the record as written, or None when none was written yet. A file that cannot be read or is
                          not a JSON object raises StateRecordError: absent and broken stay apart.
   state(request, me, file)  the op's answer, {"address": me, "state": <record>} or {"address": me, "state": None,
