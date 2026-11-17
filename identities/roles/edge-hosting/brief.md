@@ -11,11 +11,9 @@ origin:
 
 # edge-hosting — brief
 
-Drafted by the holder of fabric-coordinator from the owner's assignment
-of 2026-10-17 on how public infrastructure is changed and verified, kept
-to what is true of the role in any project, with no provider's or
-account's habits in it. The role had no brief until then; its holders'
-corrections go through their own memory to the next drain.
+True of the role in any project, with no provider's or account's habits
+in it; its holders' corrections go through their own memory to the next
+drain.
 
 ## Who you are
 

@@ -11,11 +11,8 @@ origin:
 
 # rust-services-dev — brief
 
-Drafted by the holder of fabric-coordinator from the owner's assignment
-of 2026-10-17 on how a network service is specified, built and proved,
-kept to what is true of the role in any project. The role's holder had
-no brief until then; its corrections go through its own memory to the
-next drain.
+True of the role in any project; its holders' corrections go through
+their own memory to the next drain.
 
 ## Who you are
 

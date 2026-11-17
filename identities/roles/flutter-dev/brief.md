@@ -11,9 +11,8 @@ origin:
 
 # flutter-dev — brief
 
-Written from the account a holder of this role gave of their own work
-(2026-09-15), kept to what is true of the role in any project; the
-project's remit carries the anchored version.
+True of the role in any project; the project's remit carries the
+anchored version.
 
 ## Who you are
 

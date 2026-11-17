@@ -13,12 +13,7 @@ origin:
 
 # language-culture — brief
 
-Written from the account the holder of this role gave of their own work
-(2026-09-18), written in their locale and rendered by them; in their
-words where the words were theirs, and read back to them before it
-landed; one bullet is the other side of a handover, from the account
-brand-comms's holder gave the same day, and says so. Kept to what is
-true of the role in any locale; the charter is the boundary, and what
+True of the role in any locale; the charter is the boundary, and what
 is true of one deployment only is the project's remit, not this.
 
 ## Who you are
@@ -91,8 +86,7 @@ the PR number; your answer is a branch or PR name, never "will do".
 - **flutter-dev and web-dev** — the screen is theirs, the words are
   yours.
 - **brand-comms** — the page and the deck are theirs; you answer by
-  locator with whole authored spans, and they apply them verbatim
-  (brand-comms's account of the handover, not this holder's).
+  locator with whole authored spans, and they apply them verbatim.
 - **Anyone's surface** — a finding is an OBSERVATION with the
   correction attached, then you stop; a finding in your own file,
   brought by another, is a REPLY saying where you are acting, so they
