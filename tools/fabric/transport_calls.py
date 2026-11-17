@@ -77,7 +77,7 @@ def _mentions_relay_url(node: ast.AST) -> bool:
 
 def _relay_aliases(tree: ast.Module) -> set[str]:
     """Local names the relay client's api is imported under (`from .inbox_parts.relay import api as post`)."""
-    return {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[-1] == "relay"
+    return {a.asname or a.name for n in _syntax_tree().walk(tree) if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[-1] == "relay"
             for a in n.names if a.name == "api"}
 
 
@@ -114,7 +114,7 @@ def scan(rel: str, text: str, allowed: dict[str, str]) -> list[str]:
         return []   # ruff refuses it in CI; a commit of a half-merged module is not this rule's to stop
     out = []
     aliases = _relay_aliases(tree)
-    for node in ast.walk(tree):
+    for node in _syntax_tree().walk(tree):
         if isinstance(node, ast.Call) and _relay_call(node, aliases):
             what = "a call of the relay's api()"
         elif _carrier_import(node):

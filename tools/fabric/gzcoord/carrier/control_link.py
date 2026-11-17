@@ -1,7 +1,8 @@
 """tools/fabric/gzcoord/carrier/control_link.py — the control plane's second carrier:
 InterWeave, through `interweave-human` on the profile's `fabric-control`
 endpoint (agent-fabric ADR-029 rule 18; ADR-064 rule 12). Off unless
-runtime/control/config.json `control_carrier` is "dual" (agentd.control_config).
+runtime/control/config.json `control_carrier` is "dual" or "interweave" (agentd.control_config; control/carrier_cfg.py).
+Under "interweave" it is the only carrier, and RELAY_ONLY_OPS go through hostexec to bin/fabric-op instead.
 
 CONTRACT (ADR-029 rule 18, line for line):
   child      agentd runs ONE supervised long-lived child,
@@ -719,6 +720,10 @@ class Server:
     def stop(self) -> None:
         self._stop.set()
         if self._sock is not None:
+            # close() alone does not wake an accept() already blocked in the kernel on this socket; the accept thread would
+            # outlive the server and could take a connection meant for a later socket that reuses the descriptor number.
+            with contextlib.suppress(OSError):
+                self._sock.shutdown(socket.SHUT_RDWR)
             with contextlib.suppress(OSError):
                 self._sock.close()
         with contextlib.suppress(OSError):
@@ -951,6 +956,12 @@ class Session:
 _NEVER_SENT = (OUT_OF_TIME, "this account", "no roster row", "the InterWeave channel is", "the child's input is closed", "the child does not drain")
 
 
+def never_sent(why: str) -> bool:
+    """Whether a send's failure reason says it certainly never reached the child; any other (a settle that timed out wrote
+    its line) leaves it unknown."""
+    return why.startswith(_NEVER_SENT)
+
+
 class Down(Exception):
     """Neither carrier took a request: the relay's failure and why the other carrier was not there to carry it.
     It keeps what the relay's own error said about the post (`status`, `connection_refused`, `sent`), so a caller
@@ -959,10 +970,11 @@ class Down(Exception):
 
     worded = True   # its message already says both failures; a caller does not re-word it from the relay's alone
 
-    def __init__(self, message: str, relay_error: BaseException | None = None, handed: bool = False) -> None:
+    def __init__(self, message: str, relay_error: BaseException | None = None, handed: bool = False, unsent: bool = False) -> None:
+        # `unsent`: no relay was asked and the socket was not handed the request, so nothing can have left (the carrier alone).
         super().__init__(message)
         self.status = None if handed else getattr(relay_error, "status", None)
-        self.connection_refused = False if handed else getattr(relay_error, "connection_refused", False)
+        self.connection_refused = False if handed else (unsent or getattr(relay_error, "connection_refused", False))
         self.timed_out = getattr(relay_error, "timed_out", False)
         if getattr(relay_error, "sent", False) is True:
             self.sent = True
@@ -1009,7 +1021,7 @@ class Leg:
             session.close()
             # Only a send that never reached the child is certainly unsent; a settle that timed out wrote its line,
             # and the child may still deliver it.
-            certain = all(session.sent[a][1].startswith(_NEVER_SENT) for a in lost)
+            certain = all(never_sent(session.sent[a][1]) for a in lost)
             raise LegFailed(f"not sent to {', '.join(f'{a} ({session.sent[a][1]})' for a in lost)}", handed=not certain)
         return cls(session, record["id"], early)
 
@@ -1079,10 +1091,11 @@ def default_directory(host: str, placed: Callable[[], set[str]], log: Callable[[
 def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed: Callable[[], set[str]],
                      env: dict[str, str] | None = None, log: Callable[[str], None] = say,
                      directory: Directory | None = None, argv: list[str] | None = None,
-                     hold: Callable[[], Callable[[], None] | None] | None = None) -> Running:
+                     hold: Callable[[], Callable[[], None] | None] | None = None, relay_off: bool = False) -> Running:
     """Start the child, the router and fabric-ctl's socket. Nothing here can stop agentd answering on the relay:
     a program that is not installed, a roster that does not verify and a socket that cannot be bound are each
-    said and the account is on the relay alone until they are mended."""
+    said and the account is on the relay alone until they are mended. With `relay_off` (control_carrier names the
+    second carrier alone) there is no relay to fall back to: fabric-ctl cannot send, and what the child does without the socket is its own."""
     env = os.environ if env is None else env
     from control.upgrade import state_dir
     host = me.partition("/")[0]
@@ -1092,13 +1105,14 @@ def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed
     server: Server | None = None
     path = socket_path(env)
     if path is None:
-        log("XDG_RUNTIME_DIR is not set: fabric-ctl has no socket to hand its sends to, and sends by the relay alone")
+        log("XDG_RUNTIME_DIR is not set: fabric-ctl has no socket to hand its sends to, and "
+            + ("fabric-ctl cannot send to this account's agentd" if relay_off else "sends by the relay alone"))
     else:
         server = Server(path, carrier, me, log, hold)
         try:
             server.start()
         except OSError as e:
-            log(f"fabric-ctl's socket cannot be served ({e}); fabric-ctl sends by the relay alone")
+            log(f"fabric-ctl's socket cannot be served ({e}); " + ("fabric-ctl cannot send to this account's agentd" if relay_off else "fabric-ctl sends by the relay alone"))
             server = None
     carrier.start()
     return Running(carrier, server)

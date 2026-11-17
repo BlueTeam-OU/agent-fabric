@@ -105,19 +105,23 @@ def scan(rel: str, text: str) -> list[str]:
     except SyntaxError:
         return []
     out = []
+    nodes = _syntax_tree().walk(tree)
     # A literal 250 is a cap only where GitHub is read: in github/, or in a module that imports gh or github.
     caps_judged = rel.startswith(GITHUB_DIR + "/") or any(
         (isinstance(n, ast.Import) and any(a.name.split(".")[0] in ("gh", "github") for a in n.names))
         or (isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in ("gh", "github"))
-        for n in ast.walk(tree))
-    for node in ast.walk(tree):
+        for n in nodes)
+    # A module that spells no pull-request list path anywhere has nothing for _reads_pr_list to find, and judging each call's
+    # arguments walks every nested argument again: quadratic in nesting depth. The test is _reads_pr_list's own, per node.
+    spells_path = any((t := _text(n)) is not None and PR_LIST_PATH.search(t) for n in nodes)
+    for node in nodes:
         if caps_judged:
             out += _cap_findings(rel, node)
         # A call's argument, or the value a name is given (the path built before the call): a docstring's example is
         # neither.
         exprs = [*node.args, *(k.value for k in node.keywords)] if isinstance(node, ast.Call) \
             else [node.value] if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None else []
-        if any(_reads_pr_list(x) for x in exprs):
+        if spells_path and any(_reads_pr_list(x) for x in exprs):
             out.append(f"{rel}:{node.lineno}: read: a pull request's files or commits read outside github/evidence.py")
     return list(dict.fromkeys(out))
 

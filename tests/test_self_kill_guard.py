@@ -283,7 +283,7 @@ def main() -> int:
     for label, cmd in (("os.kill and a dict in a python here-document",
                         "python3 - <<'EOF'\nimport os\nd = {'a': 1, 'b': 2}\nos.kill(os.getpid(), 15)\nEOF"),
                        ("a function body beside a here-document that says kill",
-                        "run(){ (timeout 300 python3 t.py); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun"),
+                        "run(){ (timeout 300 make t); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun"),
                        ("a file named self_kill beside a brace list", "python3 tests/test_self_kill_guard.py {a,b}")):
         check(f"no kill command, no ask: {label}", g.unevaluated(cmd) is None, g.unevaluated(cmd))
     for label, cmd in (("pkill with a brace list", "pkill -f x{a,b}"), ("killall with a brace range", "killall p{1..3}"),
@@ -291,7 +291,12 @@ def main() -> int:
                        # Review of #268, F1: an empty expansion glued to the name, which bash runs as kill.
                        ("an empty quoted expansion glued to kill", '"$x"kill $\'\\x31\\x32\\x33\\x34\''),
                        ("an empty braced expansion glued to kill", "${x}kill $'\\x31\\x32\\x33\\x34'"),
-                       ("a glued kill with a brace list", '"$x"kill 12{3,}4')):
+                       ("a glued kill with a brace list", '"$x"kill 12{3,}4'),
+                       # Re-review round 4, F13, the accepted cost: a function body running python3 beside a write
+                       # from a here-document keeps that body judged, so its brace list asks (with `make t` it
+                       # does not, above).
+                       ("a function body running python3 beside a write",
+                        "run(){ (timeout 300 python3 t.py); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun")):
         check(f"a kill tool with a brace expansion still asks: {label}", g.unevaluated(cmd) is not None, cmd)
     # A here-document a data reader takes is data for the pid and kill-word search too (j866 / OBSERVATION
     # 01a1d8ab: a gzcoord-send body reporting a watch's pid was denied as killing it). Any other reader keeps its body
@@ -383,6 +388,142 @@ def main() -> int:
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a pattern kill the broad here-document drop must keep denies: {label}",
               d is not None and d[0] == "deny", d)
+    # Review of #612, fix round 1d6d87fa: a body stored in a file the same command runs is code. Each shape, for the
+    # pattern reading (the broad drop) and for the pid reading (the data drop). Kills: _runs_what_it_writes -> False.
+    stored = (("cat > k.sh, then bash it", "cat > k.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("cat > k.sh, then ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\n./k.sh"),
+              ("cat > k.sh, then \"$PWD/k.sh\"", "cat > k.sh <<'X'\n{kill}\nX\n\"$PWD/k.sh\""),
+              ("chmod +x k.sh && ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nchmod +x k.sh && ./k.sh"),
+              ("tee k.sh, then sh it", "tee k.sh <<'X' >/dev/null\n{kill}\nX\nsh k.sh"),
+              ("cat <<X > k.sh, redirection after the operator", "cat <<'X' > k.sh\n{kill}\nX\nbash k.sh"),
+              ("cat > k.sh, then python3 it", "cat > k.sh <<'X'\n{kill}\nX\npython3 k.sh"),
+              ("cat > k.sh, then source it", "cat > k.sh <<'X'\n{kill}\nX\nsource k.sh"),
+              ("cat > k.sh, then . it", "cat > k.sh <<'X'\n{kill}\nX\n. ./k.sh"),
+              ("cat > k.sh, then run through timeout", "cat > k.sh <<'X'\n{kill}\nX\ntimeout 5 ./k.sh"),
+              ("cat > k.sh, then bash -c 'bash k.sh'", "cat > k.sh <<'X'\n{kill}\nX\nbash -c 'bash k.sh'"),
+              ("cat > k.sh, then bash a variable", "cat > k.sh <<'X'\n{kill}\nX\nf=k.sh; bash \"$f\""),
+              ("cat <<X | bash", "cat <<'X' | bash\n{kill}\nX"),
+              # Review of #637, F6: the file reaches a shell through a pipe or a stdin redirect, no operand names it.
+              # Kills: the runner-anywhere rule in _runs_what_it_writes.
+              ("cat k.sh | bash", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | bash"),
+              ("bash < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash < k.sh"),
+              ("sh -s < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nsh -s < k.sh"),
+              ("cat k.sh | sudo bash", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sudo bash"),
+              # Re-review of #637, F6: the runner has operands, yet reads the file from its stdin. Kills: the
+              # runner-anywhere rule in _runs_what_it_writes.
+              ("bash -s x < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash -s x < k.sh"),
+              ("cat k.sh | bash -s x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | bash -s x"),
+              ("bash /dev/stdin < k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbash /dev/stdin < k.sh"),
+              ("cat k.sh | sh /dev/stdin", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sh /dev/stdin"),
+              ("cat k.sh | sudo python3 -u x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | sudo python3 -u x"),
+              # Review of #637, F7: a program other than cat and tee stores the body. Kills: the opener rule (a
+              # non-reader opener stores the body) in _runs_what_it_writes.
+              ("cp /dev/stdin k.sh", "cp /dev/stdin k.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("dd of=k.sh", "dd of=k.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("install /dev/stdin k.sh", "install -m755 /dev/stdin k.sh <<'X'\n{kill}\nX\n./k.sh"),
+              # Re-review of #637, F7 and codex round 3 F2: the output named inside an option of a non-reader, run by
+              # its path or through a wrapper. Kills: the opener rule (a non-reader opener stores the body) and the
+              # path-in-command-position rule in _runs_what_it_writes.
+              ("sort -ok.sh, then bash it", "sort -ok.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("sort --output=k.sh, then bash it", "sort --output=k.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("sort -ok.sh, then chmod and ./k.sh", "sort -ok.sh <<'X'\n{kill}\nX\nchmod +x k.sh && ./k.sh"),
+              ("sort -ok.sh, then ; ./k.sh", "sort -ok.sh <<'X'\n{kill}\nX\nchmod +x k.sh; ./k.sh"),
+              ("sort --output=k.sh, then ; ./k.sh", "sort --output=k.sh <<'X'\n{kill}\nX\nchmod +x k.sh; ./k.sh"),
+              ("sort --output=k.sh, then timeout 5 ./k.sh", "sort --output=k.sh <<'X'\n{kill}\nX\ntimeout 5 ./k.sh"),
+              ("sort -o k.sh, then python3 it", "sort -o k.sh <<'X'\n{kill}\nX\npython3 k.sh"),
+              ("cat <<X | cp /dev/stdin k.sh", "cat <<'X' | cp /dev/stdin k.sh\n{kill}\nX\nsource k.sh"),
+              # Round 3, F6 and codex round 3 F3: the runner inherits its stdin from a group, a subshell, a loop or
+              # `exec <`, or sits behind a glued operator. Kills: the runner-anywhere rule, and OPERATOR in segments.
+              ("cat k.sh | (bash -s x)", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | (bash -s x)"),
+              ("{{ bash -s x; }} < k.sh", "cat > k.sh <<'X'\n{kill}\nX\n{{ bash -s x; }} < k.sh"),
+              ("( bash -s x ) < k.sh", "cat > k.sh <<'X'\n{kill}\nX\n( bash -s x ) < k.sh"),
+              ("exec < k.sh, then bash -s x", "cat > k.sh <<'X'\n{kill}\nX\nexec < k.sh\nbash -s x"),
+              ("cat k.sh | while loop running bash -s x",
+               "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | while :; do bash -s x; break; done"),
+              ("cat k.sh |</dev/stdin bash -s x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh |</dev/stdin bash -s x"),
+              ("true |<in ./k.sh: a path behind a glued |<", "cat > k.sh <<'X'\n{kill}\nX\ntrue |<in ./k.sh"),
+              ("cat k.sh |& bash -s x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh |& bash -s x"),
+              ("bash <(cat k.sh)", "cat > k.sh <<'X'\n{kill}\nX\nbash <(cat k.sh)"),
+              ("cat k.sh | tee o >(bash -s x)", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | tee o >(bash -s x)"),
+              ("a path in command position behind a group", "cat > k.sh <<'X'\n{kill}\nX\n{{ ./k.sh; }}"),
+              ("a path after a then", "cat > k.sh <<'X'\n{kill}\nX\nif true; then ./k.sh; fi"),
+              # Round 3, section 2: tee's operands after `--` are all files, a `-k.sh` included.
+              ("tee -- -k.sh, then bash -- -k.sh", "tee -- -k.sh <<'X' >/dev/null\n{kill}\nX\nbash -- -k.sh"),
+              ("tee -- -k.sh, then bash ./-k.sh", "tee -- -k.sh <<'X' >/dev/null\n{kill}\nX\nbash ./-k.sh"),
+              # Re-review round 4, F15: the file run by its bare name from a PATH directory, by `.` behind a prefix,
+              # or inside `env -S` text. Kills: the written-name mention test, the `.` behind a prefix, and the
+              # whitespace split before _is_runner.
+              ("chmod +x ~/.local/bin/k && k", "cat > ~/.local/bin/k <<'X'\n{kill}\nX\nchmod +x ~/.local/bin/k && k"),
+              ("nohup k", "cat > ~/.local/bin/k <<'X'\n{kill}\nX\nchmod +x ~/.local/bin/k && nohup k"),
+              ("timeout 5 k, written with tee",
+               "tee ~/bin/k <<'X' >/dev/null\n{kill}\nX\nchmod +x ~/bin/k; timeout 5 k"),
+              ("PATH=.:$PATH k.sh", "cat > k.sh <<'X'\n{kill}\nX\nchmod +x k.sh; PATH=.:$PATH k.sh"),
+              ("env PATH=. k.sh", "cat > k.sh <<'X'\n{kill}\nX\nenv PATH=. k.sh"),
+              ("command . k.sh", "cat > k.sh <<'X'\n{kill}\nX\ncommand . k.sh"),
+              ("builtin . k.sh", "cat > k.sh <<'X'\n{kill}\nX\nbuiltin . k.sh"),
+              ("env -S 'bash k.sh'", "cat > k.sh <<'X'\n{kill}\nX\nenv -S 'bash k.sh'"),
+              # Each of the three rules alone, the file's name absent from the word that runs it (a link `j`): the bare
+              # name behind a prefix (mention), `.` behind a prefix, and a runner inside one word of text (split).
+              ("nohup k, no slash or expansion", "cat > k <<'X'\n{kill}\nX\nchmod +x k; nohup k"),
+              ("command . j, a link to the file", "cat > k.sh <<'X'\n{kill}\nX\nln -s k.sh j; command . j"),
+              ("env -S 'bash j', a link to the file", "cat > k.sh <<'X'\n{kill}\nX\nln -s k.sh j; env -S 'bash j'"),
+              # Re-review round 5, F21: a name an opener stores under, found only by _written_names's openers loop.
+              ("cp /dev/stdin k, then nohup k", "cp /dev/stdin k <<'X'\n{kill}\nX\nchmod +x k; nohup k"),
+              ("dd of=k, then nohup k", "dd of=k <<'X'\n{kill}\nX\nchmod +x k; nohup k"),
+              # Re-review round 4, section 2: a wrapper the guard knows no option table for hides a path-run. Kills:
+              # the `/` word in any position of a segment that is no data reader's.
+              ("flock /tmp/l ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nflock /tmp/l ./k.sh"),
+              ("ionice -c3 ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nionice -c3 ./k.sh"),
+              ("strace -f ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nstrace -f ./k.sh"),
+              ("watch -n1 ./k.sh", "cat > k.sh <<'X'\n{kill}\nX\nwatch -n1 ./k.sh"),
+              # Round 3 and re-review round 4, F13: the cost as the rule applies it. A write from a heredoc beside a
+              # runner word (an argument counts), a `/` word outside a data reader, or a command named like the written
+              # file denies, though nothing runs the file (codex round 5, F2 and F3).
+              ("cat > k.sh, then grep bash notes.txt", "cat > k.sh <<'X'\n{kill}\nX\ngrep bash notes.txt"),
+              ("cat > k.sh, then python3 t.py", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py"),
+              ("cat > k.sh, then python3 t.py < in.txt", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py < in.txt"),
+              ("cat > k.sh, then another file run", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py && bash other.sh"),
+              ("a commit message, then python3 t.py", "git commit -F- <<'EOF'\n{kill}\nEOF\npython3 t.py"),
+              ("an unrelated echo hi | python3", "cat > k.sh <<'X'\n{kill}\nX\necho hi | python3"),
+              ("cat > k.sh, then ls /tmp", "cat > k.sh <<'X'\n{kill}\nX\nls /tmp"),
+              ("cat > cat, the writer's own name", "cat > cat <<'X'\n{kill}\nX"))
+    for label, tmpl in stored:
+        d = by_pid(tmpl.format(kill=f"kill {W}"))
+        check(f"a stored body the command runs denies by pid: {label}", d is not None and d[0] == "deny"
+              and "inbox watch" in d[1], d)
+        d = g.decision(tmpl.format(kill="pkill -f claude-fable"), CLAUDE, shell=False)
+        check(f"a stored body the command runs denies by pattern: {label}", d is not None and d[0] == "deny", d)
+    # Writing the file beside nothing that may run it (no runner word, no `/` word outside a data reader or the opening
+    # line, no unreadable word or written name as a command word), or a body that is only data, stays allowed.
+    for label, tmpl in (("cat > k.sh, not run", "cat > k.sh <<'X'\n{kill}\nX"),
+                        ("tee k.sh, not run", "tee k.sh <<'X' >/dev/null\n{kill}\nX"),
+                        ("cat > k.sh, then chmod and cat it", "cat > k.sh <<'X'\n{kill}\nX\nchmod +x k.sh && cat k.sh"),
+                        ("cp /dev/stdin k.sh, not run", "cp /dev/stdin k.sh <<'X'\n{kill}\nX"),
+                        ("dd of=k.sh, then cat it", "dd of=k.sh <<'X'\n{kill}\nX\ncat k.sh | grep x"),
+                        ("sort -ok.sh, not run", "sort -ok.sh <<'X'\n{kill}\nX\ncat k.sh"),
+                        ("tee -- -k.sh, not run", "tee -- -k.sh <<'X' >/dev/null\n{kill}\nX"),
+                        ("write, then find . and grep", "cat > k.sh <<'X'\n{kill}\nX\nfind . -name k.sh | grep k"),
+                        ("a commit message", "git commit -F- <<'EOF'\nfix: {kill} no longer runs\nEOF"),
+                        ("cat <<X | grep pkill", "cat <<'X' | grep pkill\n{kill}\nX")):
+        # By pid a file write already keeps the body (_data_only, review of #612 P3), so only the readers are pinned (git is no data reader).
+        if label.startswith("cat <<X"):
+            d = by_pid(tmpl.format(kill=f"kill {W}"))
+            check(f"a body no command runs stays allowed by pid: {label}", d is None, d)
+        d = g.decision(tmpl.format(kill="pkill -f claude-fable"), CLAUDE, shell=False)
+        check(f"a body no command runs stays allowed by pattern: {label}", d is None, d)
+    # Codex round 5 of #637, F1: thousands of written names outside [\w.-] made one alternation tried at every
+    # character. Past ODD_NAMES_CAP every word counts as a mention (fails closed). Counted, not timed: this host runs
+    # at load 49. Mutation: drop the cap's early return in _mentions.
+    few = g._mentions({"0@x", "1@x"})
+    many = g._mentions({f"{i}@x" for i in range(g.ODD_NAMES_CAP + 1)})
+    check("written names outside [\\w.-]: a few are matched by name, past the cap every word is a mention",
+          few("0@x") and not few("ls") and many("ls"))
+    odd_tee = "tee k " + " ".join(f"{i}@x" for i in range(g.ODD_NAMES_CAP + 1)) + " <<'X' >/dev/null\n{kill}\nX\nls"
+    d = g.decision(odd_tee.format(kill="pkill -f claude-fable"), CLAUDE, shell=False)
+    check("…and a write to more of them than the cap, beside any command word, denies", d is not None and d[0] == "deny", d)
+    check("a stored body's {a,b} asks only when the file is run",
+          g.unevaluated("cat > f <<'EOF'\nkill 1{a,b}\nEOF") is None
+          and g.unevaluated("cat > f <<'EOF'\nkill 1{a,b}\nEOF\nbash f") is not None)
     check("…a quoted body's pkill stays data for the broad drop",
           g.decision("git commit -F - <<'EOF'\n$(pkill -f claude-fable)\nEOF", CLAUDE, shell=False) is None)
     d = by_pid(f"kill {W}")
@@ -724,6 +865,26 @@ def main() -> int:
                            (["vim", "/x/notes.txt"], False),
                            (["sleep", "60"], False)):
             check(f"is_inbox {argv}: {want}", g.is_inbox(argv) is want)
+        # Wrappers and assignments before the dispatcher's spelling (round 1 of #546, F4), read by the table and,
+        # with the table unreadable, by the spelled name (F5): the same answer either way.
+        class _Unreadable:
+            def canonical(self, *a, **k):
+                raise ValueError("unreadable table")
+        wrapped = ((["X=1", "env", "command", "fabric", "gzcoord", "inbox"], True),
+                   (["env", "-i", "fabric", "gzcoord", "inbox", "--until-delivery"], True),
+                   (["command", "gzcoord-inbox"], True),
+                   (["/x/bin/fabric", "gzcoord", "inbox"], True),
+                   (["timeout", "600", "fabric", "gzcoord", "inbox", "--wait"], True),
+                   (["env", "-i", "fabric", "gzcoord", "send", "m.txt"], False),
+                   (["command", "fabric", "gzcoord"], False))
+        saved = list(g._CANONICAL)
+        try:
+            for table, label in ((saved, "table read"), ([_Unreadable()], "table unreadable")):
+                g._CANONICAL[:] = table
+                for argv, want in wrapped:
+                    check(f"is_inbox ({label}) {argv}: {want}", g.is_inbox(argv) is want)
+        finally:
+            g._CANONICAL[:] = saved
         # A process is named by pid and name, never by its argv, which may
         # carry a token (review of #242, C6): the sibling's sentinel is in
         # no reason, though the sibling is refused by name in several.

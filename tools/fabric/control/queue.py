@@ -55,7 +55,7 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import roots  # noqa: E402
-from control import gzcoord, js  # noqa: E402
+from control import carrier_cfg, gzcoord, js  # noqa: E402
 from control.jobs import JOB_ID  # noqa: E402
 from control.pool import POOL_ID, ROLE_SLUG, STATES_REPLAY, STATES_STALE_MS, pool_holder  # noqa: E402
 from control.sessions import MESSAGE_ID, date_parse  # noqa: E402
@@ -147,6 +147,12 @@ def relay(who: dict | None = None, cfg: dict | None = None, *, call=gzcoord.api,
         cfg = (agentd or _agentd()).control_config()
     gz = gzcoord.integration_config(who.get("project"))
     tok = gzcoord.token(gzcoord.inbox_root(who), gz if gz.get("configured") else None) or gzcoord.synced_token()
+    if not tok and not carrier_cfg.uses_relay(cfg):
+        # With the second carrier alone only `waits` reads the relay (the state stream); the asks go by agentd's socket and need no
+        # token. The read says why it cannot be made when it is made, never as an empty board.
+        def no_token(path, method="GET", body=None):
+            raise Unreadable("no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)")
+        return {"who": who, "cfg": cfg, "call": no_token}
     if not tok:
         raise Unreadable("no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)")
     return {"who": who, "cfg": cfg, "call": bound_call(tok, cfg, call, left)}
@@ -206,8 +212,10 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
     With cfg["control_carrier"] "dual" (ADR-029 rule 18) the request also goes
     to this account's own agentd, which sends it to the holder over the second carrier,
     and the holder's reply on either carrier answers it: a relay that is down
-    no longer leaves the holder unreachable. Under any other control_carrier
-    nothing differs."""
+    no longer leaves the holder unreachable. Under relay
+    nothing differs. With the second carrier alone nothing is posted to or read from the relay, `call` is never used, and the
+    holder is reached through this account's agentd alone, itself included (its agentd loops the request back, as for
+    presence in carrier-only); a leg that cannot be opened is the answer's failure, said as such."""
     rid = new_id()
     # The wait, fixed once before anything is posted: wait_ms, or what the
     # run's budget has left when that is less.
@@ -218,23 +226,30 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
     # the holder took after the asker gave up would be recorded for nobody.
     request = {"v": 1, "kind": "request", "id": rid, "from": from_, "to": [holder], "op": op, "ts": js.iso_now(),
                "ttl_s": math.ceil(wait / 1000), "args": args}
-    dual = cfg.get("control_carrier") == "dual"
+    dual = carrier_cfg.uses_second_carrier(cfg)
+    alone = not carrier_cfg.uses_relay(cfg)
     relay_error = None
     sent = None
-    try:
-        sent = call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": from_, "content": js.stringify(request)}))
-    except Exception as e:  # noqa: BLE001 — a failed post is the second carrier's to make up for, or the caller's to say
-        if not dual:
-            raise
-        relay_error = e
+    if not alone:
+        try:
+            sent = call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": from_, "content": js.stringify(request)}))
+        except Exception as e:  # noqa: BLE001 — a failed post is the second carrier's to make up for, or the caller's to say
+            if not dual:
+                raise
+            relay_error = e
     leg = None
     if dual:
-        # This ask opens no second-carrier leg to itself: a holder that is this account is reached by the relay (the socket
-        # could loop it back, as it does fabric-ctl's own row, j245; this ask has not chosen to).
-        if holder != from_:
+        # Under dual this ask opens no second-carrier leg to itself: a holder that is this account is reached by the relay
+        # (the socket could loop it back, as it does fabric-ctl's own row, j245; this ask has not chosen to). With the second carrier alone
+        # there is no relay to reach it by.
+        if holder != from_ or alone:
             try:
                 leg = open_leg(request, [holder], min(wait, left()) / 1000)
             except RuntimeError as e:
+                if alone:
+                    from gzcoord.carrier import control_link
+                    handed = bool(getattr(e, "handed", False))
+                    raise control_link.Down(f"{carrier_cfg.SECOND_ONLY}: {e}", None, handed=handed, unsent=not handed) from None
                 if relay_error is not None:
                     from gzcoord.carrier import control_link
                     raise control_link.Down(f"{gzcoord.relay_failure(relay_error, cfg.get('relay_url'))}; the second carrier: {e}", relay_error,
@@ -242,8 +257,8 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
                 say(f"the second carrier: {e}; the relay carries alone")
         if relay_error is not None and leg is None:
             raise relay_error
-    relay_up = relay_error is None
-    if not relay_up:
+    relay_up = relay_error is None and not alone
+    if relay_error is not None:
         say(f"the relay post failed ({gzcoord.relay_failure(relay_error, cfg.get('relay_url'))}); the second carrier carries alone")
     lost_said = False
     deadline = clock() + min(wait, left())
