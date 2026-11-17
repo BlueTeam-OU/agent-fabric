@@ -283,7 +283,7 @@ def main() -> int:
     for label, cmd in (("os.kill and a dict in a python here-document",
                         "python3 - <<'EOF'\nimport os\nd = {'a': 1, 'b': 2}\nos.kill(os.getpid(), 15)\nEOF"),
                        ("a function body beside a here-document that says kill",
-                        "run(){ (timeout 300 python3 t.py); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun"),
+                        "run(){ (timeout 300 make t); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun"),
                        ("a file named self_kill beside a brace list", "python3 tests/test_self_kill_guard.py {a,b}")):
         check(f"no kill command, no ask: {label}", g.unevaluated(cmd) is None, g.unevaluated(cmd))
     for label, cmd in (("pkill with a brace list", "pkill -f x{a,b}"), ("killall with a brace range", "killall p{1..3}"),
@@ -416,30 +416,58 @@ def main() -> int:
               ("cp /dev/stdin k.sh", "cp /dev/stdin k.sh <<'X'\n{kill}\nX\nbash k.sh"),
               ("dd of=k.sh", "dd of=k.sh <<'X'\n{kill}\nX\nbash k.sh"),
               ("install /dev/stdin k.sh", "install -m755 /dev/stdin k.sh <<'X'\n{kill}\nX\n./k.sh"),
-              # Re-review of #637, F7: the output named inside an option of a non-reader. Kills: the opener rule (any
-              # runner segment keeps the body) in _runs_what_it_writes.
-              # Re-review of #637, R3: the accepted cost, an unrelated pipe into an interpreter denies.
-              ("an unrelated echo hi | python3", "cat > k.sh <<'X'\n{kill}\nX\necho hi | python3"),
-              ("sort -ok.sh", "sort -ok.sh <<'X'\n{kill}\nX\nbash k.sh"),
-              ("sort --output=k.sh", "sort --output=k.sh <<'X'\n{kill}\nX\nbash k.sh"),
-              ("sort -o k.sh, then ./k.sh by python3", "sort -o k.sh <<'X'\n{kill}\nX\npython3 k.sh"),
-              ("cat <<X | cp /dev/stdin k.sh", "cat <<'X' | cp /dev/stdin k.sh\n{kill}\nX\nsource k.sh"))
+              # Re-review of #637, F7 and codex round 3 F2: the output named inside an option of a non-reader, run by
+              # its path or through a wrapper. Kills: the opener rule (a non-reader opener stores the body) and the
+              # path-in-command-position rule in _runs_what_it_writes.
+              ("sort -ok.sh, then bash it", "sort -ok.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("sort --output=k.sh, then bash it", "sort --output=k.sh <<'X'\n{kill}\nX\nbash k.sh"),
+              ("sort -ok.sh, then chmod and ./k.sh", "sort -ok.sh <<'X'\n{kill}\nX\nchmod +x k.sh && ./k.sh"),
+              ("sort -ok.sh, then ; ./k.sh", "sort -ok.sh <<'X'\n{kill}\nX\nchmod +x k.sh; ./k.sh"),
+              ("sort --output=k.sh, then ; ./k.sh", "sort --output=k.sh <<'X'\n{kill}\nX\nchmod +x k.sh; ./k.sh"),
+              ("sort --output=k.sh, then timeout 5 ./k.sh", "sort --output=k.sh <<'X'\n{kill}\nX\ntimeout 5 ./k.sh"),
+              ("sort -o k.sh, then python3 it", "sort -o k.sh <<'X'\n{kill}\nX\npython3 k.sh"),
+              ("cat <<X | cp /dev/stdin k.sh", "cat <<'X' | cp /dev/stdin k.sh\n{kill}\nX\nsource k.sh"),
+              # Round 3, F6 and codex round 3 F3: the runner inherits its stdin from a group, a subshell, a loop or
+              # `exec <`, or sits behind a glued operator. Kills: the runner-anywhere rule, and OPERATOR in segments.
+              ("cat k.sh | (bash -s x)", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | (bash -s x)"),
+              ("{{ bash -s x; }} < k.sh", "cat > k.sh <<'X'\n{kill}\nX\n{{ bash -s x; }} < k.sh"),
+              ("( bash -s x ) < k.sh", "cat > k.sh <<'X'\n{kill}\nX\n( bash -s x ) < k.sh"),
+              ("exec < k.sh, then bash -s x", "cat > k.sh <<'X'\n{kill}\nX\nexec < k.sh\nbash -s x"),
+              ("cat k.sh | while loop running bash -s x",
+               "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | while :; do bash -s x; break; done"),
+              ("cat k.sh |</dev/stdin bash -s x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh |</dev/stdin bash -s x"),
+              ("true |<in ./k.sh: a path behind a glued |<", "cat > k.sh <<'X'\n{kill}\nX\ntrue |<in ./k.sh"),
+              ("cat k.sh |& bash -s x", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh |& bash -s x"),
+              ("bash <(cat k.sh)", "cat > k.sh <<'X'\n{kill}\nX\nbash <(cat k.sh)"),
+              ("cat k.sh | tee o >(bash -s x)", "cat > k.sh <<'X'\n{kill}\nX\ncat k.sh | tee o >(bash -s x)"),
+              ("a path in command position behind a group", "cat > k.sh <<'X'\n{kill}\nX\n{{ ./k.sh; }}"),
+              ("a path after a then", "cat > k.sh <<'X'\n{kill}\nX\nif true; then ./k.sh; fi"),
+              # Round 3, section 2: tee's operands after `--` are all files, a `-k.sh` included.
+              ("tee -- -k.sh, then bash -- -k.sh", "tee -- -k.sh <<'X' >/dev/null\n{kill}\nX\nbash -- -k.sh"),
+              ("tee -- -k.sh, then bash ./-k.sh", "tee -- -k.sh <<'X' >/dev/null\n{kill}\nX\nbash ./-k.sh"),
+              # Round 3, F13: the cost as the rule applies it. A write from a heredoc beside any runner denies, though
+              # nothing runs the file.
+              ("cat > k.sh, then python3 t.py", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py"),
+              ("cat > k.sh, then python3 t.py < in.txt", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py < in.txt"),
+              ("cat > k.sh, then another file run", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py && bash other.sh"),
+              ("a commit message, then python3 t.py", "git commit -F- <<'EOF'\n{kill}\nEOF\npython3 t.py"),
+              ("an unrelated echo hi | python3", "cat > k.sh <<'X'\n{kill}\nX\necho hi | python3"))
     for label, tmpl in stored:
         d = by_pid(tmpl.format(kill=f"kill {W}"))
         check(f"a stored body the command runs denies by pid: {label}", d is not None and d[0] == "deny"
               and "inbox watch" in d[1], d)
         d = g.decision(tmpl.format(kill="pkill -f claude-fable"), CLAUDE, shell=False)
         check(f"a stored body the command runs denies by pattern: {label}", d is not None and d[0] == "deny", d)
-    # Writing the file and not running it, or a body that is only data, stays allowed.
+    # Writing the file and running nothing at all (no runner, no path or unreadable word in command position), or a body
+    # that is only data, stays allowed.
     for label, tmpl in (("cat > k.sh, not run", "cat > k.sh <<'X'\n{kill}\nX"),
                         ("tee k.sh, not run", "tee k.sh <<'X' >/dev/null\n{kill}\nX"),
-                        ("cat > k.sh, then another file run", "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py && bash other.sh"),
                         ("cat > k.sh, then chmod and cat it", "cat > k.sh <<'X'\n{kill}\nX\nchmod +x k.sh && cat k.sh"),
                         ("cp /dev/stdin k.sh, not run", "cp /dev/stdin k.sh <<'X'\n{kill}\nX"),
                         ("dd of=k.sh, then cat it", "dd of=k.sh <<'X'\n{kill}\nX\ncat k.sh | grep x"),
                         ("sort -ok.sh, not run", "sort -ok.sh <<'X'\n{kill}\nX\ncat k.sh"),
-                        ("write, then a runner fed nothing and naming another file",
-                         "cat > k.sh <<'X'\n{kill}\nX\npython3 t.py"),
+                        ("tee -- -k.sh, not run", "tee -- -k.sh <<'X' >/dev/null\n{kill}\nX"),
+                        ("write, then find . and grep", "cat > k.sh <<'X'\n{kill}\nX\nfind . -name k.sh | grep k"),
                         ("a commit message", "git commit -F- <<'EOF'\nfix: {kill} no longer runs\nEOF"),
                         ("cat <<X | grep pkill", "cat <<'X' | grep pkill\n{kill}\nX")):
         # By pid a file write already keeps the body (_data_only, review of #612 P3), so only the readers are pinned (git is no data reader).

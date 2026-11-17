@@ -45,10 +45,19 @@ is a candidate, refused when it is claude, of the tree, or an inbox watch
 by its /proc command line — outside a quoted here-document's body in an
 input of data readers alone (drop_data_heredoc_bodies, _drop_bodies); a negative `kill` operand
 (-1, a group) is refused outright; an operand held in a variable or a substitution asks.
-A body stored in a file the same command runs is kept judged (_runs_what_it_writes), with limits: the file under
-another name (`mv k.sh j.sh && bash j.sh`) and a program that runs a file and is no shell or interpreter (`awk -f`)
-are not followed. It fails closed, so a command that writes a file and also pipes anything into an interpreter
-(`echo hi | python3`) keeps its bodies judged: a false deny, a rephrase.
+A body a command stores in a file (a redirection, tee, or a here-document opened by anything but a data reader) is
+kept judged when anywhere in the rest of that command there is a runner (a shell, an interpreter, `source`, `eval`), a
+path in command position (`./k.sh`) or a word it cannot read (_runs_what_it_writes); the decision is the command's
+whole, never one segment's. The cost, accepted: a command that writes a file from a here-document and also runs
+anything (`python3 t.py`, `echo hi | python3`) is denied though it never runs the file, a rephrase; only a command that
+runs nothing at all stays allowed with its body dropped. The file under another name (`mv k.sh j.sh && bash j.sh`) and
+a program that runs a file and is no runner (`awk -f`) are not followed.
+
+SCOPE. This guard stops a session killing its own tree by accident or by a straightforward command. A session that
+deliberately hides the kill (text read from elsewhere at run time, built from pieces, a renamed copy) is not stopped by
+any static reading of bash, and is out of scope. What is not static is the second layer's pgrep ground truth against
+the live tree, where it applies.
+
 Seven review rounds on #69 and #70 each found a spelling a
 re-implementation of procps's rules misread; procps does not misread
 itself. The second layer only adds denials.
@@ -435,14 +444,16 @@ def _writes_file(text: str, pieces: list[list[str]]) -> bool:
         return True
     for words in pieces:
         if words and os.path.basename(words[0]) == "tee":
-            skip = False
+            skip, options = False, True
             for w in words[1:]:
                 if skip:
                     skip = False
                 elif "<" in w or ">" in w:
                     # An operator standing alone (`<< X`, `> f`) takes the next word as its own.
                     skip = w.rstrip("-") and set(w.rstrip("-")) <= set("<>&|")
-                elif not w.startswith("-") and w not in NO_FILE:
+                elif options and w == "--":
+                    options = False
+                elif not (options and w.startswith("-")) and w not in NO_FILE:
                     return True
     return False
 
@@ -452,7 +463,19 @@ RUNNERS = NESTED | {"perl", "ruby", "node", "source", "."}
 INTERPRETER = re.compile(r"python[\d.]*")
 
 
-def _written_names(rest: str, openers: list[str]) -> set[str]:
+def _tee_files(operands: list[str]) -> list[str]:
+    """tee's file operands: a word starting with `-` is an option until a `--`, and every word after it is a file
+    (`tee -- -k.sh` writes `-k.sh`)."""
+    files, options = [], True
+    for w in operands:
+        if options and w == "--":
+            options = False
+        elif not (options and w.startswith("-")):
+            files.append(w)
+    return files
+
+
+def _written_names(rest: str, rest_segments: list[list[str]], openers: list[str]) -> set[str]:
     """The base names of the files a command may write: each redirection's target (a `cat <<'X' > k.sh` as well as `cat >
     k.sh <<'X'`) and each file operand of tee (`tee k.sh <<'X'`), read from the text with its bodies dropped, as
     _writes_file reads them. And, failing closed, every operand of an opening line (`openers`: the lines whose
@@ -460,10 +483,10 @@ def _written_names(rest: str, openers: list[str]) -> set[str]:
     <<'X'` store the body as well, and the guard knows no program's way of naming its output, so each operand (and the
     value of a `key=value` one) counts. One pass and one set: a command of thousands of words stays linear."""
     names = [m.group(1) for m in WRITE_REDIRECT.finditer(rest)]
-    for words in segments(rest):
+    for words in rest_segments:
         tee = next((i for i, name in enumerate(words) if os.path.basename(name) == "tee"), None)
         if tee is not None:
-            names += [w for w in words[tee + 1:] if not w.startswith("-")]
+            names += _tee_files(words[tee + 1:])
     for line in openers:
         for words in segments(line):
             if words and os.path.basename(words[0]) not in DATA_READERS:
@@ -474,66 +497,47 @@ def _written_names(rest: str, openers: list[str]) -> set[str]:
     return {n for n in (os.path.basename(re.sub(r"['\"\\]", "", n)) for n in names) if n and n not in nowhere}
 
 
-def _runner_start(words: list[str]) -> int | None:
-    """Where a simple command's own runner word stands: the command word itself or the one after a prefix (`sudo
-    bash`, `timeout 5 python3`); None when the command runs nothing but possibly a file by its own name."""
-    while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
-        words = words[1:]
-    if not words or not (os.path.basename(words[0]) in PREFIXES or _is_runner(words[0])):
-        return None
-    return next((i for i, w in enumerate(words) if _is_runner(w)), None)
-
-
 def _is_runner(w: str) -> bool:
     base = os.path.basename(w)
     return base in RUNNERS or bool(INTERPRETER.fullmatch(base))
 
 
 def _runs_what_it_writes(rest: str, openers: list[str]) -> bool:
-    """Whether the command, its here-document bodies dropped, may run a file it wrote. It fails closed, because two
-    review rounds each found a spelling past a rule that tried to say exactly which word names the file:
-    - a here-document whose opening command is no pure data reader (not DATA_READERS: `sort -ok.sh`, `sort
-      --output=k.sh`, `cp /dev/stdin k.sh`, `dd of=k.sh`) may store the body under a name the guard cannot read, so
-      any runner segment in the command (a shell, interpreter, `source` or `.`, also after a prefix) keeps the body;
-    - a runner segment fed by a pipe or a `<` redirection (`cat k.sh | bash -s x`, `bash /dev/stdin < k.sh`) counts
-      whatever its operands, as soon as the command writes any file: it reads what it is fed, and the guard does not
-      follow a pipe or a `<` to its source;
-    - otherwise a simple command whose own word is a written file (`./k.sh`, `"$PWD/k.sh"`), or a runner or a prefix
-      with an operand that names one, in a word of its own or inside a payload (`bash -c 'bash k.sh'`), or that the
-      guard cannot read ($f, a substitution); and a runner with no file operand at all.
-    The cost, accepted: a command that writes a file and also pipes anything into an interpreter (`echo hi |
-    python3`) keeps its body judged, a rephrase. Writing a file and running no runner stays allowed, and so does a
-    runner that is fed nothing and names another file of its own (`python3 t.py` beside a `cat > f`).
+    """Whether the command, its here-document bodies dropped, may run a file it wrote. Judged on the whole command,
+    never segment by segment, and it fails closed, because three review rounds each found a spelling past a rule that
+    tried to say which word names the file or which segment runs it. The command stores a body when a redirection or
+    a tee operand names a file (_written_names), or when a here-document's opening command is no pure data reader
+    (not DATA_READERS: `sort -ok.sh`, `cp /dev/stdin k.sh`, `dd of=k.sh`, `git commit -F-`), which may store it under a
+    name the guard cannot read. Then the body stays judged when ANYWHERE in the rest of the command there is
+    - a runner word: a shell, an interpreter, `source`, `eval`, in any position and any segment, so a stdin inherited
+      from a group, a subshell, a loop or `exec <` (`( bash -s x ) < k.sh`) is no way out; or `.`, or `exec`, as a
+      command word;
+    - a word with a `/` in command position (after separators, `(`, `{`, `then`/`do`, assignments, and, behind a prefix
+      such as `timeout 5` or `sudo`, any of its words): `./k.sh`, `"$PWD/k.sh"`, `timeout 5 ./k.sh`;
+    - a word the guard cannot read ($f, a substitution) in command position, by the same reckoning.
+    The cost, accepted: a command that writes a file from a here-document and also holds any runner or path-run
+    (`python3 t.py`, `echo hi | python3`, `./other.sh`, a `git commit -F-` message beside `bash x`) keeps the body
+    judged, a false deny and a rephrase. Only a command that runs nothing at all stays allowed with its body dropped.
 
     Not covered: the file under another name (`mv k.sh j.sh && bash j.sh`, `cp k.sh j.sh`), and a program that runs a
-    file and is no RUNNER (`awk -f k.awk`)."""
-    fed = fed_segments(rest)
-    if any(words and os.path.basename(words[0]) not in DATA_READERS
-           for line in openers for words in segments(line)) \
-            and any(_runner_start(words) is not None for words, _ in fed):
-        return True
-    names = _written_names(rest, openers)
-    if not names:
+    file and is no runner (`awk -f k.awk`)."""
+    parsed = segments(rest)
+    stores = any(words and os.path.basename(words[0]) not in DATA_READERS
+                 for line in openers for words in segments(line)) or bool(_written_names(rest, parsed, openers))
+    if not stores:
         return False
-    mention = re.compile(r"(?<![\w.-])(?:" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
-                         + r")(?![\w.-])")
-
-    def unreadable(w: str) -> bool:
-        return "$" in w or "`" in w
-    for words, is_fed in fed:
+    for words in parsed:
         while words and (words[0] in COMPOUND or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
             words = words[1:]
         if not words:
             continue
-        head = os.path.basename(words[0])
-        if mention.search(words[0]) or unreadable(words[0]):
+        # `.` and `exec` are runners as the command word only: elsewhere they are an argument (`find .`).
+        if any(w != "." and _is_runner(w) for w in words) or words[0] in (".", "exec"):
             return True
-        if head in PREFIXES or _is_runner(head):
-            if any(mention.search(w) or (head not in PREFIXES and unreadable(w)) for w in words[1:]):
-                return True
-            start = _runner_start(words)
-            if start is not None and (is_fed or not any(not w.startswith("-") for w in words[start + 1:])):
-                return True
+        # Behind a prefix every word is a candidate for the command it wraps (`timeout 5 ./k.sh`, `env -i $f`).
+        position = words if os.path.basename(words[0]) in PREFIXES else words[:1]
+        if any("/" in w or "$" in w or "`" in w for w in position):
+            return True
     return False
 
 
@@ -616,46 +620,47 @@ def strip_non_arguments(text: str) -> str:
     return "".join(out)
 
 
+# The operators the lexer may glue into one punctuation token (`|<`, `|&`, `<(`, `>(`, `|(`), longest first, so that
+# no word, and no boundary, hides inside one of them.
+OPERATOR = re.compile(r"&>>|<<<|<<-?|>>|\|&|&&|\|\||;;|&>|>&|<&|<>|>\||[|;&\n()<>]")
+BOUNDARIES = {"|", "||", "|&", ";", ";;", "&", "&&", "\n", "(", ")"}
+
+
 def segments(piece: str) -> list[list[str]]:
     """The simple commands of a command line, each as its words, split on
     |, ;, &, newlines and a subshell's parentheses OUTSIDE quotes (splitting
     the raw text first made a quoted argument that mentions a kill a
     command of its own). A redirection — any operator holding < or >, `>|`
-    and `)>` included — and the word after it are not arguments."""
-    return [words for words, _ in fed_segments(piece)]
-
-
-def fed_segments(piece: str) -> list[tuple[list[str], bool]]:
-    """segments, each with whether it reads its stdin from somewhere the words do not show: the command after a `|` or
-    `|&`, or one with a `<` redirection (a file, a here-document or here-string, a process substitution). The
-    redirection and its target are not among the words, so _runs_what_it_writes reads this instead. A line the lexer
-    cannot read (an unbalanced quote) counts every segment as fed: fail closed."""
+    and `)>` included — and the word after it are not arguments. A glued
+    operator token (`|<`, `|&`, `<(`) is taken apart first, so a word after it
+    still starts a segment of its own. A line the lexer cannot read (an
+    unbalanced quote) is split on its plain separators."""
     lex = shlex.shlex(strip_non_arguments(piece), posix=True, punctuation_chars="();<>|&\n")
     lex.commenters = ""
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
-    out, cur, fed = [], [], False
+    out, cur = [], []
     try:
         toks = list(lex)
-    except ValueError:   # an unbalanced quote: the plain words, as before
-        return [(seg.split(), True) for seg in re.split(r"[|;&\n]+", piece)]
+    except ValueError:
+        return [seg.split() for seg in re.split(r"[|;&\n]+", piece)]
     skip = False
     for tok in toks:
+        if tok and set(tok) <= set("|;&\n()<>"):
+            for op in OPERATOR.findall(tok):
+                if op in BOUNDARIES:
+                    out.append(cur)
+                    cur = []
+                    # A boundary ends a redirection that had no target; `<(` and `>(` open a command of their own.
+                    skip = False
+                elif "<" in op or ">" in op:
+                    skip = True    # the redirection's target: a file, or the fd of >&1
+            continue
         if skip:
             skip = False
             continue
-        if tok and set(tok) <= set("|;&\n()<>"):
-            if any(ch in tok for ch in "|;\n()") and not (set(tok) <= set("<>&|") and ("<" in tok or ">" in tok)) \
-                    or tok in ("&", "&&"):
-                out.append((cur, fed))
-                cur, fed = [], ("|" in tok and "||" not in tok) or "<" in tok
-            elif "<" in tok:
-                fed = True
-            if "<" in tok or ">" in tok:
-                skip = True    # the redirection's target: a file, or the fd of >&1
-            continue
         cur.append(tok)
-    out.append((cur, fed))
+    out.append(cur)
     return out
 
 
