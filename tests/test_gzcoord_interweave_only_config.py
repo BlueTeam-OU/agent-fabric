@@ -26,6 +26,8 @@ import test_gzcoord_carrier_only_gate2 as G  # noqa: E402
 from test_gzcoord_carrier_only_gate2 import BIN, INBOX, ME, PEER, check, text, until, watch  # noqa: E402
 from gzcoord.carrier import ipc  # noqa: E402
 from gzcoord.transport import mode  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 
 SEND = os.path.join(BIN, "gzcoord-send")
 OVERRIDE = {mode.ENV: "carrier-only"}
