@@ -138,7 +138,7 @@ def main() -> int:
         ("the name in a variable, the verb after it", "c='fabric-pr'; \"${c}\" post-review 1"),
         ("a redirection before an expansion holding the whole line", "c='fabric-pr post-review 1'; 2>/dev/null $c"),
         ("an expansion in the shell's path", "c=bash; /bin/${c} -c 'fabric-pr post-review 1'"),
-        # Review of #637, F1: a `/` the shell moves or splits around is no boundary of the command's last part.
+        # Review of #637, F1: a word with a mark anywhere outside single quotes is unnamed, a `/` before it included.
         ("a slash in a substitution operator", held + "${c/z/z} < r.md"),
         ("a slash in a trailing-slash strip", held + "${c%/} < r.md"),
         ("a slash in a prefix strip", held + "${c##*/} < r.md"),
@@ -146,13 +146,34 @@ def main() -> int:
         ("a slash inside a double-quoted operator", held + '"${c//z/z}" < r.md'),
         ("a slash in a default, after the word split", held + "${d:-x/y}$c/ < r.md"),
         ("an unquoted root before the script", "R='fabric-pr post-review 1 .'; $R/bin/fabric-pr < r.md"),
-        # F2: a wrapper's option value is no command, whatever PLAIN says of the word.
+        ("a slash after the marks of a brace list", "{fabric-pr,'post-review',--repo,o/n,1} < r.md"),
+        ("a slash in ANSI-C text, the name spelled by escapes", "$'/x/\\x66abric-pr' post-review 1 < r.md"),
+        ("a slash in ANSI-C text, a shell", "$'/bin/\\x62ash' -c 'fabric-pr post-review 1 < r.md'"),
+        # Costs of failing closed: a quoted root names the script no more than an unquoted one.
+        ("a double-quoted root before the script", 'cd /x && "$R"/bin/fabric-pr arm 3 --dry-run < r.md'),
+        ("a double-quoted expansion before the slash", 'c=x; "${c}"/bin/fabric-pr arm 3 < /dev/null'),
+        ("an unquoted root, beside the name only", 'cd "$d" && $ROOT/bin/fabric-pr arm 3 --dry-run'),
+        # F2, F10: the walk does not know an option's value from the command, so a word after an option is never the
+        # PLAIN command, and an unnamed word counts whether or not it is a value.
         ("env -u with a plain value", held + "env -u echo $c < r.md"),
         ("exec -a with a plain value", held + "exec -a echo $c < r.md"),
         ("sudo -u with a plain value", held + "sudo -u test $c < r.md"),
         ("xargs -I with a plain replace string", "xargs -I echo env -S echo <<< 'fabric-pr post-review 1'"),
         ("timeout -s with a plain value", held + "timeout -s true 5 $c < r.md"),
         ("nice -n then exec, with a plain value", held + "nice -n true exec -a printf $c"),
+        ("env with an option cluster", held + "env -vu echo $c < r.md"),
+        ("sudo with an option cluster", held + "sudo -Eu test $c < r.md"),
+        ("xargs with an option cluster", "xargs -rI echo env -S echo <<< 'fabric-pr post-review 1'"),
+        ("env with an abbreviated long option", held + "env --uns echo $c < r.md"),
+        ("a wrapper nobody listed, with an option value", held + "strace -o echo $c < r.md"),
+        ("env with a flag before -u", held + "env -E -u echo $c < r.md"),
+        ("sudo --user=value", held + "sudo --user=test $c < r.md"),
+        ("env -u with the value held", held + "env -u $c < r.md"),
+        ("sudo -u with the value held", held + "sudo -u $c < r.md"),
+        ("timeout -s with the value held", held + "timeout -s $c < r.md"),
+        ("exec -a with the value held", held + "exec -a $c < r.md"),
+        ("nice -n with the value held", held + "nice -n $c < r.md"),
+        ("env -u with a glob and the value held", held + "env -u *$c < r.md"),
         # F3: a second `-exec` is judged as the first is.
         ("a second find -exec of an expansion",
          "c='fabric-pr post-review 1'; find . -maxdepth 0 -exec true \\; -exec $c \\;"),
@@ -230,7 +251,7 @@ def main() -> int:
         ("xargs of grep over the words", "git ls-files | xargs grep -ln 'fabric-pr post-review'"),
         ("fabric-pr gate", "fabric-pr gate 12"),
         ("fabric-pr with an expanded argument", 'fabric-pr arm "$n" --dry-run'),
-        ("the script under an expanded directory", 'cd "$d" && "$R"/bin/fabric-pr arm 3 --dry-run'),
+        ("a script path under a literal directory, an expanded argument", 'cd "$d" && bin/fabric-pr arm 3 --dry-run'),
         ("an ordinary pipeline", "git log --oneline | head -5 | wc -l"),
         ("an ordinary pipeline with an input and expansions", 'sort < "$f" | uniq -c | head -3'),
         ("a while-read loop over a file", 'while read -r l; do echo "$l"; done < list.txt'),
@@ -248,9 +269,9 @@ def main() -> int:
         # F5: `[[` is the test builtin, as `[` is.
         ("the [[ test beside post-review text", "[[ -f x ]] && grep -n 'post-review' x"),
         ("the [[ test beside a redirection", "[[ -f x ]] && cat < x"),
-        # F1, F2 and F3 must not refuse what they name correctly.
-        ("a double-quoted expansion before the slash", 'c=x; "${c}"/bin/fabric-pr arm 3 < /dev/null'),
-        ("a slash in an argument's operator", "c=x; grep -n 'post-review' ${c//a/b}"),
+        # F1, F2 and F3 must not refuse what they name correctly. F11's case (an operator's slash in an argument) is
+        # dropped, and nothing replaces it: after a literal non-PLAIN command every unnamed argument counts (the phase
+        # is open), and after a PLAIN one the slash rule is never reached, so no passing case can reach it.
         ("sudo -u with a value, then a plain command", 'sudo -u test grep -n \'post-review\' "$f"'),
         ("a second find -exec of grep", "find . -exec true \\; -exec grep -l 'post-review' \"$f\" {} +"),
     ]

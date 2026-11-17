@@ -82,25 +82,30 @@ the unnameable word is passed (`"$PY" -m pytest`, `$EDITOR notes.md`), so
 the refusal stays rare; with it, there is a post-review the walk cannot
 rule out, and a refusal costs a rephrase. A command word the walk cannot
 name is
-  - one with an unquoted or double-quoted expansion in its last path part
-    (`$c`, `${c}`, `e$c`, `/bin/${c}`), a `$(…)` or backtick, `$'…'` (its
-    escapes spell the name), a glob (`*`, `?`, `[`) or a brace list
-    (`{a,b}`). The last path part is what follows the last `/` that is
-    literal text outside every `${…}` and has no unquoted expansion before it:
-    `"$R"/bin/fabric-pr` is named by its last part, while `${c/z/z}`,
-    `${c%/}`, `${c##*/}` and `$c/` (which the shell word-splits, so a `/`
-    after it is no part boundary) are not, nor is `$ROOT/bin/fabric-pr`;
+  - one with a mark anywhere outside single quotes: an unquoted or
+    double-quoted expansion (`$c`, `${c}`, `e$c`, `/bin/${c}`), a `$(…)` or
+    backtick, `$'…'` (its escapes spell the name), a glob (`*`, `?`, `[`) or a
+    brace list (`{a,b}`). Failing closed: no part of such a word is trusted to
+    name the command, not even the text after its last `/` (three rounds of
+    review on #637 each found a spelling past a rule that said where the last
+    part begins: `${c/z/z}`, `$c/`, `{fabric-pr,x,o/n}`, `$'/x/\x66…'`). The
+    cost: `"$R"/bin/fabric-pr` and `$ROOT/bin/fabric-pr` are unnamed too, and
+    are refused beside post-review text or a `<`; `cd "$R" && bin/fabric-pr`
+    or the bare name is the way through. `[` and `[[` alone are the test
+    builtin, not a glob;
   - the command word position itself is not trusted to the walk's reading of
     wrappers (`timeout 5s`, `sudo -u X`, `setsid`, a leading `2>/dev/null`
     all misread it): after a wrapper, or a program this file does not list
     as one that never runs its arguments (PLAIN), every later word that is
     not nameable counts, until a PLAIN command shows up (`sudo grep -n x
-    "$f"` is a grep). The value of a wrapper's option is no word of the
-    command (`env -u echo $c`, `sudo -u test $c`, `xargs -I echo env -S
-    echo`): VALUE_OPTIONS says which options take one, as far as it lists
-    the wrapper (an unlisted wrapper's value that is in PLAIN is still taken
-    for the command, over-passing). A redirection's fd and target are no
-    word at all;
+    "$f"` is a grep). Which words are option values the walk does not know
+    (`env -vu echo $c`, `strace -o echo $c`, `env --uns echo $c`), so it fails
+    closed: a word right after an option word (one starting with `-`) is never
+    taken for the PLAIN command, and an unnameable word counts whether or not
+    it might be an option value (`env -u $c` word-splits into value and
+    command). The cost: `sudo -n grep -n x "$f"` and `xargs -r grep -n x
+    "$f"` are refused beside post-review text, `sudo grep …` and `xargs -n 1
+    grep …` are not. A redirection's fd and target are no word at all;
   - what `xargs` and `find -exec` run, unless a PLAIN command is named
     there: `xargs grep -n foo` is a grep, `xargs env` and `xargs -I X env
     -S X` run what stdin says; `env -S` runs its text.
@@ -168,21 +173,6 @@ EXPANSION_CHARS = set("_{@*#?$!-")
 # Programs that feed their command line from elsewhere: what follows is the command, or the stdin is its arguments.
 FEEDERS = {"xargs", "parallel"}
 EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir"}
-# The options of a wrapper that take the next word as their value, so that word is no command (`env -u echo $c`).
-# Mirrors VALUE_OPTIONS in self-kill-guard.py, not imported: the hooks are standalone scripts (hyphenated names, no
-# package) and this guard wants only the wrappers its own WRAPPERS and FEEDERS name; keep the two tables alike.
-VALUE_OPTIONS = {
-    "timeout": {"-s", "--signal", "-k", "--kill-after"},
-    "sudo": {"-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from",
-             "-D", "--chdir", "-U", "--other-user", "-r", "--role", "-t", "--type", "-T", "--command-timeout",
-             "-R", "--chroot"},
-    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "--argv0"},
-    "exec": {"-a"},
-    "xargs": {"-I", "-L", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars", "-d", "--delimiter",
-              "-E", "-a", "--arg-file"},
-    "nice": {"-n", "--adjustment"},
-    "stdbuf": {"-i", "-o", "-e"},
-}
 # Programs known not to run their arguments as a command (as far as this fence goes: `sed`'s `e` and `python -c` run
 # text too, and are no more seen than before). Under one of these an expansion is an argument; under anything else (a
 # wrapper, a program the list does not know) a later word may be the command, so an expansion there is not nameable.
@@ -207,23 +197,18 @@ class Simple:
     """The walk's state for one simple command and the word being read in it. A `$( … )` or backtick gets a fresh one
     and the outer one is kept, so the word that holds the substitution is still seen whole when it closes."""
     __slots__ = ("first", "after_wrapper", "prev", "command", "phase", "plain_name", "fed", "env", "exec", "redir",
-                 "word", "uq", "wilds", "slashes", "brace", "split", "wrapper", "skip")
+                 "word", "uq", "wilds", "after_option")
 
     def __init__(self) -> None:
         self.word: list[str] = []     # the current word, its quotes off
         self.uq: list[str] = []       # one char per char of `word`: itself if unquoted, "Q" if quoted or escaped
         self.wilds: list[int] = []    # offsets in the word where the shell, not the text, decides what it says
-        self.slashes: list[int] = []  # offsets of a `/` that is literal text outside every `${…}`
-        self.brace = 0                # open `${` in the word
-        self.split = -1               # offset of the first unquoted expansion, which the shell word-splits
         self.reset()
 
     def clear_word(self) -> None:
         self.word.clear()
         self.uq.clear()
         self.wilds = []
-        self.slashes = []
-        self.brace, self.split = 0, -1
 
     def reset(self) -> None:
         self.first, self.after_wrapper, self.prev, self.command = True, False, "", ""
@@ -231,7 +216,7 @@ class Simple:
         # an unknown program stands in front, so a later word may be the command), "plain" (the command is known
         # not to run its arguments).
         self.phase, self.plain_name = "cmd", ""
-        self.wrapper, self.skip = "", False     # the last listed wrapper; the next word is its option's value
+        self.after_option = False   # the last word was an option of a wrapper: the next may be its value
         self.fed = self.env = self.exec = self.redir = False
 
 
@@ -270,23 +255,14 @@ def live_text(cmd: str) -> tuple[str, bool]:
     pending: list[tuple[str, bool, bool]] = []      # heredocs opened on this line: (delimiter, quoted, <<-)
     n, i = len(cmd), 0
 
-    def add(text: str, plain: bool = False, syntax: bool = False) -> None:
-        """`syntax`: one character the shell reads as such (not quoted text or an escape), so a `}` can close a `${`."""
+    def add(text: str, plain: bool = False) -> None:
         s = states[-1]
-        base = len(s.uq)
         s.word.append(text)
         s.uq.extend(text if plain else "Q" * len(text))
-        if syntax and text == "}" and s.brace:
-            s.brace -= 1
-        if "/" in text and not s.brace:
-            s.slashes.extend(base + k for k, ch in enumerate(text) if ch == "/")
 
-    def mark(brace: bool = False, split: bool = False) -> None:
-        """An offset where the shell picks the text: `brace` opens a `${`, `split` is an unquoted expansion."""
+    def mark() -> None:
+        """An offset where the shell, not the text, picks the word's letters: any such mark makes the word unnamed."""
         s = states[-1]
-        if split and s.split == -1:
-            s.split = len(s.uq)
-        s.brace += brace
         s.wilds.append(len(s.uq))
 
     def literal(s: Simple, name: str, full: str) -> None:
@@ -313,9 +289,6 @@ def live_text(cmd: str) -> tuple[str, bool]:
         full = "".join(s.word)
         wilds = s.wilds + unnameable("".join(s.uq))
         redir = s.redir
-        # Only a `/` the shell cannot move names the last part: not one inside `${c/z/z}`, nor one after an expansion
-        # it word-splits (`$c/`), where the part before the `/` may be a command word and its arguments.
-        slash = max((p for p in s.slashes if s.split == -1 or p < s.split), default=-1)
         s.clear_word()
         if redir:                   # the target of a redirection: neither a command word nor a wrapper's argument
             s.redir = False
@@ -334,9 +307,9 @@ def live_text(cmd: str) -> tuple[str, bool]:
             s.first = s.after_wrapper or "=" in name         # an assignment leaves the command word still to come
             if not s.first:
                 s.command = name
-        # Can the walk name this word? Only its last part is the command's name (`"$R"/bin/fabric-pr` is fabric-pr;
-        # `/bin/${c}` is not), so an expansion or glob before the last `/` leaves it nameable.
-        unnamed = any(p > slash for p in wilds) and not (full in ("[", "[[") and wilds == list(range(len(full))))
+        # Can the walk name this word? Not with a mark anywhere in it, a part before the last `/` included: where the
+        # last part begins is itself what an expansion, a brace list or `$'…'` can move (header, #637 F1).
+        unnamed = bool(wilds) and not (full in ("[", "[[") and wilds == list(range(len(full))))
         if s.phase == "plain":
             if s.plain_name == "find" and full in EXEC_FLAGS:       # what `-exec` runs is a command line of its own
                 s.phase, s.fed, s.exec = "open", True, True
@@ -346,23 +319,19 @@ def live_text(cmd: str) -> tuple[str, bool]:
             return
         if s.phase == "cmd" and ASSIGN.match(full):
             return
-        if s.skip:                  # the value of a wrapper's option: no command, whatever it spells
-            s.skip = False
-            return
+        # Which words are option values, and which options take one, is unknown for any wrapper (`env -vu`, `--uns`,
+        # `strace -o`), so unnamed is judged first and a word straight after an option is never the PLAIN command
+        # that ends the open phase: it may be the option's value (#637 F2, F10).
+        after_option, s.after_option = s.after_option, False
         if unnamed:
             dynamic = True
             s.phase = "open"
         elif s.phase == "cmd" and name in KEYWORDS:
             return
-        else:
+        elif not (after_option and name in PLAIN):
             literal(s, name, full)
-            if s.phase == "open":
-                if full in VALUE_OPTIONS.get(s.wrapper, ()):
-                    s.skip = True
-                elif name in VALUE_OPTIONS:
-                    s.wrapper = name
-                elif not (name.startswith("-") or "=" in name):
-                    s.wrapper = ""
+        if s.phase == "open":
+            s.after_option = full[:1] == "-"
 
     def separator() -> None:
         nonlocal dynamic
@@ -373,7 +342,7 @@ def live_text(cmd: str) -> tuple[str, bool]:
         s.reset()
 
     def open_sub(kind: str) -> None:
-        mark(split=stack[-1] != "D")        # the word holding the substitution is not text the walk can read
+        mark()                              # the word holding the substitution is not text the walk can read
         states[-1].word.append("")
         states.append(Simple())
         stack.append(kind)
@@ -407,8 +376,8 @@ def live_text(cmd: str) -> tuple[str, bool]:
                 open_sub("B")
             else:
                 if c == "$" and i + 1 < n and (cmd[i + 1].isalnum() or cmd[i + 1] in EXPANSION_CHARS):
-                    mark(brace=cmd[i + 1] == "{")
-                add(c, syntax=True)
+                    mark()
+                add(c)
             live.append(c)
             i += 1
             continue
@@ -429,8 +398,8 @@ def live_text(cmd: str) -> tuple[str, bool]:
             i = j + 1
             continue
         if c == "$" and i + 1 < n and (cmd[i + 1].isalnum() or cmd[i + 1] in EXPANSION_CHARS):
-            mark(brace=cmd[i + 1] == "{", split=True)
-            add(c, True, True)
+            mark()
+            add(c, True)
             live.append(c)
             i += 1
             continue
@@ -551,7 +520,7 @@ def live_text(cmd: str) -> tuple[str, bool]:
         elif c in WORD_END:
             end_word()
         else:
-            add(c, True, True)
+            add(c, True)
         live.append(c)
         i += 1
     while len(states) > 1:                  # an unclosed `$(` or backtick: what it held is judged all the same
