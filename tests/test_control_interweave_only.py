@@ -10,6 +10,7 @@ The config's own parse (the third word, and a typo still refused) is held here t
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import os
 import sys
@@ -32,6 +33,10 @@ ALICE, BOB = "h/alice", "h/bob"
 ONLINE = {"status": "ok", "online": True, "sessions": 1, "since": "2026-11-13T07:00:00.000Z", "role": "python-dev", "project": "x"}
 CFG = {"relay_url": "http://relay.invalid", "channel": "fabric:control", "state_channel": "fabric:state:control", "ttl_s": 30,
        "control_carrier": "interweave"}
+
+
+# A real new_id never repeats, across asks and across tests.
+IDS = itertools.count(1)
 
 
 class Relay:
@@ -160,12 +165,12 @@ class Holder(Net):
 class Cli(Net):
     """queue.py's own commands, end to end in this process: the relay refuses every connection and the holder answers by InterWeave."""
 
-    def run_cli(self, argv, *, token="tok"):
+    def run_cli(self, argv, *, token="tok", wait_ms=4000):
         d = self.scratch()
         reg = os.path.join(d, "registry.json")
         with open(reg, "w", encoding="utf-8") as fh:
             json.dump({"hosts": {"h": {"operator": "user"}}, "placement": {"alice": "h", "bob": "h", "user": "h"}}, fh)
-        agentd_stub = SimpleNamespace(control_config=lambda: CFG, new_id=lambda: "q9", operator_addresses=lambda registry=None: ["h/user"])
+        agentd_stub = SimpleNamespace(control_config=lambda: CFG, new_id=lambda: f"q{next(IDS)}", operator_addresses=lambda registry=None: ["h/user"])
         lines: list[str] = []
         env = {"HOME": d, "AGENT_FABRIC_ROOT": os.path.join(d, "ws", "fabric")}
         if token:
@@ -176,7 +181,7 @@ class Cli(Net):
             cwd = os.getcwd()
             os.chdir(d)
             try:
-                rc = queue.cli(argv, out=lines.append, err=lambda m: None, agentd=agentd_stub, call=self.relay, registry=reg, wait_ms=4000,
+                rc = queue.cli(argv, out=lines.append, err=lambda m: None, agentd=agentd_stub, call=self.relay, registry=reg, wait_ms=wait_ms,
                                who={"agent": "alice", "host": "h", "role": "python-dev", "project": None})
             finally:
                 os.chdir(cwd)
@@ -214,8 +219,8 @@ class Cli(Net):
         self.assertNotIn("waits", out[0])
 
     def test_a_holder_that_does_not_answer_is_exit_3_sent_true(self):
-        with self.holder_is_bob(), mock.patch.object(queue, "QUEUE_WAIT_MS", 300):
-            rc, out = self.run_cli(["pool-list"])
+        with self.holder_is_bob():
+            rc, out = self.run_cli(["pool-list"], wait_ms=300)
         self.assertEqual(rc, 3)
         self.assertIs(out[0]["sent"], True)
         self.assertEqual(self.relay.calls, [])

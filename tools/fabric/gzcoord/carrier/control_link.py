@@ -720,6 +720,10 @@ class Server:
     def stop(self) -> None:
         self._stop.set()
         if self._sock is not None:
+            # close() alone does not wake an accept() already blocked in the kernel on this socket; the accept thread would
+            # outlive the server and could take a connection meant for a later socket that reuses the descriptor number.
+            with contextlib.suppress(OSError):
+                self._sock.shutdown(socket.SHUT_RDWR)
             with contextlib.suppress(OSError):
                 self._sock.close()
         with contextlib.suppress(OSError):
