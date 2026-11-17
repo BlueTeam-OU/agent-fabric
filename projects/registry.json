@@ -456,6 +456,21 @@
       "license": "LicenseRef-blueteam-fabric-Proprietary",
       "note": "imported 2026-11-12",
       "tools": []
+    },
+    "blueteam-accounting": {
+      "client": "blueteam",
+      "title": "blueteam-accounting: BlueTeam OÜ's own books, kept by its accountant-ee holder",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/blueteam-accounting.git",
+        "https://github.com/BlueTeam-OU/blueteam-accounting"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/blueteam-accounting/integration",
+      "license": "LicenseRef-blueteam-accounting-Proprietary",
+      "note": "imported 2026-11-17",
+      "tools": []
     }
   }
 }

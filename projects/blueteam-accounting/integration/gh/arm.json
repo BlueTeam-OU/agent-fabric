@@ -1,0 +1,16 @@
+{
+  "description": "blueteam-accounting's rules for fabric-pr arm. The repository is BlueTeam OÜ's private accounting working repository, kept by its accountant-ee holder: calendar, close notes, working papers and the filing record; the books themselves are in SmartAccounts. It has no build. boundary.paths: the harness wiring (.claude/, .mcp.json), CI (.github/), an environment file at any depth (.env*), a certificate or key file (*.pem), and the words secret, credential and token anywhere. boundary.exempt is dropped first, but never under .claude/ or .github/: Markdown, which is the notes and working papers, and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary. No direct-to-main rule: every change is a pull request. Written 2026-11-17, at registration (j924).",
+  "boundary": {
+    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.github/|(^|/)\\.env|\\.pem$|secret|credential|token",
+    "exempt": "^(?!\\.claude/|\\.github/)(.*\\.md$|\\.agent-fabric/)",
+    "cases": [
+      ".claude/settings.json",
+      ".github/workflows/ci.yml",
+      ".env",
+      "certs/server.pem",
+      "access_token.txt",
+      "notes/api-credential.json"
+    ]
+  },
+  "waiver_role": null
+}
