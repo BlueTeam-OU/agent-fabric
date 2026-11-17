@@ -39,6 +39,7 @@ class FakeRelay:
         self.rows: list[dict] = []
         self.sent: list[dict] = []
         self.down = False
+        self.calls: list[str] = []   # every call, down or not: what a run never asked of the relay is `calls == []`
         self.lock = threading.Lock()
 
     def add_reply(self, record: dict) -> None:
@@ -46,6 +47,7 @@ class FakeRelay:
             self.rows.append({"id": str(len(self.rows) + 100), "content": js.stringify(record)})
 
     def __call__(self, path: str, **init):
+        self.calls.append(path)
         if self.down:
             raise ConnectionRefusedError("relay is down")
         if path == "/api/send":
@@ -59,7 +61,10 @@ class FakeRelay:
             return {"messages": list(rows)}
 
 
-class Dual(Scratch):
+class Harness(Scratch):
+    """No cases: the operator's agentd, the accounts and ctl.main in this process, with the carrier a subclass names."""
+    carrier = "dual"
+
     def setUp(self) -> None:
         self.net = self.mkdir()
         self.runtime = self.mkdir()
@@ -70,7 +75,7 @@ class Dual(Scratch):
         self.relay = FakeRelay()
         self.out: list[str] = []
         self.err: list[str] = []
-        patcher = mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": self.runtime, "AGENT_FABRIC_STATE_DIR": self.state, "FABRIC_CONTROL_CARRIER": "dual"})
+        patcher = mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": self.runtime, "AGENT_FABRIC_STATE_DIR": self.state, "FABRIC_CONTROL_CARRIER": self.carrier})
         patcher.start()
         self.addCleanup(patcher.stop)
         grace = mock.patch.object(ctl, "DUAL_GRACE_S", 0.6)
@@ -138,6 +143,8 @@ class Dual(Scratch):
         self.assertTrue(until(lambda: self.nodes[login].requests), self.nodes["op"].logs + self.nodes[login].logs)
         return self.nodes[login].requests[0][0]
 
+
+class Dual(Harness):
     # -- the cases --------------------------------------------------
     def test_a_reply_that_arrives_by_both_is_the_interweave_copy_with_the_relay_copy_agreeing(self):
         self.boot("alice")
@@ -398,6 +405,98 @@ class Dual(Scratch):
         self.assertFalse(self.done.is_set(), "ctl was still waiting when the forged copy was dropped")
         self.finish(box)
         self.assertEqual(self.rows()[0]["status"], "no answer", "alice never answered; bob's copy in her name was dropped at the carrier")
+
+
+class Interweave(Harness):
+    """control_carrier "interweave": the relay is never called, and is down besides, so a call would be an error and not
+    only a failed assertion; an op the carrier cannot carry goes through hostexec and says so."""
+    carrier = "interweave"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.relay.down = True
+
+    def test_a_status_round_trip_goes_by_the_carrier_alone_with_the_relay_refusing_every_connection(self):
+        self.boot("alice")
+        box = self.run_ctl("alice", "ping", "--json", "--timeout", "10")
+        req = self.request_of("alice")
+        self.answer("alice", req, relay=False)
+        self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual(self.rows()[0]["status"], "ok")
+        self.assertEqual(self.relay.calls, [], "no post, no read")
+        self.assertEqual(self.err, [], "and nothing said of a relay that is not used")
+
+    def test_a_request_to_everyone_is_one_send_per_account_and_each_answer_is_a_row(self):
+        self.boot("alice", "bob")
+        box = self.run_ctl("all", "ping", "--json", "--timeout", "10")
+        for login in ("alice", "bob"):
+            self.answer(login, self.request_of(login), relay=False)
+        self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual(sorted(r["account"] for r in self.rows()), ["alice", "bob"])
+        self.assertEqual(self.relay.calls, [])
+
+    def test_with_no_operator_agentd_nothing_is_sent_and_there_is_no_relay_to_fall_back_to(self):
+        self.nodes["alice"] = Node(self, self.net, "alice")
+        t0 = time.monotonic()
+        rc = ctl.main(["alice", "ping", "--json", "--timeout", "30"], registry=self.registry, call=self.relay, who=WHO, token="t",
+                      out=self.out.append, err=self.err.append)
+        self.assertEqual(rc, 3)
+        self.assertLess(time.monotonic() - t0, 10, "refused at once, not after the whole --timeout")
+        self.assertTrue(any("interweave" in e and "nothing sent" in e for e in self.err), self.err)
+        self.assertEqual((self.relay.calls, self.out, self.nodes["alice"].requests), ([], [], []))
+
+    def test_a_relay_only_action_goes_through_hostexec_one_signed_request_per_account_and_says_so(self):
+        from control import breakglass
+        self.boot("alice", "bob")
+        sent: list = []
+
+        def via(request, target, *, timeout, registry=None, **kw):
+            sent.append((request, target))
+            ok = {"v": 1, "kind": "reply", "id": "r", "in_reply_to": request["id"], "from": target["address"], "op": request["op"],
+                  "ok": True, "data": {request["op"]: {"status": ctl.ACTION_OK[request["op"]][0]}}}
+            return breakglass.Outcome("reply", ok, exit=0)
+        with mock.patch.object(breakglass, "via_hostexec", via):
+            rc = ctl.main(["all", "interweave-stop", "--json", "--timeout", "10"], registry=self.registry, call=self.relay, who=WHO, token="t",
+                          out=self.out.append, err=self.err.append)
+        self.assertEqual(rc, 0, self.err)
+        self.assertEqual([(r["op"], r["to"], t["address"]) for r, t in sent],
+                         [("interweave-stop", ["h/alice"], "h/alice"), ("interweave-stop", ["h/bob"], "h/bob")])
+        self.assertTrue(all(r.get("sig") or r.get("signature") for r, _ in sent), "signed: fabric-op refuses an unsigned action")
+        self.assertEqual(len({r["id"] for r, _ in sent}), 2)
+        self.assertTrue(any("cannot ride" in e and "hostexec" in e and "bin/fabric-op" in e for e in self.err), self.err)
+        self.assertEqual(sorted(r["account"] for r in self.rows()), ["alice", "bob"])
+        self.assertEqual((self.relay.calls, self.nodes["alice"].requests, self.nodes["bob"].requests), ([], [], []), "never the relay, never the carrier")
+
+    def test_a_refusal_by_fabric_op_is_said_and_is_not_a_success(self):
+        from control import breakglass
+        self.boot("alice")
+        with mock.patch.object(breakglass, "via_hostexec", lambda *a, **k: breakglass.Outcome("refused", detail="not an operator", exit=3)):
+            rc = ctl.main(["alice", "interweave-start", "--json", "--timeout", "10"], registry=self.registry, call=self.relay, who=WHO,
+                          token="t", out=self.out.append, err=self.err.append)
+        self.assertEqual(rc, 2)
+        self.assertTrue(any("refused by fabric-op: not an operator" in e for e in self.err), self.err)
+
+    def test_the_read_op_the_carrier_cannot_carry_is_refused_in_words_and_never_dropped(self):
+        from control import breakglass
+        self.boot("alice")
+        called: list = []
+        with mock.patch.object(breakglass, "via_hostexec", lambda *a, **k: called.append(a)):
+            rc = ctl.main(["alice", "interweave", "--json", "--timeout", "10"], registry=self.registry, call=self.relay, who=WHO,
+                          token="t", out=self.out.append, err=self.err.append)
+        self.assertEqual(rc, 2)
+        self.assertTrue(any("interweave cannot ride" in e and "nothing sent" in e for e in self.err), self.err)
+        self.assertEqual((called, self.relay.calls, self.out), ([], [], []))
+
+    def test_under_dual_the_same_action_is_not_taken_through_hostexec(self):   # the positive control of the routing above
+        from control import breakglass
+        self.boot("alice")
+        with mock.patch.dict(os.environ, {"FABRIC_CONTROL_CARRIER": "dual"}), mock.patch.object(breakglass, "via_hostexec", side_effect=AssertionError("hostexec")):
+            self.relay.down = False
+            box = self.run_ctl("alice", "interweave-start", "--json", "--timeout", "10")
+            self.assertTrue(until(lambda: self.relay.sent))
+            self.assertEqual(self.relay.sent[0]["op"], "interweave-start")
+            self.relay.add_reply({"v": 1, "kind": "reply", "id": "x", "in_reply_to": self.relay.sent[0]["id"], "from": "h/alice", "op": "interweave-start", "ok": True, "data": {}})
+            self.finish(box)
 
 
 if __name__ == "__main__":
