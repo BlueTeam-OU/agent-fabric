@@ -10,6 +10,7 @@ from .. import i18n
 from .. import paths
 import roots  # noqa: E402
 from ..gzmsg import en
+from ..carrier import CARRIER_NAME
 
 
 # ── the project's integration ────────────────────────────────────────
@@ -55,7 +56,7 @@ def integration_config(project: str | None, env: dict | None = None, t: i18n.Pri
 
 # What a carrier-only command shows where the relay's channel was shown: the account has no channel there, and the relay's
 # is not asked for (cutover W15, first part).
-CARRIER_ONLY_CHANNEL = "interweave"
+CARRIER_ONLY_CHANNEL = CARRIER_NAME
 
 
 def carrier_only_config() -> dict:
