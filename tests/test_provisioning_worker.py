@@ -406,8 +406,8 @@ def main() -> int:
             os.makedirs(os.path.join(home, ".local", "bin"))
             if link_to:
                 target = os.path.join(home, ".local", "share", "claude", "versions", link_to)
+                os.makedirs(os.path.dirname(target))      # its directory is there either way: `readlink -f` answers for a missing last part
                 if target_exists:
-                    os.makedirs(os.path.dirname(target))
                     open(target, "w").close()
                 os.symlink(target, os.path.join(home, ".local", "bin", "claude"))
             if os.path.exists(f"{tmp}/asked"):
