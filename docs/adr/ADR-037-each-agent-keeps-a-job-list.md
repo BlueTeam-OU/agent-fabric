@@ -194,7 +194,9 @@ Why these choices:
    it, `block` refuses one already past, and since it reads only the
    clock it is evaluated on every look, `--stored` included
    (A 2026-10-31). `list`, `next` and `block` re-check a blocker at
-   most every ten minutes and never one that cleared; a job whose
+   most every ten minutes and never one that cleared, while `start`
+   and `switch <id>` decide on a fresh check, since a refusal read
+   from a ten-minute-old "waiting" is wrong; a job whose
    blockers have all cleared reads "blocker cleared", is listed first
    and is taken first by `next`, and `--stored` reads the cache without
    checking a blocker or reaching the state stream, which the session-start
