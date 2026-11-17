@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import signal
 import subprocess
 import sys
@@ -1262,6 +1263,35 @@ class Resident(Daemon):
             channels = [(c, json.loads(json.loads(b)["content"]).get("kind")) for c, b in r.posts]
         self.assertIn(("test:state:control", "state"), channels)
         self.assertNotIn(("test:control", "state"), channels, "a state record never rides the control channel")
+
+    def test_the_state_op_answers_the_record_the_daemon_posted_and_keeps_it_in_the_state_directory(self):
+        state = self.scratch("agentd-state-")
+        r = self.with_relay()
+        d = self.start(r.url(), AGENT_FABRIC_STATE_DIR=state, FABRIC_STATE_CHANNEL="test:state:control")
+        self.until(lambda: any(h == "/api/send" for h in r.hits), "no state record posted", d)
+        posted = next(json.loads(x["content"]) for x in r.rows if json.loads(x["content"]).get("kind") == "state")
+        self.until(lambda: r.waits() > 0, "the daemon never waited", d)   # a request older than the prime is not read
+        r.add("develop-qzapp/user", request(op="state"))
+        self.until(lambda: any(x["op"] == "state" for x in r.replies()), "no state reply", d)
+        data = next(x for x in r.replies() if x["op"] == "state")["data"]["state"]
+        self.assertEqual(data["address"], SELF)
+        self.assertEqual(data["state"]["from"], SELF)
+        self.assertEqual(data["state"]["kind"], "state")
+        self.assertEqual(data["state"]["v"], posted["v"])
+        files = [os.path.join(dp, n) for dp, _d, ns in os.walk(state) for n in ns if n == "state-record.json"]
+        self.assertEqual(len(files), 1)
+        self.assertEqual(stat.S_IMODE(os.stat(files[0]).st_mode), 0o600)
+
+    def test_with_the_second_carrier_alone_the_daemon_keeps_its_record_and_posts_none_to_the_relay(self):
+        state = self.scratch("agentd-state-")
+        r = self.with_relay()
+        d = self.start(r.url(), AGENT_FABRIC_STATE_DIR=state, FABRIC_STATE_CHANNEL="test:state:control", FABRIC_CONTROL_CARRIER="interweave")
+        files = lambda: [os.path.join(dp, n) for dp, _dn, ns in os.walk(state) for n in ns if n == "state-record.json"]  # noqa: E731
+        self.until(lambda: bool(files()), "no state record kept", d)
+        self.until(lambda: r.waits() > 0, "the daemon never waited", d)
+        with r.lock:
+            channels = [c for c, _b in r.posts]
+        self.assertNotIn("test:state:control", channels)
 
 
     def test_port_sigterm_is_not_caught_the_process_ends_where_it_is(self):
