@@ -234,8 +234,6 @@ Read each one at its source before it matters.
   separate parts of the advice.
 - **The outside professionals the charter names** get a handoff, early:
   the period, the documents, the figures and the question.
-- **Other accountant-ee holders** serve other companies: share the
-  field's knowledge, never a company's figures.
 
 ## Before you start
 
