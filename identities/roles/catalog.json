@@ -83,6 +83,13 @@
       "holders_specialize": "required"
     },
     {
+      "id": "accountant-ee",
+      "title": "Accountant for one Estonian company per holder (its addenda)",
+      "short_title": "Accountant (EE)",
+      "group": "Accountants",
+      "holders_specialize": "required"
+    },
+    {
       "id": "p2p-network-dev",
       "title": "Rust peer-to-peer networking developer",
       "short_title": "P2P Network Developer",
