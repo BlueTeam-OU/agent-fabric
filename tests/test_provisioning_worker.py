@@ -355,16 +355,18 @@ def main() -> int:
     def spy(argv, **kw):
         if "_" in argv:
             seen_shells.append((argv[argv.index("_") - 2], argv[argv.index("_") + 1:]))
-        out = {"symbolic-ref": "main\n", "rev-list": "0\n", "rev-parse": "abc1234\n", "--get": "git@x:y\n"}
+        out = {"symbolic-ref": "main\n", "rev-list": "0\n", "rev-parse": "abc1234\n",
+               "--get-regexp": "remote.origin.url\ngit@x:y\0"}
         return subprocess.CompletedProcess(argv, 0, stdout=next((v for k, v in out.items() if k in argv), ""), stderr="")
     with mock.patch.object(subprocess, "run", spy):
         w = make_worker()
         w.home = "/home/x"
         worker.fabric_checkout(w)
-        worker.point_origin_at_registry(w, "p", "git@x:y")
+        with redirect_stderr(io.StringIO()) as said_origin:
+            worker.point_origin_at_registry(w, "p", "git@x:y")
     git_flags = {flag for flag, rest in seen_shells if "git" in rest}
     check("the fabric checkout's and the origin's git reads and writes all run in a login shell, one environment",
-          git_flags == {"-lc"} and len(seen_shells) >= 6, str(seen_shells))
+          git_flags == {"-lc"} and len(seen_shells) >= 6 and "not readable" not in said_origin.getvalue(), str(seen_shells))
     seen_shells.clear()
     with mock.patch.object(subprocess, "run", spy):
         w = make_worker()
