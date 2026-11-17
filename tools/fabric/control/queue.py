@@ -148,7 +148,7 @@ def relay(who: dict | None = None, cfg: dict | None = None, *, call=gzcoord.api,
     gz = gzcoord.integration_config(who.get("project"))
     tok = gzcoord.token(gzcoord.inbox_root(who), gz if gz.get("configured") else None) or gzcoord.synced_token()
     if not tok and not carrier_cfg.uses_relay(cfg):
-        # Under interweave only `waits` reads the relay (the state stream); the asks go by agentd's socket and need no
+        # With the second carrier alone only `waits` reads the relay (the state stream); the asks go by agentd's socket and need no
         # token. The read says why it cannot be made when it is made, never as an empty board.
         def no_token(path, method="GET", body=None):
             raise Unreadable("no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)")
@@ -213,7 +213,7 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
     to this account's own agentd, which sends it to the holder over the second carrier,
     and the holder's reply on either carrier answers it: a relay that is down
     no longer leaves the holder unreachable. Under any other control_carrier
-    nothing differs. Under "interweave" nothing is posted to or read from the relay, `call` is never used, and the
+    nothing differs. With the second carrier alone nothing is posted to or read from the relay, `call` is never used, and the
     holder is reached through this account's agentd alone, itself included (its agentd loops the request back, as for
     presence in carrier-only); a leg that cannot be opened is the answer's failure, said as such."""
     rid = new_id()
@@ -227,10 +227,10 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
     request = {"v": 1, "kind": "request", "id": rid, "from": from_, "to": [holder], "op": op, "ts": js.iso_now(),
                "ttl_s": math.ceil(wait / 1000), "args": args}
     dual = carrier_cfg.uses_second_carrier(cfg)
-    interweave = not carrier_cfg.uses_relay(cfg)
+    alone = not carrier_cfg.uses_relay(cfg)
     relay_error = None
     sent = None
-    if not interweave:
+    if not alone:
         try:
             sent = call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": from_, "content": js.stringify(request)}))
         except Exception as e:  # noqa: BLE001 — a failed post is the second carrier's to make up for, or the caller's to say
@@ -240,15 +240,15 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
     leg = None
     if dual:
         # Under dual this ask opens no second-carrier leg to itself: a holder that is this account is reached by the relay
-        # (the socket could loop it back, as it does fabric-ctl's own row, j245; this ask has not chosen to). Under interweave
+        # (the socket could loop it back, as it does fabric-ctl's own row, j245; this ask has not chosen to). With the second carrier alone
         # there is no relay to reach it by.
-        if holder != from_ or interweave:
+        if holder != from_ or alone:
             try:
                 leg = open_leg(request, [holder], min(wait, left()) / 1000)
             except RuntimeError as e:
-                if interweave:
+                if alone:
                     from gzcoord.carrier import control_link
-                    raise control_link.Down(f"interweave: {e}", None, handed=bool(getattr(e, "handed", False))) from None
+                    raise control_link.Down(f"{carrier_cfg.SECOND_ONLY}: {e}", None, handed=bool(getattr(e, "handed", False))) from None
                 if relay_error is not None:
                     from gzcoord.carrier import control_link
                     raise control_link.Down(f"{gzcoord.relay_failure(relay_error, cfg.get('relay_url'))}; the second carrier: {e}", relay_error,
@@ -256,7 +256,7 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
                 say(f"the second carrier: {e}; the relay carries alone")
         if relay_error is not None and leg is None:
             raise relay_error
-    relay_up = relay_error is None and not interweave
+    relay_up = relay_error is None and not alone
     if relay_error is not None:
         say(f"the relay post failed ({gzcoord.relay_failure(relay_error, cfg.get('relay_url'))}); the second carrier carries alone")
     lost_said = False

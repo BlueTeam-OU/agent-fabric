@@ -2333,10 +2333,10 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     if me["address"] not in agentd.operator_addresses(registry) and not (args["op"] in PUBLIC_OPS and me["address"] in agentd.account_addresses(registry)):
         err(f"fabric-ctl: {me['address']} is not a host operator in runtime/hosts/registry.json — no agent would answer; not sent")
         return 2
-    interweave = not carrier_cfg.uses_relay(cfg)
-    if interweave and not args.get("via") and args["op"] in link.RELAY_ONLY_OPS:
+    alone = not carrier_cfg.uses_relay(cfg)
+    if alone and not args.get("via") and args["op"] in link.RELAY_ONLY_OPS:
         return _relay_only_by_hostexec(args, expected, me=me, cfg=cfg, new_id=agentd.new_id, registry=registry, out=out, err=err)
-    if not tok and not args.get("via") and not interweave:   # interweave posts and reads nothing at the relay
+    if not tok and not args.get("via") and not alone:   # the second carrier alone posts and reads nothing at the relay
         err("fabric-ctl: no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)")
         return 3
     rid = agentd.new_id()
@@ -2370,28 +2370,28 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         return _via_hostexec(args, request, expected[0], registry=registry, out=out, err=err)
     # The second carrier (ADR-029 rule 18), only when control_carrier says "dual" and the op may go by it: the
     # sends are handed to the operator's own agentd, which holds the lease, and its replies come back here.
-    # Under "interweave" it is the only carrier: no relay post, no relay read, and no merge, which compares the two.
+    # With the second carrier alone it is the only one: no relay post, no relay read, and no merge, which compares the two.
     dual = carrier_cfg.uses_second_carrier(cfg) and args["op"] not in link.RELAY_ONLY_OPS
-    merge = link.Merge() if dual and not interweave else None
+    merge = link.Merge() if dual and not alone else None
     arrivals = link.ArrivalLog(os.path.join(state_dir(), "control-arrivals.jsonl"), "ctl", log=err) if dual else None
     # The relay is the record, so its post comes first and is never held behind the second carrier: a hand-off that
     # waits on a silent child for ttl_s would put the relay copy on the wire already expired.
     relay_up = True
     sent = None
     relay_error = None
-    if not interweave:
+    if not alone:
         try:
             sent = api_call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(request)}))
         except Exception as e:  # noqa: BLE001 — any failure of the call is said in relay_failure's words, as the Node said it
             relay_error = e
     else:
         relay_up = False
-    session, early, attempted = (_second_carrier(request, expected, args, err, relay_alone=not interweave) if dual else (None, [], set()))
-    if interweave and not attempted:
+    session, early, attempted = (_second_carrier(request, expected, args, err, relay_alone=not alone) if dual else (None, [], set()))
+    if alone and not attempted:
         # Nothing was handed to any account, and there is no relay copy to wait for: the whole --timeout would be a silence.
         if session is not None:
             session.close()
-        err(f"fabric-ctl: control_carrier is interweave and the request reached no account by {CARRIER_LABEL}; nothing sent")
+        err(f"fabric-ctl: control_carrier is {carrier_cfg.SECOND_ONLY} and the request reached no account by {CARRIER_LABEL}; nothing sent")
         return 3
     t0 = now()   # after both hand-offs, as it was after the one: --timeout is the wait for answers
     if relay_error is not None:
@@ -2556,7 +2556,7 @@ DUAL_GRACE_S = 3.0
 def _second_carrier(request: dict, expected: list[dict], args: dict, err: Callable[[str], None], *, relay_alone: bool = True) -> tuple:
     """Hand the request to the operator's own agentd for one direct send per target (ADR-029 rule 18): (session,
     replies that came with the sends, the addresses a send went out to). Any failure to reach agentd is one line
-    and `(None, [], set())`: the relay has the request too, so the run goes on as a relay run and its rows say so. With relay_alone False (control_carrier interweave) there is
+    and `(None, [], set())`: the relay has the request too, so the run goes on as a relay run and its rows say so. With relay_alone False (control_carrier names the second carrier alone) there is
     no relay copy, and the caller says that nothing was sent."""
     carries = "; the relay carries alone" if relay_alone else ""
     path = link.socket_path()
@@ -2583,17 +2583,17 @@ def _second_carrier(request: dict, expected: list[dict], args: dict, err: Callab
 
 def _relay_only_by_hostexec(args: dict, expected: list[dict], *, me: dict, cfg: dict, new_id: Callable[[], str], registry: str | None,
                             out: Callable[[str], None], err: Callable[[str], None]) -> int:
-    """An op the carrier cannot carry (control_link.RELAY_ONLY_OPS, ADR-064 rule 14) under control_carrier "interweave":
+    """An op the carrier cannot carry (control_link.RELAY_ONLY_OPS, ADR-064 rule 14) with the second carrier alone:
     each signed request goes to its own account through hostexec to bin/fabric-op (ADR-029 rule 19, one login per request: the
-    target refuses one addressed to everyone), and the command says so. fabric-op takes action ops only, so `interweave`
-    itself (a read) is refused here, in words: dropped silently it would read as an account that did not answer."""
+    target refuses one addressed to everyone), and the command says so. fabric-op takes action ops only, so the carrier's own read op
+    is refused here, in words: dropped silently it would read as an account that did not answer."""
     from control import breakglass
     op = args["op"]
     if op not in ACTION_OPS:
-        err(f"fabric-ctl: {op} cannot ride {CARRIER_LABEL} (ADR-064 rule 14), control_carrier is interweave so there is no relay to ask by, "
+        err(f"fabric-ctl: {op} cannot ride {CARRIER_LABEL} (ADR-064 rule 14), control_carrier is {carrier_cfg.SECOND_ONLY} so there is no relay to ask by, "
             f"and bin/fabric-op takes action ops only: read it on the account with fabric-host run; nothing sent")
         return 2
-    err(f"fabric-ctl: control_carrier is interweave and {op} cannot ride {CARRIER_LABEL} (ADR-064 rule 14): sent through hostexec "
+    err(f"fabric-ctl: control_carrier is {carrier_cfg.SECOND_ONLY} and {op} cannot ride {CARRIER_LABEL} (ADR-064 rule 14): sent through hostexec "
         f"to bin/fabric-op, one account at a time")
     k = signing_key()
     if "error" in k:

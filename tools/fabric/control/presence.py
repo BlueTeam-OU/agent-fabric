@@ -97,11 +97,11 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
     to this account's own agentd, which sends it to each other account over
     the second carrier, and a reply on either carrier answers it: a relay that is down
     no longer leaves every addressee unknown. The relay post still goes first,
-    and under "relay" nothing below the post differs. Under "interweave" no relay is asked at all, as in carrier-only
+    and under "relay" nothing below the post differs. Under the second carrier alone no relay is asked at all, as in carrier-only
     but for every account: the transport mode file is not read, since it only says whether the relay may be asked.
 
     An account in transport mode carrier-only (cutover plan W9) has no relay in its path: nothing is posted to it or
-    read from it, and the second carrier answers alone. That needs control_carrier "dual" or "interweave", else there is no carrier to
+    read from it, and the second carrier answers alone. That needs control_carrier "dual" or the second carrier alone, else there is no carrier to
     ask by, which is said, never answered from the relay. A mode file that cannot be read is raised, not defaulted:
     the file may be the one that says carrier-only."""
     def default_call(path, method="GET", body=None):
@@ -109,12 +109,12 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
     c = call or default_call
     from gzcoord.transport import mode as transport_mode
     try:
-        # Under interweave the relay is off whatever the mode says, so the file's answer would change nothing.
+        # With the second carrier alone the relay is off whatever the mode says, so the file's answer would change nothing.
         carrier_only = not carrier_cfg.uses_relay(cfg) or (read_mode or _read_mode)() == transport_mode.CARRIER_ONLY
     except transport_mode.ModeError as e:
         raise RuntimeError(f"the transport mode is unknown, so whether the relay may be asked is: {e}") from None
     if carrier_only and not carrier_cfg.uses_second_carrier(cfg):
-        raise RuntimeError("this account is in carrier-only, which has no relay to ask, and control_carrier is not dual or interweave: "
+        raise RuntimeError("this account is in carrier-only, which has no relay to ask, and control_carrier is not dual or the second carrier alone: "
                            "there is no carrier to ask presence by")
     rid = new_id()
     request = {"v": 1, "kind": "request", "id": rid, "from": from_, "to": to, "op": "presence", "ts": js.iso_now(),
@@ -145,7 +145,7 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
             except RuntimeError as e:
                 if carrier_only:
                     from gzcoord.carrier import control_link
-                    raise control_link.Down(f"{'interweave' if not carrier_cfg.uses_relay(cfg) else 'carrier-only'}: {e}", None,
+                    raise control_link.Down(f"{carrier_cfg.SECOND_ONLY if not carrier_cfg.uses_relay(cfg) else 'carrier-only'}: {e}", None,
                                             handed=bool(getattr(e, "handed", False))) from None
                 if relay_error is not None:
                     from gzcoord.carrier import control_link

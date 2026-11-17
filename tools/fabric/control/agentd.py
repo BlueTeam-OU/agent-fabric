@@ -53,13 +53,13 @@ Every reply arrives: a section that cannot be read says so inline.
 Relay down: one line on stderr, retry every 30 s; a refused token is
 re-read once from the synced file (a rotation), then reported.
 
-THE SECOND CARRIER (ADR-029 rule 18), only when runtime/control/config.json `control_carrier` is "dual" or "interweave" (or
+THE SECOND CARRIER (ADR-029 rule 18), only when runtime/control/config.json `control_carrier` is "dual" or the second carrier alone (or
 FABRIC_CONTROL_CARRIER says so): gzcoord/carrier/control_link.py holds the supervised child, the roster check of who
 sent what and fabric-ctl's socket. This file adds the one decision path, handle(): a request from either carrier
 goes through the same accept(), the same seen-set and the same action ledger, so one on both is answered once; and
 deliver(): the reply goes by the relay (the record) and, at once, by the other carrier to the sender's PeerId. With
 the key absent or "relay" none of it starts, and every line this daemon writes is what it was.
-With "interweave" the second carrier is the only one: the daemon neither reads nor posts the relay's control channel
+With control_carrier naming the second carrier alone it is the only one: the daemon neither reads nor posts the relay's control channel
 (no prime, no poll, no reply post), so a relay that refuses every connection changes nothing it answers. What it still
 posts to the relay is the state stream (sessions.StateWatcher, ADR-029 rule 16), which has no other carrier yet; a
 failure of that is said, never read as an account with no sessions. --once reads the relay once and is refused there.
@@ -146,7 +146,7 @@ from gzcoord import gzmsg  # noqa: E402
 import roots  # noqa: E402
 
 CONFIG = os.path.join(roots.code_root(), "runtime", "control", "config.json")
-CARRIER_RELAY, CARRIER_DUAL, CARRIER_INTERWEAVE = carrier_cfg.RELAY, carrier_cfg.DUAL, carrier_cfg.INTERWEAVE
+CARRIER_RELAY, CARRIER_DUAL, CARRIER_SECOND_ONLY = carrier_cfg.RELAY, carrier_cfg.DUAL, carrier_cfg.SECOND_ONLY
 CARRIERS = carrier_cfg.CARRIERS
 
 
@@ -1077,11 +1077,11 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     if not tok:
         _stderr("agentd: no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync) — nothing to read with")
         return 3
-    interweave = cfg["control_carrier"] == CARRIER_INTERWEAVE
-    if interweave and once:
+    alone = cfg["control_carrier"] == CARRIER_SECOND_ONLY
+    if alone and once:
         # --once is one read of the relay's control channel (the launcher's and the tests' way to answer what is waiting):
-        # under "interweave" there is none to read, and answering nothing with exit 0 would read as "nothing was asked".
-        _stderr("agentd: --once reads the relay's control channel, and control_carrier is interweave: there is nothing to read")
+        # with the second carrier alone there is none to read, and answering nothing with exit 0 would read as "nothing was asked".
+        _stderr(f"agentd: --once reads the relay's control channel, and control_carrier is {CARRIER_SECOND_ONLY}: there is nothing to read")
         return 2
     if not operator_addresses():
         _stderr("agentd: no host operator in runtime/hosts/registry.json — nothing could ever be answered; not starting")
@@ -1131,7 +1131,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
             return
         up = post(up_record(me["address"]))
         state["last"] = up.get("id")
-    if interweave:
+    if alone:
         _stderr(f"agentd: {me['address']} on {CARRIER_LABEL} alone ({control_link.ENDPOINT}); the relay's control channel is not read or posted; operators: {' '.join(operator_list())}")
     else:
         _stderr(f"agentd: {me['address']} on {cfg['channel']} at {cfg['relay_url']}; operators: {' '.join(operator_list())}")
@@ -1214,7 +1214,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
             with leave.lock:
                 inflight.add(thread)
             thread.start()
-        if interweave:
+        if alone:
             return   # the other carrier's copy is the only one: the relay's control channel is not posted to
         try:
             post(reply)
@@ -1320,10 +1320,10 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
             hold=hold_for_ctl)
         carrier_box[0] = running
         EXIT_HOOKS.append(running.stop)
-        if not interweave:
+        if not alone:
             _stderr(f"agentd: also on {CARRIER_LABEL} ({control_link.ENDPOINT}); the relay stays the record")
 
-    if interweave:
+    if alone:
         # Requests arrive on the carrier's own threads (on_request above); this thread only keeps the process.
         (stop or threading.Event()).wait()
         return 0
