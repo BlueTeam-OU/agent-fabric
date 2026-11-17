@@ -312,6 +312,7 @@ def state_asker_of(cfg: dict, *, me: str, own_file: str, new_id: Callable[[], st
     except RuntimeError as e:
         _stderr(f"agentd: {e}: the override is ignored")
         return state_read.asker(cfg, me=me, own_file=own_file, new_id=new_id, env={})
+
 # One disk scan per daemon, shared by every request that arrives while it
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).

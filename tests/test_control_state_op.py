@@ -365,6 +365,20 @@ class Beside(unittest.TestCase):
         self.assertEqual(len(said), 3)
         self.assertIn("override is ignored", said[0])
 
+    def test_the_daemon_reads_the_misspelt_override_from_its_own_environment_and_is_not_stopped_by_it(self):
+        # main calls state_asker_of without env, so both the first read and the retry see os.environ: the retry must not.
+        said = []
+        orig = agentd._stderr
+        agentd._stderr = said.append
+        self.addCleanup(setattr, agentd, "_stderr", orig)
+        old = os.environ.get("FABRIC_STATE_READ")
+        os.environ["FABRIC_STATE_READ"] = "Op"
+        self.addCleanup(lambda: os.environ.__setitem__("FABRIC_STATE_READ", old) if old is not None else os.environ.pop("FABRIC_STATE_READ"))
+        got = agentd.state_asker_of({"control_carrier": "interweave"}, me=ME, own_file="f", new_id=lambda: "q")
+        self.assertIsNotNone(got)
+        self.assertIsNone(agentd.state_asker_of({"control_carrier": "relay"}, me=ME, own_file="f", new_id=lambda: "q"))
+        self.assertEqual(len(said), 2)
+
 
 class Table(Tmp):
     @staticmethod
