@@ -83,8 +83,14 @@ the host went off, the session could not be reached.
 
 ## #573's real-carrier read-back
 
-The read-back #573 left undone (cutover plan, gate 1 item 1, W1) is in
-this drill. It was not a separate run. #573's own read-back used a
+The read-back #573 left undone (cutover plan, gate 1 item 1, W1) has
+two halves. python-dev-03's probe of 2026-11-17
+([2026-11-17-backfill-real-carrier-readback.md](2026-11-17-backfill-real-carrier-readback.md))
+refused the relay at one sender. Its message was read only after both
+copies existed, so it shows once-only where the copies meet. This
+drill gives the order that probe leaves open: shown from the carrier
+first, then the relay copy returns and is not shown again. It was not a
+separate run. #573's own read-back used a
 private relay and no second account. Here the fleet's agentd ran the
 backfill against the real relay, and the message went through the real
 carrier to a second account. Each of the twelve pairs above shows the

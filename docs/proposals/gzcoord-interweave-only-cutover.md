@@ -182,7 +182,9 @@ not amended; what the carrier observes of ordering and loss is the evidence its 
 1. #573 merged (done, 2026-11-13), and its missing read-back done: a message through the real
    carrier to a second account, shown once, then found on the relay after its return. Filed:
    the 2026-11-15 drill's twelve carrier-only pairs, one traced by hand
-   (`docs/live-checks/2026-11-15-relay-outage-drill.md`, "#573's real-carrier read-back").
+   (`docs/live-checks/2026-11-15-relay-outage-drill.md`, "#573's real-carrier read-back"),
+   with python-dev-03's single-sender probe beside it
+   (`docs/live-checks/2026-11-17-backfill-real-carrier-readback.md`).
 2. The rollback drill: `fabric-ctl <login> interweave-stop` on two accounts in the
    middle of a window with traffic, then `interweave-start`; `gzcoord-carrier parity --drill`
    reads `nothing_lost`. Run on 2026-11-12 on all 30 accounts for 30 minutes: nothing lost
