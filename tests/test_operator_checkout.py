@@ -707,7 +707,7 @@ class WorkerStep(unittest.TestCase):
                 calls.append(list(argv))
                 return subprocess.CompletedProcess(argv, 1, "operator checkout x not cloned from y: no route\n", None)
             err = io.StringIO()
-            with mock.patch.object(w, "sudo_test", lambda flag, p: os.path.exists(p)), mock.patch.object(w, "as_login", as_login), redirect_stderr(err):
+            with mock.patch.object(w, "path_kinds", lambda ps: {p: "file" if os.path.exists(p) else "absent" for p in ps}), mock.patch.object(w, "as_login", as_login), redirect_stderr(err):
                 worker.operator_checkout_step(w)
             self.assertEqual(calls, [[worker.PY, "-I", module, "ensure", "--projects", os.path.join(home, "projects")]])
             self.assertIn("6c. operator checkout x not cloned from y", err.getvalue())
@@ -716,7 +716,7 @@ class WorkerStep(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="operator-worker-") as home:
             w = self.make(home=home)
             err = io.StringIO()
-            with mock.patch.object(w, "sudo_test", lambda flag, p: False), mock.patch.object(
+            with mock.patch.object(w, "path_kinds", lambda ps: dict.fromkeys(ps, "absent")), mock.patch.object(
                     w, "as_login", side_effect=AssertionError("must not run")), redirect_stderr(err):
                 worker.operator_checkout_step(w)
             self.assertIn("6c. the operator checkout is not provisioned", err.getvalue())
@@ -728,7 +728,7 @@ class WorkerStep(unittest.TestCase):
             open(module, "w").close()
             w = self.make("--dry-run", home=home)
             calls = []
-            with mock.patch.object(w, "sudo_test", lambda flag, p: True), mock.patch.object(
+            with mock.patch.object(w, "path_kinds", lambda ps: dict.fromkeys(ps, "file")), mock.patch.object(
                     w, "as_login", lambda argv, **kw: calls.append(argv) or subprocess.CompletedProcess(argv, 0, "", None)), redirect_stderr(io.StringIO()):
                 worker.operator_checkout_step(w)
             self.assertEqual(calls[0][-1], "--dry-run")
