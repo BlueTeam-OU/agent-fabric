@@ -38,6 +38,7 @@ def body(rid: str, **over) -> dict:
 class Base(Scratch):
     """No cases: the account's agentd running in this process, and the operator's carrier beside it."""
     carrier = "dual"
+    token: str | None = "tok"   # what the account's token chain yields; None is an account the secrets sync never reached
     argv: list[str] | None = None
     wait_answer: dict | None = None   # what the relay's /api/wait answers at once, instead of holding the poll to its timeout
 
@@ -57,6 +58,7 @@ class Base(Scratch):
         self.relay.wait_answer = self.wait_answer
         self.addCleanup(self.relay.close)
         self.logs: list[str] = []
+        self.tickers: dict[str, object] = {}   # every timer the daemon starts, by name: started never, callable by a test
         env = {"HOME": self.home, "XDG_RUNTIME_DIR": self.runtime, "AGENT_FABRIC_STATE_DIR": self.state, "AGENT_FABRIC_OPERATOR": self.operator,
                "CLAUDE_BRIDGE_URL": self.relay.url(), "FABRIC_CONTROL_CHANNEL": "test:control", "FABRIC_CONTROL_CARRIER": self.carrier,
                "PATH": os.environ["PATH"]}
@@ -70,11 +72,12 @@ class Base(Scratch):
             mock.patch.object(agentd.gzcoord, "identity", return_value={"address": "h/alice", "slug": "alice"}),
             mock.patch.object(agentd.gzcoord, "inbox_root", return_value=self.state),
             mock.patch.object(agentd.gzcoord, "integration_config", return_value={"configured": False}),
-            mock.patch.object(agentd.gzcoord, "token", return_value="tok"),
+            mock.patch.object(agentd.gzcoord, "token", return_value=self.token),
+            mock.patch.object(agentd.gzcoord, "synced_token", return_value=self.token),
             mock.patch.object(link, "default_directory", return_value=directory),
             mock.patch.object(agentd, "POLL_S", 1),
             mock.patch.object(agentd, "watch_source", lambda *a, **k: None),
-            mock.patch.object(agentd, "Ticker", lambda *a, **k: SimpleNamespace(start=lambda: None)),
+            mock.patch.object(agentd, "Ticker", lambda name, fn, *a, **k: (self.tickers.__setitem__(name, fn), SimpleNamespace(start=lambda: None))[1]),
             mock.patch.object(agentd, "start_tools_report", lambda *a, **k: SimpleNamespace(refresh_again=lambda: None)),
             mock.patch.object(sessions_mod, "StateWatcher", lambda **k: SimpleNamespace(tick=lambda: None)),
             mock.patch.object(agentd.pressure, "sampler", lambda: SimpleNamespace(tick=lambda: None)),
@@ -423,6 +426,40 @@ class AgentdInterweave(Base):
         self.send_iw(body("after"))   # the positive control and the bound: the carrier answers, the relay's row would have by now
         self.assertTrue(until(lambda: got), self.logs)
         self.assertEqual(self.relay_replies("on-relay"), [])
+        self.assertEqual(self.relay.hits, [])
+
+
+class AgentdInterweaveNoToken(Base):
+    """control_carrier "interweave" on an account with no relay token, the relay's URL on a closed port: the control
+    plane starts, answers, and reaches the relay by none of its three paths (start, the inbox section, the backfill)."""
+    carrier = "interweave"
+    token = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.relay.close()
+
+    def test_it_starts_without_a_relay_token_and_answers_by_the_carrier(self):
+        got = self.watch("nt1")
+        self.send_iw(body("nt1"))
+        self.assertTrue(until(lambda: got), self.logs)
+        self.assertFalse(any("no CLAUDE_BRIDGE_AUTH_TOKEN" in l for l in self.logs), self.logs)
+
+    def test_the_inbox_section_says_the_relay_is_unread_and_asks_it_nothing(self):
+        got = self.watch("nt2")
+        self.send_iw(body("nt2", op="status"))
+        self.assertTrue(until(lambda: got), self.logs)
+        section = got[0][0]["data"]["inbox"]
+        self.assertEqual(section["status"], "unknown", section)
+        self.assertIn("does not read the relay", section["reason"])
+        self.assertEqual(self.relay.hits, [])
+
+    def test_the_backfill_follows_the_transport_mode_and_hands_the_relay_no_token_it_lacks(self):
+        from gzcoord import backfill
+        seen: list = []
+        with mock.patch.object(backfill, "tick", lambda say, token: seen.append(token())):
+            self.tickers["gzcoord backfill"]()
+        self.assertEqual(seen, [None])   # the journal's rows wait with a note (backfill.run), they are never posted without a token
         self.assertEqual(self.relay.hits, [])
 
 

@@ -1110,10 +1110,12 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     tok = gzcoord.token(root, gz if gz.get("configured") else None)
     if tok is None:
         tok = gzcoord.synced_token()
-    if not tok:
+    alone = cfg["control_carrier"] == CARRIER_SECOND_ONLY
+    # The relay's token is for the relay: with the second carrier alone the control plane never presents it (the backfill
+    # below has its own line when it finds none), so an account without one starts.
+    if not tok and not alone:
         _stderr("agentd: no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync) — nothing to read with")
         return 3
-    alone = cfg["control_carrier"] == CARRIER_SECOND_ONLY
     if alone and once:
         # --once is one read of the relay's control channel (the launcher's and the tests' way to answer what is waiting):
         # with the second carrier alone there is none to read, and answering nothing with exit 0 would read as "nothing was asked".
@@ -1157,6 +1159,10 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     inbox_api = call if gz.get("relay_url") in (None, cfg["relay_url"]) else (
         lambda path, **init: gzcoord.api(token_box[0], path, relay_url=gz["relay_url"], **init))
     ctx["inbox_opts"] = {"api": inbox_api, "me": me["address"], "channel": gz.get("channel") if gz.get("configured") else None}
+    if alone:
+        # The control answer must not depend on the relay: the GZCoord position of an account not in carrier-only is the
+        # relay's, and this daemon neither reads nor needs it (ops._inbox says it unread).
+        ctx["inbox_relay_unread"] = f"control_carrier is {CARRIER_SECOND_ONLY}: this daemon does not read the relay, so the relay's GZCoord position is not asked"
 
     state = {"last": None, "down": False}
 
