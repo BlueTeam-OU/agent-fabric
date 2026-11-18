@@ -41,7 +41,10 @@ the merge. Concerns are commit boundaries, not PR boundaries.
 commits of work as opened, review fixes excluded. The minimum
 `policies/arming.json` sets or more arm once
 the gate is met, without the owner's word, a security-boundary change
-too; fewer ask the owner, who arms;
+too. Under it the agent first bundles: its queued jobs in that
+repository ride the PR as further work, whatever their topic, until
+the count reaches the minimum; only work that cannot wait asks for
+the word of the owner or the repository's arming authority;
 the policy's batch size is the size to open a batch at, not a condition for arming it.
 
 **The gate is read before arming.** `fabric-pr gate` gives each open PR one
@@ -148,7 +151,12 @@ not on a pipe's exit status.
 4. At `commits.min` work commits or more: arm once the gate is met, without the
    owner's word, a security-boundary change (at `commits.boundary_min`) and over `commits.advice_over` too
    (A 2026-10-05). The counts are `policies/arming.json`'s values, which a
-   repository's settings may override, never this record's. Under the minimum: ask the
+   repository's settings may override, never this record's. Under the
+   minimum, bundle first: the agent's queued jobs in that repository
+   ride the PR as further work commits, whatever their topic, until it
+   reaches the minimum, since each PR costs a full CI run, a review and
+   an arming (A 2026-11-14). Only work that cannot wait for them (a
+   broken `main`, a path the owner has put first) asks for a word: the
    owner, who arms, or the role the repository's arming policy names in
    their place: `commits.below_min_authority` for a PR under the
    minimum, `commits.boundary_authority` for a security-boundary change
@@ -295,3 +303,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-11-05 | A decision record arms on the owner's ruling | §5 rule 1: a PR wholly of a direct project's `record_paths` arms on the owner's word without the review class, as the brand remit has said since 2026-09-17; lint holds its cases out of `pr_paths` and the boundary |
 | 2026-11-10 | An arming is withdrawn on the record | §5 rule 5: `fabric-pr disarm` takes off `fabric/armed`, the queue entry and auto-merge and posts its basis; who may disarm is who may arm, never on `--any-owner` alone; the gate ignores `fabric/armed` as a check |
 | 2026-11-12 | the record names no organisation's projects, counts or accounts | §5 rules 1, 4, 6, §6 access row, title: the direct projects and the counts are `policies/arming.json`'s; the merging account is the operator's; access is the repository's administrators |
+| 2026-11-14 | under the minimum, bundle first | §2, §5 rule 4: an agent's queued jobs ride its open PR, whatever their topic, until it reaches the minimum; a word below it is for work that cannot wait |

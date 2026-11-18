@@ -61,7 +61,9 @@ decision written only on your own screen reaches no one.
 repository.** Pieces that only make sense together land as one PR,
 integrated by the role that owns the concern; a supplier delivers commits
 or a `for/` branch to the caller and opens no PR. While your PR is open,
-the next piece of work is another commit on it. A PR is armed by its
+the next piece of work is another commit on it, whatever its topic:
+below the minimum you bundle queued jobs onto it before asking for any
+word. A PR is armed by its
 work-commit count against the minimum `fabric-pr arm --dry-run` prints,
 below it only on the owner's word or on the word of the role the
 dry-run names as the repository's arming authority, and never without
