@@ -299,6 +299,15 @@ so on stderr, wins over the state file (a damaged one too), and is refused when 
 (exit 2 for a send, 7 for the inbox). Send, inbox, replay, the watch and the presence child honour
 it; the signed action, the fleet's reads and the backfill still report the account's file.
 
+**A mode moves only over a carrier started since #613.** A carrier daemon older than #613
+(merged 2026-11-14) answers the watch's `wait` op with "unknown op", and a `carrier-record`
+watch counts that as the carrier down; nothing gates `interweave-mode` on the daemon's version,
+and `interweave-start` restarts nothing whose config is unchanged. Since afe65a56 (2026-11-18)
+`fabric-ctl all upgrade fabric` restarts an account's carrier client whenever the range it moves
+touches the carrier's code (`upgrade.py` `restart_carrier`); j891's merge does, so its
+distribution leaves no client older than #613 on an account the upgrade reports `restarted`.
+An account it reports otherwise is not moved (found by python-dev-04 on #613, j891).
+
 **The order is forced by one fact:** a sender in `relay-record` whose carrier is down posts to
 the relay alone and exits 0 (`Adapter.post` answers `absent` or `failed`, and `send.py`
 `via_mirrors` changes no status). A receiver in `carrier-only` would never see that message. So:
