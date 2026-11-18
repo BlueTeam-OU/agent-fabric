@@ -222,9 +222,10 @@ agreed soak (D8) with no stranded delivery; a carrier-outage drill (one account'
 for 30 minutes: senders' outboxes hold, everything arrives once on its return, shown once, judged by `gzcoord-carrier parity --carrier-drill` (#620)); two
 accounts in `carrier-only` through a relay stop of a working hour with every GZCoord function
 exercised (send, watch, replay, `fabric-pr arm --authorization`, `fabric-jobs add --request`,
-a REQUEST's job intake). Since #638 (merged 2026-11-18) a `carrier-only` send, its presence ask
-and the inbox need neither a relay token nor a relay section; the job intake still does, since it
-runs `fabric-ctl <login> jobs-add` and `ctl.py` asks the token under control's `dual`; and W12's read-back if the owner takes D1's recommendation. Records:
+a REQUEST's job intake); and W12's read-back if the owner takes D1's recommendation. Since #638
+(merged 2026-11-18) a `carrier-only` send, its presence ask and the inbox need neither a relay
+token nor a relay section; the job intake still does, since it runs `fabric-ctl <login> jobs-add`
+and `ctl.py` asks the token under control's `dual`. Records:
 ADR-033 amended again (the relay carries control only; rule 7's trigger; rule 5's "the hosting
 session's start brings it up"), ADR-064 (rules 8, 11 and 14, whose "the relay carries for it
 alone" goes; the dual run ends), ADR-041 rule 7 (its relay-row half goes), ADR-030 rule 3's wording, and ADR-069 §1
@@ -348,7 +349,7 @@ other than `NotInRoster`, a roster that fails to verify on any account, or an ac
   single point of failure for sending one.
 - **D2. The intermediate rung.** Recommended: keep `carrier-record` as a stage of its own. It
   is the switch ADR-064 rule 11 describes, it is reversible without loss, and it is what makes
-  `carrier-only` safe (§6).
+  `carrier-only` safe (§6). (2026-11-18: lossless once §8 item 1's fix merges, #650's review.)
 - **D3. #573.** Recommended: merge it now, keep it through `carrier-record`, switch it off at
   `carrier-only` (W9). The owner's choice of 2026-11-12, backfill rather than readers of the
   InterWeave copy, holds for the window; under InterWeave only the readers must read the
@@ -413,7 +414,7 @@ in this order (gate 1's word was given on 2026-11-18, on items 1 to 4 of §4):
    primary took it, whether or not the relay did (`record_sent` after `send_primary`), and the
    backfill logs a ledger row `present` without posting it. So a `carrier-record` send whose relay
    mirror failed, a `carrier-only` send, and a send under `GZCOORD_TRANSPORT_MODE=carrier-only`
-   each leave a hole in the relay's record, and the way back below is not lossless
+   each leave a hole in the relay's record, and the way back in §6 is not lossless
    (REQUEST 01a1ed4e-82ec to python-dev). Gate 1's mode switch waits on it.
 2. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
    gate 3. D8's soak follows gate 1's word, not before it: the word moves python-dev-02 and

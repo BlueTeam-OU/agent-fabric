@@ -74,8 +74,9 @@ unchanged, and the away table lost the same pairs (relay direct 48 to
 [`2026-11-18-interweave-parity-control.md`](2026-11-18-interweave-parity-control.md). The relay served `01a1db67-e363` a second time 29 hours later, to a
 watch that had started at 23:57:42; user's `acks.jsonl` acknowledges it
 at 23:57:43, and `shown.jsonl` has it shown only on 2026-11-14, so the
-copy was admitted quiet, not shown twice. It is a relay copy and before
-the window, so the report counts no duplicate.
+copy was admitted quiet, not shown twice. It is a relay copy of a pair
+whose first copy came before the window, so the report counts no
+duplicate.
 Across the whole collection two other pairs have a second relay
 arrival, both before the window and seconds after the first
 (`01a1d922` to architect-cto-01, `01a1dce5` to ux-designer-01); none
@@ -89,7 +90,9 @@ that absence; the default hour is not enough after an outage.
 
 ## What it does not show
 
-- No account was in `carrier-record`. The report measures InterWeave
+- No account is known to have been in `carrier-record`: plan §6 moves
+  the first only on gate 1's word (2026-11-18), and the mode's history
+  over the window is not read here. The report measures InterWeave
   beside the relay, not InterWeave as the record; that is D8's soak,
   after gate 1's word (plan §6, step 1).
 - The window is 2.6 days, two of them working days. The 2026-11-09

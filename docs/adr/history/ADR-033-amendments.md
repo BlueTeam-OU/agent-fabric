@@ -53,7 +53,7 @@ relay as its mirror both ways; an account in `relay-record` is as
 before. The amendment does not say the mirror is complete: #650's
 review found that `send.py` writes a send to the sent ledger once its
 primary took it, whether or not the relay did (a `carrier-record` send
-whose mirror failed, any `carrier-only` send, a one-command override),
+whose mirror failed, any `carrier-only` send, a send under `GZCOORD_TRANSPORT_MODE=carrier-only`),
 and the backfill then logs it `present` without posting it. That is a defect in `send.py`, sent to python-dev
 (REQUEST 01a1ed4e-82ec), and no account moves to `carrier-record`
 before its fix merges (cutover plan §8 item 1). Control stays on
