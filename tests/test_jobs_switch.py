@@ -1742,28 +1742,32 @@ def main() -> int:
         check("…in a worktree beside the working copy, the working copy untouched",
               wt == f"{w.repo}-earlier" and subprocess.run(["git", "-C", w.repo, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip() == "main", wt)
 
-        w = World()
-        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
-        subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "on the pull request"], check=True, env=git_env())
-        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
-        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
-        other = other_clone(w)
-        with open(os.path.join(other, "f.txt"), "w") as fh:
-            fh.write("default")
-        subprocess.run(["git", "-C", other, "add", "f.txt"], check=True, env=git_env())
-        subprocess.run(["git", "-C", other, "commit", "-q", "-m", "default adds f"], check=True, env=git_env())
-        subprocess.run(["git", "-C", other, "push", "-q", "origin", "main"], check=True, env=git_env())
-        subprocess.run(["git", "-C", w.repo, "checkout", "-q", mine], check=True, env=git_env())
-        with open(os.path.join(w.repo, "f.txt"), "w") as fh:
-            fh.write("branch")
-        subprocess.run(["git", "-C", w.repo, "add", "f.txt"], check=True, env=git_env())
-        subprocess.run(["git", "-C", w.repo, "commit", "-q", "-m", "branch adds f"], check=True, env=git_env())
-        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
-        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
-        gh_says(open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
-        j1 = w.working("done before")
-        w.sw("drop", j1, "x")
-        j2 = w.add("the next piece")
+        def conflicting_world(worked: bool):
+            w = World()
+            subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "on the pull request"], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+            other = other_clone(w)
+            with open(os.path.join(other, "f.txt"), "w") as fh:
+                fh.write("default")
+            subprocess.run(["git", "-C", other, "add", "f.txt"], check=True, env=git_env())
+            subprocess.run(["git", "-C", other, "commit", "-q", "-m", "default adds f"], check=True, env=git_env())
+            subprocess.run(["git", "-C", other, "push", "-q", "origin", "main"], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "checkout", "-q", mine], check=True, env=git_env())
+            with open(os.path.join(w.repo, "f.txt"), "w") as fh:
+                fh.write("branch")
+            subprocess.run(["git", "-C", w.repo, "add", "f.txt"], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "commit", "-q", "-m", "branch adds f"], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+            gh_says(open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+            j1 = w.working("done before") if worked else None
+            if worked:
+                w.sw("drop", j1, "x")
+            return w, w.add("the next piece")
+
+        w, j2 = conflicting_world(True)
         rc, out, err = w.switch()
         wt = f"{w.repo}-earlier"
         check("a default branch that does not merge cleanly is handed to the fresh session: job started, merge undone, fabric-fresh printed",
@@ -1772,6 +1776,37 @@ def main() -> int:
               and subprocess.run(["git", "-C", wt, "status", "--porcelain"], capture_output=True, text=True).stdout == ""
               and subprocess.run(["git", "-C", wt, "rev-parse", "-q", "--verify", "MERGE_HEAD"], capture_output=True).returncode != 0
               , out + err)
+
+        check("...the job's log says which ref conflicts, and the printed merge names it",
+              "origin/main conflicts: merge it first" in json.dumps(w.job(j2)["log"]) and f"git merge origin/main in {wt}" in out, out + repr(w.job(j2)))
+        w, j2 = conflicting_world(False)
+        rc, out, err = w.switch("--json")
+        said = json.loads(out) if rc == 0 else {}
+        check("a session that worked no job is still told fresh, reason conflict: the merge belongs in the job's copy",
+              rc == 0 and said.get("fresh") is True and said.get("reason") == "conflict" and w.job(j2)["state"] == "active", out + err)
+        w, j2 = conflicting_world(True)
+        branching = sys.modules["fabric_jobs"].branching
+        real_up = branching.bring_up_to_date
+
+        def trunk_conflicts(wc, branch, default):
+            with contextlib.suppress(branching.MergeConflict):
+                real_up(wc, branch, default)       # makes the real worktree; the conflict is then said of a default that is not main
+            raise branching.MergeConflict("origin/trunk does not merge", branching._checkout(wc, branch), "origin/trunk")
+        with mock.patch.object(branching, "bring_up_to_date", trunk_conflicts):
+            rc, out, err = w.switch()
+        check("the merge the fresh session is told to make names the ref that conflicted, not main",
+              rc == 0 and "git merge origin/trunk in" in out and "git merge origin/main" not in out, f"rc={rc} out={out!r} err={err!r}")
+        w, j2 = conflicting_world(True)
+        real_run = sys.modules["fabric_jobs"].vcs.run
+
+        def abort_fails(repo, *args, **kw):
+            if args[:2] == ("merge", "--abort"):
+                return subprocess.CompletedProcess(args, 1, "", "")
+            return real_run(repo, *args, **kw)
+        with mock.patch.object(sys.modules["fabric_jobs"].vcs, "run", abort_fails):
+            rc, out, err = w.switch()
+        check("a merge that cannot be undone is refused, never handed on half-merged: the job stays queued",
+              rc == 1 and "could NOT be undone" in err and w.job(j2)["state"] == "queued", out + err)
 
         print("…not addable: blocked on it when the job needs it merged, else a new branch")
         w = World()

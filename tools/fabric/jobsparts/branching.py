@@ -7,8 +7,9 @@ given another job's, so a branch that has landed or is gone from this clone and 
 exception: a paused job asked to --repoint is taken from a landed branch to this agent's one open pull request, which may be armed
 if it is in no merge queue and the repository disarms on push); a blocked job whose recorded branch landed counts as one with no branch; only a job
 with no branch gets one: this agent's open pull request in the repository, when it is still addable; else, for a job that needs that
-pull request merged first, a block on it; else a new branch off the freshly fetched default branch. Whatever is chosen is never behind
-the default branch: an existing branch gets the default merged into it, locally and unpushed, in a worktree of its own."""
+pull request merged first, a block on it; else a new branch off the freshly fetched default branch. Whatever is chosen is not behind
+the default branch unless the merge conflicts: an existing branch gets the default merged into it, locally and unpushed, in a worktree
+of its own, and a conflicting merge is undone and handed to the fresh session (Choice.conflict, j258)."""
 from __future__ import annotations
 
 import os
@@ -30,6 +31,7 @@ class Choice(NamedTuple):
     note: str = ""
     repointed: bool = False    # a paused job's landed branch replaced by the open pull request's (--repoint)
     conflict: str = ""         # origin/<default> did not merge into the branch: undone, left for the fresh session to merge by hand
+    merge_with: str = ""       # the ref that conflicted, origin/<default>: the repository's default branch is not always main
 
 
 def slug_of(job: dict) -> str:
@@ -70,16 +72,17 @@ class MergeConflict(Refused):
     """origin/<default> does not merge into the branch. The merge is already undone; `path` is the branch's worktree. Not a refusal
     of the switch: the job's copy is where the guard allows the merge (ADR-037 rule 3), and the session that ended a job stands
     outside it, so the merge is handed to the fresh session (j258: a refusal here left only fabric-fresh --job by hand)."""
-    def __init__(self, message: str, path: str):
+    def __init__(self, message: str, path: str, ref: str):
         super().__init__(message)
         self.path = path
+        self.ref = ref
 
 
 def _up_to_date(kind: str, wc: str, branch: str, default: str, pr: int | None = None, repo: str | None = None, note: str = "") -> Choice:
     try:
         return Choice(kind, branch, bring_up_to_date(wc, branch, default), pr, repo, note)
     except MergeConflict as e:
-        return Choice(kind, branch, e.path, pr, repo, note, conflict=str(e))
+        return Choice(kind, branch, e.path, pr, repo, note, conflict=str(e), merge_with=e.ref)
 
 
 def bring_up_to_date(wc: str, branch: str, default: str) -> str:
@@ -99,7 +102,7 @@ def bring_up_to_date(wc: str, branch: str, default: str) -> str:
                 # Half-merged is never handed on: the fresh session would start in a conflicted tree.
                 raise Refused(f"origin/{default} does not merge into {branch} cleanly in {path} and the merge could NOT be undone: "
                               "run git merge --abort there, then switch again")
-            raise MergeConflict(f"origin/{default} does not merge into {branch} cleanly in {path} (merge undone)", path)
+            raise MergeConflict(f"origin/{default} does not merge into {branch} cleanly in {path} (merge undone)", path, f"origin/{default}")
     return path
 
 
@@ -266,7 +269,8 @@ def _checkout_of(job: dict) -> str:
 
 
 def choose(job: dict, *, kind: str, needs_merged: bool, repoint: bool = False) -> Choice:
-    """The branch for `job`, prepared: fetched, checked out in a worktree and up to date. Refused when it cannot be one."""
+    """The branch for `job`, prepared: fetched, checked out in a worktree and up to date, or with the default's conflicting merge left
+    undone and named in Choice.conflict. Refused when it cannot be one."""
     wc = _checkout_of(job)
     try:
         vcs.fetch(wc)

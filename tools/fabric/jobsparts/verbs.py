@@ -315,6 +315,8 @@ def switch_job(args) -> int:
         resumed = job.get("reason") if job["state"] == "paused" else None
         unpushed = job.get("unpushed") if job["state"] == "paused" else None      # the transition drops it; the reminder is said below
         where = f"branch {choice.branch}" if choice.branch else f"no branch ({choice.note})"
+        if choice.conflict:
+            where += f"; {choice.merge_with} conflicts: merge it first"      # the job's log is what a fresh session can read of this switch
         if choice.branch:
             # The open pull request's branch is shared by design (one open pull request per agent), but never silently.
             sharing = [j["id"] for j in doc["jobs"] if j["id"] != job["id"] and j["state"] not in TERMINAL and j.get("branch") == choice.branch]
@@ -397,8 +399,8 @@ def switch_job(args) -> int:
               f"(stored {stored_priority(job)})")
     if verdict["fresh"]:
         if choice.conflict:
-            print(f"fresh session: {choice.conflict}; the merge is left for the fresh session, which merges origin/main into the branch by hand "
-                  f"(git merge origin/main in {choice.worktree}), resolves it and commits before the job's work.")
+            print(f"fresh session: {choice.conflict}; the merge is left for the fresh session, which merges {choice.merge_with} into the branch by hand "
+                  f"(git merge {choice.merge_with} in {choice.worktree}), resolves it and commits before the job's work.")
         elif verdict["reason"] == "outside_copy":
             print(f"fresh session: this one has worked no job, but stands in {verdict['here']}, outside the copies of {job['id']} "
                   f"({', '.join(verdict['copies'])}); the job copy guard refuses a commit from there (ADR-037 rule 3).")

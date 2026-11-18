@@ -207,7 +207,8 @@ check that failed and changing nothing:
      same R4 transition as any switch, and with none or several open the refusal stands and says how many; every switch that has a branch names the other
      open jobs recording it (the text, the log, and the --json `sharing` list, empty when none); only a job with no branch is given one: this
      login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
-     commits), with the default branch merged into it first (locally, not pushed); else, with --needs-merged, the job is blocked
+     commits), with the default branch merged into it first (locally, not pushed; a merge that conflicts is undone, the switch goes on, and the
+     fresh session is told to merge it by hand, j258); else, with --needs-merged, the job is blocked
      on that pull request and not started; else a new branch <host>/<login>/<type>/<job id and title words> off the freshly
      fetched default branch. Each is checked out in a worktree beside the job's working copy, which becomes that worktree (the job's record names one place); the
      job keeps `branch` and `worktree`, and the opening prompt of its fresh session names them. Two open pull requests of this
@@ -247,7 +248,9 @@ directory itself outside a checkout) equal to, or under, the job's `working_copy
 Standing elsewhere the verdict is fresh with `reason` "outside_copy" (--json also carries `here` and `copies`) and the text says
 where and why; a place that cannot be read (git silent, the directory gone) is fresh with `reason` "place_unreadable" and `here`
 null: a false fresh costs one launch, a false in-place leaves a session the guard refuses. A job that records neither copy keeps
-the in-place answer, the guard asking there. A session that has worked a job is fresh as before, `reason` "worked".
+the in-place answer, the guard asking there. A session that has worked a job is fresh as before, `reason` "worked". A branch whose
+default-branch merge conflicted (undone, never half-merged) is always fresh, `reason` "conflict": the merge belongs in the job's copy, which
+the guard refuses this session; the text names the ref and the worktree, and the job's log note says "<ref> conflicts: merge it first".
 The fleet hold (ADR-037 rule 13; hold.json, read by hold_view.py): while this login is held, or its hold.json cannot be read
 (which holds), `switch` and `next` settle the job being left as above and its build output is cleared, then stop with exit 1
 naming the hold (reason, decision, who set it, how long ago): no job is started, no fabric-fresh printed, nothing queued or
