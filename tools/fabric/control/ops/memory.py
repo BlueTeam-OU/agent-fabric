@@ -149,10 +149,19 @@ def memory(home: str | None = None, root: str | None = None, run: Callable[..., 
 
 
 def _report(stderr: str) -> dict | None:
-    try:
-        j = util.loads(stderr)
-    except ValueError:
-        return None
+    # The harvester prints one "harvest_memory: warning/applied correction/
+    # superseded:" line per entry on this stream before the report, which it
+    # dumps with indent=2: its opening brace is the only "{" alone at column 0
+    # in it. Loading the whole stream made every store with such a line read
+    # as having no report (j254); a stream that never has one still reads None.
+    j = None
+    starts = [0, *(m.start() for m in re.finditer(r"^\{$", stderr, re.MULTILINE))]
+    for start in starts:
+        try:
+            j = util.loads(stderr[start:])
+        except ValueError:
+            continue
+        break
     if not isinstance(j, dict):
         return None
     out: dict[str, Any] = {k: j[k] for k in ("claims", "counts", "oldest_drainable_ms", "drainable") if k in j}   # absent: undefined, which JSON left out
