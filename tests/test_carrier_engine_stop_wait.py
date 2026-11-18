@@ -73,7 +73,12 @@ def main() -> int:
     g = engine.StopFlag(sleep=sleep, clock=lambda: now[0])
     check("wait(0.25) times out false in slices of at most SLICE", g.wait(0.25) is False and max(ticks) <= g.SLICE
           and abs(sum(ticks) - 0.25) < 1e-9, str(ticks))
-    h = engine.StopFlag(sleep=lambda s: h.set(), clock=lambda: 0.0)
+    t = [0.0]
+
+    def sleep_then_set(s: float) -> None:
+        t[0] += s   # time moves, so a flag that ignores set() times out false instead of looping
+        h.set()
+    h = engine.StopFlag(sleep=sleep_then_set, clock=lambda: t[0])
     check("a flag set during a slice ends the wait true", h.wait(5) is True)
 
     def boom(s: float) -> None:
