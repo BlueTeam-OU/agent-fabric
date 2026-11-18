@@ -364,9 +364,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     stay control-plane actions, and no login touches another account's
     units. Starting units that are both down cannot leave the account
     less reachable than it already is, which is why it needs no
-    signature. The command runs the same check as above. A failed check
-    stops what the command started and changes nothing else: unlike the
-    signed start, it leaves each unit enabled or disabled as it was. The agent reports
+    signature. It renders no configuration and runs the same check as
+    above. A failed check stops what the command started and changes
+    nothing else: unlike the signed start, it leaves each unit enabled or
+    disabled as it was. The agent reports
     the failure to the coordinator over the relay where its mode still
     has one; under `carrier-only` it says so in its own session, for the
     operator. The account stays off the channel until an operator acts.

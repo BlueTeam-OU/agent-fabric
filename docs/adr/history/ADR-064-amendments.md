@@ -525,8 +525,8 @@ restart or a start over a live unit would be an unsigned stop. The
 command therefore refuses unless both units are inactive or failed (a
 unit in auto-restart reads activating and counts as running), and when
 the installed programs are not the pin's (#658 review rounds 1 and 2,
-F1). Its failed check stops what it started and does not disable
-either unit, as the signed start does, so it changes no unit's
-persistent state (round 2, F6). Install, update, restart and stop stay
+F1). Its failed check stops what it started and, unlike the signed
+start, which disables both, leaves each unit enabled or disabled as it
+was; it renders no configuration (rounds 2 and 3, F6 and F8). Install, update, restart and stop stay
 as they were. The local command and the watch's
 exit text are python-dev's to build.

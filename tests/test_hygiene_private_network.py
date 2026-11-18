@@ -25,6 +25,8 @@ FINE = [
     "Address 110.1.2.3 and 1.10.2.3 and 10.1.2.3.4.", "192.168.1 is not an address, nor 10.1.2.", "Release 3.10.100.256.",
     "Path /home/<login>/x and ~/projects and /srv/home/alice/x and ./home/alice/x.", "a /home directory and /home/ alone",
     "/home/$USER/x", "192-168-1-256 and v192-168-1-2000 and 1192-168-1-2",
+    # A home under another root or a relative one is no login's home: the bare pattern's lookbehind keeps them (#658 round 3, F7).
+    "/srv/home/alice", "./home/alice", "docs/home/index",
     # A section number is no address (a gzapp slice cited §10.2.1.4, 2026-10-14).
     "fix the §10.2.1.4 sites, see §192.168.1.1 and §172.16.0.1",
 ]
