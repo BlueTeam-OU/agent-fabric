@@ -657,6 +657,7 @@ class CarrierRestart(unittest.TestCase):
     def fx(self, state: str = "active", restart_rc: int = 0, status_rc: int = 0, manager: str = "answers"):
         f = FabricFx(self)
         calls: list[list[str]] = []
+        self.at_restart = at_restart = []   # the installed client program as it was when the restart arrived
 
         def run(cmd, **kw):
             if cmd[0] in ("git", "bash"):
@@ -669,6 +670,11 @@ class CarrierRestart(unittest.TestCase):
                     return subprocess.CompletedProcess(cmd, 1, "", "Failed to connect to bus")
                 return subprocess.CompletedProcess(cmd, 0, f"{state if cmd[-1] == CLIENT else 'inactive'}\n", "")
             if cmd[0] == "systemctl" and cmd[2] == "restart":
+                try:
+                    with open(os.path.join(f.base, ".local", "libexec", "interweave", "client")) as fh:
+                        at_restart.append(fh.read())
+                except OSError:
+                    at_restart.append(None)
                 return subprocess.CompletedProcess(cmd, restart_rc, "", "")
             if cmd[-1] == "status":
                 return subprocess.CompletedProcess(cmd, status_rc, "{}", "")
@@ -682,8 +688,18 @@ class CarrierRestart(unittest.TestCase):
         for rel in U.CARRIER_CODE:
             self.assertTrue(os.path.exists(os.path.join(HERE, rel)), f"{rel} is named as the carrier's code and is not in the checkout")
 
+    def test_carrier_code_covers_what_the_engine_loads(self):
+        # The import trace is the oracle for the list: the engine and what its commands import lazily, loaded in a clean interpreter.
+        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "tests", "fixtures", "carrier_import_trace.py"), HERE], capture_output=True, text=True,
+                           timeout=60, env={"PATH": os.environ["PATH"]}, cwd="/")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        loaded = json.loads(r.stdout)
+        self.assertIn("tools/fabric/gzcoord/carrier/engine.py", loaded, "the control: the trace saw the engine")
+        outside = [m for m in loaded if not m.startswith(U.CARRIER_CODE)]
+        self.assertEqual(outside, [], "the carrier loads these and an upgrade that changes only them would not restart it")
+
     def test_a_range_touching_a_module_the_engine_imports_from_outside_gzcoord_restarts_it(self):
-        for rel in ("tools/fabric/episodic.py", "runtime/identity.py", "tools/fabric/signing/sign.py"):
+        for rel in ("tools/fabric/episodic.py", "runtime/identity.py", "tools/fabric/signing/sign.py", "tools/fabric/secretstore/core.py", "tools/fabric/launch_locale.py"):
             f, calls, run = self.fx()
             r = self.go(f, run, f.advance("two", {"runtime/interweave/roster.json": ENGINE["runtime/interweave/roster.json"], rel: "x"}))
             self.assertEqual(r["carrier"][:9], "restarted", rel)
@@ -692,8 +708,7 @@ class CarrierRestart(unittest.TestCase):
         f, calls, run = self.fx()
         r = self.go(f, run, f.advance("two", {**ENGINE, "runtime/interweave/client": "#!/bin/sh\n"}))
         self.assertEqual(r["carrier"][:9], "restarted")
-        with open(os.path.join(f.base, ".local", "libexec", "interweave", "client")) as fh:
-            self.assertEqual(fh.read(), "#!/bin/sh\n")
+        self.assertEqual(self.at_restart, ["#!/bin/sh\n"], "the unit restarts onto the new program, not before it is in place")
 
     def test_a_manager_that_gives_no_state_is_not_not_running(self):
         f, calls, run = self.fx(manager="errors")
