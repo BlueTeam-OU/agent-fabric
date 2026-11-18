@@ -352,16 +352,21 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     of every account's InterWeave state, run after any restart of those
     units. An account the check cannot confirm is reported as off the
     InterWeave channel, and the relay carries for it alone (rule 11).
-    One case is the account's own (A 2026-11-18): its login may start or
-    restart its own carrier and daemon units, at the version already
-    installed, by a local command that needs no operator's signature.
-    Nothing else of this rule moves to the account: install, update and
-    stop stay control-plane actions, and no login touches another
-    account's units. A start cannot leave the account less reachable
-    than a carrier that is already down, which is why it needs no
-    signature. It runs the same check as above, and the agent reads the
-    result. A check that fails is reported to the coordinator, and the
-    account stays off the channel until an operator acts.
+    One case is the account's own (A 2026-11-18): its login may start its
+    own carrier and daemon units when both are down, by a local command
+    that needs no operator's signature. The command refuses and touches
+    nothing when either unit is active, or when the installed programs
+    are not the ones `release.json` pins. So it never restarts or stops a
+    running unit, and never runs the programs the pin has moved away
+    from. Nothing else of this rule moves to the account: install,
+    update, restart and stop stay control-plane actions, and no login
+    touches another account's units. Starting units that are both down
+    cannot leave the account less reachable than it already is, which is
+    why it needs no signature. The command runs the same check as above.
+    A failed check leaves the units down, as they were. The agent reports
+    the failure to the coordinator over the relay where its mode still
+    has one; under `carrier-only` it says so in its own session, for the
+    operator. The account stays off the channel until an operator acts.
 
 ## 6. Consequences
 
@@ -458,4 +463,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-16 | journal off, a carrier mode sends through the carrier and refuses a receive | §5 rule 8: the route is the mode's primary with no mirror; a receive is refused in `carrier-record` and `carrier-only` (D7, #623) |
 | 2026-11-18 | The data plane's first gate: the record is the account's mode's | §2 dual run; §5 rule 7: in `carrier-record` the carrier's acceptance sets the row, the exit status the primary's alone; §5 rule 11: InterWeave is the record in `carrier-record` (gate 1, ADR-033) |
 | 2026-11-18 | The carrier's own ops when control rides InterWeave alone | rule 14: install, start and stop by the break-glass path; the read over InterWeave, read again by that path after 30 s (#656) |
-| 2026-11-18 | An account starts its own carrier | rule 14: its login starts or restarts its own carrier and daemon units at the installed version, unsigned, with the same check; install, update and stop stay control-plane actions |
+| 2026-11-18 | An account starts its own carrier | rule 14: its login starts its own carrier and daemon units when both are down and the pinned programs are installed, unsigned, with the same check; install, update, restart and stop stay control-plane actions |

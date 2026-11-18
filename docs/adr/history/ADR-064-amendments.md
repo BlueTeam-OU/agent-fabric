@@ -516,8 +516,13 @@ The text they gave up with named `fabric-ctl <login> interweave` and
 operator in `runtime/hosts/registry.json`. Both agents stopped and
 reported to the coordinator, although their carriers were by then
 running again. Rule 14 made every start a control-plane action because
-an install or update takes the channel down and can fail unseen. A
-start of what is already installed cannot make an account less
-reachable than a carrier that is down, so it moves to the account's own
-login. Install, update and stop stay as they were. The local command
-and the watch's exit text are python-dev's to build.
+an install or update takes the channel down and can fail unseen.
+Starting units that are both down, from the programs the pin names,
+cannot make an account less reachable than it already is, so that start
+moves to the account's own login. A restart does not: `interweave-start`
+restarts running units, and a failed check then stops both, so a
+restart or a start over a live unit would be an unsigned stop. The
+command therefore refuses when either unit is active or the installed
+programs are not the pin's (#658 review round 1, F1). Install, update,
+restart and stop stay as they were. The local command and the watch's
+exit text are python-dev's to build.

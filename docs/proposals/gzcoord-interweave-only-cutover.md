@@ -144,12 +144,13 @@ carrier's `interweave/inbox.jsonl` (`carrier/arrivals.py` `Spool`), "outbox" is 
 
 Not GZCoord messages, so outside the goal as worded; listed because the relay cannot be retired
 while these stand. Under `"control_carrier": "dual"` (`runtime/control/config.json`, the fleet
-since 2026-11-13) control already rides InterWeave beside the relay; what is missing is a value
-for InterWeave alone, and the state stream.
+since 2026-11-13) control already rides InterWeave beside the relay. Since #656 `control_config`
+also takes InterWeave alone (`control/carrier_cfg.py`, three values); what is missing is the
+state stream.
 
 | where | uses the relay for | replacement | exists? |
 |---|---|---|---|
-| `tools/fabric/control/agentd.py` `main` (`call`, `post`, `prime`, the read loop) | reads every request on `fabric:control` by `since_id`, posts every reply | `control_link` on the `fabric-control` endpoint | built, on under `dual`; no InterWeave-alone value (`agentd.control_config` accepts `relay` or `dual`) |
+| `tools/fabric/control/agentd.py` `main` (`call`, `post`, `prime`, the read loop) | reads every request on `fabric:control` by `since_id`, posts every reply | `control_link` on the `fabric-control` endpoint | built, on under `dual` and under InterWeave alone (`agentd.control_config` takes `relay`, `dual` or InterWeave alone, `control/carrier_cfg.py`) |
 | `agentd.py` `state_poster`; `control/ctl.py` `states`; `control/queue.py` `read_waits`; `control/pool.py` `state_reader`, `role_from_stream` | the state channel: each account's newest state record, read back from the relay's stored history | a request each agentd answers, or a table the reader keeps | no: InterWeave stores no history |
 | `control/ctl.py` `main` | posts the request, pages the replies | `_second_carrier`, through the operator's agentd socket | built, used under `dual` |
 | `control/presence.py` `ask_presence`; `control/queue.py` `ask_holder`, `bound_call`, `relay` | public ops asked by any account (`presence`, `pool-list`, `pool-claim`, `job-state`) | the asker's own agentd socket | yes under `dual` (#586, W12): `presence.ask_presence` and `queue.ask_holder` also send through the account's agentd and take a reply from either carrier; `bound_call` and `relay` still post to the relay; the relay-stopped read-back is gate 2's |
