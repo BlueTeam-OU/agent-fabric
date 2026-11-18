@@ -59,9 +59,11 @@ An id travels with its file, so a scratch file reused for the NEXT message
 would carry the last one's id (review of #47, R1). Each confirmed send is
 recorded — id and a hash of the message — in this login's state directory
 (<state>/agents/<login>/gzcoord-sent.jsonl), and an id that already went
-out with other content is refused; the same message again passes. A post
-whose reply was lost is not recorded, so an edited resend under that id is
-not caught.
+out with other content is refused; the same message again passes. A line
+with an "id" says the relay has the message (backfill skips it); a send the
+carrier took without the relay having it is recorded as "spent" instead,
+which only this refusal reads. A post whose reply was lost is not recorded,
+so an edited resend under that id is not caught.
 
 PLACEMENT comes before presence and does not depend on it: a TO is looked
 up in the hosts registry on this disk (placement.py) after the message
@@ -202,7 +204,7 @@ def spent_elsewhere(ledger: str, mid: str, sha: str, t: i18n.Printer | None = No
             r = json.loads(line)
         except ValueError:
             continue
-        if isinstance(r, dict) and r.get("id") == mid and r.get("sha256") != sha:
+        if isinstance(r, dict) and mid in (r.get("id"), r.get("spent")) and r.get("sha256") != sha:
             return r
     return None
 
@@ -651,7 +653,7 @@ def main(argv: list[str]) -> int:
 
     to_one_login = bool(msg["metadata"].get("TO"))   # exactly one of TO, TO-ROLE, BROADCAST: the validator's rule
 
-    def via_mirrors() -> bool:
+    def via_mirrors() -> list[str]:
         """The same message to the mirror transports (ADR-064 rules 6, 7), after
         the primary's outcome is known and whatever it was: both get every
         message, and the journal row is accepted when either accepts. Nothing
@@ -660,7 +662,8 @@ def main(argv: list[str]) -> int:
         With no mirror running, and with the journal off (rule 8), it is a no-op. A mirror
         that did not accept is reported to nobody: `failed` marks only a pending row (ADR-041
         rule 3), and the row is the primary's outcome's to set, so there is nothing to write.
-        True when a mirror accepted it: a failed primary's line must then not say "not sent"."""
+        The names of the mirrors that accepted it: a failed primary's line must then not say "not sent", and a
+        carrier-primary send is on the sent ledger only if the relay is among them."""
         accepted = [s for s in tp.send_mirrors(mid, text) if s.state == "accepted"]
         for s in accepted:
             # The relay is the journal's default carrier name (claude-bridge), not its transport name.
@@ -668,7 +671,7 @@ def main(argv: list[str]) -> int:
                             *(["--carrier", s.name] if s.name == CARRIER_NAME else [])], "")
             if done["status"] != 0:
                 sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by the carrier\n")
-        return bool(accepted)
+        return [s.name for s in accepted]
 
     try:
         # A refused token is taken fresh from the synced file once (a shell snapshot keeps a rotated one) inside the send.
@@ -694,7 +697,7 @@ def main(argv: list[str]) -> int:
                 done = journal(["gzcoord-out-final", mid, "--state", "failed"], "")
                 if done["status"] != 0:
                     sys.stderr.write(done["stderr"])
-        carried = via_mirrors()
+        carried = bool(via_mirrors())
         if tp.primary.name == CARRIER_NAME:
             return carrier_not_accepted(e, never, carried, me["address"], file, mid, t)
         status = getattr(e, "status", None)
@@ -742,10 +745,15 @@ def main(argv: list[str]) -> int:
                         *(["--seq", js.string(seq)] if not js.nullish(seq) else [])], "")
         if done["status"] != 0:
             sys.stderr.write(done["stderr"] or "episodic: the sent message was not marked accepted\n")
-    via_mirrors()
-    # Recorded only once the relay has it: a post that failed spent nothing.
+    mirrored = via_mirrors()
+    # "id" on the ledger means "the relay has it": backfill.on_sent_ledger skips such an id. A post that failed spent
+    # nothing. With the carrier as the primary the relay is a mirror that may have failed or not been asked (journal off,
+    # carrier-only), so the entry is "spent" instead: the id is still refused for another body, and a carrier-record
+    # backfill still posts the row (carrier-only never backfills; its relay copy is the owner's step back to read).
+    relay_has_it = tp.primary.name != CARRIER_NAME or "relay" in mirrored
     try:
-        record_sent(ledger, {"id": mid, "sha256": sha, "seq": js.coalesce(seq, None), "at": _now_iso()})
+        record_sent(ledger, {("id" if relay_has_it else "spent"): mid, "sha256": sha,
+                             "seq": js.coalesce(seq, None), "at": _now_iso()})
     except LedgerNotTrimmed as e:
         print(t("send.ledger-not-trimmed", {"detail": e.strerror or str(e)}), file=sys.stderr)
     except OSError as e:
