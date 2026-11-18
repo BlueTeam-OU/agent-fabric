@@ -254,10 +254,14 @@ def switch_job(args) -> int:
                 raise NothingQueued("no queued job")
         return nxt
 
+    nothing_queued = False
     try:
         nxt = pick(listed)
     except NothingQueued:
-        raise Refused(f"no queued job; {pool_offer()}")
+        # Not a refusal before the leaving: like a hold, an empty queue starts nothing but the job just left is still settled and
+        # its build output cleared (rule 10 step 1). Refusing first left j288's 62 GB target on 2026-11-17: the last job of the
+        # day has no successor to switch to, and the daily tidy was then the only thing that ever removed it.
+        nxt, nothing_queued = None, True
     session = session_id()
     old = last_worked(listed, session)
     settled = None
@@ -283,7 +287,10 @@ def switch_job(args) -> int:
             swept = clean_targets(old.get("worktree"), old.get("working_copy"), others) + swept
         for said in swept:
             print(said, file=sys.stderr)
-        raise Refused(held_refusal(hold, "no job started") + (f"; {old['id']} left ({settled})" if settled else ""))
+        left_note = f"; {old['id']} left ({settled})" if settled else ""
+        if nothing_queued:
+            raise Refused(f"no queued job; {pool_offer()}{left_note}")
+        raise Refused(held_refusal(hold, "no job started") + left_note)
     choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged, repoint=args.repoint)
     verdict_for = {}
     stands = standing()

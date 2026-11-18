@@ -1951,6 +1951,18 @@ def main() -> int:
 
         w = World(under=home)
         j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        assert w.sw("drop", j, "x")[0] == 0
+        rc, out, err = w.switch()
+        check("the last job of the day: nothing queued still refuses, but the left job's target is removed and the line is said",
+              rc == 1 and "no queued job" in err and not os.path.exists(os.path.join(left, "target")) and f"removed {left}/target" in out + err, out + err)
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        assert w.sw("drop", j, "x")[0] == 0
+        rc, out, err = w.switch("--keep-targets")
+        check("…and --keep-targets keeps it there too (the control)", rc == 1 and "no queued job" in err and os.path.exists(os.path.join(left, "target", "debug", "big.o")), out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
         rc, out, err = leave(w, j, "pause")
         check("a job left paused pays too: its target is removed", rc == 0 and not os.path.exists(os.path.join(left, "target")), out + err)
 
