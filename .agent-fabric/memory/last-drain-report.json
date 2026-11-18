@@ -2650,7 +2650,7 @@
       "since_watermark": 0,
       "skipped_no_roles_class": [
         "p1-ledger-hook-thread.md",
-        "proxmox-host-192-168-1-2.md"
+        "proxmox-host-private-address.md"
       ]
     },
     "domain-transit@develop-qzapp": {
@@ -3928,6 +3928,9 @@
     "devex-tooling/threads:threads-2026-11-10-j320 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
     "devex-tooling/threads:threads-2026-11-10-j320 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
     "devex-tooling/threads:threads-2026-11-10-j320 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
+    "devex-tooling/threads:threads-2026-11-10-j320 body: a private-network address written with dashes (a slug or link of 192.168.0.0/16) -- name the role, not the address -> 'private-address'",
+    ".agent-fabric/memory/devex-tooling/threads/threads-2026-11-10-j320.md: a private-network address written with dashes (a slug or link of 192.168.0.0/16) -- name the role, not the address -> 'private-address'",
+    "harvest skipped_no_roles_class: a private-network address written with dashes (a slug or link of 192.168.0.0/16) -- name the role, not the address -> 'private-address'",
     "domain-transit/workflow:arm-owner-word-ignores-authorization body: city name -> '[redacted]'",
     "domain-transit/workflow:job-intake-homes-project-requests-in-agent-fabric body: city name -> '[redacted]'",
     "domain-transit/workflow:job-intake-homes-project-requests-in-agent-fabric body: city name -> '[redacted]'",
@@ -3968,6 +3971,9 @@
     "harvest skipped_no_roles_class: external project name (dcs, DCS, Dcs, in paths, headers and compounds). Every project's slices are held to it, so the terminal term DCS is redacted too, except as a DCS string, sequence, passthrough or intermediate(s); elsewhere a slice writes it Device Control String -> '[redacted]'",
     "fabric-coordinator/workflow:account-usage-observe-no-login-needed body: an account or handle built from a person's name (a GitHub login, a Claude account, a key's variable) -- name it by whose it is -> \"the CEO's account\"",
     "fabric-coordinator/domain:binnacle-tideos-eval-kit body: a GitHub URL under an owner that is no listed organization -- a personal handle is a privacy matter, as a name is: write <owner>, or add an organization to the owner list the GitHub patterns share -> '<owner>'",
+    "fabric-coordinator/solution:claude-ancestor-is-daemon-2-1-322 title: a bare /home/<login> -- a login's home names one account on one host: write ~ -> '~'",
+    "fabric-coordinator/solution:claude-ancestor-is-daemon-2-1-322 body: a bare /home/<login> -- a login's home names one account on one host: write ~ -> '~'",
+    "fabric-coordinator/solution:claude-ancestor-is-daemon-2-1-322 body: a bare /home/<login> -- a login's home names one account on one host: write ~ -> '~'",
     "fabric-coordinator/solution:codex-chatgpt-signin-2026-10-12 body: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'",
     "fabric-coordinator/rationale:d9-public-port-fabric-h2 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
     "fabric-coordinator/rationale:d9-public-port-fabric-h2 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
@@ -6372,7 +6378,7 @@
       "host": "develop-qzapp",
       "observed": "2026-11-14"
     },
-    ".agent-fabric/memory/fabric-coordinator/solution/claude-ancestor-is-daemon-2-1-322.md#a nearest-'claude'-ancestor lookup finds `claude daemon` (cwd /home/user), not the session, under 2.1.322 bg-pty-host; fixed by session_proc.nearest_session (#606 + j836 branch)": {
+    ".agent-fabric/memory/fabric-coordinator/solution/claude-ancestor-is-daemon-2-1-322.md#a nearest-'claude'-ancestor lookup finds `claude daemon` (cwd ~), not the session, under 2.1.322 bg-pty-host; fixed by session_proc.nearest_session (#606 + j836 branch)": {
       "agent": "user",
       "host": "develop-qzapp",
       "observed": "2026-11-13"
@@ -13552,7 +13558,7 @@
       "heading": "j320 H2 VM 101 fabric-h2 on s13337 — installed 2026-11-11, at a private-network address (DHCP), reachable from develop-qzapp; ISO detach on word",
       "in": "link",
       "slice": ".agent-fabric/memory/devex-tooling/threads/threads-2026-11-10-j320.md",
-      "target": "proxmox-host-192-168-1-2",
+      "target": "proxmox-host-private-address",
       "why": "undrained"
     },
     {

@@ -2,7 +2,7 @@
 role: "fabric-coordinator"
 class: solution
 topic: "claude-ancestor-is-daemon-2-1-322"
-description: "a nearest-'claude'-ancestor lookup finds `claude daemon` (cwd /home/user), not the session, under 2.1.322 bg-pty-host; fixed by session_proc.nearest_session (#606 + j836 branch)"
+description: "a nearest-'claude'-ancestor lookup finds `claude daemon` (cwd ~), not the session, under 2.1.322 bg-pty-host; fixed by session_proc.nearest_session (#606 + j836 branch)"
 tier: 2
 knowledge_scope: full
 distilled_at: "2026-11-17"
@@ -15,14 +15,14 @@ derived_from:
   - 59d3651d41963308
 ---
 
-## a nearest-'claude'-ancestor lookup finds `claude daemon` (cwd /home/user), not the session, under 2.1.322 bg-pty-host; fixed by session_proc.nearest_session (#606 + j836 branch)
+## a nearest-'claude'-ancestor lookup finds `claude daemon` (cwd ~), not the session, under 2.1.322 bg-pty-host; fixed by session_proc.nearest_session (#606 + j836 branch)
 
 Seen 2026-11-13 on j800: a Bash call's ancestry was bash < `2.1.322 --session-id …`
 (the session itself; comm is the version string, exe ~/.local/share/claude/versions/2.1.322,
 cwd = the working copy) < `claude bg-pty-host` < `claude daemon run --origin transient`
-(comm `claude`, cwd /home/user) < the launched `claude --model …`. Every lookup that
+(comm `claude`, cwd ~) < the launched `claude --model …`. Every lookup that
 takes the nearest comm == "claude" lands on the daemon: `fabric-review brief` refused
-"the session was started in /home/user". The review MCP server itself read the clone
+"the session was started in ~". The review MCP server itself read the clone
 fine (CLAUDE_PROJECT_DIR).
 
 Workaround for a brief: `FABRIC_REVIEW_SESSION_CLONE=$PWD fabric-review brief …`
