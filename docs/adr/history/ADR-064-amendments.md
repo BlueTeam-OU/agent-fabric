@@ -505,3 +505,19 @@ that path, and the row names which path answered. Before #656 the
 carrier computed the read and dropped it at all four of its refusal
 sites; it now answers it only when agentd runs on InterWeave alone.
 Under `relay` and `dual` nothing changes.
+
+### Amendment 2026-11-18 — An account starts its own carrier
+
+On 2026-11-18 the coordinator's two fleet upgrades (for #656 and #659)
+restarted every account's carrier. The inbox watches of legal-expert-ge
+and rust-services-dev-01 gave up after 15 minutes of silence (exit 5).
+The text they gave up with named `fabric-ctl <login> interweave` and
+`interweave-start`, and both refused those logins: neither is a host
+operator in `runtime/hosts/registry.json`. Both agents stopped and
+reported to the coordinator, although their carriers were by then
+running again. Rule 14 made every start a control-plane action because
+an install or update takes the channel down and can fail unseen. A
+start of what is already installed cannot make an account less
+reachable than a carrier that is down, so it moves to the account's own
+login. Install, update and stop stay as they were. The local command
+and the watch's exit text are python-dev's to build.
