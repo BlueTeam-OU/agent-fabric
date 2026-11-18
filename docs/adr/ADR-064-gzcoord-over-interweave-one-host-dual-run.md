@@ -331,7 +331,13 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     unreachable on it without anyone being told (A 2026-10-25). So an
     install or update is a control-plane action (ADR-029), which rule 12
     and ADR-029 rule 18 keep on the relay, so it reaches the account
-    while that channel is down. The action restarts the units that were running before it,
+    while that channel is down. With `control_carrier` naming InterWeave
+    alone there is no relay to keep it on (A 2026-11-18): install, start
+    and stop reach the account only through ADR-029 rule 19's
+    break-glass path, and the read of its InterWeave state goes over
+    InterWeave while the carrier answers, an account that has not
+    answered within 30 seconds (or that the send never reached) being
+    read again by that path; the row names which path answered. The action restarts the units that were running before it,
     then checks them through the control plane: each of those units
     active; the daemon unit's process running the program now installed
     (not the file it replaced, which a `--version` on disk cannot tell);
@@ -441,3 +447,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-15 | The drills read each account's watch log; a carrier-outage drill is judged | §5 rule 11: restarts and give-ups from `gzcoord-watch.jsonl`; `gzcoord-carrier parity --carrier-drill` (#620) |
 | 2026-11-16 | journal off, a carrier mode sends through the carrier and refuses a receive | §5 rule 8: the route is the mode's primary with no mirror; a receive is refused in `carrier-record` and `carrier-only` (D7, #623) |
 | 2026-11-18 | The data plane's first gate: the record is the account's mode's | §2 dual run; §5 rule 7: in `carrier-record` the carrier's acceptance sets the row, the exit status the primary's alone; §5 rule 11: InterWeave is the record in `carrier-record` (gate 1, ADR-033) |
+| 2026-11-18 | The carrier's own ops when control rides InterWeave alone | rule 14: install, start and stop by the break-glass path; the read over InterWeave, read again by that path after 30 s (#656) |

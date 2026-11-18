@@ -135,7 +135,7 @@ def main() -> int:
         os.unlink(path)
         sock = socket_left_behind(path)
         check("a socket file with no carrier behind it fails open: unseen is nothing, a post fails",
-              sock.present() and sock.unseen() == [] and sock.post("M", "t") == "failed")
+              sock.present() and sock.unseen() == [] and sock.post("M", "t") == "no-answer")
 
         now = [0.0]
         calls: list[dict] = []

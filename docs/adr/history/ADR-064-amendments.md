@@ -490,3 +490,18 @@ sent ledger once its primary took it, whether or not the relay did (a
 
 Accepted by the owner, 2026-11-18, in the coordinator's session (gate
 1's word). ADR-033 is amended the same day.
+
+### Amendment 2026-11-18 — The carrier's own ops when control rides InterWeave alone
+
+Rule 14 kept installing, starting and stopping the carrier, and reading
+its state, on the relay, because they must reach an account while its
+InterWeave channel is down. With `control_carrier` naming InterWeave
+alone (ADR-029 rule 18) there is no relay. BlueTeam-OU/agent-fabric#656
+(python-dev-04, j145) sends install, start and stop only through
+ADR-029 rule 19's break-glass path, as before, and carries the read over
+InterWeave while the carrier answers; an account that has not answered
+within 30 seconds, or that the send never reached, is read again through
+that path, and the row names which path answered. Before #656 the
+carrier computed the read and dropped it at all four of its refusal
+sites; it now answers it only when agentd runs on InterWeave alone.
+Under `relay` and `dual` nothing changes.

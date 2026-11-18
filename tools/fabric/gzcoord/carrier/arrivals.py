@@ -27,6 +27,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import sys
 import threading
 from typing import Callable
 
@@ -108,6 +109,56 @@ class WatchLog(ArrivalLog):
     def append_end(self, pid: int, reason: str, code: int) -> None:
         assert reason in self.END_REASONS, reason
         self._append({"t": self._iso(), "event": "end", "pid": pid, "reason": reason, "code": code})
+
+
+class MirrorLog(ArrivalLog):
+    """gzcoord-mirror.jsonl, in the SENDER's state beside gzcoord-sent.jsonl: one line for each send the InterWeave carrier,
+    as a mirror, did not accept: {"mid","t","outcome","reason"}, `outcome` one of OUTCOMES. The relay's record then holds the
+    message alone, and the parity report (ADR-064 rule 11) sees a pair with no InterWeave copy and no sender record; before this
+    log the reason was a stderr line of a send nobody kept. A send the carrier accepted leaves no line here: it has a
+    delivery row in the carrier's own outbox. The log is bounded (a sender with no carrier at all writes a line per send)."""
+
+    OUTCOMES = ("absent", "not-carried", "failed", "no-answer")
+    MAX_BYTES = 256 * 1024
+    REASON_MAX = 200
+
+    def append_refused(self, mid: str, outcome: str, reason: str) -> None:
+        assert outcome in self.OUTCOMES, outcome
+        self._append({"mid": mid, "t": self._iso(), "outcome": outcome, "reason": " ".join(reason.split())[:self.REASON_MAX]})
+
+    def _append(self, line: dict) -> None:
+        # The lock is a file of its own, never the log: the trim replaces the log by rename, and a lock on the replaced inode would
+        # let a second appender write into a file that no longer has a name (a lost line, silently).
+        with self._lock:
+            os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
+            lock = os.open(self.path + ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                jsonl.repair(self.path)
+                jsonl.append_path(self.path, line)
+                if os.stat(self.path).st_size > self.MAX_BYTES:
+                    try:
+                        self._trim()
+                    except OSError as e:
+                        # The line is written; only the bound failed (a full disk): said as that, never as an unwritten line.
+                        print(f"gzcoord: the mirror refusal log was written but could not be trimmed ({e.strerror or e})", file=sys.stderr)
+            finally:
+                os.close(lock)
+
+
+    def _trim(self) -> None:
+        # An undecodable byte is replaced: a line it breaks is dropped, one where it sits inside a string is kept with U+FFFD, and the
+        # trim bounds the log either way (it would otherwise stay over its bound for good).
+        rows: list[dict] = []
+        with open(self.path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(o, dict):
+                    rows.append(o)
+        _rewrite(self.path, rows[len(rows) // 2:])
 
 
 class Spool:

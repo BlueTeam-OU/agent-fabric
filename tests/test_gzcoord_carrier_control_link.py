@@ -57,7 +57,7 @@ class Scratch(unittest.TestCase):
 class Node:
     """One account's carrier over the fake network. `requests` is what its on_request was handed."""
 
-    def __init__(self, test: Scratch, net: str, name: str, *, rows=ROWS, placed=PLACED, backoff=(0.05,), extra_env=None, start=True):
+    def __init__(self, test: Scratch, net: str, name: str, *, rows=ROWS, placed=PLACED, backoff=(0.05,), extra_env=None, start=True, relay_off=False):
         self.name, self.logs, self.requests = name, [], []
         d = test.scratch()
         self.dir = d
@@ -67,7 +67,8 @@ class Node:
         self.directory = cc.Directory(lambda: rows, "h", lambda: placed, log=self.logs.append)
         self.arrivals = cc.ArrivalLog(os.path.join(d, "arrivals.jsonl"), "agentd", log=self.logs.append)
         self.carrier = cc.Carrier(directory=self.directory, child=self.child, me=f"h/{name}",
-                                  on_request=lambda r, s: self.requests.append((r, s)), arrivals=self.arrivals, log=self.logs.append)
+                                  on_request=lambda r, s: self.requests.append((r, s)), arrivals=self.arrivals, log=self.logs.append,
+                                  relay_off=relay_off)
         test.addCleanup(self.close)
         if start:
             self.carrier.start()
@@ -108,6 +109,7 @@ class Framing(unittest.TestCase):
 
     def test_the_relay_only_ops_are_the_four_that_take_the_channel_down_or_ask_about_it(self):
         self.assertEqual(cc.RELAY_ONLY_OPS, {"interweave", "interweave-install", "interweave-start", "interweave-stop"})
+        self.assertEqual(cc.CARRIER_ACTION_OPS, {"interweave-install", "interweave-start", "interweave-stop"}, "what no mode carries")
         self.assertNotIn("interweave-evidence", cc.RELAY_ONLY_OPS, "evidence goes by both, as any other op")
 
     def test_the_render_and_the_carrier_name_the_same_endpoint(self):
@@ -519,6 +521,68 @@ class Inbound(Net):
         self.assertTrue(until(lambda: done == [1]))
         inbox.close()
         self.assertTrue(any("broke the handler" in l for l in logs))
+
+
+class RelayOff(Net):
+    """The carrier alone (control_carrier "interweave", Carrier(relay_off=True)): the carrier's own read rides it, the three actions that
+    take the channel down still never do. The default Carrier (relay and dual) is the other half, in the cases above."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.nodes = {n: self.node(n, relay_off=True) for n in ("alice", "op")}
+        self.sock_dir = os.path.join(self.scratch(), "agent-fabric")
+        self.path = os.path.join(self.sock_dir, "control.sock")
+        self.server = cc.Server(self.path, self.nodes["op"].carrier, "h/op", log=self.nodes["op"].logs.append,
+                                refused_ops=self.nodes["op"].carrier.refused_ops)
+        self.server.start()
+        self.addCleanup(self.server.stop)
+
+    def test_the_read_that_arrives_is_handed_on_and_the_three_actions_are_dropped(self):
+        a = self.nodes["alice"]
+        for op in sorted(cc.CARRIER_ACTION_OPS) + ["interweave"]:
+            self.deliver_to_alice(op)
+        self.assertTrue(until(lambda: [r for r, _ in a.requests]), a.logs)
+        self.assertTrue(until(lambda: len(a.arrival_lines()) == 4), a.logs)
+        self.assertEqual([r["op"] for r, _ in a.requests], ["interweave"])
+        self.assertEqual(sorted(l["verdict"] for l in a.arrival_lines()), ["ok", "relay-only-op", "relay-only-op", "relay-only-op"])
+
+    def deliver_to_alice(self, op: str) -> None:
+        self.nodes["alice"].carrier.inbound({"direction": "in", "local_endpoint": None, "author": PEERS["op"],
+                                             "text": cc.frame(request(rid=f"x-{op}", op=op))})
+
+    def test_the_read_is_answered_by_the_carrier_and_an_action_never_is(self):
+        a, op = self.nodes["alice"], self.nodes["op"]
+        got = []
+        op.carrier.watch("r1", lambda rec, sender: got.append(rec["id"]))
+        a.carrier.reply(request(rid="r1", op="interweave"), reply(rid="p-read", to="r1"))
+        for action in sorted(cc.CARRIER_ACTION_OPS):
+            a.carrier.reply(request(rid="r1", op=action), reply(rid=f"p-{action}", to="r1"))
+        self.assertTrue(until(lambda: got == ["p-read"]), a.logs + op.logs)
+        time.sleep(0.3)
+        self.assertEqual(got, ["p-read"], "the actions' replies were not sent")
+
+    def test_the_socket_takes_the_read_and_refuses_each_action_by_name(self):
+        s = cc.Session(self.path, request(rid="q-read", op="interweave", to=["h/alice"]), ["h/alice"], 5)
+        self.addCleanup(s.close)
+        s.wait_sent(5)
+        self.assertEqual(s.sent["h/alice"], (True, ""))
+        self.assertTrue(until(lambda: self.nodes["alice"].requests), self.nodes["alice"].logs)
+        for action in sorted(cc.CARRIER_ACTION_OPS):
+            with self.subTest(action):
+                t = cc.Session(self.path, request(rid="q-" + action, op=action), ["h/alice"], 5)
+                self.addCleanup(t.close)
+                with self.assertRaises(RuntimeError) as cm:
+                    t.wait_sent(5)
+                self.assertIn("through hostexec, never on the carrier", str(cm.exception))
+        self.assertEqual([r["id"] for r, _ in self.nodes["alice"].requests], ["q-read"])
+
+    def test_the_operators_own_read_loops_back_and_an_own_action_does_not(self):
+        op = self.nodes["op"]
+        self.assertEqual(op.carrier.send_to(["h/op"], request(frm="h/op", to=["h/op"], op="interweave"), 1)["h/op"], (True, ""))
+        self.assertTrue(until(lambda: op.requests), op.logs)
+        for action in sorted(cc.CARRIER_ACTION_OPS):
+            self.assertFalse(op.carrier.send_to(["h/op"], request(frm="h/op", to=["h/op"], op=action), 1)["h/op"][0], action)
+        self.assertEqual([r["op"] for r, _ in op.requests], ["interweave"])
 
 
 class SocketCases(Net):

@@ -376,11 +376,15 @@ with Doppler (ADR-038 §5 rule 8).
       its lock, so a request accepted on either path is a replay on the
       other;
     - beyond rules 4–5 it refuses, with exit 2 and nothing run, a read
-      op (a read without the relay is a plain `fabric-host` run), a `to`
+      op (a read without the relay is a plain `fabric-host` run) but
+      one: the signed `interweave` read, the fallback of ADR-064 rule 14
+      when `control_carrier` names InterWeave alone (A 2026-11-18),
+      admitted under an action's ttl cap with a future `ts` refused and
+      no claim on the replay floor, since it changes nothing; a `to`
       holding `*`, and an argv op that is not the signed request's op; a
       `to` not naming this account is `accept()`'s refusal, and a `to`
       listing this account beside others is run here. `fabric-ctl`
-      sends a read or more than one account nothing;
+      sends no other read, and more than one account nothing;
     - it journals to `fabric-op.jsonl` in the account's state directory,
       on both ends: a line before the run and one after, and a first line
       that cannot be written refuses the run, so no action runs that the
@@ -514,3 +518,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-11-14 | An open fabric-ctl session holds agentd's restart | §5 rule 18: a session on an agentd's socket (fabric-ctl's, a presence or queue leg's) holds its restart for new code, up to `HOLD_MAX_S`; Evidence: the held-restart read-back (#594, j852) |
 | 2026-11-14 | The transport mode is a signed action | §2 table: `interweave-mode`, the account's GZCoord transport mode, `carrier-only` refused by `fabric-ctl` while any placed account is on `relay-record` (#584) |
 | 2026-11-15 | The parity evidence carries each account's watch log | §2 table: `interweave-evidence` takes a sixth section, `watch` (#620) |
+| 2026-11-18 | fabric-op admits the signed InterWeave read | §5 rule 19: the `interweave` read, ADR-064 rule 14's fallback under `control_carrier` naming InterWeave alone, admitted under an action's ttl cap, no replay-floor claim (#656) |
