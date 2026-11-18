@@ -19,6 +19,7 @@ The status table's three cases were re-frozen when its `provider` column was add
 text, which differs from the Node's by that column only.
 The tools-install rows were re-frozen when a cargo pin's build raised the account's bound (#303): the default timeout 330 -> 1230 s,
 the signed ttl_s 330 -> 600 (ACTION_TTL_MAX_S caps it); nothing else in them moved.
+The `upgrade fabric` row's signed ttl_s was re-frozen 510 -> 600 when its wait grew by the carrier client's restart (j163, CARRIER_RESTART_BUDGET_S), the same cap.
 Every element the Node refused (a `threw` entry) stays as the Node left it."""
 from __future__ import annotations
 
