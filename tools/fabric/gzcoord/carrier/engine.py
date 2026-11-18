@@ -74,6 +74,35 @@ class Counters:
     reconnects: int = 0
 
 
+class StopFlag:
+    """The carrier's stop, safe to set from a signal handler. threading.Event takes its condition lock in set() and in wait();
+    a handler running on the main thread while that thread is inside wait() (the reconnect backoff) re-takes the non-reentrant
+    lock and hangs the carrier on stop (j168). Here set() is one attribute store and wait() polls it in short slices, so no
+    lock is shared between the handler and the thread it interrupts."""
+
+    SLICE = 0.1
+
+    def __init__(self, sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> None:
+        self._flag = False
+        self._sleep = sleep
+        self._clock = clock
+
+    def set(self) -> None:
+        self._flag = True
+
+    def is_set(self) -> bool:
+        return self._flag
+
+    def wait(self, timeout: float | None = None) -> bool:
+        end = None if timeout is None else self._clock() + timeout
+        while not self._flag:
+            left = self.SLICE if end is None else min(self.SLICE, end - self._clock())
+            if left <= 0:
+                break
+            self._sleep(left)
+        return self._flag
+
+
 @dataclass
 class Carrier:
     me_fn: Callable[[], Me]
@@ -88,7 +117,7 @@ class Carrier:
     host: str
     clock: Callable[[], float] = time.monotonic
     iso_now: Callable[[], str] = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    stop: threading.Event = field(default_factory=threading.Event)
+    stop: StopFlag = field(default_factory=StopFlag)
     wake: threading.Event = field(default_factory=threading.Event)
     counters: Counters = field(default_factory=Counters)
     # The last arrival the journal refused: {"mid", "at", "error"}. A refusal is never receipted, so the sender retries it for as
