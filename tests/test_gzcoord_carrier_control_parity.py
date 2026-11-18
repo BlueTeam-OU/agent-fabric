@@ -102,10 +102,21 @@ class Pairs(unittest.TestCase):
         rep = run(rows)
         self.assertEqual((pair(rep, "r1", OP)["outcome"], rep["causes"]["no-waiter"]), ("both", 0))
 
+    def test_a_held_reply_that_agentd_also_delivered_is_no_no_waiter_even_when_ctl_was_shown_no_second_copy(self):
+        # held then ok in agentd's log: the waiter came, so `held` is no cause. The outcome stays relay-only (ctl was
+        # shown no InterWeave copy), which is the only way to reach the cause branch with both verdicts present.
+        rows = [sent("r1", 0, [OP]), got("r1", OP, "relay", 1),
+                got("r1", OP, "interweave", 0, who="agentd", verdict="held"), got("r1", OP, "interweave", 1, who="agentd", verdict="ok")]
+        p = pair(run(rows), "r1", OP)
+        self.assertEqual((p["outcome"], p["cause"]), ("relay-only", "relay-only"))
+        # Positive control: the same log without the `ok` line is the no-waiter of the test above.
+        self.assertEqual(pair(run(rows[:3]), "r1", OP)["cause"], "no-waiter")
+
     def test_a_refused_request_copy_is_no_cause_of_a_miss(self):
-        # agentd answers on both carriers whichever copy it took, so a `seen` line says nothing of a lost reply.
+        # agentd answers on both carriers whichever copy it took, so a `seen` line says nothing of a lost reply. The line
+        # is in the OPERATOR's file: compute reads no other account's file, so a line in alice's would prove nothing.
         seen = {"t": iso(1), "who": "agentd", "carrier": "interweave", "kind": "request", "id": "r1", "verdict": "seen"}
-        rep = run([sent("r1", 0, [A]), got("r1", A, "relay", 2)], others={"alice": [seen]})
+        rep = run([sent("r1", 0, [A]), got("r1", A, "relay", 2), seen])
         self.assertEqual(pair(rep, "r1", A)["cause"], "relay-only")
 
     def test_a_reply_only_interweave_brought_is_a_relay_miss_and_not_a_cause(self):
