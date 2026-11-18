@@ -228,9 +228,9 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    included. The first carrier to accept sets its provenance, name and
    sequence together; a later accept leaves them, which the adapters'
    build makes `episodic.out_final` do. The mode's primary posts first,
-   so in `carrier-record` the carrier's acceptance sets the row; the
-   send's exit status is the primary's answer alone, and a mirror that
-   took a copy is said, never counted (A 2026-11-18). Each carrier's own outcome is
+   so in `carrier-record` the carrier's acceptance sets the row and the
+   send's exit status is the carrier's answer alone, a relay mirror
+   that took a copy said, never counted (A 2026-11-18). Each carrier's own outcome is
    in its record and the arrival log. The receiving carrier
    journals only what ADR-041 rule 2 admits, and a repeat collapses by
    `MESSAGE-ID` (ADR-041 rule 5).

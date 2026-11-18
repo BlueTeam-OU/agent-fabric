@@ -4,7 +4,7 @@
 D8 on 2026-11-15, each as recommended (§7). D3's first half is done: #573 merged on 2026-11-13.
 W1 is done: #573's real-carrier read-back is the 2026-11-15 drill's record. D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
 and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in §4 change when
-each gate's word is given. W2 to W14 and W17 are done (§5): W6, W7 and W8 merged as
+each gate's word is given. W2 to W14, W17 and W18 are done (§5): W6, W7 and W8 merged as
 #613, W7's Stop-hook probe is on #612, W11 and W17's code are #623, W17's records
 were amended 2026-11-16, and W2's parity report, gate 1's last item, was filed 2026-11-18.
 The owner gave gate 1's word on 2026-11-18; ADR-033 and ADR-064 are amended for it.
@@ -178,8 +178,8 @@ The owner's word is asked three times, each on evidence filed in `docs/live-chec
 landing as records only fabric-coordinator writes. Nothing in the grammar changes, so ADR-032 is
 not amended; what the carrier observes of ordering and loss is the evidence its §7 waits for.
 
-**Gate 1: InterWeave becomes the transport of record** (ADR-064 rule 11, as written). Given by
-the owner on 2026-11-18. Evidence:
+**Gate 1: InterWeave becomes the transport of record** (ADR-064 rule 11 as it read before
+2026-11-18). Given by the owner on 2026-11-18. Evidence:
 
 1. #573 merged (done, 2026-11-13), and its missing read-back done: a message through the real
    carrier to a second account, shown once, then found on the relay after its return. Filed:
@@ -204,7 +204,7 @@ the owner on 2026-11-18. Evidence:
    traced; and the duplicate copies explained. Under InterWeave only a miss is a lost message.
    Filed 2026-11-18: 562 pairs from 2026-11-15T10:00Z to 2026-11-18T00:00Z, InterWeave missed
    none, no duplicate copy (`docs/live-checks/2026-11-18-interweave-parity.md`).
-5. A `TO-ROLE` recipient: held (100 pairs in the last report).
+5. A `TO-ROLE` recipient: held (100 pairs in the 2026-11-09 report, 7 in the 2026-11-18 one).
 
 Records: an amendment of ADR-033 (§2 third bullet, §8: the relay is the mirror) and of ADR-064
 (rule 11: the record moves account by account under a mode; rule 7: which carrier's acceptance
@@ -270,8 +270,8 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W15 | Removal, after gate 2: `RelayTransport` out of the send and inbox paths, `integration_config` no longer asks for a relay, the backfill, the acknowledgement log and the relay half of `parity.py` deleted, a one-carrier health report in its place, the state copy takes the outbox, `Bootstrap.journal_import` and `episodic_import.py` deleted with an amendment of ADR-041 rule 9 (the import that reads the relay), `transport-calls.json` loses `drift.py`, and `verify_grant`'s relay-row branch (`RELAY_CARRIER`) goes | PD, PD-supply (`relay.py`, `episodic_import.py`, `bootstrap.py`), DX (`tools/fabric/github/arm.py`), FC (the 15 integration files, the skills, the manuals, `transport-calls.json`) | `grep` finds no `/api/` call under `tools/fabric/gzcoord/`; `tests/test_arm_cli.py` refuses a grant row whose carrier is the relay; `tools/fabric/transport_calls.py` is clean with the shorter policy; the suite is green with no relay fixture in the GZCoord tests | L | gate 2 |
 | W16 | The relay retired (gate 3): control on InterWeave alone, the state stream replaced, the relay unit, its token, its backup timer and `secret_relay.py` removed | PD, FC | sized when gate 3 is asked for | L | gate 3 |
 
-W1 to W14 and W17 are done; gate 1's evidence is filed (items 1 to 4). What is left is the
-gates. W15 and W16 follow gate 2 and gate 3. The staged switches of §6 are operations, not code:
+W1 to W14, W17 and W18 are done; gate 1's evidence is filed (items 1 to 4). What is left is the
+`send.py` fix of §8 item 1, then the gates. W15 and W16 follow gate 2 and gate 3. The staged switches of §6 are operations, not code:
 fabric-coordinator's, on the owner's word.
 
 ## 6. The switch, staged, and its way back
@@ -303,7 +303,8 @@ at the next send; a running watch builds its transport once (`inbox.py` `main`),
 `mode.Watcher` ends the arm within `MODE_POLL_S` (5 s) of a changed mode. What keeps it safe:
 
 - In `carrier-record` the relay has every message (mirror plus backfill), so a step back to
-  `relay-record` loses nothing.
+  `relay-record` loses nothing. This holds once the `send.py` fix of §8 item 1 merges: until
+  then a send whose relay mirror failed is never backfilled.
 - The ledger is not rotated while any account can still read the relay
   (`communication/gzcoord/docs/CARRIER-CONTRACT.md` §6). An account that returns from
   `carrier-only` meets its old relay backlog; `dedup.admit` marks what was shown as `quiet`
@@ -388,13 +389,14 @@ recommended:
 
 ## 8. What happens first
 
-W1 to W14 and W17 are done: #573 is merged and its real-carrier read-back is the 2026-11-15
+W1 to W14, W17 and W18 are done: #573 is merged and its real-carrier read-back is the 2026-11-15
 drill's record, both drills are filed, and so is the 2026-11-18 parity report. What is left,
-in this order:
+in this order (gate 1's word was given on 2026-11-18, on items 1 to 4 of §4):
 
-1. **W2**, done 2026-11-18: the parity report with no InterWeave miss is gate 1 item 4. The
-   rollback drill (2026-11-12) and the relay-outage drill (2026-11-15) are items 2 and 3. With
-   W1 this is everything gate 1 asks for; the owner gave gate 1's word on 2026-11-18.
+1. **The `send.py` fix** #650's review found: in `carrier-record`, a send whose relay mirror
+   post failed is put on the sent ledger anyway, and the backfill logs it `present` without
+   posting it, so the relay's record has a hole and the way back below is not lossless
+   (REQUEST 01a1ed4e-82ec to python-dev). Gate 1's mode switch waits on it.
 2. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
    gate 3. D8's soak follows gate 1's word, not before it: the word moves python-dev-02 and
    python-dev-03 to `carrier-record` (§6 step 1), they soak three working days, then the fleet

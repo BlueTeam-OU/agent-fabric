@@ -16,7 +16,10 @@ mismatch, no pair recorded as sent with no copy and no receipt. At
 collection every account was in `relay-record` with nothing stranded
 (`fabric-ctl all interweave`, 2026-11-18: 30 of 30 `relay-record`, 30
 of 30 stranded 0). The mode's history over the window is not read
-here; plan §6 moves the first accounts only on gate 1's word.
+here; plan §6 moves the first accounts only on gate 1's word. Every
+time, id, bound and mode below that the tool's output does not print is
+filed, as the lines it came from, in
+[`2026-11-18-interweave-parity-rows.md`](2026-11-18-interweave-parity-rows.md).
 
 ## How it was computed
 
@@ -24,7 +27,8 @@ On 2026-11-18, on develop-qzapp, with `gzcoord-carrier` run from the
 main checkout at 562474c8 (#645 merged):
 `fabric-ctl all interweave-evidence --since 2026-11-14T00:00:00Z
 --until 2026-11-18T02:00:00Z --out <dir>`, all 30 accounts `ok`, each
-account's `meta.json` `journal: ok` and `complete: true`. Then `gzcoord-carrier parity --window
+account's `meta.json` `journal: ok` and `complete: true`, run between
+01:39 and 01:47Z, over an hour after the window's end. Then `gzcoord-carrier parity --window
 2026-11-15T10:00:00Z 2026-11-18T00:00:00Z --collected <dir>`. The
 tool's output is filed unedited in
 [`2026-11-18-interweave-parity-computed.md`](2026-11-18-interweave-parity-computed.md).
@@ -50,16 +54,19 @@ the files. From the wider collection's `arrivals.jsonl`:
 
 | pair | InterWeave arrival | relay arrival in the window |
 |---|---|---|
-| `01a1db67-e363` to user | 2026-11-14T18:53:03Z | 2026-11-15T23:57:42Z, a second relay copy; the first came at 2026-11-14T18:53:02Z (python-dev-03's `backfills.jsonl`: `relay-took-send` at 18:53:02) |
+| `01a1db67-e363` to user | 2026-11-14T18:53:03Z | 2026-11-15T23:57:42Z, a second relay copy; the first arrived at 2026-11-14T18:53:02Z (user's `arrivals.jsonl`) |
 | `01a1de05` to language-culture-en | 2026-11-15T07:04:30Z | 21:11:00Z |
 | `01a1de20` to language-culture-en | 2026-11-15T07:33:51Z | 21:11:00Z |
 | `01a1de35` to language-culture-en | 2026-11-15T07:56:46Z | 21:11:00Z |
 
-The three to language-culture-en are the drill record's: that
+`01a1de05` and `01a1de20` are the drill record's; `01a1de35` was made
+at 07:56:35, after the drill. All three wait on the same cause: that
 account's watch gave up during the outage and nothing started it again
 until 21:10:59, after the host's switch-off. Re-collected from
-2026-11-14, all four pairs leave the window, their first copy being the
-InterWeave one before 10:00 on 2026-11-15, and nothing else changes:
+2026-11-14, all four pairs leave the window, their first copy being
+before 10:00 on 2026-11-15 (InterWeave's for the three to
+language-culture-en, the relay's, by one second, for `01a1db67-e363`),
+and nothing else changes:
 566 pairs became 562, the relay's count with them, InterWeave's 560
 unchanged, and the away table lost the same pairs (relay direct 48 to
 46, broadcast 2 to 0). That run's output is filed unedited in
@@ -86,7 +93,10 @@ that absence; the default hour is not enough after an outage.
   after gate 1's word (plan §6, step 1).
 - The window is 2.6 days, two of them working days. The 2026-11-09
   report covered 16 days.
-- The 19 direct InterWeave pairs first delivered over 60 s after they
-  were made are addressees away, as in the relay's 46; the tool does
-  not tell a stopped watch from a late carrier, and none of them is a
-  miss.
+- The 19 direct and 1 role InterWeave pairs that arrived over 60 s
+  after their MESSAGE-ID was made are not traced. The receiving carrier
+  writes an arrival line whatever its session does, so a stopped watch
+  is not their cause; what remains is the addressee's carrier down, the
+  sender's outbox retrying, or an id minted well before the send. None
+  is a miss. Under gate 1 they are the carrier's latency, and the soak
+  (D8) reads them from the senders' `deliveries.jsonl`.

@@ -49,8 +49,13 @@ messages the record now moves account by account, under the mode
 ADR-064 §7 names: an account in `carrier-record` has InterWeave as its
 transport of record (its send's exit status is the carrier's answer,
 its watch waits on the carrier, its replay reads the journal) and the
-relay as its mirror both ways, kept whole by the mirror post and the
-backfill; an account in `relay-record` is as before. Control stays on
+relay as its mirror both ways; an account in `relay-record` is as
+before. The amendment does not say the mirror is complete: #650's
+review found that a send whose relay mirror post failed is written to
+the sent ledger anyway, and the backfill then logs it `present` without
+posting it. That is a defect in `send.py`, sent to python-dev
+(REQUEST 01a1ed4e-82ec), and no account moves to `carrier-record`
+before its fix merges (cutover plan §6). Control stays on
 the relay (ADR-029). §8 says the same.
 
 Why: gate 1 of the cutover plan

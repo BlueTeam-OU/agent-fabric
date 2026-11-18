@@ -51,9 +51,9 @@ the terminal that started it.
   the control plane rides it on `fabric:control` (ADR-029). Hosting it is
   fabric-coordinator's duty. For GZCoord messages the record moves account
   by account (A 2026-11-18): an account in `carrier-record` has InterWeave
-  as its transport of record and the relay as its mirror, both ways, kept
-  whole by the mirror post and the backfill (ADR-064 rules 7 and 11); an
-  account in `relay-record` keeps the relay's. Control stays on the relay.
+  as its transport of record and the relay as its mirror, both ways
+  (ADR-064 rules 7 and 11); an account in `relay-record` keeps the
+  relay's. Control stays on the relay.
 - **The human relay is the fallback.** When the relay is down, a person
   carries messages between terminals and is the adapter;
   `communication/gzcoord/docs/HUMAN-RELAY-TRANSPORT.md` is the procedure.

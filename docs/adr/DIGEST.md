@@ -1494,9 +1494,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One host, loopback only, first; second host next, once
   registered and in the operator's inventory (ADR-069); control on a `fabric-control` endpoint
   via `interweave-human` (rules 1, 12).
-- Dual run: both carriers, relay of record (ADR-033 r7
-  unchanged); journal collapses by MESSAGE-ID; switching: ADR-033
-  amendment on owner's word, parity report (rule 11).
+- Dual run: both carriers; the record is the account's mode's, relay
+  in `relay-record`, InterWeave in `carrier-record` (ADR-033 r7
+  unchanged); journal collapses by MESSAGE-ID; each gate on the owner's
+  word, parity report and drills (rule 11).
 - Carrier: fabric's own client, not `interweave-human`/
   `claude-channel` (rule 5).
 - A roster keyed by agent id, each row signed by its login,
