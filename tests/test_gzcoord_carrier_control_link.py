@@ -615,6 +615,43 @@ class SocketCases(Net):
         self.assertTrue(until(lambda: got.extend(s.poll(0.2)) or got), "the reply was not streamed back")
         self.assertEqual((got[0]["carrier"], got[0]["from"], got[0]["record"]["id"]), ("interweave", "h/alice", "a1"))
 
+    def test_this_accounts_own_reply_that_beats_its_waiter_is_kept_and_handed_over_at_watch(self):
+        # The operator's own row in dual (j164): the relay copy is answered before fabric-ctl's session registers.
+        a = self.nodes["alice"]
+        a.carrier.reply(request(frm="h/alice"), reply(rid="p7", frm="h/alice"))
+        got = []
+        a.carrier.watch("r1", lambda rec, sender: got.append((rec["id"], sender)))
+        self.assertEqual(got, [("p7", "h/alice")])
+        self.assertEqual([l["verdict"] for l in a.arrival_lines()], ["held", "ok"])
+        a.carrier.unwatch("r1")
+        a.carrier.watch("r1", lambda rec, sender: got.append("again"))
+        self.assertEqual(len(got), 1, "a held reply is handed over once")
+
+    def test_a_reply_after_its_session_ended_or_from_a_peer_is_not_kept(self):
+        a = self.nodes["alice"]
+        a.carrier.watch("r2", lambda *_: None)
+        a.carrier.unwatch("r2")
+        a.carrier.reply(request(rid="r2", frm="h/alice"), reply(rid="p8", to="r2", frm="h/alice"))
+        a.carrier._route_reply(reply(rid="p9", to="r3", frm="h/bob"), "h/bob")
+        got = []
+        a.carrier.watch("r2", lambda rec, s: got.append(rec))
+        a.carrier.watch("r3", lambda rec, s: got.append(rec))
+        self.assertEqual(got, [])
+        self.assertEqual([l["verdict"] for l in a.arrival_lines()], ["no-waiter", "no-waiter"])
+
+    def test_held_replies_are_bounded_and_expire(self):
+        a = self.nodes["alice"]
+        for i in range(cc.EARLY_MAX + 5):
+            a.carrier._route_reply(reply(rid=f"p{i}", to=f"q{i}", frm="h/alice"), "h/alice")
+        self.assertEqual(len(a.carrier._early), cc.EARLY_MAX)
+        for k in a.carrier._early:
+            a.carrier._early[k] = (a.carrier._early[k][0], time.monotonic() - cc.EARLY_HOLD_S - 1)
+        a.carrier._route_reply(reply(rid="px", to="qx", frm="h/alice"), "h/alice")
+        self.assertEqual(list(a.carrier._early), ["qx"])
+        lines = a.arrival_lines()
+        self.assertEqual(sum(1 for l in lines if l["verdict"] == "held"), cc.EARLY_MAX + 6)
+        self.assertEqual(sum(1 for l in lines if l["verdict"] == "no-waiter"), cc.EARLY_MAX + 5, "every evicted or expired one is said as no-waiter")
+
     def test_the_operators_own_address_is_answered_through_its_own_socket(self):
         op = self.nodes["op"]
         s = cc.Session(self.path, request(rid="q7", frm="h/op", to=["h/op"]), ["h/op"], 10)
