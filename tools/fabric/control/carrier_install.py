@@ -1433,8 +1433,16 @@ def restart_client(root: str, home: str, state: str, run: Callable[..., Any] = s
             states, running = running_units(profile, run, home)
         except ChannelUnknown as e:
             return {"status": "failed", "reason": f"{e}; the carrier was not restarted"}
+        if states[client] is None:
+            # show_property answers None for a manager that errors as well as for one that is absent: whether the client runs is not known.
+            return {"status": "failed", "reason": f"whether {client} runs is not known (the user manager gave no state); the carrier was not restarted", "units": states}
         if client not in running:
             return {"status": "not-running", "units": states}
+        try:
+            # The unit runs this copy, not runtime/<carrier>/client of the checkout; a changed source is stale until it is replaced.
+            install_client.install(home, client_source(root))
+        except OSError as e:
+            return {"status": "failed", "reason": f"the client unit's program could not be installed ({_oneline(e)}); the carrier was not restarted", "units": states}
         problem = restart_units([client], run, home)
         if problem:
             return {"status": "failed", "reason": problem, "units": states}

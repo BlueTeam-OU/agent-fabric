@@ -678,10 +678,12 @@ def session_provider(pids: list[int], proc: str = "/proc") -> str | None:
     return None
 
 
-# What a running carrier has loaded: the whole gzcoord package (the engine imports the paths, messages and tokens beside carrier/), its program
-# and the client unit's. Wider than carrier/ so that no import of the engine from beside it goes unrestarted; what it imports from outside
-# gzcoord/ (episodic, roots, signing) is not listed and a change there alone does not restart it.
-CARRIER_CODE = ("tools/fabric/gzcoord/", "bin/gzcoord-carrier", "runtime/interweave/client")
+# What a running carrier has loaded: the whole gzcoord package (the engine imports the paths, messages and tokens beside carrier/), the
+# modules it imports from outside it (episodic and what that reads, roots, signing, identity), its program and the client unit's. A path
+# here that stops existing fails test_carrier_code_paths_exist, so a rename cannot quietly narrow the list; a new import of the engine
+# from elsewhere is not found by anything and is added here by whoever adds it.
+CARRIER_CODE = ("tools/fabric/gzcoord/", "tools/fabric/episodic.py", "tools/fabric/roots.py", "tools/fabric/secret_store.py", "tools/fabric/signing/",
+                "runtime/identity.py", "bin/gzcoord-carrier", "runtime/interweave/client")
 
 
 def restart_carrier(root: str, home: str, env: dict[str, str], from_: str, to: str, run: Callable[..., Any],
