@@ -651,7 +651,7 @@ def main(argv: list[str]) -> int:
 
     to_one_login = bool(msg["metadata"].get("TO"))   # exactly one of TO, TO-ROLE, BROADCAST: the validator's rule
 
-    def via_mirrors() -> bool:
+    def via_mirrors() -> list[str]:
         """The same message to the mirror transports (ADR-064 rules 6, 7), after
         the primary's outcome is known and whatever it was: both get every
         message, and the journal row is accepted when either accepts. Nothing
@@ -660,7 +660,8 @@ def main(argv: list[str]) -> int:
         With no mirror running, and with the journal off (rule 8), it is a no-op. A mirror
         that did not accept is reported to nobody: `failed` marks only a pending row (ADR-041
         rule 3), and the row is the primary's outcome's to set, so there is nothing to write.
-        True when a mirror accepted it: a failed primary's line must then not say "not sent"."""
+        The names of the mirrors that accepted it: a failed primary's line must then not say "not sent", and a
+        carrier-primary send is on the sent ledger only if the relay is among them."""
         accepted = [s for s in tp.send_mirrors(mid, text) if s.state == "accepted"]
         for s in accepted:
             # The relay is the journal's default carrier name (claude-bridge), not its transport name.
@@ -668,7 +669,7 @@ def main(argv: list[str]) -> int:
                             *(["--carrier", s.name] if s.name == CARRIER_NAME else [])], "")
             if done["status"] != 0:
                 sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by the carrier\n")
-        return bool(accepted)
+        return [s.name for s in accepted]
 
     try:
         # A refused token is taken fresh from the synced file once (a shell snapshot keeps a rotated one) inside the send.
@@ -694,7 +695,7 @@ def main(argv: list[str]) -> int:
                 done = journal(["gzcoord-out-final", mid, "--state", "failed"], "")
                 if done["status"] != 0:
                     sys.stderr.write(done["stderr"])
-        carried = via_mirrors()
+        carried = bool(via_mirrors())
         if tp.primary.name == CARRIER_NAME:
             return carrier_not_accepted(e, never, carried, me["address"], file, mid, t)
         status = getattr(e, "status", None)
@@ -742,14 +743,17 @@ def main(argv: list[str]) -> int:
                         *(["--seq", js.string(seq)] if not js.nullish(seq) else [])], "")
         if done["status"] != 0:
             sys.stderr.write(done["stderr"] or "episodic: the sent message was not marked accepted\n")
-    via_mirrors()
-    # Recorded only once the relay has it: a post that failed spent nothing.
-    try:
-        record_sent(ledger, {"id": mid, "sha256": sha, "seq": js.coalesce(seq, None), "at": _now_iso()})
-    except LedgerNotTrimmed as e:
-        print(t("send.ledger-not-trimmed", {"detail": e.strerror or str(e)}), file=sys.stderr)
-    except OSError as e:
-        print(t("send.ledger-not-written", {"detail": e.strerror or str(e)}), file=sys.stderr)
+    mirrored = via_mirrors()
+    # The ledger says "the relay has it" (backfill.on_sent_ledger skips an id on it): a post that failed spent nothing,
+    # and with the carrier as the record the relay is a mirror that may have failed, so the id stays off the ledger and
+    # the next backfill posts it. The relay as the record needs no mirror.
+    if tp.primary.name != CARRIER_NAME or "relay" in mirrored:
+        try:
+            record_sent(ledger, {"id": mid, "sha256": sha, "seq": js.coalesce(seq, None), "at": _now_iso()})
+        except LedgerNotTrimmed as e:
+            print(t("send.ledger-not-trimmed", {"detail": e.strerror or str(e)}), file=sys.stderr)
+        except OSError as e:
+            print(t("send.ledger-not-written", {"detail": e.strerror or str(e)}), file=sys.stderr)
     deduplicated = sent.deduplicated
     if tp.primary.name == CARRIER_NAME:
         # The carrier numbers nothing: the MESSAGE-ID names the message. The line is the owner's to word (cutover W8).

@@ -132,6 +132,48 @@ def carrier_primary_cases() -> None:
           db == [("outbound", "accepted", "claude-bridge", None)], str(db))
 
 
+def sent_ledger_cases() -> None:
+    """The sent ledger means "the relay has it" (backfill skips an id on it). With the carrier as the record the relay
+    is a mirror: its failure leaves the id off the ledger so the next backfill posts it; relay-record is unchanged."""
+    def ledger_ids(mode_name: str, relay_status: int, run: str) -> tuple:
+        from gzcoord.transport import mode
+        relay = P.Relay(status=relay_status)
+        base = P.scratch("send-ledger-")
+        state, store = os.path.join(base, "state"), P.id_store()
+        agent = os.path.join(state, "agents", P.LOGIN)
+        os.makedirs(agent)
+        mode.write(mode_name, "h1/op", agent)
+        try:
+            r = P.send_with(relay.url, P.VALID, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store, XDG_RUNTIME_DIR=run)
+        finally:
+            relay.close()
+        try:
+            with open(os.path.join(agent, "gzcoord-sent.jsonl"), encoding="utf-8") as fh:
+                ids = [json.loads(x)["id"] for x in fh if x.strip()]
+        except FileNotFoundError:
+            ids = []
+        return r, ids
+
+    f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
+    r, ids = ledger_ids("carrier-record", 503, f.run)
+    check("carrier-record, the carrier taking it and the relay mirror failing: exit 0 and the id is NOT on the sent ledger",
+          r.code == 0 and ids == [], f"{r.code} {r.err} {ids}")
+    f.close()
+    f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
+    r, ids = ledger_ids("carrier-record", 200, f.run)
+    check("  positive control: the relay mirror accepting puts the id on the ledger",
+          r.code == 0 and ids == [P.VALID_ID], f"{r.code} {r.err} {ids}")
+    f.close()
+    f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
+    r, ids = ledger_ids("relay-record", 200, f.run)
+    check("relay-record is unchanged: the relay's accept is on the ledger", r.code == 0 and ids == [P.VALID_ID], f"{r.code} {r.err} {ids}")
+    f.close()
+    f = Fake({"ok": False, "error": "down", "carried": 0, "queued": 0})
+    r, ids = ledger_ids("relay-record", 200, f.run)
+    check("relay-record, the carrier mirror failing: still on the ledger", r.code == 0 and ids == [P.VALID_ID], f"{r.code} {r.err} {ids}")
+    f.close()
+
+
 def journal_off_cases() -> None:
     """D7 (cutover plan, owner 2026-11-15): a GZCOORD_JOURNAL=off send goes through the mode's own primary, says so, and
     leaves no journal row; relay-record's route is the relay alone as before."""
@@ -155,6 +197,7 @@ def journal_off_cases() -> None:
 
 def main() -> int:
     carrier_primary_cases()
+    sent_ledger_cases()
     journal_off_cases()
     ok_reply = {"ok": True, "carried": 3, "queued": 3, "posted": 0}
 
