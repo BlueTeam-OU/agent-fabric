@@ -92,13 +92,13 @@ class Harness(Scratch):
 
     def boot(self, *names: str, op_rows=ROWS) -> None:
         """The operator's agentd (a Node with its socket) and the accounts named."""
-        op = Node(self, self.net, "op", rows=op_rows)
-        server = link.Server(link.socket_path(), op.carrier, "h/op", log=op.logs.append)
+        op = Node(self, self.net, "op", rows=op_rows, relay_off=self.carrier == "interweave")
+        server = link.Server(link.socket_path(), op.carrier, "h/op", log=op.logs.append, refused_ops=op.carrier.refused_ops)
         server.start()
         self.addCleanup(server.stop)
         self.nodes["op"] = op
         for n in names:
-            self.nodes[n] = Node(self, self.net, n)
+            self.nodes[n] = Node(self, self.net, n, relay_off=self.carrier == "interweave")
             self.nodes[n].carrier._on_request = lambda request, sender, n=n: self.nodes[n].requests.append((request, sender))
 
     def answer(self, login: str, request: dict, *, relay=True, interweave=True, data=None, relay_data=None) -> dict:
@@ -212,12 +212,12 @@ class Dual(Harness):
         exits: list[int] = []
         leave = agentd.leaver(inflight, exit=lambda code: (exits.append(code), server.stop(), op.carrier.stop()), log=lambda m: None)
 
-        server = link.Server(link.socket_path(), op.carrier, "h/op", log=op.logs.append, hold=lambda: agentd.ctl_hold(leave, inflight))
+        server = link.Server(link.socket_path(), op.carrier, "h/op", log=op.logs.append, refused_ops=op.carrier.refused_ops, hold=lambda: agentd.ctl_hold(leave, inflight))
         server.start()
         self.addCleanup(server.stop)
         self.nodes["op"] = op
         for n in ("alice", "bob"):
-            self.nodes[n] = Node(self, self.net, n)
+            self.nodes[n] = Node(self, self.net, n, relay_off=self.carrier == "interweave")
             self.nodes[n].carrier._on_request = lambda request, sender, n=n: self.nodes[n].requests.append((request, sender))
         self.relay.down = True
         box = self.run_ctl("alice", "bob", "ping", "--json", "--timeout", "15")
@@ -573,16 +573,110 @@ class Interweave(Harness):
         self.assertEqual(rc, 2)
         self.assertTrue(any("refused by fabric-op: not an operator" in e for e in self.err), self.err)
 
-    def test_the_read_op_the_carrier_cannot_carry_is_refused_in_words_and_never_dropped(self):
+    def hostexec_reply(self, calls: list, data=None):
+        """breakglass.via_hostexec as a fabric-op that answers: records (request, target) and returns the account's own reply."""
+        from control import breakglass
+
+        def via(request, target, *, timeout, registry=None, **kw):
+            calls.append((request, target))
+            return breakglass.Outcome("reply", {"v": 1, "kind": "reply", "id": "r", "in_reply_to": request["id"], "from": target["address"],
+                                                "op": request["op"], "ok": True, "data": data or {"interweave": {"status": "ok"}}}, exit=0)
+        return via
+
+    def test_the_carriers_own_read_is_carried_while_the_carrier_runs_and_never_asks_hostexec_or_the_relay(self):
         from control import breakglass
         self.boot("alice")
-        called: list = []
-        with mock.patch.object(breakglass, "via_hostexec", lambda *a, **k: called.append(a)):
-            rc = ctl.main(["alice", "interweave", "--json", "--timeout", "10"], registry=self.registry, call=self.relay, who=WHO,
-                          token="t", out=self.out.append, err=self.err.append)
-        self.assertEqual(rc, 2)
-        self.assertTrue(any("interweave cannot ride" in e and "nothing sent" in e for e in self.err), self.err)
-        self.assertEqual((called, self.relay.calls, self.out), ([], [], []))
+        with mock.patch.object(breakglass, "via_hostexec", side_effect=AssertionError("hostexec")):
+            box = self.run_ctl("alice", "interweave", "--json", "--timeout", "10")
+            req = self.request_of("alice")
+            self.assertEqual(req["op"], "interweave")
+            self.answer("alice", req, relay=False, data={"interweave": {"status": "ok"}})
+            self.assertEqual(self.finish(box), 0, self.err)
+        row = self.rows()[0]
+        self.assertEqual((row["status"], row["carrier"], row["interweave"]), ("ok", "interweave", {"status": "ok"}))
+        self.assertEqual(self.relay.calls, [], "the relay is a closed port: not called")
+        self.assertEqual(self.err, [])
+
+    def test_a_stopped_carrier_is_read_back_by_hostexec_one_signed_request_per_account_and_the_row_says_which_path(self):
+        self.boot("alice")   # alice's carrier takes the send and never answers: what a stopped one does
+        calls: list = []
+        with mock.patch.object(ctl, "CARRIER_FIRST_ANSWER_S", 1.0), mock.patch("control.breakglass.via_hostexec", self.hostexec_reply(calls)):
+            box = self.run_ctl("alice", "interweave", "--json", "--timeout", "10")
+            self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual(self.request_of("alice")["op"], "interweave", "it was asked by the carrier first")
+        (request, target), = calls
+        self.assertEqual((request["op"], request["to"], request["from"], target["address"]), ("interweave", ["h/alice"], "h/op", "h/alice"))
+        self.assertTrue(request.get("sig"), "signed: fabric-op admits it by the one rule")
+        self.assertNotEqual(request["id"], self.request_of("alice")["id"], "a new request, signed when it is sent")
+        row = self.rows()[0]
+        self.assertEqual((row["status"], row["carrier"], row["interweave"]), ("ok", "hostexec", {"status": "ok"}))
+        self.assertTrue(any("alice did not answer by InterWeave" in e and "bin/fabric-op" in e for e in self.err), self.err)
+        self.assertEqual(self.relay.calls, [])
+
+    def test_an_account_the_send_never_reached_is_asked_by_hostexec_at_once_and_one_that_answered_is_not(self):
+        rows = [r for r in ROWS if r["login"] != "bob"]   # no roster row for bob: the send fails, never sent
+        self.boot("alice", "bob", op_rows=rows)
+        calls: list = []
+        t0 = time.monotonic()
+        with mock.patch.object(ctl, "CARRIER_FIRST_ANSWER_S", 30.0), mock.patch("control.breakglass.via_hostexec", self.hostexec_reply(calls)):
+            box = self.run_ctl("all", "interweave", "--json", "--timeout", "60")
+            self.answer("alice", self.request_of("alice"), relay=False, data={"interweave": {"status": "ok"}})
+            self.assertEqual(self.finish(box), 0, self.err)
+        self.assertLess(time.monotonic() - t0, 15, "bob was not waited for")
+        self.assertEqual([t["address"] for _, t in calls], ["h/bob"])
+        self.assertEqual({r["account"]: r["carrier"] for r in self.rows()}, {"alice": "interweave", "bob": "hostexec"})
+
+    def test_no_operator_agentd_reads_every_account_by_hostexec_without_waiting(self):
+        self.nodes["alice"] = Node(self, self.net, "alice")
+        calls: list = []
+        t0 = time.monotonic()
+        with mock.patch("control.breakglass.via_hostexec", self.hostexec_reply(calls)):
+            rc = ctl.main(["alice", "interweave", "--json", "--timeout", "30"], registry=self.registry, call=self.relay, who=WHO, token="t",
+                          out=self.out.append, err=self.err.append)
+        self.assertEqual(rc, 0, self.err)
+        self.assertLess(time.monotonic() - t0, 10)
+        self.assertEqual([r["carrier"] for r in self.rows()], ["hostexec"])
+        self.assertEqual(self.relay.calls, [])
+
+    def test_a_read_fabric_op_refused_or_could_not_run_is_a_failed_run_and_a_no_answer_row(self):
+        from control import breakglass
+        self.boot("alice")
+        for kind, rc_want in (("refused", 2), ("failed", 3)):
+            with self.subTest(kind):
+                self.out.clear()
+                self.err.clear()
+                with mock.patch.object(ctl, "CARRIER_FIRST_ANSWER_S", 0.5), mock.patch.object(breakglass, "via_hostexec",
+                                                                                              lambda *a, **k: breakglass.Outcome(kind, detail="why", exit=2)):
+                    rc = ctl.main(["alice", "interweave", "--json", "--timeout", "5"], registry=self.registry, call=self.relay, who=WHO, token="t",
+                                  out=self.out.append, err=self.err.append)
+                self.assertEqual(rc, rc_want, self.err)
+                self.assertEqual([(r["account"], r["status"]) for r in self.rows()], [("alice", "no answer")])
+                self.assertTrue(any("alice: " in e and "why" in e for e in self.err), self.err)
+
+    def test_the_table_names_the_accounts_hostexec_answered(self):
+        self.boot("alice")
+        with mock.patch.object(ctl, "CARRIER_FIRST_ANSWER_S", 0.5), mock.patch("control.breakglass.via_hostexec", self.hostexec_reply([])):
+            rc = ctl.main(["alice", "interweave", "--timeout", "5"], registry=self.registry, call=self.relay, who=WHO, token="t",
+                          out=self.out.append, err=self.err.append)
+        self.assertEqual(rc, 0, self.err)
+        self.assertIn("answered through hostexec, not InterWeave: alice", self.out)
+
+    def test_no_signing_key_leaves_the_silent_account_a_no_answer_row_and_exit_3(self):
+        self.boot("alice")
+        with mock.patch.object(ctl, "CARRIER_FIRST_ANSWER_S", 0.5), mock.patch.object(ctl, "signing_key", return_value={"error": "no key"}), \
+                mock.patch("control.breakglass.via_hostexec", side_effect=AssertionError("unsigned")):
+            rc = ctl.main(["alice", "interweave", "--json", "--timeout", "5"], registry=self.registry, call=self.relay, who=WHO, token="t",
+                          out=self.out.append, err=self.err.append)
+        self.assertEqual(rc, 3)
+        self.assertEqual([r["status"] for r in self.rows()], ["no answer"])
+
+    def test_the_read_is_still_refused_by_the_flag_that_names_hostexec(self):
+        # --via is the actions' break-glass; the read's fallback is automatic, never asked for by name
+        rc = ctl.main(["alice", "interweave", "--via", "hostexec"], registry=self.registry, call=self.relay, who=WHO, token="t",
+                      out=self.out.append, err=self.err.append)
+        self.assertNotEqual(rc, 0)
+        self.assertTrue(any("is a read" in e for e in self.err), self.err)
+        self.assertEqual((self.out, self.relay.calls), ([], []))
 
     def test_under_dual_the_same_action_is_not_taken_through_hostexec(self):   # the positive control of the routing above
         from control import breakglass
