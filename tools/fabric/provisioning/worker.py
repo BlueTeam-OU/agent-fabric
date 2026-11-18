@@ -187,6 +187,30 @@ class Worker:
     def sudo_test(self, flag: str, path: str) -> bool:
         return self.probe([*self.sudo, "-n", "test", flag, path]) == 0
 
+    def path_kinds(self, paths: list[str]) -> dict[str, str]:
+        """What each path is — "dir", "file", "other" or "absent" — in ONE call, as the account (never root: the
+        account owns every path asked about, and a probe that needs root to stat a path is a wider root surface).
+        An answer that is not exactly one tagged line per path, or a path the account cannot stat for any reason but
+        its absence, stops the run: `sudo test` read every failure as "no", which an unknown is not."""
+        if not paths:
+            return {}
+        # No account yet (a dry run plans one): its home is absent, and `sudo -u` of a login that does not exist is
+        # an error, not an answer.
+        if not self.account_exists():
+            return dict.fromkeys(paths, "absent")
+        got = self.as_login([self.py, "-I", "-c", PATH_PROBE, *paths], login_shell=False, timeout=PROBE_TIMEOUT_S)
+        try:
+            if got.returncode != 0:
+                refused = next((ln for ln in (got.stdout or "").splitlines() if ln.startswith("new-agent-path-error: ")), "")
+                raise ValueError(refused.removeprefix("new-agent-path-error: ") or f"the probe exited {got.returncode}")
+            tags = parse_tags(got.stdout or "", "path")
+            if sorted(tags) != sorted(str(i) for i in range(len(paths))) or not set(tags.values()) <= {"dir", "file", "other", "absent"}:
+                raise ValueError("it answered other than one kind per path")
+        except ValueError as exc:
+            tail(got.stdout)
+            self.die(f"step failed: could not read {len(paths)} path(s) as {self.a.login} ({exc}); nothing after it ran")
+        return {p: tags[str(i)] for i, p in enumerate(paths)}
+
     # ── the pieces a step needs from the host ─────────────────────────
 
     def getent_home(self) -> str:
@@ -207,6 +231,37 @@ class Worker:
 
 # ── the pieces of a step ───────────────────────────────────────────────
 
+# Run as the account with the paths as argv: one "new-agent-path<TAB>index<TAB>kind" line each. os.stat follows links as `test -d/-f` do;
+# ENOENT and ENOTDIR are what `test` read as "no" and the only errors that mean "absent" — any other (EACCES, EIO) is an exception
+# and a non-zero exit, so an unreadable path is never taken for a missing one.
+PATH_PROBE = """import os, stat, sys
+for i, p in enumerate(sys.argv[1:]):
+    try:
+        m = os.stat(p).st_mode
+        kind = "dir" if stat.S_ISDIR(m) else "file" if stat.S_ISREG(m) else "other"
+    except (FileNotFoundError, NotADirectoryError):
+        kind = "absent"
+    except OSError as e:
+        print("new-agent-path-error: %s: %s" % (p, e.strerror), flush=True)
+        sys.exit(1)
+    print("new-agent-path\\t%d\\t%s" % (i, kind), flush=True)
+"""
+
+# A batched step's answer: one "new-agent-<kind><TAB><name><TAB><value>" line per check on stdout. A login shell's profile may print
+# anything else there, so only these lines count, and a repeated name or a tag line of the wrong shape is no answer.
+def parse_tags(text: str, kind: str) -> dict[str, str]:
+    prefix = f"new-agent-{kind}\t"
+    tags: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.startswith(prefix):
+            continue
+        parts = line[len(prefix):].split("\t")
+        if len(parts) != 2 or not parts[0] or parts[0] in tags:
+            raise ValueError(f"a malformed or repeated {kind} line")
+        tags[parts[0]] = parts[1]
+    return tags
+
+
 CLAUDE_INSTALLER = "https://claude.ai/install.sh"
 ORI_INSTALLER = "https://openrouter.ai/labs/ori/install.sh"
 
@@ -223,7 +278,8 @@ def pin_problem(root: str) -> str | None:
 
 
 def tail(text: str, n: int = 5) -> None:
-    for line in (text or "").splitlines()[-n:]:
+    # The batched steps' own tag lines are the protocol, not what a person needs to read.
+    for line in [ln for ln in (text or "").splitlines() if not ln.startswith(("new-agent-path\t", "new-agent-step\t"))][-n:]:
         _log(line + "\n")
 
 
@@ -376,36 +432,77 @@ def trust_github_host_keys(w: Worker) -> None:
         w.say("3. github.com host keys trusted (from the committed published set)")
 
 
+# Step 4's git reads and writes as ONE login shell (each costs about 25 execs of /etc/profile.d), stopping where the run would:
+# a branch other than main, a failed fetch, commits not on origin/main, a failed merge. One tag line per check it reached. In a dry
+# run only the branch is read: the fetch and the merge are said, never made.
+FABRIC_UPDATE = r'''repo=$1; mode=$2
+tag() { printf '\nnew-agent-step\t%s\t%s\n' "$1" "$2"; }   # a leading newline: a profile's unterminated line cannot glue to the tag
+branch=$(git -C "$repo" symbolic-ref -q --short HEAD 2>/dev/null); tag branch "$branch"
+[ "$branch" = main ] && [ "$mode" = real ] || exit 0
+timeout 60 git -C "$repo" fetch -q origin main; rc=$?; tag fetch "$rc"; [ "$rc" = 0 ] || exit 0
+ahead=$(git -C "$repo" rev-list --count origin/main..HEAD 2>/dev/null); tag ahead "$ahead"; [ "$ahead" = 0 ] || exit 0
+git -C "$repo" merge -q --ff-only origin/main; rc=$?; tag merge "$rc"; [ "$rc" = 0 ] || exit 0
+tag sha "$(git -C "$repo" rev-parse --short HEAD 2>/dev/null)"
+'''
+
+
 def fabric_checkout(w: Worker) -> None:
     """---- 4. the fabric checkout: a clone already there is brought to origin/main, never left old (bootstrap and the
     launcher run from it), or refused off main."""
     login, repo = w.a.login, roots.account_clone(w.home)
-    if not w.sudo_test("-d", os.path.join(repo, ".git")):
+    git_dir = os.path.join(repo, ".git")
+    if w.path_kinds([git_dir])[git_dir] != "dir":
         url = w.env.get("AGENT_FABRIC_CLONE_URL") or "https://github.com/BlueTeam-OU/agent-fabric.git"
         w.must_as_login(["git", "clone", "-q", url, repo], f"git clone -q '{url}' ~/projects/agent-fabric")
         w.say("4. agent-fabric cloned (https; the fabric is public)")
         return
-    branch = w.as_login_out(["git", "-C", repo, "symbolic-ref", "-q", "--short", "HEAD"]).strip("\n")
-    if branch != "main":
-        w.die(f"step failed: ~/projects/agent-fabric is on {branch or 'a detached HEAD'}, not main; bring it to main as "
+    got = w.as_login(["bash", "-c", FABRIC_UPDATE, "_", repo, "dry" if w.a.dry else "real"])
+    try:
+        tags = parse_tags(got.stdout or "", "step")
+    except ValueError as exc:
+        tags = {}
+        why = str(exc)
+    else:
+        why = "no answer to the branch question"
+    if "branch" not in tags:
+        tail(got.stdout)
+        w.die(f"step failed: the checkout ~/projects/agent-fabric could not be read as {login} ({why}); nothing after it ran")
+    if tags["branch"] != "main":
+        w.die(f"step failed: ~/projects/agent-fabric is on {tags['branch'] or 'a detached HEAD'}, not main; bring it to main as "
               f"{login}, then re-run; nothing after it ran")
-    w.must_as_login(["timeout", "60", "git", "-C", repo, "fetch", "-q", "origin", "main"],
-                    "timeout 60 git -C ~/projects/agent-fabric fetch -q origin main")
-    ahead = w.as_login_out(["git", "-C", repo, "rev-list", "--count", "origin/main..HEAD"]).strip("\n")
-    if not w.a.dry and ahead != "0":
+
+    def reached(name: str, describe: str) -> str:
+        """The tag of a check the script ran, or a stop naming it: a missing tag is the script not running to it, never a pass."""
+        if name not in tags:
+            tail(got.stdout)
+            w.die(f"step failed: {describe} gave no answer as {login} (the batched step 4 stopped short); nothing after it ran")
+        return tags[name]
+
+    fetch_line = "timeout 60 git -C ~/projects/agent-fabric fetch -q origin main"
+    merge_line = "git -C ~/projects/agent-fabric merge -q --ff-only origin/main"
+    if w.a.dry:
+        w.say(f"would: as_login {fetch_line}")
+        w.say(f"would: as_login {merge_line}")
+        return
+    if reached("fetch", fetch_line) != "0":
+        tail(got.stdout)
+        w.die(f"step failed: as_login {fetch_line} — nothing after it ran; fix the cause and re-run (every step is idempotent)")
+    ahead = reached("ahead", "counting the commits not on origin/main")
+    if ahead != "0":
         w.die(f"step failed: ~/projects/agent-fabric has {ahead or 'an unknown number of'} commit(s) not on origin/main "
               f"(pull --ff-only would keep them); push or drop them as {login}, then re-run; nothing after it ran")
-    w.must_as_login(["git", "-C", repo, "merge", "-q", "--ff-only", "origin/main"],
-                    "git -C ~/projects/agent-fabric merge -q --ff-only origin/main")
-    if not w.a.dry:
-        sha = w.as_login_out(["git", "-C", repo, "rev-parse", "--short", "HEAD"]).strip("\n")
-        w.say(f"4. ~/projects/agent-fabric at origin/main ({sha})")
+    if reached("merge", merge_line) != "0":
+        tail(got.stdout)
+        w.die(f"step failed: as_login {merge_line} — nothing after it ran; fix the cause and re-run (every step is idempotent)")
+    w.say(f"4. ~/projects/agent-fabric at origin/main ({reached('sha', 'reading the checkout')})")
 
 
 # ── finish: 6-10 (a human: 10) ─────────────────────────────────────────
 
 def finish(w: Worker) -> int:
     a = w.a
+    # A project named twice is one project: the batched answers below are read once, before any clone or install.
+    a.projects = list(dict.fromkeys(a.projects))
     w.settle_home()
     for pid in a.projects:
         # A Python probe (ADR-040) is run with the pin; a project that still has a script gets it run by bash.
@@ -423,8 +520,12 @@ def finish(w: Worker) -> int:
             for line in (got.stdout or "").splitlines():
                 _log(f"   {line}\n")
     # ---- 6. each project's clone, as the account, over SSH
+    # One question for every project, asked before the first clone: a clone of one makes nothing the others ask about.
+    # (Duplicates were removed above: a second pass over a name would read this stale answer.)
+    clone_git = {pid: os.path.join(w.home, "projects", pid, ".git") for pid in a.projects}
+    held = w.path_kinds(list(clone_git.values()))
     for pid in a.projects:
-        if w.sudo_test("-d", os.path.join(w.home, "projects", pid, ".git")):
+        if held[clone_git[pid]] == "dir":
             w.say(f"6. ~/projects/{pid} present")
             point_origin_at_registry(w, pid, a.remote.get(pid, ""))
         else:
@@ -433,11 +534,13 @@ def finish(w: Worker) -> int:
                             f"git clone -q '{remote}' ~/projects/'{pid}'")
             w.say(f"6. {pid} cloned from {remote}")
     # Step 4's https clone is the one that stays when agent-fabric is not a --project: the loop above never saw it.
-    # A dry run has made no clone yet, so there is nothing to read.
-    if (a.fabric_remote and "agent-fabric" not in a.projects
-            and w.sudo_test("-d", roots.account_clone(w.home, ".git"))):
+    # A dry run has made no clone yet, so there is nothing to read. Asked after the clones, with the operator checkout's
+    # module: a clone of agent-fabric as a project can bring that module.
+    fabric_git, module = roots.account_clone(w.home, ".git"), roots.account_clone(w.home, "tools", "fabric", "operator_checkout.py")
+    after = w.path_kinds([fabric_git, module])
+    if a.fabric_remote and "agent-fabric" not in a.projects and after[fabric_git] == "dir":
         point_origin_at_registry(w, "agent-fabric", a.fabric_remote)
-    operator_checkout_step(w)
+    operator_checkout_step(w, after[module])
     open_: list[str] = []
     if not a.human:     # 7-9 never for a human (ADR-044 rule 2)
         record_launch_provider(w)
@@ -459,12 +562,12 @@ def finish(w: Worker) -> int:
     return rc
 
 
-def operator_checkout_step(w: Worker) -> None:
+def operator_checkout_step(w: Worker, module_kind: str | None = None) -> None:
     """---- 6c. the operator's checkout beside the engine (ADR-045 §6), cloned over SSH like a project's, by the
     account's own copy of the module that bootstrap also runs. Never fatal: the account works without it (nothing
     resolves through it yet), the module's line says what is missing, and bootstrap tries again at step 7."""
     module = roots.account_clone(w.home, "tools", "fabric", "operator_checkout.py")
-    if not w.sudo_test("-f", module):
+    if (w.path_kinds([module])[module] if module_kind is None else module_kind) != "file":
         w.say("6c. the operator checkout is not provisioned: this fabric clone has no operator_checkout.py yet")
         return
     argv = [PY, "-I", module, "ensure", "--projects", os.path.join(w.home, "projects")]
@@ -608,27 +711,34 @@ def install_client(w: Worker) -> None:
 def toolchains(w: Worker) -> None:
     """---- 9. the toolchain each project declares, from its lockfile."""
     h = w.home
+    # One question for every project's files, asked once the clones are in and before the first install: one project's
+    # install writes nothing another's answers depend on.
+    names = ("pnpm-lock.yaml", "package-lock.json", "requirements.txt", "node_modules", ".venv")
+    kinds = w.path_kinds([os.path.join(h, "projects", pid, n) for pid in w.a.projects for n in names])
+
+    def has(wc: str, name: str, kind: str) -> bool:
+        return kinds[os.path.join(wc, name)] == kind
     for pid in w.a.projects:
         wc = os.path.join(h, "projects", pid)
-        if w.sudo_test("-f", os.path.join(wc, "pnpm-lock.yaml")):
+        if has(wc, "pnpm-lock.yaml", "file"):
             if w.as_login(["bash", "-c", "command -v pnpm >/dev/null"]).returncode != 0:
                 w.must_as_login_seq([["npm", "config", "set", "prefix", os.path.join(h, ".local")], ["npm", "i", "-g", "pnpm"]],
                                     "npm config set prefix ~/.local && npm i -g pnpm >/dev/null")
                 w.say("9. pnpm installed under ~/.local")
-            if w.sudo_test("-d", os.path.join(wc, "node_modules")):
+            if has(wc, "node_modules", "dir"):
                 w.say(f"9. {pid}: node_modules present")
             else:
                 w.must_as_login(["pnpm", "install", "--frozen-lockfile"], f"cd ~/projects/'{pid}' && pnpm install --frozen-lockfile >/dev/null 2>&1",
                                 cwd=wc, quiet=True)
                 w.say(f"9. {pid}: pnpm install")
-        elif w.sudo_test("-f", os.path.join(wc, "package-lock.json")):
-            if w.sudo_test("-d", os.path.join(wc, "node_modules")):
+        elif has(wc, "package-lock.json", "file"):
+            if has(wc, "node_modules", "dir"):
                 w.say(f"9. {pid}: node_modules present")
             else:
                 w.must_as_login(["npm", "ci"], f"cd ~/projects/'{pid}' && npm ci >/dev/null 2>&1", cwd=wc, quiet=True)
                 w.say(f"9. {pid}: npm ci")
-        elif w.sudo_test("-f", os.path.join(wc, "requirements.txt")):
-            if w.sudo_test("-d", os.path.join(wc, ".venv")):
+        elif has(wc, "requirements.txt", "file"):
+            if has(wc, ".venv", "dir"):
                 w.say(f"9. {pid}: .venv present")
             else:
                 describe = f"cd ~/projects/'{pid}' && python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt"
@@ -640,11 +750,16 @@ def toolchains(w: Worker) -> None:
 def verify(w: Worker) -> int:
     a = w.a
     sudo = " ".join(w.sudo)
-    if a.human:
-        text, failed = vf.verify_human(a.login, w.home, sudo)
-    else:
-        text, failed = vf.verify(w.root, a.login, w.home, sudo, a.projects, account=a.account, no_account=a.no_account,
-                                 signing_next=a.signing_next, via=a.via)
+    try:
+        if a.human:
+            text, failed = vf.verify_human(a.login, w.home, sudo)
+        else:
+            text, failed = vf.verify(w.root, a.login, w.home, sudo, a.projects, account=a.account, no_account=a.no_account,
+                                     signing_next=a.signing_next, via=a.via)
+    except vf.ReadbackError as exc:
+        # No frame is no answer, and no answer is never "verified": the step fails and says why, with no closing to trust.
+        w.say(f"step failed: {exc}; nothing was verified")
+        return 1
     _log(text + failed)
     return 1 if failed else 0
 
