@@ -52,7 +52,8 @@ wrapped one goes to the auto-mode classifier, which refuses it as
 against the repository's minimum, which `fabric-pr arm --dry-run` prints —
 never a number from memory. Below it, bundle before you ask anyone:
 take your next queued jobs in that repository onto the PR as further
-work commits, whatever their topic, until it reaches the minimum — each
+work commits, whatever their topic, while the branch is addable (One
+open pull request, below), until it reaches the minimum — each
 PR costs a full CI run, a review and an arming. A word below the
 minimum is for work that cannot wait (a broken `main`, a path the
 owner has put first), and its basis says why. At it or above, arm once the review gate is

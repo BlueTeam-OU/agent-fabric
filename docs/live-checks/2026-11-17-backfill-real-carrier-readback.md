@@ -20,6 +20,17 @@ remain the owner's drill.
 
 The sender's `transport-mode.json` reads `relay-record` (the dual run); the receiver's mode was not read, but its ledger order below is the relay-record order.
 
+## Control
+
+What shows the relay really lacked the message at send time, and that
+fact 2 is not just the ordinary relay send, is the backfill line in fact 3:
+the backfill posts only a MESSAGE-ID the relay does not already hold
+from its sender (`backfill.py` `_held`), and its
+`delay_s` of 45 matches the relay record's timestamp, 45 s after the
+InterWeave delivery. Had the bad `CLAUDE_BRIDGE_URL` not taken effect,
+the relay copy would carry the send's own second and there would be no
+backfill line.
+
 ## The three facts
 
 **1. Shown once.** python-dev-02's own ledgers, quoted by it (REPLY

@@ -7,7 +7,7 @@
 **Scope:** runtime/hosts/registry.json, runtime/hostexec/, bin/fabric-host, runtime/provisioning/ (new-agent.sh and its worker, platform/, persist-accounts.sh, moveto/, github-host-keys), bin/fabric-lease and /run/lock/agent-fabric
 **Pillar:** P1
 **Class:** engine
-**Evidence:** docs/live-checks/2026-09-16-github-host-keys.md, docs/live-checks/2026-09-16-hostexec-local-backend.md, docs/live-checks/2026-09-19-develop-qzapp-crash.md, docs/live-checks/2026-09-25-develop-qzapp-crash.md, docs/live-checks/2026-11-11-fabric-h2-registered.md
+**Evidence:** docs/live-checks/2026-09-16-github-host-keys.md, docs/live-checks/2026-09-16-hostexec-local-backend.md, docs/live-checks/2026-09-19-develop-qzapp-crash.md, docs/live-checks/2026-09-25-develop-qzapp-crash.md, docs/live-checks/2026-11-11-fabric-h2-registered.md, docs/live-checks/2026-11-17-build-output-tidy-readback.md
 
 ## 1. Context and Problem
 
@@ -139,8 +139,9 @@ that killed the host without privilege and without anything going stale.
     account runs `agent-fabric-tidy.timer` daily, installed by bootstrap.
     It removes `target/` and `node_modules/` from every checkout that no
     active, queued, paused or blocked job holds, under the keep rules of
-    `leave_targets`. `fabric-jobs switch` cleans the left job's output
-    (ADR-037 §5 rule 10). A held tree's output is measured and never
+    `leave_targets`. `fabric-jobs switch` cleans the left job's cargo
+    `target/` directories (ADR-037 §5 rule 10); its `node_modules/`
+    waits for the daily run. A held tree's output is measured and never
     removed, and the run warns at 85% of the filesystem under
     `~/projects`. Output from a job closed after the day's run waits for
     the next run, up to a day. The coordinator reads the disk with

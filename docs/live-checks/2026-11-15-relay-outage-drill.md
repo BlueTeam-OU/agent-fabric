@@ -41,6 +41,18 @@ had not come back. The owner then paused the fleet and switched the
 host off. The second collection reads that copy; why it was late is
 traced below.
 
+## Control
+
+What tells a real pass from a silent one is that the relay was absent for
+the pairs counted as the carrier's: `gzcoord-relay.service` was stopped
+at 06:58:20 and `fabric-ctl all ping` answered 30 of 30 `ok` over
+InterWeave alone at 06:58:47. A pair counts as the carrier's alone only
+when its InterWeave copy arrived inside the drill and its relay copy did
+not (the computed file's definition), so it could only have reached its
+session by the carrier. The twelve such pairs below are read from there;
+a backfill that never ran would leave them with no relay copy at all,
+not a late one.
+
 ## What it shows
 
 **78 pairs, nothing missed.** The relay delivered all 78. InterWeave

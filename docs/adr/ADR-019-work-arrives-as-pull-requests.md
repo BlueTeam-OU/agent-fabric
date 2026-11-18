@@ -153,12 +153,14 @@ not on a pipe's exit status.
    (A 2026-10-05). The counts are `policies/arming.json`'s values, which a
    repository's settings may override, never this record's. Under the
    minimum, bundle first: the agent's queued jobs in that repository
-   ride the PR as further work commits, whatever their topic, until it
-   reaches the minimum, since each PR costs a full CI run, a review and
-   an arming (A 2026-11-14). Only work that cannot wait for them (a
-   broken `main`, a path the owner has put first) asks for a word: the
-   owner, who arms, or the role the repository's arming policy names in
-   their place: `commits.below_min_authority` for a PR under the
+   ride the PR as further work commits, whatever their topic, while
+   the branch is addable (rule 2), until it reaches the minimum, since
+   each PR costs a full CI run, a review and an arming (A 2026-11-14).
+   Under the minimum, only work that cannot wait for them (a broken
+   `main`, a path the owner has put first) asks for a word, and its
+   basis says why. Under the minimum, or for a security-boundary change
+   under `boundary_min`, the word is the owner's, who arms, or that of
+   the role the repository's arming policy names in their place: `commits.below_min_authority` for a PR under the
    minimum, `commits.boundary_authority` for a security-boundary change
    under `boundary_min`. That holder gives its word by an `AUTHORIZES`
    message to the arming session naming the PR and its head, or by
