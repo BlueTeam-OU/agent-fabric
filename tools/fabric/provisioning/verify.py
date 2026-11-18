@@ -5,6 +5,8 @@ nothing here changes it. Each read-back is a question to the account, bounded
 (bounded.py): one that gets no answer is a failure or an unknown, never a pass."""
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import shlex
 import subprocess
@@ -12,6 +14,26 @@ import sys
 
 from provisioning import bounded
 from provisioning.worker_args import CLAUDE_ACCOUNT, HOST_ID  # noqa: F401 — the verify flags' shapes, for callers
+
+class ReadbackError(Exception):
+    """The batched read-backs gave no usable answer: the shell did not start, or did not answer every line. The step
+    fails; no line of an absent answer is read as a pass."""
+
+
+# Each line runs in its own `bash -c` under the same login shell, bounded by its own timeout, its stdout framed as
+# "new-agent-frame<TAB><exit status><TAB><base64>": a profile may print anything else on stdout, and only a frame counts.
+# The mode before each line is q (stderr dropped) or l (stderr stays the run's). The "x<status>" tail inside the substitution
+# keeps the answer's trailing newlines, which `$(...)` would cut: the bytes are the line's own, as a shell apiece gave them.
+BATCH = r'''export PATH="$AGENT_FABRIC_PATH:$PATH"; cd "$HOME" || exit 1
+while [ "$#" -ge 2 ]; do
+  mode=$1; line=$2; shift 2
+  if [ "$mode" = q ]; then out=$(timeout -k 5 "$AGENT_FABRIC_LINE_TIMEOUT" bash -c "$line" 2>/dev/null; printf 'x%s' "$?")
+  else out=$(timeout -k 5 "$AGENT_FABRIC_LINE_TIMEOUT" bash -c "$line"; printf 'x%s' "$?"); fi
+  rc=${out##*x}; out=${out%x*}
+  printf 'new-agent-frame\t%s\t%s\n' "$rc" "$(printf '%s' "$out" | base64 -w0)"
+done
+'''
+
 
 class Account:
     """One shell line as the account, in a LOGIN shell (its profile: what
@@ -24,12 +46,35 @@ class Account:
     def __init__(self, login: str, home: str, sudo: str):
         self.login, self.home, self.sudo = login, home, sudo.split()
 
-    def run(self, line: str, *, stderr=None) -> bytes:
+    def run_many(self, lines: list[str], *, quiet: frozenset[int] = frozenset()) -> list[bytes]:
+        """Every line's stdout, in order, from ONE login shell (about 25 execs of /etc/profile.d each; the lines
+        were a shell apiece). `quiet` holds the positions whose stderr is dropped (stderr=DEVNULL before). A line that
+        outruns READBACK_TIMEOUT_S answers nothing and says so, as one did alone; a missing, repeated or malformed
+        frame is a ReadbackError."""
         p = f"/usr/local/bin:/usr/bin:/bin:{self.home}/.local/bin"
+        pairs = [x for i, line in enumerate(lines) for x in ("q" if i in quiet else "l", line)]
         cmd = [*self.sudo, "-n", "-u", self.login, "-H", "env", "-i", f"HOME={self.home}", f"PATH={p}",
-               f"AGENT_FABRIC_PATH={p}", "bash", "-lc", 'export PATH="$AGENT_FABRIC_PATH:$PATH"; cd "$HOME" && eval "$1"',
-               "_", line]
-        return bounded.quiet_run(cmd, stderr=stderr)
+               f"AGENT_FABRIC_PATH={p}", f"AGENT_FABRIC_LINE_TIMEOUT={bounded.READBACK_TIMEOUT_S}", "bash", "-lc", BATCH, "_", *pairs]
+        sys.stderr.flush()
+        try:
+            got = bounded.run_bounded(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=None,
+                                      timeout=(bounded.READBACK_TIMEOUT_S + 10) * max(len(lines), 1))
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise ReadbackError(f"the read-backs as {self.login} did not run to their end ({type(exc).__name__})") from exc
+        frames = [ln.split("\t") for ln in got.stdout.decode("utf-8", "surrogateescape").splitlines()
+                  if ln.startswith("new-agent-frame\t")]
+        if len(frames) != len(lines) or any(len(f) != 3 for f in frames):
+            raise ReadbackError(f"the read-backs as {self.login} answered {len(frames)} frame(s) for {len(lines)} line(s)")
+        out = []
+        for _, status, payload in frames:
+            try:
+                out.append(base64.b64decode(payload, validate=True))
+            except (binascii.Error, ValueError) as exc:
+                raise ReadbackError(f"a read-back's answer as {self.login} is not what the shell frames") from exc
+            if status == "124":
+                print(f"new-agent:    sudo: no answer within {bounded.READBACK_TIMEOUT_S} s", file=sys.stderr)
+                out[-1] = b""
+        return out
 
 
 def verify(root: str, login: str, home: str, sudo: str, projects: list[str], *, account: str = "",
@@ -42,14 +87,15 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str], *, 
     a = Account(login, home, sudo)
     first = projects[0] if projects else ""
     where = f"~/projects{'/' + first if first else ''}"
-    bounded.prefixed("   ", a.run("~/projects/agent-fabric/bin/fabric-secrets status 2>&1 | grep -E 'missing|OK|NOT OK'"))
-    bounded.prefixed("   gh: ", a.run("gh auth status 2>&1 | grep -o 'Logged in.*' | head -1"))
-    for pid in projects:
-        bounded.prefixed(f"   {pid} ", a.run(f"timeout 20 git -C ~/projects/'{pid}' ls-remote --heads origin >/dev/null 2>&1 "
-                                      "&& echo 'ssh to origin: ok' || echo 'ssh to origin: FAILED'"))
-    bounded.prefixed("   ", a.run("printf 'git: %s <%s> signingkey=%s gpgsign=%s\\n' \"$(git config --global user.name)\" "
-                          "\"$(git config --global user.email)\" \"$(git config --global user.signingkey | cut -c1-12)\" "
-                          "\"$(git config --global commit.gpgsign)\""))
+    # One login shell for all of them (run_many), asked before any line's answer is shown; the answers are shown in the
+    # order the lines were once run in.
+    lines = ["~/projects/agent-fabric/bin/fabric-secrets status 2>&1 | grep -E 'missing|OK|NOT OK'",
+             "gh auth status 2>&1 | grep -o 'Logged in.*' | head -1",
+             *(f"timeout 20 git -C ~/projects/'{pid}' ls-remote --heads origin >/dev/null 2>&1 "
+               "&& echo 'ssh to origin: ok' || echo 'ssh to origin: FAILED'" for pid in projects),
+             "printf 'git: %s <%s> signingkey=%s gpgsign=%s\\n' \"$(git config --global user.name)\" "
+             "\"$(git config --global user.email)\" \"$(git config --global user.signingkey | cut -c1-12)\" "
+             "\"$(git config --global commit.gpgsign)\""]
     # The secret of the key git signs with, not any secret key: since
     # ADR-038 every account holds its own store key, so a count of secret
     # keys was never zero and the hand-off below was never asked for
@@ -57,16 +103,22 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str], *, 
     # The listing only when gpg answered 0, as fabric-ctl keys reads it
     # (ops.mjs signingSecret): gpg can list a key and still exit non-zero
     # (a keyring it could not fully read), and that is no clean answer.
-    listing = a.run('k="$(git config --global user.signingkey)"; [ -n "$k" ] && '
-                    'out="$(gpg --list-secret-keys --with-colons -- "$k")" && printf "%s\\n" "$out"',
-                    stderr=subprocess.DEVNULL).decode("utf-8", "replace")
+    lines.append('k="$(git config --global user.signingkey)"; [ -n "$k" ] && '
+                 'out="$(gpg --list-secret-keys --with-colons -- "$k")" && printf "%s\\n" "$out"')
+    gpg_at = len(lines) - 1
+    lines += [f"cd {where} && ~/projects/agent-fabric/runtime/openrouter/launch "
+              f"--provider {prov} --print 2>&1 | grep -E '^launch:|resolved profile' | head -1" for prov in ("anthropic", "openrouter")]
+    answers = a.run_many(lines, quiet=frozenset({gpg_at}))
+    prefixes = ["   ", "   gh: ", *(f"   {pid} " for pid in projects), "   "]
+    for prefix, out in zip(prefixes, answers):
+        bounded.prefixed(prefix, out)
+    listing = answers[gpg_at].decode("utf-8", "replace")
     signing = "present" if signs_with_secret(listing) else "next" if signing_next else "absent"
 
     def close(*a, **k) -> str:
         return closing(*a, via=via, **k)
-    for prov in ("anthropic", "openrouter"):
-        bounded.prefixed(f"   launch ({prov}): ", a.run(f"cd {where} && ~/projects/agent-fabric/runtime/openrouter/launch "
-                                                  f"--provider {prov} --print 2>&1 | grep -E '^launch:|resolved profile' | head -1"))
+    for prov, out in zip(("anthropic", "openrouter"), answers[gpg_at + 1:]):
+        bounded.prefixed(f"   launch ({prov}): ", out)
     # The control agent bootstrap enabled in the account's user manager
     # answers the coordinator from here on: one ping, as the operator.
     bounded.prefixed("   control plane: ", bounded.quiet_run([f"{root}/bin/fabric-ctl", login, "ping"], stderr=subprocess.STDOUT), skip=1)
@@ -173,10 +225,12 @@ def verify_human(login: str, home: str, sudo: str) -> tuple[str, str]:
     own clone), and nothing of a session in its home. Each read-back that
     gets no answer is a failure, never a pass."""
     a = Account(login, home, sudo)
-    bounded.prefixed("   ", a.run("~/projects/agent-fabric/bin/fabric-secrets status 2>&1 | grep -E 'missing|OK|NOT OK'"))
-    status = a.run("~/projects/agent-fabric/bin/fabric-secrets status >/dev/null 2>&1; echo \"status=$?\"")
+    shown, status, pieces = a.run_many(["~/projects/agent-fabric/bin/fabric-secrets status 2>&1 | grep -E 'missing|OK|NOT OK'",
+                                        "~/projects/agent-fabric/bin/fabric-secrets status >/dev/null 2>&1; echo \"status=$?\"",
+                                        PIECES_PROBE])
+    bounded.prefixed("   ", shown)
     said = status.decode("utf-8", "replace").strip()
-    pieces = a.run(PIECES_PROBE).decode("utf-8", "surrogateescape").splitlines()
+    pieces = pieces.decode("utf-8", "surrogateescape").splitlines()
     problems = []
     if said != "status=0":
         problems.append(f"fabric-secrets status as {login} is not OK ({said or 'no answer'}): is runtime/hosts/registry.json "

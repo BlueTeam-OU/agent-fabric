@@ -258,7 +258,7 @@ def main() -> int:
         print("the verification")
         # The read-backs are stubbed where they leave this process: the host's
         # own gh, git and gpg must not answer (its real gpg reaches the real
-        # keyring even under a scratch home). Account.run itself is checked
+        # keyring even under a scratch home). Account.run_many itself is checked
         # once below, through a recording sudo, with a line that reads nothing.
         home = f"{tmp}/acct"
         os.makedirs(f"{home}/.config/agent-fabric")
@@ -271,11 +271,11 @@ def main() -> int:
         def verify_with(answers: dict, projects: list[str], **account) -> tuple[str, str, list[str]]:
             asked = []
 
-            def fake_run(self, line, *, stderr=None):
-                asked.append(line)
-                return next((v for k, v in answers.items() if k in line), b"")
-            saved_run, saved_err = vf.Account.run, sys.stderr
-            vf.Account.run = fake_run
+            def fake_run(self, lines, *, quiet=frozenset()):
+                asked.extend(lines)
+                return [next((v for k, v in answers.items() if k in line), b"") for line in lines]
+            saved_run, saved_err = vf.Account.run_many, sys.stderr
+            vf.Account.run_many = fake_run
             buf = io.BytesIO()
             wrapper = sys.stderr = io.TextIOWrapper(buf, encoding="utf-8")
             try:
@@ -284,7 +284,7 @@ def main() -> int:
                 wrapper.flush()
                 said = buf.getvalue().decode()
             finally:
-                vf.Account.run, sys.stderr = saved_run, saved_err
+                vf.Account.run_many, sys.stderr = saved_run, saved_err
                 wrapper.detach()
             return text, said, asked
         text, said, asked = verify_with({"gpg --list-secret-keys": SIGNING_SECRET, "ls-remote": b"ssh to origin: ok\n",
@@ -349,11 +349,11 @@ def main() -> int:
         def verify_human_with(answers: dict) -> tuple[str, str, str, list[str]]:
             asked = []
 
-            def fake_run(self, line, *, stderr=None):
-                asked.append(line)
-                return next((v for k, v in answers.items() if k in line), b"")
-            saved_run, saved_err = vf.Account.run, sys.stderr
-            vf.Account.run = fake_run
+            def fake_run(self, lines, *, quiet=frozenset()):
+                asked.extend(lines)
+                return [next((v for k, v in answers.items() if k in line), b"") for line in lines]
+            saved_run, saved_err = vf.Account.run_many, sys.stderr
+            vf.Account.run_many = fake_run
             buf = io.BytesIO()
             wrapper = sys.stderr = io.TextIOWrapper(buf, encoding="utf-8")
             try:
@@ -361,7 +361,7 @@ def main() -> int:
                 wrapper.flush()
                 said = buf.getvalue().decode()
             finally:
-                vf.Account.run, sys.stderr = saved_run, saved_err
+                vf.Account.run_many, sys.stderr = saved_run, saved_err
                 wrapper.detach()
             return text, failed, said, asked
         well = {"status >/dev/null": b"status=0\n", "for p in": b"probed\n", "grep -E": b"OK\n"}
@@ -415,7 +415,7 @@ def main() -> int:
         saved_path = os.environ["PATH"]
         os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
         try:
-            out = vf.Account("acct", home, f"{tmp}/vbin/sudo").run("echo as-the-account")
+            out = vf.Account("acct", home, f"{tmp}/vbin/sudo").run_many(["echo as-the-account"])[0]
         finally:
             os.environ["PATH"] = saved_path
         calls = open(f"{tmp}/sudo.calls").read().splitlines()
@@ -428,11 +428,70 @@ def main() -> int:
         put(f"{home}/.local/bin/account-only-tool", "#!/bin/sh\necho found\n", 0o755)
         os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
         try:
-            found = vf.Account("acct", home, f"{tmp}/vbin/sudo").run("account-only-tool")
+            found = vf.Account("acct", home, f"{tmp}/vbin/sudo").run_many(["account-only-tool"])[0]
         finally:
             os.environ["PATH"] = saved_path
             os.remove(f"{home}/.bash_profile")
         check("a profile that assigns PATH outright does not hide what the account's PATH names", found == b"found\n", found)
+        # j168: the read-backs of step 10 are ONE login shell; each line keeps its own bytes, stderr class and bound, and a shell
+        # that does not answer every line is an error, never a pass.
+        put(f"{home}/.bash_profile", "echo 'profile noise on stdout'\n")
+        try:
+            os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
+            many = vf.Account("acct", home, f"{tmp}/vbin/sudo").run_many(["printf 'a\\n\\n'", "printf b", "echo c; exit 3"])
+        finally:
+            os.environ["PATH"] = saved_path
+            os.remove(f"{home}/.bash_profile")
+        check("run_many: every line's bytes in order, trailing newlines kept, a profile's stdout never in an answer, a line's own status not a failure",
+              many == [b"a\n\n", b"b", b"c\n"], many)
+        put(f"{tmp}/sudo.calls", "")
+        os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
+        try:
+            vf.Account("acct", home, f"{tmp}/vbin/sudo").run_many(["true", "true", "true", "true"])
+        finally:
+            os.environ["PATH"] = saved_path
+        check("…four lines are ONE sudo call and one login shell", open(f"{tmp}/sudo.calls").read().count("-n -u acct") == 1
+              and open(f"{tmp}/sudo.calls").read().count(" bash -lc ") == 1, open(f"{tmp}/sudo.calls").read()[:300])
+        probe = ("import sys, os; sys.path.insert(0, %r); from provisioning import verify as vf; os.environ['PATH'] = %r + ':' + os.environ['PATH']; "
+                 "vf.Account('acct', %r, %r).run_many(['echo OUT; echo ERR >&2', 'echo OUT; echo ERR2 >&2'], quiet=frozenset({0}))"
+                 % (os.path.join(HERE, "tools", "fabric"), f"{tmp}/vbin", home, f"{tmp}/vbin/sudo"))
+        r = subprocess.run([sys.executable, "-I", "-c", probe], capture_output=True, text=True, timeout=60)
+        check("…a line marked quiet drops its stderr and the others keep theirs (the gpg listing's `2>/dev/null`)",
+              "ERR2" in r.stderr and "ERR\n" not in r.stderr.replace("ERR2", "") and r.returncode == 0, r.stderr)
+        saved_t, bounded.READBACK_TIMEOUT_S = bounded.READBACK_TIMEOUT_S, 1
+        saved_err = sys.stderr
+        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+        os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
+        try:
+            slow = vf.Account("acct", home, f"{tmp}/vbin/sudo").run_many(["sleep 20", "echo after"])
+            sys.stderr.flush()
+            said_slow = sys.stderr.buffer.getvalue().decode()
+        finally:
+            sys.stderr = saved_err
+            bounded.READBACK_TIMEOUT_S = saved_t
+            os.environ["PATH"] = saved_path
+        check("…a line that outruns its bound answers nothing, says so, and the lines after it are still answered",
+              slow == [b"", b"after\n"] and "no answer within 1 s" in said_slow, f"{slow} {said_slow}")
+        for label, shell in (("no frame at all", "exit 0"), ("one frame for two lines", "printf 'new-agent-frame\\t0\\tYQ==\\n'"),
+                             ("a frame whose answer is not base64", "printf 'new-agent-frame\\t0\\t!!!\\nnew-agent-frame\\t0\\t\\n'"),
+                             ("a frame of the wrong shape", "printf 'new-agent-frame\\t0\\nnew-agent-frame\\t0\\t\\n'"),
+                             ("a shell that never started", "exit 1")):
+            put(f"{tmp}/badbin/sudo", f"#!/usr/bin/env bash\n{shell}\n", 0o755)
+            try:
+                vf.Account("acct", home, f"{tmp}/badbin/sudo").run_many(["true", "true"])
+                raised = None
+            except vf.ReadbackError as exc:
+                raised = str(exc)
+            check(f"…{label}: a ReadbackError, never an answer", raised is not None, str(raised))
+        from provisioning import worker as wk  # noqa: E402
+        w = wk.Worker(wa.parse_args(["finish", "acct", "backend-dev"]), root=root, sudo=[f"{tmp}/badbin/sudo"], env={})
+        w.home = home
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            rc = wk.verify(w)
+        check("…and the worker's step 10 then fails: exit 1, said, no closing and no 'done'",
+              rc == 1 and "step failed: the read-backs as acct" in buf.getvalue() and "nothing was verified" in buf.getvalue()
+              and "done" not in buf.getvalue(), buf.getvalue())
         saved_err = sys.stderr
         sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
         try:

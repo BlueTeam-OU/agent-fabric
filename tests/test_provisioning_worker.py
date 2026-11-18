@@ -252,9 +252,12 @@ def main() -> int:
         def fake(cmd, **kw):
             seen.append(list(cmd))
             if cmd[:1] == ["getent"]:
-                return subprocess.CompletedProcess(cmd, 2, stdout="", stderr="")
-            if not present and "test" in cmd:
-                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")      # the account exists: its paths are asked about
+            if worker.PATH_PROBE in cmd:
+                # What `test -d` and `test -f` said before: the clone's .git a directory and the module a file, or nothing there.
+                paths = cmd[cmd.index(worker.PATH_PROBE) + 1:]
+                kind = lambda p: "absent" if not present else "dir" if p.endswith(".git") else "file"  # noqa: E731
+                return subprocess.CompletedProcess(cmd, 0, stdout="".join(f"new-agent-path\t{i}\t{kind(p)}\n" for i, p in enumerate(paths)), stderr="")
             if "--get-regexp" in cmd:
                 # One call answers both, as git does with --null: `key\nvalue\0`, only the keys that are set; none is status 1.
                 found = [f"remote.origin.url\n{earlier}\0"] if earlier is not None else []
@@ -355,7 +358,9 @@ def main() -> int:
     def spy(argv, **kw):
         if "_" in argv:
             seen_shells.append((argv[argv.index("_") - 2], argv[argv.index("_") + 1:]))
-        out = {"symbolic-ref": "main\n", "rev-list": "0\n", "rev-parse": "abc1234\n",
+        out = {worker.PATH_PROBE: "new-agent-path\t0\tdir\n",
+               worker.FABRIC_UPDATE: "".join(f"new-agent-step\t{k}\t{v}\n" for k, v in
+                                             (("branch", "main"), ("fetch", "0"), ("ahead", "0"), ("merge", "0"), ("sha", "abc1234"))),
                "--get-regexp": "remote.origin.url\ngit@x:y\0"}
         return subprocess.CompletedProcess(argv, 0, stdout=next((v for k, v in out.items() if k in argv), ""), stderr="")
     with mock.patch.object(subprocess, "run", spy):
@@ -366,7 +371,7 @@ def main() -> int:
             worker.point_origin_at_registry(w, "p", "git@x:y")
     git_flags = {flag for flag, rest in seen_shells if "git" in rest}
     check("the fabric checkout's and the origin's git reads and writes all run in a login shell, one environment",
-          git_flags == {"-lc"} and len(seen_shells) >= 6 and "not readable" not in said_origin.getvalue(), str(seen_shells))
+          git_flags == {"-lc"} and len(seen_shells) == 3 and "not readable" not in said_origin.getvalue(), str(seen_shells))
     seen_shells.clear()
     with mock.patch.object(subprocess, "run", spy):
         w = make_worker()
@@ -437,6 +442,153 @@ def main() -> int:
               and "would: as" in said and "install.sh" in said, said)
         said, asked = step2(None, False)
         check("…no link at all is asked once and the install planned", "would: as" in said and len(asked) == 1, f"{said}{asked}")
+
+    print("j168: one question for many paths, as the account; an unknown is never an absent")
+    with tempfile.TemporaryDirectory() as tmp:
+        fake_sudo = os.path.join(tmp, "sudo")
+        with open(fake_sudo, "w", encoding="utf-8") as fh:
+            fh.write('#!/bin/sh\nprintf "CALL %s\\n" "$*" >> ' + tmp + '/sudo.log\n[ "$1" = -n ] && shift; [ "$1" = -u ] && shift 2; [ "$1" = -H ] && shift\nexec "$@"\n')
+        os.chmod(fake_sudo, 0o755)
+        home = os.path.join(tmp, "home")
+        os.makedirs(os.path.join(home, "d"))
+        for name in ("d/f",):
+            open(os.path.join(home, name), "w").close()
+        os.symlink(os.path.join(home, "d"), os.path.join(home, "link-to-d"))
+        w = make_worker()
+        w.home, w.sudo = home, [fake_sudo]
+        paths = [os.path.join(home, x) for x in ("d", "d/f", "nope", "d/f/under-a-file", "link-to-d")]
+        with mock.patch.object(w, "account_exists", lambda: True):
+            got = w.path_kinds(paths)
+        check("a directory, a file, a missing path, a path under a file and a link to a directory, in ONE sudo call as the account",
+              list(got.values()) == ["dir", "file", "absent", "absent", "dir"] and open(f"{tmp}/sudo.log").read().count("CALL ") == 1
+              and open(f"{tmp}/sudo.log").read().startswith(f"CALL -n -u {LOGIN} -H env -i"), f"{got} {open(f'{tmp}/sudo.log').read()[:200]}")
+        check("…and no sudo call at all for no paths", w.path_kinds([]) == {} and open(f"{tmp}/sudo.log").read().count("CALL ") == 1)
+        # An account that does not exist (a dry run plans it) has no home: absent, without asking `sudo -u` of a login it does not know.
+        with mock.patch.object(w, "account_exists", lambda: False), mock.patch.object(w, "as_login", side_effect=AssertionError("asked")):
+            check("an account not made yet: everything absent, nothing run", w.path_kinds(paths[:2]) == dict.fromkeys(paths[:2], "absent"))
+        if os.geteuid() != 0:
+            # The control: the same child readable answers dir; unreadable, the answer is an error and never "absent".
+            os.makedirs(os.path.join(home, "locked", "child"))
+            with mock.patch.object(w, "account_exists", lambda: True):
+                check("(control) a child of a readable directory is a directory", w.path_kinds([os.path.join(home, "locked", "child")]) ==
+                      {os.path.join(home, "locked", "child"): "dir"})
+                os.chmod(os.path.join(home, "locked"), 0)
+                try:
+                    err = io.StringIO()
+                    try:
+                        with redirect_stderr(err):
+                            w.path_kinds([os.path.join(home, "locked", "child")])
+                        stopped = None
+                    except worker.Stop as exc:
+                        stopped = exc.code
+                finally:
+                    os.chmod(os.path.join(home, "locked"), 0o700)
+            check("a path the account cannot stat stops the run, naming the step: not read as absent",
+                  stopped == 1 and "step failed: could not read 1 path(s)" in err.getvalue() and "nothing after it ran" in err.getvalue(), err.getvalue())
+    for label, stdout, rc in (("no answer at all", "", 0), ("a kind for only one of two paths", "new-agent-path\t0\tdir\n", 0),
+                              ("a repeated index", "new-agent-path\t0\tdir\nnew-agent-path\t0\tdir\n", 0),
+                              ("an unknown kind", "new-agent-path\t0\tdir\nnew-agent-path\t1\tmaybe\n", 0),
+                              ("a tag line of the wrong shape", "new-agent-path\t0\tdir\textra\nnew-agent-path\t1\tdir\n", 0),
+                              ("a full answer behind a non-zero exit", "new-agent-path\t0\tdir\nnew-agent-path\t1\tdir\n", 1)):
+        w = make_worker()
+        err = io.StringIO()
+        with mock.patch.object(w, "account_exists", lambda: True), mock.patch.object(
+                w, "as_login", lambda *a, _o=stdout, _r=rc, **k: subprocess.CompletedProcess(a, _r, _o, None)), redirect_stderr(err):
+            try:
+                w.path_kinds(["/a", "/b"])
+                stopped = None
+            except worker.Stop as exc:
+                stopped = exc.code
+        check(f"the probe's answer is refused, not read as a pass: {label}", stopped == 1 and "step failed: could not read 2 path(s)" in err.getvalue(),
+              err.getvalue())
+    w = make_worker()
+    with mock.patch.object(w, "account_exists", lambda: True), mock.patch.object(
+            w, "as_login", lambda *a, **k: subprocess.CompletedProcess(a, 0, "profile noise\nnew-agent-path\t0\tdir\nmore\nnew-agent-path\t1\tfile\n", None)):
+        check("(control) a profile's own lines around the tag lines are ignored", w.path_kinds(["/a", "/b"]) == {"/a": "dir", "/b": "file"})
+
+    print("j168: step 4 in one login shell, each check keeping its failure class")
+
+    def step4(tags: list[tuple[str, str]], *argv: str, raw: str | None = None) -> tuple[int | None, str, list]:
+        w = make_worker(*argv)
+        w.home = "/home/x"
+        runs: list = []
+        err = io.StringIO()
+
+        def fake_as_login(a, **k):
+            runs.append(list(a))
+            text = raw if raw is not None else "".join(f"new-agent-step\t{n}\t{v}\n" for n, v in tags)
+            return subprocess.CompletedProcess(a, 0, text, None)
+        with mock.patch.object(w, "path_kinds", lambda ps: dict.fromkeys(ps, "dir")), mock.patch.object(w, "as_login", fake_as_login), redirect_stderr(err):
+            try:
+                worker.fabric_checkout(w)
+                stopped = None
+            except worker.Stop as exc:
+                stopped = exc.code
+        return stopped, err.getvalue(), runs
+    good = [("branch", "main"), ("fetch", "0"), ("ahead", "0"), ("merge", "0"), ("sha", "abc1234")]
+    stopped, said, runs = step4(good)
+    check("an up-to-date checkout: ONE as_login for the five git commands, said with the commit",
+          stopped is None and len(runs) == 1 and "4. ~/projects/agent-fabric at origin/main (abc1234)" in said, f"{stopped} {said} {runs}")
+    stopped, said, runs = step4(good[:1], "--dry-run")
+    check("a dry run reads the branch only and says the fetch and the merge as would", stopped is None and len(runs) == 1
+          and "would: as_login timeout 60 git -C ~/projects/agent-fabric fetch -q origin main" in said
+          and "would: as_login git -C ~/projects/agent-fabric merge -q --ff-only origin/main" in said and runs[0][-1] == "dry", said)
+    for label, tags, why in (
+            ("a branch other than main", [("branch", "topic")], "is on topic, not main"),
+            ("a detached HEAD", [("branch", "")], "is on a detached HEAD, not main"),
+            ("a fetch that failed", [("branch", "main"), ("fetch", "1")], "step failed: as_login timeout 60 git -C ~/projects/agent-fabric fetch"),
+            ("commits not on origin/main", [("branch", "main"), ("fetch", "0"), ("ahead", "2")], "has 2 commit(s) not on origin/main"),
+            ("a count git could not give", [("branch", "main"), ("fetch", "0"), ("ahead", "")], "has an unknown number of commit(s)"),
+            ("a merge that failed", [("branch", "main"), ("fetch", "0"), ("ahead", "0"), ("merge", "1")], "step failed: as_login git -C ~/projects/agent-fabric merge")):
+        stopped, said, _ = step4(tags)
+        check(f"{label}: the run stops, nothing after it", stopped == 1 and why in said and "4. ~/projects/agent-fabric at" not in said, said)
+    for label, tags in (("no tag line at all", []), ("the fetch's tag missing", good[:1]), ("the count's tag missing", good[:2]),
+                        ("the merge's tag missing", good[:3]), ("the commit's tag missing", good[:4])):
+        stopped, said, _ = step4(tags)
+        check(f"a script that stopped short is no pass: {label}", stopped == 1 and "step failed" in said and "at origin/main" not in said, said)
+    stopped, said, _ = step4([], raw="new-agent-step\tbranch\tmain\nnew-agent-step\tbranch\tmain\n")
+    check("a repeated tag is no answer", stopped == 1 and "could not be read" in said, said)
+    stopped, said, _ = step4([], raw="profile\n" + "".join(f"new-agent-step\t{n}\t{v}\n" for n, v in good))
+    check("(control) a profile's line before the tags is ignored", stopped is None and "(abc1234)" in said, said)
+    # The script itself, against real git: an origin with one commit more than the clone, the clone on main, then not.
+    with tempfile.TemporaryDirectory() as tmp:
+        genv = {"PATH": os.environ["PATH"], "HOME": tmp, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
+
+        def git(*a: str, cwd: str = tmp) -> str:
+            return subprocess.run(["git", "-c", "init.defaultBranch=main", *a], cwd=cwd, env=genv, text=True, capture_output=True, timeout=60, check=True).stdout.strip()
+
+        def script(repo: str, mode: str = "real") -> dict[str, str]:
+            out = subprocess.run(["bash", "-c", worker.FABRIC_UPDATE, "_", repo, mode], env=genv, text=True, capture_output=True, timeout=120)
+            return worker.parse_tags(out.stdout, "step")
+        git("init", "-q", "--bare", "origin.git")
+        git("clone", "-q", "origin.git", "clone")
+        open(f"{tmp}/clone/a", "w").close()
+        git("add", "a", cwd=f"{tmp}/clone")
+        git("commit", "-qm", "one", cwd=f"{tmp}/clone")
+        git("push", "-q", "origin", "main", cwd=f"{tmp}/clone")
+        git("clone", "-q", "origin.git", "second")
+        open(f"{tmp}/second/b", "w").close()
+        git("add", "b", cwd=f"{tmp}/second")
+        git("commit", "-qm", "two", cwd=f"{tmp}/second")
+        git("push", "-q", "origin", "main", cwd=f"{tmp}/second")
+        tags = script(f"{tmp}/clone")
+        check("the script, on real git: fetch, ahead 0, fast-forward merge, then the new commit's short name",
+              tags == {"branch": "main", "fetch": "0", "ahead": "0", "merge": "0", "sha": git("rev-parse", "--short", "HEAD", cwd=f"{tmp}/clone")}
+              and os.path.exists(f"{tmp}/clone/b"), str(tags))
+        check("…a dry run changes nothing and reports only the branch", script(f"{tmp}/clone", "dry") == {"branch": "main"})
+        open(f"{tmp}/clone/c", "w").close()
+        git("add", "c", cwd=f"{tmp}/clone")
+        git("commit", "-qm", "local", cwd=f"{tmp}/clone")
+        tags = script(f"{tmp}/clone")
+        check("…a local commit is counted and stops before the merge", tags.get("ahead") == "1" and "merge" not in tags, str(tags))
+        git("checkout", "-qb", "topic", cwd=f"{tmp}/clone")
+        check("…off main it stops at the branch", script(f"{tmp}/clone") == {"branch": "topic"})
+        check("…a path that is no repository: an empty branch, nothing more", script(f"{tmp}/nowhere") == {"branch": ""})
+        git("checkout", "-q", "main", cwd=f"{tmp}/clone")
+        git("remote", "set-url", "origin", f"{tmp}/gone.git", cwd=f"{tmp}/clone")
+        tags = script(f"{tmp}/clone")
+        check("…an unreachable origin: the fetch's own status, and nothing after it", tags.get("fetch") not in (None, "0") and "ahead" not in tags, str(tags))
 
     print("test_provisioning_worker:", "OK" if not fails else f"{fails} FAILED")
     return 1 if fails else 0
