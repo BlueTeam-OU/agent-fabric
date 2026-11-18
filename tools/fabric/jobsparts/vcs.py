@@ -43,6 +43,23 @@ def main_checkout(repo: str) -> str:
     return os.path.dirname(common) if os.path.basename(common) == ".git" else repo
 
 
+def same_repo(a: str | None, b: str | None) -> bool | None:
+    """Whether two checkouts are of one repository, by origin's URL; None when either cannot be told (no directory, no origin, git
+    silent). Unknown is not "same" and not "other": the caller decides which side its refusal is safe on."""
+    urls = []
+    for path in (a, b):
+        if not path or not os.path.isdir(path):
+            return None
+        try:
+            r = run(path, "remote", "get-url", "origin", check=False)
+        except VcsError:
+            return None
+        if r.returncode != 0 or not r.stdout.strip():
+            return None
+        urls.append(r.stdout.strip().removesuffix(".git"))
+    return urls[0] == urls[1]
+
+
 def question(repo: str, *args: str) -> bool:
     """A question git answers with exit 0 or 1; any other status is an error, not a no."""
     r = run(repo, *args, check=False)

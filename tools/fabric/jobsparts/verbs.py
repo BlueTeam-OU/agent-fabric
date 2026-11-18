@@ -10,6 +10,7 @@ from fabric_jobs import vcs
 from fabric_jobs.settle import settle
 from fabric_jobs.leave_sweep import after_leaving
 from fabric_jobs.leave_targets import clean_targets
+from fabric_jobs import branching
 from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
 from fabric_jobs.base import MESSAGE_ID, Job, hold_view, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate, work
@@ -254,10 +255,14 @@ def switch_job(args) -> int:
                 raise NothingQueued("no queued job")
         return nxt
 
+    nothing_queued = False
     try:
         nxt = pick(listed)
     except NothingQueued:
-        raise Refused(f"no queued job; {pool_offer()}")
+        # Not a refusal before the leaving: like a hold, an empty queue starts nothing but the job just left is still settled and
+        # its build output cleared (rule 10 step 1). Refusing first left j288's 62 GB target on 2026-11-17: the last job of the
+        # day has no successor to switch to, and the daily tidy was then the only thing that ever removed it.
+        nxt, nothing_queued = None, True
     session = session_id()
     old = last_worked(listed, session)
     settled = None
@@ -283,7 +288,10 @@ def switch_job(args) -> int:
             swept = clean_targets(old.get("worktree"), old.get("working_copy"), others) + swept
         for said in swept:
             print(said, file=sys.stderr)
-        raise Refused(held_refusal(hold, "no job started") + (f"; {old['id']} left ({settled})" if settled else ""))
+        left_note = f"; {old['id']} left ({settled})" if settled else ""
+        if nothing_queued:
+            raise Refused(f"no queued job; {pool_offer()}{left_note}")
+        raise Refused(held_refusal(hold, "no job started") + left_note)
     choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged, repoint=args.repoint)
     verdict_for = {}
     stands = standing()
@@ -410,6 +418,20 @@ def repoint(args) -> int:
             raise Refused(f"{job['id']} is {job['state']}; a closed job is not re-pointed")
         # The one-job guard and the sweep key on these: a job with work in a checkout is that checkout's.
         held = [f"{k} {job[k]}" for k in ("branch", "worktree") if job.get(k)]
+        if args.forget_checkout:
+            # The one repair of a record that holds another repository's branch (j164): the worktree must be shown to be of another
+            # repository than DIR, and DIR not shown to be of another repository than the project it is named with, so a job's own
+            # branch is not dropped by a DIR that is itself foreign. Where the registry cannot say, only the first proof stands.
+            target = named_working_copy(args.project, args.working_copy)
+            if branching.checkout_of_project(target, args.project) is False:
+                raise Refused(f"{target} is not a checkout of {args.project}'s repository: it cannot show that {job['id']}'s record is foreign")
+            if not held:
+                raise Refused(f"{job['id']} records no branch or worktree: nothing to forget")
+            if vcs.same_repo(job.get("worktree"), target) is not False:
+                raise Refused(f"{job['id']}'s worktree {job.get('worktree') or '-'} is not shown to be a checkout of another repository than "
+                              f"{target or 'the working copy named'}: only a record from another repository is cleared")
+            forgot = [f"{k} {job.pop(k)}" for k in ("branch", "worktree") if job.get(k)]
+            held = []
         # Its own worktree is no other checkout: naming it syncs the two fields a job's record had drifted on (j474).
         own = bool(job.get("worktree") and args.working_copy
                    and os.path.realpath(os.path.expanduser(args.working_copy)) == os.path.realpath(job["worktree"]))
@@ -427,7 +449,8 @@ def repoint(args) -> int:
         else:
             working_copy = named_working_copy(args.project, args.working_copy)
             job["project"], job["working_copy"], job["project_from"] = args.project, working_copy, "re-pointed"
-            note = f"project re-pointed from {old or '-'} to {args.project}" + (f"; working copy {working_copy}" if working_copy else "; no working copy")
+            note = (f"project re-pointed from {old or '-'} to {args.project}" + (f"; working copy {working_copy}" if working_copy else "; no working copy")
+                    + (f"; forgot {' and '.join(forgot)}" if args.forget_checkout else ""))
         # No `state`: fleet.log_times reads the state of an entry as a transition.
         job.setdefault("log", []).append({"at": now, "kind": "project", "note": note})
         return job
@@ -589,7 +612,13 @@ def move(args, said: dict) -> Job:
             # The branch the paused work is on, read from where this command runs: pause asks that it is pushed.
             # The branch `switch` recorded stays unless this runs in its checkout: another directory's branch is not the job's.
             keep = bool(job.get("branch")) and paused_branch.get("worktree") != job.get("worktree")
-            fields = {"reason": why, "note": why, **({} if keep else paused_branch)}
+            # Nor the branch of a checkout of another repository: a session whose directory is another project's clone paused j170
+            # with j168's branch and worktree (j164), and switch then resumed it there. Only a checkout that is told to be of the
+            # job's own repository is adopted; one that cannot be told is not (the branch is then named by the job's own start).
+            adopt = paused_branch
+            if not keep and paused_branch and vcs.same_repo(paused_branch["worktree"], job.get("working_copy") or job.get("worktree")) is not True:
+                adopt = {}
+            fields = {"reason": why, "note": why, **({} if keep else adopt)}
             if left:
                 note = f"{why} (not pushed, the push fence refuses it: branch {left['unpushed']['branch']} at {left['unpushed']['head']})"
                 fields.update(left, note=note)
