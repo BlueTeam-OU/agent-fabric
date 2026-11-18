@@ -466,10 +466,10 @@ class Interweave(Harness):
         self.assertTrue(any("interweave" in e and "nothing sent" in e for e in self.err), self.err)
         self.assertEqual((self.relay.calls, self.out, self.nodes["alice"].requests), ([], [], []))
 
-    def run_with_session(self, session_cls):
+    def run_with_session(self, session_cls, op="ping"):
         self.nodes["alice"] = Node(self, self.net, "alice")
         with mock.patch.object(link, "Session", session_cls):
-            rc = ctl.main(["alice", "ping", "--json", "--timeout", "30"], registry=self.registry, call=self.relay, who=WHO, token="t",
+            rc = ctl.main(["alice", op, "--json", "--timeout", "30"], registry=self.registry, call=self.relay, who=WHO, token="t",
                           out=self.out.append, err=self.err.append)
         return rc
 
@@ -488,6 +488,25 @@ class Interweave(Harness):
         self.assertTrue(any("is unknown" in e and "read the accounts" in e for e in self.err), self.err)
         self.assertFalse(any("nothing sent" in e for e in self.err), self.err)
         self.assertEqual(self.relay.calls, [])
+
+    def test_a_read_whose_hand_off_failed_after_it_was_made_is_announced_as_unknown_not_as_never_sent(self):
+        # The half of certainly_unsent that `not maybe_handed` guards: no session comes back, but agentd may have sent.
+        class Slow:
+            def __init__(self, *a, **k):
+                self.sent = {}
+
+            def wait_sent(self, t):
+                raise RuntimeError("the operator's agentd did not finish the sends in time")
+
+            def close(self):
+                pass
+        calls: list = []
+        with mock.patch("control.breakglass.via_hostexec", self.hostexec_reply(calls)):
+            self.run_with_session(Slow, op="interweave")
+        said = [e for e in self.err if "bin/fabric-op" in e]
+        self.assertEqual(len(said), 1, self.err)
+        self.assertIn("alice may not have been asked by InterWeave (whether the send reached them is unknown)", said[0])
+        self.assertNotIn("did not reach them", said[0])
 
     def test_a_request_agentd_refused_or_never_connected_is_nothing_sent(self):   # the positive control of the case above
         class Refused:
