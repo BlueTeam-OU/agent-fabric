@@ -90,6 +90,7 @@ from control import opsutil as util
 from provisioning import bounded
 import roots  # noqa: E402 — control.opsutil puts tools/fabric on sys.path
 import operator_checkout  # noqa: E402
+from gzcoord.carrier import CARRIER_NAME  # noqa: E402
 
 PIECES = ["claude", "fabric"]
 
@@ -680,11 +681,12 @@ def session_provider(pids: list[int], proc: str = "/proc") -> str | None:
 
 # What a running carrier has loaded: the whole gzcoord package (the engine imports the paths, messages and tokens beside carrier/), the
 # modules it imports from outside it (episodic and what that reads, roots, signing, identity), its program and the client unit's. A path
-# here that stops existing fails test_carrier_code_paths_exist, and a module the engine loads that is not under a prefix fails
-# test_carrier_code_covers_what_the_engine_loads, so neither a rename nor a new import leaves a stale carrier unsaid.
+# here that stops existing fails test_carrier_code_paths_exist, and a module the engine loads at import time that is not under a prefix
+# fails test_carrier_code_covers_what_the_engine_loads. A module imported inside a function is not seen by that trace: whoever adds
+# one adds it to the fixture's list (tests/fixtures/carrier_import_trace.py) and here.
 CARRIER_CODE = ("tools/fabric/gzcoord/", "tools/fabric/episodic.py", "tools/fabric/roots.py", "tools/fabric/secret_store.py", "tools/fabric/secretstore/", "tools/fabric/signing/",
                 "tools/fabric/launch_locale.py",
-                "runtime/identity.py", "bin/gzcoord-carrier", "runtime/interweave/client")
+                "runtime/identity.py", "bin/gzcoord-carrier", f"runtime/{CARRIER_NAME}/client")
 
 
 def restart_carrier(root: str, home: str, env: dict[str, str], from_: str, to: str, run: Callable[..., Any],
