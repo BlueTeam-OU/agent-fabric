@@ -7,7 +7,9 @@ and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in
 each gate's word is given. W2 to W14, W17 and W18 are done (§5): W6, W7 and W8 merged as
 #613, W7's Stop-hook probe is on #612, W11 and W17's code are #623, W17's records
 were amended 2026-11-16, and W2's parity report, gate 1's last item, was filed 2026-11-18.
-The owner gave gate 1's word on 2026-11-18; ADR-033 and ADR-064 are amended for it.
+The owner gave gate 1's word on 2026-11-18; ADR-033 and ADR-064 are amended for it. The same day
+the owner shortened D8's soak at both rungs (§7), and #638 merged: `carrier-only` needs no relay
+token or relay section, and the one-command mode override is built (§6).
 
 A plan for the owner's review, drafted for fabric-coordinator. It decides nothing: every step
 that changes what carries a message waits for the owner's word and the record named beside it
@@ -63,7 +65,8 @@ claim about the code names its file and function; a path with no function is the
   still goes first; under `dual` the request also goes through the account's own agentd to each
   other account (`_open_leg`, `control_link.Leg.open`), and a failed relay post is made up by
   that leg. `queue.ask_holder` does the same. `send.py` `main` still stops without the relay
-  token (`if not tok: return 3`). That a send with the relay stopped passes without `--force`
+  token in `relay-record` and `carrier-record` (`if not tok and not carrier_only`); in
+  `carrier-only` it looks for none (#638). That a send with the relay stopped passes without `--force`
   is W12's read-back, not yet run.
 - **`fabric-history` does not read the relay.** `tools/fabric/history.py` reads the account's
   journal through `episodic.open_readonly`, and the docstring of `backfill.py` no longer lists
@@ -88,10 +91,10 @@ carrier's `interweave/inbox.jsonl` (`carrier/arrivals.py` `Spool`), "outbox" is 
 
 | where | uses the relay for | replacement | exists? |
 |---|---|---|---|
-| `tools/fabric/gzcoord/send.py` `main` | the post (`tp.send_primary`), whose outcome is the exit status; the token is required before anything is sent (`if not tok: return 3`) | the carrier's `send` op: accepted when every roster recipient is in the outbox | the op exists (`carrier/engine.py` `Carrier.send`, `adapter.Adapter.post`); as the exit status it does not: `via_mirrors` changes no status |
+| `tools/fabric/gzcoord/send.py` `main` | the post (`tp.send_primary`), whose outcome is the exit status; outside `carrier-only` the token is required before anything is sent (`if not tok and not carrier_only`); in `carrier-only` none is looked for (#638) | the carrier's `send` op: accepted when every roster recipient is in the outbox | the op exists (`carrier/engine.py` `Carrier.send`, `adapter.Adapter.post`); as the exit status it does not: `via_mirrors` changes no status |
 | `send.py` `main`, the `send.sent` line and `record_sent` | the relay's `seq` on stdout (`sent seq <n> <TYPE> <id>`) and in `gzcoord-sent.jsonl` | no sequence: the MESSAGE-ID (UUIDv7) names the message | no: the stdout contract is frozen in the docstring and in `communication/gzcoord/i18n/en-US.json` `send.sent` |
 | `send.py` `main`, the `gzcoord-out-final --seq` call; `tools/fabric/episodic.py` `out_final` | the relay's seq as the journal row's provenance | `--carrier interweave`, no seq | yes (`via_mirrors` already writes it) |
-| `send.py` `check_addressees`, `asked_presence` | presence, over the relay's control channel, with the relay token in the request | the same op over control's second carrier | in code, under `dual` (#586, W12): `presence.ask_presence` also opens a `control_link` leg through the account's own agentd; the relay post still goes first and the send still needs the token. Not read back with the relay stopped |
+| `send.py` `check_addressees`, `asked_presence` | presence, over the relay's control channel, with the relay token in the request | the same op over control's second carrier | in code, under `dual` (#586, W12): `presence.ask_presence` also opens a `control_link` leg through the account's own agentd; the relay post still goes first; outside `carrier-only` the send still needs the token, and in `carrier-only` neither the send nor its presence ask needs one (#638). Not read back with the relay stopped |
 | `tools/fabric/gzcoord/transport/relay.py` `RelayTransport.send`, `refresh`, `never_delivered`, `explain` | `POST /api/send`; a refused token re-read; what a failure proves | the carrier transport's own answers to the same four questions | no: `transport/carrier.py` `CarrierTransport` is a mirror and has none of `Primary`'s verbs (`transport/base.py` says a mirror "need not implement them; moving the record to another transport is the day it must") |
 | `tools/fabric/gzcoord/intake.py` `queue_for_addressee` | `fabric-ctl <login> jobs-add`, a control action over the relay | the same action over control's carrier | partly: it runs `fabric-ctl`, which uses the second carrier under `dual` (`ctl.py` `_second_carrier`); not read back with the relay stopped |
 | `tools/fabric/gzcoord/backfill.py` `tick` and `agentd.backfill_tick` (#573, merged) | reads the relay's newest page and posts carrier-only rows to it | nothing: under InterWeave only it must not run | done (#611, W9): it reads the mode and is a no-op in `carrier-only`, where no relay is made, asked or posted to and nothing is logged; a mode file that cannot be read leaves every row pending |
@@ -106,7 +109,7 @@ carrier's `interweave/inbox.jsonl` (`carrier/arrivals.py` `Spool`), "outbox" is 
 | `transport/mux.py` `TransportMux.fetch_page`, `ack`, `_log_ack`, `on_arrival` | the page, the acknowledgement, and the two evidence logs of the relay's copies (`gzcoord-arrivals.jsonl` relay lines, `gzcoord-acks.jsonl`) | carrier arrival lines only; no acknowledgement log | yes (`carrier/engine.py` `Carrier.finish` writes the arrival line) |
 | `inbox_parts/records.py` `mark_retransmissions`; `inbox.py` `fetch_recent` | the relay's newest 500 records, to mark a retransmission by its earlier seq | the ledger already refuses a second showing | yes |
 | `inbox.py` `main`, `--wait --keyword`; `records.keyword_hit` | every reader sees every message, so a keyword can fire on a message addressed to someone else | nothing: a `TO` reaches its addressee only, and a copy not addressed here is receipted and dropped (`Carrier.finish`) | given up (§3) |
-| `inbox_parts/config.py` `integration_config`, `default_relay` | a project counts as configured only with `relay_url` and `channel` (`projects/<id>/integration/gzcoord/config.json`, 15 files) | "configured" means the account has a valid roster row | no |
+| `inbox_parts/config.py` `integration_config`, `default_relay` | a project counts as configured only with `relay_url` and `channel` (`projects/<id>/integration/gzcoord/config.json`, 15 files) | "configured" means the account has a valid roster row | in `carrier-only` (#638): `config.resolve_integration` answers `carrier_only_config`, which asks no relay section; the other two modes still do (W15) |
 | `inbox_parts/tokens.py` `token`, `_token`, `synced_token` | `CLAUDE_BRIDGE_AUTH_TOKEN`; the inbox and the sender stop without it | no token: the PeerId is the credential | yes (roster) |
 | `runtime/claude-code/hooks/watch-on-stop.py` `relay_down`, `relay_answers`, `configured_relay_url`, `decide` | probes the relay before asking a session to re-arm its watch; while the give-up marker stands and the relay is silent it asks for none, so a session stays unwatched through the outage | a probe of the carrier's socket | yes, on #612 (W7's Stop-hook supply): outside `relay-record` the marker is probed at the carrier socket |
 
@@ -218,7 +221,8 @@ agreed soak (D8) with no stranded delivery; a carrier-outage drill (one account'
 for 30 minutes: senders' outboxes hold, everything arrives once on its return, shown once, judged by `gzcoord-carrier parity --carrier-drill` (#620)); two
 accounts in `carrier-only` through a relay stop of a working hour with every GZCoord function
 exercised (send, watch, replay, `fabric-pr arm --authorization`, `fabric-jobs add --request`,
-a REQUEST's job intake); and W12's read-back if the owner takes D1's recommendation. Records:
+a REQUEST's job intake), which since #638 (merged 2026-11-18) asks neither a relay token nor a
+relay section of a `carrier-only` account; and W12's read-back if the owner takes D1's recommendation. Records:
 ADR-033 amended again (the relay carries control only; rule 7's trigger; rule 5's "the hosting
 session's start brings it up"), ADR-064 (rules 8, 11 and 14, whose "the relay carries for it
 alone" goes; the dual run ends), ADR-041 rule 7 (its relay-row half goes), ADR-030 rule 3's wording, and ADR-069 §1
@@ -267,7 +271,7 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W12 | **Done, #586** (the relay-stopped read-back is gate 2's). Presence and the other public ops off the relay's outage: control's dual run switched on (`runtime/control/config.json`), and `presence.ask_presence` and `queue.ask_holder` handed to the account's own agentd socket | PD (`control/presence.py`, `control/queue.py`, `control_link.Server`); FC for the switch and ADR-029 | with the relay stopped, an addressed send from one staged account to another is checked and sent without `--force` | M to L | D1 |
 | W13 | **Done, #609** (in `carrier-only`, `status.inbox_state` and the status op's `_inbox` read `gzcoord/carrier/position.py`; `drift.inbox` and the `interweave` read are unchanged; the live read-back with the relay stopped is not run). Read position and health without the relay's cursor: `drift.inbox`, `status.inbox_state` and the `interweave` read show the spool's unseen count and the outbox's oldest outstanding and blocked deliveries | PD | `fabric-status` on a `carrier-only` account prints them with the relay stopped; a lagging relay cursor is no longer reported for it | M | W5 |
 | W14 | **Done, #587** (`store_step.py` no longer calls `relay_catchup.py`; the live read-back is not run: python-dev-03's j158 on the scratch login fabric-probe, waiting on the owner's root run of its relay cut). A new login without the relay: the roster row, the install and the start become provisioning steps, and `relay_catchup.py` leaves them. `Bootstrap.journal_import` stays until W15: it is best effort and never fails a bootstrap, so a dead relay costs one `!` line (decided 2026-11-17, j849) | PD (`provisioning/store_step.py`, `new_agent.py`); PD-supply (`bootstrap.py`, `relay_catchup.py`); FC countersigns rows | a scratch login provisioned on a host with the relay stopped sends and receives | M | - |
-| W15 | Removal, after gate 2: `RelayTransport` out of the send and inbox paths, `integration_config` no longer asks for a relay, the backfill, the acknowledgement log and the relay half of `parity.py` deleted, a one-carrier health report in its place, the state copy takes the outbox, `Bootstrap.journal_import` and `episodic_import.py` deleted with an amendment of ADR-041 rule 9 (the import that reads the relay), `transport-calls.json` loses `drift.py`, and `verify_grant`'s relay-row branch (`RELAY_CARRIER`) goes | PD, PD-supply (`relay.py`, `episodic_import.py`, `bootstrap.py`), DX (`tools/fabric/github/arm.py`), FC (the 15 integration files, the skills, the manuals, `transport-calls.json`) | `grep` finds no `/api/` call under `tools/fabric/gzcoord/`; `tests/test_arm_cli.py` refuses a grant row whose carrier is the relay; `tools/fabric/transport_calls.py` is clean with the shorter policy; the suite is green with no relay fixture in the GZCoord tests | L | gate 2 |
+| W15 | Removal, after gate 2: `RelayTransport` out of the send and inbox paths, `integration_config` no longer asks for a relay in any mode (#638 did it for `carrier-only`), the backfill, the acknowledgement log and the relay half of `parity.py` deleted, a one-carrier health report in its place, the state copy takes the outbox, `Bootstrap.journal_import` and `episodic_import.py` deleted with an amendment of ADR-041 rule 9 (the import that reads the relay), `transport-calls.json` loses `drift.py`, and `verify_grant`'s relay-row branch (`RELAY_CARRIER`) goes | PD, PD-supply (`relay.py`, `episodic_import.py`, `bootstrap.py`), DX (`tools/fabric/github/arm.py`), FC (the 15 integration files, the skills, the manuals, `transport-calls.json`) | `grep` finds no `/api/` call under `tools/fabric/gzcoord/`; `tests/test_arm_cli.py` refuses a grant row whose carrier is the relay; `tools/fabric/transport_calls.py` is clean with the shorter policy; the suite is green with no relay fixture in the GZCoord tests | L | gate 2 |
 | W16 | The relay retired (gate 3): control on InterWeave alone, the state stream replaced, the relay unit, its token, its backup timer and `secret_relay.py` removed | PD, FC | sized when gate 3 is asked for | L | gate 3 |
 
 W1 to W14, W17 and W18 are done; gate 1's evidence is filed (items 1 to 4). What is left is the
@@ -285,8 +289,11 @@ control action as `interweave-start` and `interweave-stop` are today, read back 
 `interweave` op, with an environment override for one command that says so on stderr every
 time. The default with no state file is a constant (`mode.DEFAULT`, read through
 `open_transport`), which W15 changes last. W5 built the state file, the signed action
-`interweave-mode` and the read; it built no environment override (a grep of `tools/fabric` finds
-none), so the one-command override is still to build.
+`interweave-mode` and the read. #638 (merged 2026-11-18) built the override:
+`GZCOORD_TRANSPORT_MODE` (`transport/mode.py`, `effective`) names the mode for one command, says
+so on stderr, wins over the state file (a damaged one too), and is refused when it names no mode
+(exit 2 for a send, 7 for the inbox). Send, inbox, replay, the watch and the presence child honour
+it; the signed action, the fleet's reads and the backfill still report the account's file.
 
 **The order is forced by one fact:** a sender in `relay-record` whose carrier is down posts to
 the relay alone and exits 0 (`Adapter.post` answers `absent` or `failed`, and `send.py`
@@ -320,7 +327,8 @@ at the next send; a running watch builds its transport once (`inbox.py` `main`),
 - If the control plane cannot reach an account, the same signed request goes through
   `fabric-ctl <login> … --via hostexec` to `bin/fabric-op`, for a step back to `carrier-record`
   or `relay-record` only: `fabric-ctl` refuses `carrier-only` over `--via`, because the fleet's
-  modes it checks first are read over the relay. The one-command override is not built yet.
+  modes it checks first are read over the relay. The one-command override (`GZCOORD_TRANSPORT_MODE`,
+  #638) moves one command, not the account: it is a probe, not a way back.
 - The relay, its token and its 6-hourly copy stay as they are until gate 3.
 
 Step back at once on: a delivery outstanding past an agreed age in any outbox, a `blocked` code
@@ -355,9 +363,12 @@ other than `NotInRoster`, a roster that fails to verify on any account, or an ac
 - **D7. Journal-off.** Accepted, owner 2026-11-15 (W17). Recommended: a `GZCOORD_JOURNAL=off` send goes through the carrier with
   its bypass line, since the outbox keeps the text; there is no journal-off receiving, and the
   human relay is the break-glass for an account whose journal cannot be written.
-- **D8. The soak and the first accounts.** Accepted, owner 2026-11-15 (gates 1 and 2). Recommended: three working days on two accounts and
-  seven days on the fleet at each rung, python-dev-02 and python-dev-03 first, the
-  coordinator's account last.
+- **D8. The soak and the first accounts.** Accepted, owner 2026-11-15 (gates 1 and 2), as
+  recommended: three working days on two accounts and seven days on the fleet at each rung,
+  python-dev-02 and python-dev-03 first, the coordinator's account last. **Shortened by the
+  owner on 2026-11-18, at both rungs** (`carrier-record` and `carrier-only`): two hours on
+  python-dev-02 and python-dev-03, then every account for one day, the coordinator's account
+  last. The order and the first two accounts are unchanged.
 - **D9. The second host.** Recommended: W10 before gate 2, and the two-host check before any
   agent moves (ADR-064 rule 1, ADR-069 rule 2). One question in it is architect-cto's, not the
   owner's: fabric-h2 cannot open a connection to develop-qzapp
@@ -399,5 +410,7 @@ in this order (gate 1's word was given on 2026-11-18, on items 1 to 4 of §4):
    (REQUEST 01a1ed4e-82ec to python-dev). Gate 1's mode switch waits on it.
 2. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
    gate 3. D8's soak follows gate 1's word, not before it: the word moves python-dev-02 and
-   python-dev-03 to `carrier-record` (§6 step 1), they soak three working days, then the fleet
-   seven; the fleet's soak is gate 2's first item.
+   python-dev-03 to `carrier-record` (§6 step 1) and they soak two hours; then every account
+   moves, the coordinator's last, and the fleet soaks one day, which is gate 2's first item.
+   Gate 2's word repeats both at `carrier-only`: two hours on the pair, then one day on every
+   account, the coordinator's last (D8 as the owner shortened it on 2026-11-18).
