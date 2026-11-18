@@ -84,7 +84,8 @@ def _open_leg(request: dict, to: list, wait_s: float):
 
 def _read_mode() -> str:
     from gzcoord.transport import mode
-    return mode.read()["mode"]
+    # The command's own mode: the child inherits GZCOORD_TRANSPORT_MODE, which its parent has already said.
+    return mode.effective()["mode"]
 
 
 def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait_ms: float = PRESENCE_WAIT_MS,
