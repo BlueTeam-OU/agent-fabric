@@ -36,16 +36,13 @@ Nothing here reads a keyring for trust: the committed keys (KeySource) decide.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import platform
-import re
 import subprocess
 import tempfile
 from dataclasses import replace
 
-from gzcoord.carrier import roster
+from gzcoord.carrier import pin, roster
 from signing import sign as fabric_sign
 
 TRANSPORTCTL_TIMEOUT = 60
@@ -61,46 +58,34 @@ class NoCommittedKey(AdmitError):
 
 
 def _release_entry(release_path: str, machine: str | None = None) -> dict:
-    arch = machine or platform.machine()
     try:
-        with open(release_path, encoding="utf-8") as fh:
-            doc = json.load(fh)
-        return doc["releases"][doc["current"]][arch]
-    except (OSError, ValueError) as e:
-        raise AdmitError(f"{release_path}: {e}") from e
-    except (KeyError, TypeError) as e:
-        raise AdmitError(f"{release_path} pins no release for {arch}") from e
+        return pin.release_entry(release_path, machine)
+    except pin.PinError as e:
+        raise AdmitError(str(e)) from e
 
 
 def pinned_version(release_path: str, machine: str | None = None) -> str:
     """What `transportctl --version` must print: release.json's `reports` for the current release on this machine."""
     try:
-        return _release_entry(release_path, machine)["reports"]["transportctl"]
-    except (KeyError, TypeError) as e:
-        raise AdmitError(f"{release_path} pins no transportctl version") from e
+        return pin.pinned_version(release_path, "transportctl", machine)
+    except pin.PinError as e:
+        raise AdmitError(str(e)) from e
 
 
 def pinned_digest(release_path: str, machine: str | None = None) -> str:
     """release.json's `program_sha256` for transportctl: the installed program must be the release's, which its
     own --version cannot show (a checkout build of the pinned commit prints the same string, ADR-064 rule 4)."""
     try:
-        digest = _release_entry(release_path, machine)["program_sha256"]["transportctl"]
-    except (KeyError, TypeError) as e:
-        raise AdmitError(f"{release_path} pins no program_sha256 for transportctl") from e
-    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise AdmitError(f"{release_path}: program_sha256 for transportctl is not lowercase hex SHA-256")
-    return digest
+        return pin.pinned_digest(release_path, "transportctl", machine)
+    except pin.PinError as e:
+        raise AdmitError(str(e)) from e
 
 
 def file_sha256(path: str) -> str:
-    h = hashlib.sha256()
     try:
-        with open(path, "rb") as fh:
-            for chunk in iter(lambda: fh.read(1 << 20), b""):
-                h.update(chunk)
-    except OSError as e:
-        raise AdmitError(f"{path} cannot be read: {e.strerror or type(e).__name__}") from e
-    return h.hexdigest()
+        return pin.file_sha256(path)
+    except pin.PinError as e:
+        raise AdmitError(str(e)) from e
 
 
 def _ctl(argv: list[str], env: dict[str, str]) -> str:
