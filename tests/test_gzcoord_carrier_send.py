@@ -284,8 +284,9 @@ def mirror_log_cases() -> None:
     f.close()
     f = Fake({"ok": False, "error": "no roster"})
     r, lines = logged(f.run, seed=b"\xff\xfe not utf-8\n" * 30000)
-    check("  a log with bytes that are not UTF-8, over its bound: the trim cannot read it, the send still ends 0 with its stdout line",
-          r.code == 0 and r.out.startswith("sent seq 42 INFO ") and "mirror refusal log could not be written" in r.err, f"{r.code} {r.out!r} {r.err}")
+    check("  a log with bytes that are not UTF-8, over its bound: the send ends 0 with its stdout line, says nothing of the log, the new line is there and the log is trimmed",
+          r.code == 0 and r.out.startswith("sent seq 42 INFO ") and "mirror refusal log" not in r.err
+          and lines is not None and lines[-1]["mid"] == P.VALID_ID and len(lines) < 100, f"{r.code} {r.out!r} {r.err} {lines and len(lines)}")
     f.close()
     f = Fake({"ok": False, "error": "no roster"})
     r, lines = logged(f.run, 500)

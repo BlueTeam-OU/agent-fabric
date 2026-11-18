@@ -27,6 +27,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import sys
 import threading
 from typing import Callable
 
@@ -136,10 +137,28 @@ class MirrorLog(ArrivalLog):
                 jsonl.repair(self.path)
                 jsonl.append_path(self.path, line)
                 if os.stat(self.path).st_size > self.MAX_BYTES:
-                    rows = _read(self.path)
-                    _rewrite(self.path, rows[len(rows) // 2:])
+                    try:
+                        self._trim()
+                    except OSError as e:
+                        # The line is written; only the bound failed (a full disk): said as that, never as an unwritten line.
+                        print(f"gzcoord: the mirror refusal log was written but could not be trimmed ({e.strerror or e})", file=sys.stderr)
             finally:
                 os.close(lock)
+
+
+    def _trim(self) -> None:
+        # Undecodable bytes are replaced, so the line that holds them fails to parse and is dropped: a corrupt log heals at its trim
+        # instead of staying over its bound for good.
+        rows: list[dict] = []
+        with open(self.path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    o = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(o, dict):
+                    rows.append(o)
+        _rewrite(self.path, rows[len(rows) // 2:])
 
 
 class Spool:

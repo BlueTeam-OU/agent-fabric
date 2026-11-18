@@ -315,7 +315,7 @@ def _mirror(login: str, meta: dict, rows: list | None) -> list[dict] | None:
 
 
 def load_mirror(path: str) -> dict:
-    """{"rows": {mid: [{login, t, outcome, reason}]}, "uncollected": [login]}: every account's mirror refusals by MESSAGE-ID (the
+    """{"rows": {mid: [{login, t, outcome, reason}]}, "uncollected": [login], "began": the start of the span every collected log covers}: every account's mirror refusals by MESSAGE-ID (the
     sender's log carries no addressee), and the accounts whose log the collection does not hold whole."""
     by_mid: dict[str, list[dict]] = defaultdict(list)
     uncollected: list[str] = []

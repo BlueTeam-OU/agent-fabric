@@ -675,6 +675,10 @@ class Parity(unittest.TestCase):
         self.assertNotIn("no account's mirror log holds a refusal", out)
         self.assertIn("The mirror-refusal log was not collected whole from alpha", out)
 
+    def test_the_span_comes_from_the_latest_collected_since_less_the_margin(self):
+        out = self.filed(alpha={"mirror": []}, beta={"mirror": [], "since": iso(-50)})
+        self.assertEqual(parity.load_mirror(out)["began"], T0 - 50 - parity.MARGIN_S, "the later start of the two accounts")
+
     def test_a_mirror_row_that_is_not_what_the_op_sends_is_refused(self):
         out_dir = self.filed(alpha={"mirror": [mrow(30)]}, beta={"mirror": []})
         with open(os.path.join(out_dir, "alpha", "mirror.jsonl"), "w") as fh:
@@ -1769,6 +1773,19 @@ class MirrorAccount(RelayOutageAccount):
         self.assertEqual(set(r["rows"][0]), {"mid", "t", "outcome", "reason"})
         self.assertNotIn(BODY_TEXT, json.dumps(r))
         self.assertNotIn(".secret", json.dumps(r))
+
+    def test_a_failing_trim_says_the_line_was_written_and_a_mid_that_is_not_a_message_id_does_not_leave(self):
+        path = os.path.join(self.state, "gzcoord-mirror.jsonl")
+        log = arrivals.MirrorLog(path, iso_now=lambda: iso(5))
+        err = io.StringIO()
+        with unittest.mock.patch.object(arrivals.MirrorLog, "MAX_BYTES", 10), unittest.mock.patch.object(arrivals, "_rewrite", side_effect=OSError(28, "No space left")), \
+                contextlib.redirect_stderr(err):
+            log.append_refused(mid(1, 1), "absent", "x")
+        self.assertIn("written but could not be trimmed (No space left)", err.getvalue())
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual([json.loads(x)["mid"] for x in fh], [mid(1, 1)])
+        self.log([mrow(10, "/home/x/secret")])
+        self.assertEqual(ev.carrier_evidence(request("mirror", 0, 100), state=self.state)["skipped"], 1)
 
     def test_a_torn_line_and_a_line_of_the_wrong_shape_are_counted_and_not_sent(self):
         bad = [{**mrow(30), "outcome": "bored"}, {**mrow(30), "t": "yesterday"}, {**mrow(30), "reason": None}, {**mrow(30), "mid": ""},
