@@ -92,6 +92,12 @@ CARRIER_ACTION_OPS = frozenset({INSTALL_OP, START_OP, STOP_OP})
 # sends it by the carrier and asks an account that did not answer by hostexec to fabric-op (ADR-064 rule 14), so a daemon with its relay off
 # answers it when it arrives (Carrier.refused_ops).
 RELAY_ONLY_OPS = CARRIER_ACTION_OPS | {CARRIER_NAME}
+
+
+def _refusal_why(refused: frozenset[str]) -> str:
+    """Where a refused op goes instead, which depends on the mode: with the read among the refused ones the relay carries it;
+    without, the carrier is alone and only hostexec reaches the actions."""
+    return "goes on the relay only" if CARRIER_NAME in refused else "goes through hostexec, never on the carrier"
 INBOUND_MAX = 256          # the daemon's per-client queue (InterWeave ADR-0055 decision 2)
 BACKOFF_S = (1, 2, 4, 8, 16, 32, 60)
 SEND_WAIT_S = 10.0         # a reply's send; a request's is its ttl_s
@@ -597,7 +603,7 @@ class Carrier:
             return
         if isinstance(record.get("op"), str) and record["op"] in self.refused_ops:
             self.arrivals.add(VIA, record, "relay-only-op", sender)
-            self._log(f"dropped {record['op']} from {sender}: that op goes on the relay only")
+            self._log(f"dropped {record['op']} from {sender}: {_refusal_why(self.refused_ops)}")
             return
         if kind == "request":
             self.arrivals.add(VIA, record, "ok", sender)
@@ -825,7 +831,7 @@ class Server:
         if rec.get("kind") != "request" or not isinstance(rec.get("id"), str) or not rec["id"]:
             raise Refused("the record is not a request with an id")
         if isinstance(rec.get("op"), str) and rec["op"] in self._refused_ops:
-            raise Refused(f"{rec['op']} goes on the relay only")
+            raise Refused(f"{rec['op']} {_refusal_why(self._refused_ops)}")
         return req
 
     def _run(self, conn: socket.socket, req: dict) -> None:

@@ -2574,8 +2574,10 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     fallback_rc = 0
     if carrier_read and want:
         late = [e for e in expected if e["address"] in want]
-        err(f"fabric-ctl: {', '.join(e['login'] for e in late)} did not answer by {CARRIER_LABEL}: asked through hostexec to bin/fabric-op, one account at a time")
-        got, fallback_rc = _each_by_hostexec(args, late, me=me, cfg=cfg, new_id=agentd.new_id, registry=registry, err=err)
+        got, fallback_rc = _each_by_hostexec(
+            args, late, me=me, cfg=cfg, new_id=agentd.new_id, registry=registry, err=err,
+            announce=f"fabric-ctl: {', '.join(e['login'] for e in late)} did not answer by {CARRIER_LABEL} within {int(deadline - t0)} s: "
+                     f"asked through hostexec to bin/fabric-op, one account at a time")
         for r in got or []:
             r["latency_ms"] = int((now() - t0) * 1000)
             replies.append(r)
@@ -2664,15 +2666,19 @@ def _second_carrier(request: dict, expected: list[dict], args: dict, err: Callab
 
 
 def _each_by_hostexec(args: dict, targets: list[dict], *, me: dict, cfg: dict, new_id: Callable[[], str], registry: str | None,
-                      err: Callable[[str], None]) -> tuple[list[dict] | None, int]:
+                      err: Callable[[str], None], announce: str = "") -> tuple[list[dict] | None, int]:
     """The replies of `targets`, each asked alone by a signed request through hostexec to bin/fabric-op (ADR-029 rule 19, one login
     per request: the target refuses one addressed to everyone), and the exit status of the ones that gave none: 2 refused by
-    fabric-op, 3 not sent or failed. None for the replies when there is no signing key: nothing was sent."""
+    fabric-op, 3 not sent or failed. None for the replies when there is no signing key: nothing was sent.
+    `announce` is said once the key is in hand, so it is never said of a send that did not happen."""
     from control import breakglass
     k = signing_key()
     if "error" in k:
-        err(f"fabric-ctl: {k['error']} — an action is signed or not sent")
+        what = "an action" if args["op"] in ACTION_OPS else f"the {args['op']} read"
+        err(f"fabric-ctl: {k['error']} — {what} is signed or not sent")
         return None, 3
+    if announce:
+        err(announce)
     replies: list[dict] = []
     rc = 0
     for i, target in enumerate(targets):
@@ -2694,6 +2700,11 @@ def _each_by_hostexec(args: dict, targets: list[dict], *, me: dict, cfg: dict, n
         if o.kind in ("refused", "failed"):
             err(f"fabric-ctl: {target['login']}: {'refused by fabric-op: ' if o.kind == 'refused' else ''}{o.detail}")
             rc = max(rc, 2 if o.kind == "refused" else 3)
+            continue
+        if o.kind == "reply" and o.exit and args["op"] not in ACTION_OPS:
+            # fabric-op's verdict on a read is its exit: the reply is there, but the target called it a failure (no section for the op).
+            err(f"fabric-ctl: {target['login']}: fabric-op exited {o.exit}: the reply holds no {args['op']} section")
+            rc = max(rc, 3)
             continue
         if o.reply is not None:
             replies.append(o.reply)

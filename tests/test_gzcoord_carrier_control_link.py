@@ -573,7 +573,7 @@ class RelayOff(Net):
                 self.addCleanup(t.close)
                 with self.assertRaises(RuntimeError) as cm:
                     t.wait_sent(5)
-                self.assertIn("relay only", str(cm.exception))
+                self.assertIn("through hostexec, never on the carrier", str(cm.exception))
         self.assertEqual([r["id"] for r, _ in self.nodes["alice"].requests], ["q-read"])
 
     def test_the_operators_own_read_loops_back_and_an_own_action_does_not(self):

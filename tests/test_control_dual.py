@@ -690,6 +690,21 @@ class Interweave(Harness):
                           out=self.out.append, err=self.err.append)
         self.assertEqual(rc, 3)
         self.assertEqual([r["status"] for r in self.rows()], ["no answer"])
+        self.assertTrue(any("the interweave read is signed or not sent" in e for e in self.err), self.err)
+        self.assertFalse(any("asked through hostexec" in e for e in self.err), "nothing was sent: it is not said to have been")
+
+    def test_a_reply_fabric_op_called_a_failure_is_not_an_ok_row(self):
+        from control import breakglass
+        self.boot("alice")
+        # the target journals "failed" and exits 1 when the reply has no section for the op; the reply still comes back on stdout
+        failed = lambda request, target, **k: breakglass.Outcome("reply", {"v": 1, "kind": "reply", "id": "r", "in_reply_to": request["id"],
+                                                                           "from": target["address"], "op": request["op"], "ok": True, "data": {}}, exit=1)
+        with mock.patch.object(ctl, "CARRIER_FIRST_ANSWER_S", 0.5), mock.patch.object(breakglass, "via_hostexec", failed):
+            rc = ctl.main(["alice", "interweave", "--json", "--timeout", "5"], registry=self.registry, call=self.relay, who=WHO, token="t",
+                          out=self.out.append, err=self.err.append)
+        self.assertEqual(rc, 3, self.err)
+        self.assertEqual([r["status"] for r in self.rows()], ["no answer"])
+        self.assertTrue(any("holds no interweave section" in e for e in self.err), self.err)
 
     def test_the_read_is_still_refused_by_the_flag_that_names_hostexec(self):
         # --via is the actions' break-glass; the read's fallback is automatic, never asked for by name
