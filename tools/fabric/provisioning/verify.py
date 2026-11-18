@@ -23,7 +23,8 @@ class ReadbackError(Exception):
 # Each line runs in its own `bash -c` under the same login shell, bounded by its own timeout, its stdout framed as
 # "new-agent-frame<TAB><exit status><TAB><base64>": a profile may print anything else on stdout, and only a frame counts.
 # The mode before each line is q (stderr dropped) or l (stderr stays the run's). The "x<status>" tail inside the substitution
-# keeps the answer's trailing newlines, which `$(...)` would cut: the bytes are the line's own, as a shell apiece gave them.
+# keeps the answer's trailing newlines, which `$(...)` would cut. NUL bytes are not carried (bash drops them, with a warning on
+# stderr): no read-back prints one.
 BATCH = r'''export PATH="$AGENT_FABRIC_PATH:$PATH"; cd "$HOME" || exit 1
 while [ "$#" -ge 2 ]; do
   mode=$1; line=$2; shift 2
@@ -73,7 +74,7 @@ class Account:
             except (binascii.Error, ValueError) as exc:
                 raise ReadbackError(f"a read-back's answer as {self.login} is not what the shell frames") from exc
             if status in ("124", "137"):      # timeout's own, or its -k kill of a line that ignored TERM
-                print(f"new-agent:    sudo: no answer within {bounded.READBACK_TIMEOUT_S} s", file=sys.stderr)
+                print(f"new-agent:    {self.sudo[0]}: no answer within {bounded.READBACK_TIMEOUT_S} s", file=sys.stderr)
                 out[-1] = b""
         return out
 

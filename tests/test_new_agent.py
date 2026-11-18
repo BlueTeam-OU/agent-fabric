@@ -477,7 +477,7 @@ def main() -> int:
             bounded.READBACK_TIMEOUT_S = saved_t
             os.environ["PATH"] = saved_path
         check("…a line that outruns its bound answers nothing, says so, and the lines after it are still answered",
-              slow == [b"", b"after\n"] and "no answer within 1 s" in said_slow, f"{slow} {said_slow}")
+              slow == [b"", b"after\n"] and f"new-agent:    {tmp}/vbin/sudo: no answer within 1 s\n" in said_slow, f"{slow} {said_slow}")
         # An unterminated line a profile prints must not glue to the first frame (the review's risk): the frame starts its own line.
         put(f"{home}/.bash_profile", "printf 'no newline at the end'\n")
         os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
