@@ -5,7 +5,7 @@ topic: edgextract
 description: "edgextract (a markdown-to-knowledge-graph library): markdown -> knowledge graph with a user ontology; a local decision model answers closed yes/no per candidate (probability + cutoff: keep / review / drop); not adopted (needs Ollama + a…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-17"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -33,6 +33,6 @@ The edgextract repository on GitHub (its author's personal account), read 2026-1
 
 **How to apply:** if the drain or lint ever gets model-judged decisions, shape them as closed questions with a cutoff and a review queue (the ADR-058 reflection pass and the drain report are the places). Related: [[edgequake]], [[helix-foundry]], [[overgraph]], [[agent-memory-tigerless]].
 
-*References: agent-memory-tigerless, edgequake, helix-foundry, links, overgraph*
+*References: agent-memory-tigerless, edgequake, helix-foundry, overgraph*
 
 *Observed 2026-10-15 (fabric-coordinator)*

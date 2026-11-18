@@ -3,7 +3,7 @@ role: "ux-designer"
 class: index
 description: "What ux-designer knows and where it lives."
 tier: 1
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 ---
 
 # ux-designer — knowledge index
@@ -26,6 +26,10 @@ control plane checked out beside it.
 
 ## domain
 
+- [`memory/domains/ux-designer/domain/acceptance-trigger-keeps-focus.md`](memory/domains/ux-designer/domain/acceptance-trigger-keeps-focus.md) — An acceptance check for a focus row must say how the state is forced, by a route that leaves focus where that row needs it
+- [`memory/domains/ux-designer/domain/android-dont-keep-activities-toggle.md`](memory/domains/ux-designer/domain/android-dont-keep-activities-toggle.md) — On the Pixel (GrapheneOS), `settings put global always_finish_activities` does not apply Don't keep activities; only the Developer options switch does
+- [`memory/domains/ux-designer/domain/android-permission-grant-kills-process.md`](memory/domains/ux-designer/domain/android-permission-grant-kills-process.md) — on GrapheneOS (Pixel), granting the network permission in the system dialog kills the app's process — a flow that assumes the Activity survives the grant is wrong there
+- [`memory/domains/ux-designer/domain/android-touch-mode-clears-focus.md`](memory/domains/ux-designer/domain/android-touch-mode-clears-focus.md) — Android touch mode clears focus from a button on a touch and hides the focus highlight — never cite it as keeping focus
 - [`memory/domains/ux-designer/domain/announce-once-undo-findable.md`](memory/domains/ux-designer/domain/announce-once-undo-findable.md) — One act is announced once: when focus moves to an element that states the result, no live announcement repeats it; then the Undo the announcement no longer names gets a hint placed by reading order, not by a visual landmark
 - [`memory/domains/ux-designer/domain/awaited-answer-states.md`](memory/domains/ux-designer/domain/awaited-answer-states.md) — While an action waits for its answer: a waiting label that claims no outcome takes the button's place with focus, a progress mark that stays under reduced motion, and Back still closes the page, leaving the outcome to the next read
 - [`memory/domains/ux-designer/domain/bounded-loss-is-a-choice.md`](memory/domains/ux-designer/domain/bounded-loss-is-a-choice.md) — when a memory bound must drop something the person cannot get back, no drop order fixes it; make crossing the bound the person's informed choice
@@ -67,6 +71,7 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/ux-designer/workflow/citations-resolve-on-main.md`](.agent-fabric/memory/ux-designer/workflow/citations-resolve-on-main.md) — A design note's citations must resolve on main when it merges: cite a commit, never a branch name; a rule still on someone's for/ branch is folded unrebased into the note's PR so both land together, or the arming word is withheld
 - [`.agent-fabric/memory/ux-designer/workflow/finding-says-what-has-to-change.md`](.agent-fabric/memory/ux-designer/workflow/finding-says-what-has-to-change.md) — A design review finding the developer is to build from states 'what has to change' as an observable result, choosing among the build options itself; a finding that only says what was seen leaves the developer waiting
 - [`.agent-fabric/memory/ux-designer/workflow/product-question-with-built-reading.md`](.agent-fabric/memory/ux-designer/workflow/product-question-with-built-reading.md) — A product question to the architecture role carries the reading the spec is built on until the ruling, so the developer is not blocked and the answer changes one named line
+- [`.agent-fabric/memory/ux-designer/workflow/queued-request-may-be-answered.md`](.agent-fabric/memory/ux-designer/workflow/queued-request-may-be-answered.md) — before working a queued REQUEST job, read its thread — an earlier session may have answered it when it arrived
 - [`.agent-fabric/memory/ux-designer/workflow/restated-conditions-quoted-verbatim.md`](.agent-fabric/memory/ux-designer/workflow/restated-conditions-quoted-verbatim.md) — Where a review record or another section restates a spec's condition or a string, quote it word for word with its locator; a paraphrase narrows the condition or makes a second version of the text
 - [`.agent-fabric/memory/ux-designer/workflow/scripted-input-on-shared-phone.md`](.agent-fabric/memory/ux-designer/workflow/scripted-input-on-shared-phone.md) — Scripted adb input on the shared test phone: check before every tap that the app holds focus, wait out system heads-ups, stop when a person uses the phone, read FLAG_SECURE before trusting a black capture, and log every anomaly with build…
 - [`.agent-fabric/memory/ux-designer/workflow/verdict-per-condition-walked.md`](.agent-fabric/memory/ux-designer/workflow/verdict-per-condition-walked.md) — A device-review verdict passes only the conditions actually walked (screen x font scale x theme x state); anything unwalked is 'partly met' with the condition named, and a walk that needs a wipe, a revoked permission or the owner's unlock…

@@ -5,7 +5,7 @@ topic: "type-into-ssh-pane"
 description: "How to type the owner's words into another agent's session when its deck pane is an ssh link; why language-culture-ge sat idle on 11 queued jobs"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-17"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -14,6 +14,7 @@ origin:
 derived_from:
   - 9ff71bbc6d7ebbac
   - cfbbebbb2b84d54b
+  - d535ec79aabd2985
 ---
 
 ## How to type the owner's words into another agent's session when its deck pane is an ssh link; why language-culture-ge sat idle on 11 queued jobs
@@ -24,6 +25,7 @@ To relay the owner's words into another agent's session (2026-10-16, language-cu
 
 - `agent-fabric-fleetdeck agent prompt` and `agent send-keys` refuse a pane whose foreground process is the ssh client, with "agent_not_ready".
 - `agent-fabric-fleetdeck pane send-text <pane> "<text>"` followed by `pane send-keys <pane> enter` works.
+- 2026-11-10: `send-keys <pane> enter` sent straight after send-text left the text unsent in 4 of 5 panes. `send-keys <pane> Enter` (capital E), sent a second or more after the text, submitted every time. Read back with `pane read <pane> --source visible`: a `❯ <your text>` line means the text was not sent.
 - Find the pane with `agent list` (the account sits in `tokens.account`), and read the result back with `agent read <pane>`.
 - `agent read` can return a stale snapshot: on 2026-10-16 18:5x it showed the same screen after three sends. `pane read <pane>` is live, so read back with that.
 - Grey text after `❯` is Claude Code's prompt suggestion, not typed text, and Enter does not send it.

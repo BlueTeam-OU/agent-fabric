@@ -5,7 +5,7 @@ topic: "next-work-rides-the-open-pr"
 description: "One open PR per repo means the next ready piece of work is folded onto it as more commits, not held until it merges; owner caught j509 waiting on #451 (2026-11-01)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-17"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 1ecc91be133f03da
+  - 3fbb03fc38c778b6
 ---
 
 ## One open PR per repo means the next ready piece of work is folded onto it as more commits, not held until it merges; owner caught j509 waiting on #451 (2026-11-01)
@@ -27,6 +28,8 @@ On 2026-11-01 the owner asked why I had not folded j509 (python-dev-01's for/ br
 - Ask before folding only when the PR is already armed: a push disarms it, and the owner decides whether to delay the merge. On 2026-11-01 the owner chose to let #451 merge and open j509 next.
 
 Related: [[owner-bug-list-after-j509]], [[supply-onto-pr-branch-in-job-copy]].
+
+**Narrowed 2026-11-12 by the owner** (after #575 sat unmerged for three hours carrying ADR-045 preconditions, the delegation rule, the Fable routing change and edge-hosting's one-line deploy entry): the next work rides the open PR **only when it is the same topic**. An unrelated piece, like a small policy entry another agent waits on, gets its own PR. The rule text changes in job j807, after #575 merges; until then, apply the narrowing and say so.
 
 *References: owner-bug-list-after-j509, supply-onto-pr-branch-in-job-copy*
 
