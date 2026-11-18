@@ -2434,7 +2434,12 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         relay_up = False
     session, early, attempted, maybe_handed = (_second_carrier(request, expected, args, err, relay_alone=not alone) if dual else (None, [], set(), False))
     # Kept before the session is closed or dropped: it says, per account, whether the send certainly never reached the child.
+    # With no session at all there is no per-account reason, and `maybe_handed` says whether anything could have been sent.
     send_why = dict(session.sent) if session is not None else {}
+    never_sent_at_all = session is None and not maybe_handed
+
+    def certainly_unsent(address: str) -> bool:
+        return link.never_sent(send_why[address][1]) if address in send_why else never_sent_at_all
     if carrier_read and not attempted and session is not None:
         session.close()   # nothing was sent by it: the accounts are asked by hostexec below, with no wait for a silence
         session = None
@@ -2577,9 +2582,10 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     if carrier_read and want:
         late = [e for e in expected if e["address"] in want]
         # Three groups, each told what it was given: asked and waited on for `deadline - t0` s; certainly never sent to (the send's
-        # own reason says so); and not known either way (a hand-off or a settle that failed after it was made), which is said as unknown.
+        # own reason says so); and not known either way (a hand-off or a settle that failed after it was made), which is said as unknown. With no connection
+        # to the operator's agentd at all, nothing was sent: that is the certain group.
         waited = [e["login"] for e in late if e["address"] not in unsent]
-        never = [e["login"] for e in late if e["address"] in unsent and link.never_sent(send_why.get(e["address"], (False, ""))[1])]
+        never = [e["login"] for e in late if e["address"] in unsent and certainly_unsent(e["address"])]
         unknown = [e["login"] for e in late if e["address"] in unsent and e["login"] not in never]
         said = []
         if waited:

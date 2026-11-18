@@ -690,6 +690,10 @@ class Interweave(Harness):
         self.assertLess(time.monotonic() - t0, 10)
         self.assertEqual([r["carrier"] for r in self.rows()], ["hostexec"])
         self.assertEqual(self.relay.calls, [])
+        said = [e for e in self.err if "bin/fabric-op" in e]
+        self.assertEqual(len(said), 1, self.err)
+        self.assertIn("alice could not be asked by InterWeave (the send did not reach them)", said[0], "no connection made: nothing was sent, said as certain")
+        self.assertNotIn("unknown", said[0])
 
     def test_a_read_fabric_op_refused_or_could_not_run_is_a_failed_run_and_a_no_answer_row(self):
         from control import breakglass
