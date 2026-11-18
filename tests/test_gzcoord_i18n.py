@@ -203,11 +203,11 @@ def _():
 
 def _sources() -> dict[str, str]:
     """Every module that prints a dictionary line: the inbox with each of
-    its parts (gzcoord/inbox_parts/), the validator, send."""
+    its parts (gzcoord/inbox_parts/), the validator, send, the carrier transport."""
     parts = sorted(n for n in os.listdir(os.path.join(MODULES, "inbox_parts")) if n.endswith(".py"))
     names = ["inbox.py", *(os.path.join("inbox_parts", n) for n in parts)]
     out = {}
-    for name in (*names, "gzmsg.py", "send.py"):
+    for name in (*names, "gzmsg.py", "send.py", os.path.join("transport", "carrier.py")):
         with open(os.path.join(MODULES, name), encoding="utf-8") as fh:
             out[name] = fh.read()
     return out
