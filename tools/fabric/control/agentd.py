@@ -620,9 +620,11 @@ def _scalar_or_nan(v: Any) -> Any:
 
 
 def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, keys: dict | Callable[[], dict] | None = None, ttl_s: float,
-           seen: set, now: float | None = None, action_floor: Callable[[str], float] = lambda _from: 0) -> dict:
+           seen: set, now: float | None = None, action_floor: Callable[[str], float] = lambda _from: 0,
+           bounded_reads: frozenset = frozenset()) -> dict:
     """Is this record a request this agent answers? The reason when not, for
-    the log; never an error, never a reply."""
+    the log; never an error, never a reply. `bounded_reads` names reads that take an action's ttl cap and refusal of a
+    future `ts` (the one read fabric-op admits, ADR-064 rule 14); the signature and the ledger floor stay the actions'."""
     accounts = set() if accounts is None else accounts
     # `keys` is a mapping or a function giving one: parsing a key starts
     # openssl, which only an action's signature check needs.
@@ -664,13 +666,14 @@ def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, 
     from control.sessions import date_parse
     ts = date_parse(_shown(_scalar_or_nan(r.get("ts", js.UNDEFINED))))
     n = number_of(_scalar_or_nan(r.get("ttl_s", js.UNDEFINED)))
-    ttl = min(n, ACTION_TTL_MAX_S if action else 3600) if n > 0 else ttl_s
+    bounded = action or op in bounded_reads
+    ttl = min(n, ACTION_TTL_MAX_S if bounded else 3600) if n > 0 else ttl_s
     if not math.isfinite(ts) or ts + ttl * 1000 < now:
         return {"ok": False, "why": "expired"}
     # An action dated in the future would raise the ledger's floor past
     # every honest action that follows until the clock caught up — one
     # request signed on a fast clock locks the operator out (review of #34).
-    if action and ts - now > ACTION_CLOCK_SKEW_MS:
+    if bounded and ts - now > ACTION_CLOCK_SKEW_MS:
         return {"ok": False, "why": f"{op}: dated {_round((ts - now) / 1000)} s in the future (the operator's clock?)"}
     if action:
         try:

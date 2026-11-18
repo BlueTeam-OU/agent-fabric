@@ -192,7 +192,8 @@ def decide(text: str, argv_op: str, me: dict, *, ledger: agentd.ActionLedger, no
     cfg = agentd.control_config()
     try:
         a = agentd.accept({"content": text}, me=me, operators=agentd.operator_addresses(registry), accounts=agentd.account_addresses(registry),
-                          keys=lambda: agentd.operator_keys(registry), ttl_s=cfg["ttl_s"], seen=set(), now=now_ms, action_floor=ledger.floor)
+                          keys=lambda: agentd.operator_keys(registry), ttl_s=cfg["ttl_s"], seen=set(), now=now_ms, action_floor=ledger.floor,
+                          bounded_reads=frozenset({CARRIER_NAME}))
     except SignError as e:
         # openssl could not say whether the signature holds: not a verdict, and not a reason to run.
         raise Refused(f"the signature could not be checked ({_one_line(str(e))})") from None

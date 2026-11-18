@@ -185,6 +185,16 @@ class Decision(Target):
         self.refused(read(), "the request is for interweave", argv=["interweave-stop"])
         self.refused(action(op="ping"), "not an action op or the carrier's own read", argv=["ping"])   # no other read is admitted, signed or not
 
+    def test_the_carriers_own_read_takes_the_action_ttl_cap_and_refuses_a_future_ts(self):
+        # ADR-064 rule 14, owner 2026-11-18: "the same rule" includes the cap (accept() gives any other read 3600 s) and the skew.
+        now = time.time() * 1000
+        for label, make, why in [
+                ("older than the action cap though inside the read cap", lambda: action(op="interweave", ts=iso(now - 700000), ttl_s=3600), "expired"),
+                ("dated beyond the skew", lambda: action(op="interweave", ts=iso(now + 120000)), "in the future")]:
+            with self.subTest(label):
+                self.refused(make(), why, argv=["interweave"])
+        self.accepted(action(op="interweave", ts=iso(now - 500000), ttl_s=3600), argv=["interweave"])   # inside the cap: the control
+
     def test_the_carriers_own_read_spends_nothing_of_the_action_ledger_and_is_journaled(self):
         self.accepted(action(op="interweave"), argv=["interweave"])
         self.assertEqual(self.ledger.floor(OP_ADDRESS), 0, "a read orders nothing: it must not move the floor real actions are held to")
