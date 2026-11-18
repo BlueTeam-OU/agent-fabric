@@ -71,8 +71,19 @@ def main() -> int:
               f"set={ev.is_set()} calls={ev.calls} reentered={ev.reentered}")
         ctl = run_case(old_install, first, second)
         check(f"{label}: positive control, the old handler re-enters set()", ctl.reentered)
-    ev = run_case(carrier_main.stop_on_signals, signal.SIGTERM, signal.SIGTERM)
-    check("a lone later signal after the first changes nothing", ev.calls == 1 and ev.is_set())
+    # Two signals one after the other, the first handler already returned: a flag reset after set() would call set() twice.
+    saved = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
+    ev = NestingEvent(signal.SIGTERM)
+    ev.calls = 1   # skips the nesting branch: this case sends its signals itself
+    try:
+        carrier_main.stop_on_signals(ev)
+        signal.raise_signal(signal.SIGTERM)
+        signal.raise_signal(signal.SIGINT)
+    finally:
+        for s, h in saved.items():
+            signal.signal(s, h)
+    check("a later signal after the first handler returned changes nothing", ev.calls == 2 and ev.is_set(),
+          f"calls={ev.calls} (1 preset + 1 expected)")
     print("FAILED" if fails else "all ok")
     return 1 if fails else 0
 
