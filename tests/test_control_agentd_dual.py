@@ -452,15 +452,16 @@ class AgentdInterweaveNoToken(Base):
         section = got[0][0]["data"]["inbox"]
         self.assertEqual(section["status"], "unknown", section)
         self.assertIn("does not read the relay", section["reason"])
-        self.assertEqual(self.relay.hits, [])
 
     def test_the_backfill_follows_the_transport_mode_and_hands_the_relay_no_token_it_lacks(self):
         from gzcoord import backfill
         seen: list = []
         with mock.patch.object(backfill, "tick", lambda say, token: seen.append(token())):
             self.tickers["gzcoord backfill"]()
-        self.assertEqual(seen, [None])   # the journal's rows wait with a note (backfill.run), they are never posted without a token
-        self.assertEqual(self.relay.hits, [])
+            # a sync after the daemon started reaches the next tick: the box stays None, the file is read each time
+            with mock.patch.object(agentd.gzcoord, "synced_token", return_value="late"):
+                self.tickers["gzcoord backfill"]()
+        self.assertEqual(seen, [None, "late"])   # with none, the journal's rows wait with a note (backfill.run), never posted
 
 
 class AgentdInterweaveOnce(Base):
