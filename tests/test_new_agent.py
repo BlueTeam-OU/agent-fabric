@@ -268,11 +268,14 @@ def main() -> int:
         SIGNING_SECRET = b"sec:u:255:22:AAAA1111BBBB2222:1700000000:::u:::scESC:::+::ed25519:::0:\n"
         SIGNING_STUB = b"sec:u:255:22:AAAA1111BBBB2222:1700000000:::u:::scESC:::#::ed25519:::0:\n"
 
+        quiet_lines: list[str] = []
+
         def verify_with(answers: dict, projects: list[str], **account) -> tuple[str, str, list[str]]:
             asked = []
 
             def fake_run(self, lines, *, quiet=frozenset()):
                 asked.extend(lines)
+                quiet_lines[:] = [lines[i] for i in quiet]
                 return [next((v for k, v in answers.items() if k in line), b"") for line in lines]
             saved_run, saved_err = vf.Account.run_many, sys.stderr
             vf.Account.run_many = fake_run
@@ -295,6 +298,8 @@ def main() -> int:
         check("…the signing key's secret asked for by the key git signs with: present",
               "GPG secret key: the signing key's, present" in text
               and any("user.signingkey" in x and 'gpg --list-secret-keys --with-colons -- "$k"' in x for x in asked), asked)
+        check("…and it is the only read-back whose stderr is dropped (gpg's, as `stderr=DEVNULL` was), asked in one batch of every line",
+              len(quiet_lines) == 1 and "gpg --list-secret-keys" in quiet_lines[0], quiet_lines)
         check("…both launch paths read back, from the first project", sum("--provider anthropic --print" in a or
               "--provider openrouter --print" in a for a in asked) == 2 and all("cd ~/projects/demo &&" in a for a in asked
                                                                                if "--print" in a))
@@ -351,6 +356,7 @@ def main() -> int:
 
             def fake_run(self, lines, *, quiet=frozenset()):
                 asked.extend(lines)
+                quiet_lines[:] = [lines[i] for i in quiet]
                 return [next((v for k, v in answers.items() if k in line), b"") for line in lines]
             saved_run, saved_err = vf.Account.run_many, sys.stderr
             vf.Account.run_many = fake_run
