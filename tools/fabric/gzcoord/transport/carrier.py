@@ -25,7 +25,8 @@ class CarrierTransport:
         self._adapter = adapter.Adapter() if ask is None else ask
 
     def send(self, message_id: str, text: str) -> Sent:
-        return Sent(self.name, self._adapter.post(message_id, text))
+        post = self._adapter.post_result(message_id, text, fail_open=True)
+        return Sent(self.name, post.state, detail=post.detail)
 
     def receive(self, seconds: float, abort: threading.Event) -> list[dict]:
         return self._adapter.unseen()

@@ -22,11 +22,13 @@ from .. import jsvalues as js
 class Sent:
     """What a transport answered to a send that did not fail. `state`: `accepted` (every recipient durably recorded, or the
     record kept), `not-carried` (no recipient on this transport: nothing to carry), `absent` (the transport is not running),
-    `failed`. A primary's failure is raised, not returned: its error carries what the sender must tell the person."""
+    `failed`, `no-answer` (the carrier mirror only: it was there and did not answer). A primary's failure is raised, not
+    returned: its error carries what the sender must tell the person. `detail` is why a mirror did not accept, when it says."""
     name: str
     state: str
     seq: Any = js.UNDEFINED
     deduplicated: Any = None
+    detail: str = ""
 
 
 @dataclass(frozen=True)

@@ -157,9 +157,10 @@ class AgentdDual(Base):
         got = self.watch("r1")
         self.send_iw(body("r1"))
         self.assertTrue(until(lambda: got and self.relay_replies("r1")), self.logs)
+        # The line is logged after the reply is delivered, so the reply's arrival does not say it is there yet (j165).
         self.assertEqual(got[0][1], "h/alice")
         self.assertEqual(got[0][0], self.relay_replies("r1")[0], "the same reply, byte for byte: one record, two carriers")
-        self.assertTrue(any("answered ping for h/op (r1) (via interweave)" in l for l in self.logs), self.logs)
+        self.assertTrue(until(lambda: any("answered ping for h/op (r1) (via interweave)" in l for l in self.logs)), self.logs)
 
     def test_a_request_that_arrives_on_both_is_answered_once(self):
         got = self.watch("dup")
@@ -409,7 +410,7 @@ class AgentdInterweave(Base):
         self.assertTrue(until(lambda: got), self.logs)
         self.assertEqual(got[0][1], "h/alice")
         self.assertEqual(self.relay.hits, [], "no prime, no poll, no reply post")
-        self.assertTrue(any("answered ping for h/op (iw1) (via interweave)" in l for l in self.logs), self.logs)
+        self.assertTrue(until(lambda: any("answered ping for h/op (iw1) (via interweave)" in l for l in self.logs)), self.logs)
         self.assertTrue(any("on InterWeave alone" in l for l in self.logs), self.logs)
         self.assertFalse(any("the relay stays the record" in l for l in self.logs), self.logs)
 
