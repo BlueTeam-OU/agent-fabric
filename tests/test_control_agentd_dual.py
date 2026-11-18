@@ -9,8 +9,10 @@ account. Nothing leaves this process or touches a live relay, daemon or home.
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import os
+import platform
 import socket
 import sys
 import threading
@@ -52,8 +54,14 @@ class Base(Scratch):
         os.makedirs(os.path.join(self.home, ".local", "bin"))
         # The program agentd runs is where the pinned release's installer puts it: a wrapper, since the child's
         # environment is only what it needs to find its profile.
-        executable(os.path.join(self.home, ".local", "bin", "interweave-human"),
-                   f"#!/bin/sh\nFAKE_NET={self.net} FAKE_PEER={PEERS['alice']} FAKE_ARGV={self.argv_file} exec {sys.executable} {FAKE} \"$@\"\n")
+        program = os.path.join(self.home, ".local", "bin", "interweave-human")
+        executable(program, f"#!/bin/sh\nFAKE_NET={self.net} FAKE_PEER={PEERS['alice']} FAKE_ARGV={self.argv_file} exec {sys.executable} {FAKE} \"$@\"\n")
+        # agentd spawns it only if its digest is the release's (control_link.program_check): this release pins the wrapper.
+        self.release = os.path.join(self.home, "release.json")
+        with open(program, "rb") as fh:
+            digest = hashlib.sha256(fh.read()).hexdigest()
+        with open(self.release, "w", encoding="utf-8") as fh:
+            json.dump({"current": "t", "releases": {"t": {platform.machine(): {"program_sha256": {"interweave-human": digest}}}}}, fh)
         self.relay = FakeRelay()
         self.relay.wait_answer = self.wait_answer
         self.addCleanup(self.relay.close)
@@ -61,7 +69,8 @@ class Base(Scratch):
         self.tickers: dict[str, object] = {}   # every timer the daemon starts, by name: started never, callable by a test
         env = {"HOME": self.home, "XDG_RUNTIME_DIR": self.runtime, "AGENT_FABRIC_STATE_DIR": self.state, "AGENT_FABRIC_OPERATOR": self.operator,
                "CLAUDE_BRIDGE_URL": self.relay.url(), "FABRIC_CONTROL_CHANNEL": "test:control", "FABRIC_CONTROL_CARRIER": self.carrier,
-               "PATH": os.environ["PATH"]}
+               "PATH": os.environ["PATH"],
+               "GZCOORD_CARRIER_RELEASE": self.release}
         p = mock.patch.dict(os.environ, env)
         p.start()
         self.addCleanup(p.stop)
