@@ -485,7 +485,8 @@ def main() -> int:
                     os.chmod(os.path.join(home, "locked"), 0o700)
             check("a path the account cannot stat stops the run, naming the step: not read as absent",
                   stopped == 1 and "step failed: could not read 1 path(s)" in err.getvalue() and "nothing after it ran" in err.getvalue()
-                  and os.path.join(home, "locked", "child") in err.getvalue() and "Permission denied" in err.getvalue(), err.getvalue())
+                  and any(os.path.join(home, "locked", "child") in ln and "Permission denied" in ln and ln.startswith("new-agent: step failed")
+                          for ln in err.getvalue().splitlines()), err.getvalue())
     for label, stdout, rc in (("no answer at all", "", 0), ("a kind for only one of two paths", "new-agent-path\t0\tdir\n", 0),
                               ("a repeated index", "new-agent-path\t0\tdir\nnew-agent-path\t0\tdir\n", 0),
                               ("an unknown kind", "new-agent-path\t0\tdir\nnew-agent-path\t1\tmaybe\n", 0),
