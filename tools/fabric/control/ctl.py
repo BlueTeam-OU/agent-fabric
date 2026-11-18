@@ -2574,10 +2574,18 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     fallback_rc = 0
     if carrier_read and want:
         late = [e for e in expected if e["address"] in want]
+        # The two groups were given different things: the carrier was asked of one and waited on for `deadline - t0` s, the other
+        # was never sent to (its send did not happen), so it did not "not answer within" anything.
+        waited = [e["login"] for e in late if e["address"] not in unsent]
+        never = [e["login"] for e in late if e["address"] in unsent]
+        said = []
+        if waited:
+            said.append(f"{', '.join(waited)} did not answer by {CARRIER_LABEL} within {int(deadline - t0)} s")
+        if never:
+            said.append(f"{', '.join(never)} could not be asked by {CARRIER_LABEL} (the send did not reach them)")
         got, fallback_rc = _each_by_hostexec(
             args, late, me=me, cfg=cfg, new_id=agentd.new_id, registry=registry, err=err,
-            announce=f"fabric-ctl: {', '.join(e['login'] for e in late)} did not answer by {CARRIER_LABEL} within {int(deadline - t0)} s: "
-                     f"asked through hostexec to bin/fabric-op, one account at a time")
+            announce=f"fabric-ctl: {'; '.join(said)}: asked through hostexec to bin/fabric-op, one account at a time")
         for r in got or []:
             r["latency_ms"] = int((now() - t0) * 1000)
             replies.append(r)

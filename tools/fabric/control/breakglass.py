@@ -36,7 +36,8 @@ reaches, and its reply record is printed as one JSON line.
   stdout   the reply record, one JSON line (exactly what the relay would have
            carried); nothing else
   stderr   a refusal: `fabric-op: refused: <reason>`, one line
-  exit     0 the op's status is a success (ctl.ACTION_OK; for the read, its section is present); 1 the op ran and
+  exit     0 an action's status is a success (ctl.ACTION_OK), or the read's section is present in the reply (what the
+           section says is the caller's to judge: a read has no status here); 1 the op ran and
            failed, or raised; 2 refused, nothing run
 
 THE ORDER, and why: parse and decide (accept) → the extra refusals → the
@@ -316,7 +317,8 @@ def via_hostexec(request: dict, target: dict, *, timeout: float, registry: str |
         else:
             outcome = Outcome("failed", detail=_one_line(said) or f"exit {p.returncode} with no reply record", exit=p.returncode)
     except subprocess.TimeoutExpired:
-        outcome = Outcome("no-answer", detail=f"no answer within {round(timeout)} s; the action may still be running there")
+        outcome = Outcome("no-answer", detail=f"no answer within {round(timeout)} s"
+                          + ("; the action may still be running there" if request["op"] in ACTION_OPS else "; a read changes nothing there"))
     except FileNotFoundError:
         outcome = Outcome("failed", detail="hostexec not found")
     except (OSError, UnicodeEncodeError) as e:

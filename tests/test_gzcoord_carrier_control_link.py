@@ -339,6 +339,13 @@ class Inbound(Net):
         self.assertTrue(until(lambda: any("prefix" in l for l in a.logs)), a.logs)
         self.assertEqual(a.requests, [])
 
+    def test_the_drop_wording_names_the_path_the_op_takes_in_each_mode(self):
+        # relay and dual: the carrier's read is asked on the relay, and so is an action; relay_off: the carrier is alone, an action
+        # goes through hostexec and the read is answered when it arrives, so it is never among the dropped.
+        self.assertEqual(cc._refusal_why(cc.RELAY_ONLY_OPS), "goes on the relay only")
+        self.assertEqual(cc._refusal_why(cc.CARRIER_ACTION_OPS), "goes through hostexec, never on the carrier")
+        self.assertNotIn(cc.CARRIER_NAME, cc.CARRIER_ACTION_OPS)
+
     def test_a_relay_only_op_that_arrives_on_interweave_is_dropped(self):
         for op in sorted(cc.RELAY_ONLY_OPS):
             self.deliver("op", "alice", cc.frame(request(rid=f"x-{op}", op=op)))

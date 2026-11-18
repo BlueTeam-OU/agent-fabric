@@ -646,6 +646,22 @@ class Interweave(Harness):
         self.assertLess(time.monotonic() - t0, 15, "bob was not waited for")
         self.assertEqual([t["address"] for _, t in calls], ["h/bob"])
         self.assertEqual({r["account"]: r["carrier"] for r in self.rows()}, {"alice": "interweave", "bob": "hostexec"})
+        said = [e for e in self.err if "bin/fabric-op" in e]
+        self.assertEqual(len(said), 1, self.err)
+        self.assertIn("bob could not be asked by InterWeave (the send did not reach them)", said[0])
+        self.assertNotIn("bob did not answer", said[0], "bob was never given a wait, so no wait is claimed for it")
+        self.assertNotIn("alice", said[0], "alice answered: she is not in the line")
+
+    def test_the_announce_gives_a_wait_to_the_account_asked_and_none_to_the_one_never_reached(self):
+        rows = [r for r in ROWS if r["login"] != "bob"]
+        self.boot("alice", "bob", op_rows=rows)   # alice takes the send and stays silent; bob's never happens
+        calls: list = []
+        with mock.patch.object(ctl, "CARRIER_FIRST_ANSWER_S", 1.0), mock.patch("control.breakglass.via_hostexec", self.hostexec_reply(calls)):
+            box = self.run_ctl("all", "interweave", "--json", "--timeout", "10")
+            self.assertEqual(self.finish(box), 0, self.err)
+        said = [e for e in self.err if "bin/fabric-op" in e]
+        self.assertEqual(len(said), 1, self.err)
+        self.assertIn("alice did not answer by InterWeave within 1 s; bob could not be asked by InterWeave (the send did not reach them): asked through hostexec", said[0])
 
     def test_no_operator_agentd_reads_every_account_by_hostexec_without_waiting(self):
         self.nodes["alice"] = Node(self, self.net, "alice")
