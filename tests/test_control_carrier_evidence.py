@@ -1784,8 +1784,9 @@ class MirrorAccount(RelayOutageAccount):
         self.assertIn("written but could not be trimmed (No space left)", err.getvalue())
         with open(path, encoding="utf-8") as fh:
             self.assertEqual([json.loads(x)["mid"] for x in fh], [mid(1, 1)])
-        self.log([mrow(10, "/home/x/secret")])
-        self.assertEqual(ev.carrier_evidence(request("mirror", 0, 100), state=self.state)["skipped"], 1)
+        self.log([mrow(10, "/home/x/secret"), mrow(11, "alpha-0001"), mrow(12, "0190f000-0000-4000-8000-000000000000"), mrow(13)])
+        r = ev.carrier_evidence(request("mirror", 0, 100), state=self.state)
+        self.assertEqual((len(r["rows"]), r["skipped"]), (1, 0), "an id that is not a message id stays in the account and is not an unreadable line")
 
     def test_a_torn_line_and_a_line_of_the_wrong_shape_are_counted_and_not_sent(self):
         bad = [{**mrow(30), "outcome": "bored"}, {**mrow(30), "t": "yesterday"}, {**mrow(30), "reason": None}, {**mrow(30), "mid": ""},

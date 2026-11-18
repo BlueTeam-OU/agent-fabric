@@ -256,9 +256,13 @@ def _watch_row(o: dict):
 def _mirror_row(o: dict):
     """{mid, t, outcome, reason}: a line of another shape, or an outcome this version does not know, is skipped and counted, never
     filed as one the report would then print."""
-    if (o.get("outcome") not in MIRROR_OUTCOMES or not isinstance(o.get("mid"), str)
-            or not parity.UUID7.fullmatch(o["mid"]) or _time(o.get("t")) is None or not isinstance(o.get("reason"), str)):
+    if (o.get("outcome") not in MIRROR_OUTCOMES or not isinstance(o.get("mid"), str) or not o["mid"]
+            or _time(o.get("t")) is None or not isinstance(o.get("reason"), str)):
         return None
+    if not parity.UUID7.fullmatch(o["mid"]):
+        # A sender accepts any id-shaped MESSAGE-ID (a v4, the old <instance>-NNNN): its line is the account's, not an unreadable
+        # one, which would make the whole log read "not collected" (as _backfill_row does).
+        return DROP
     # The carrier's own error can name a file of the sender's (an OSError on its outbox): a path never leaves the account.
     return {"mid": _short(o["mid"]), "t": o["t"], "outcome": o["outcome"], "reason": _short(re.sub(r"\S*/\S*", "<path>", o["reason"]))}
 

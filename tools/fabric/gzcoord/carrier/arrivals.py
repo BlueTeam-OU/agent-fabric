@@ -147,8 +147,8 @@ class MirrorLog(ArrivalLog):
 
 
     def _trim(self) -> None:
-        # Undecodable bytes are replaced, so the line that holds them fails to parse and is dropped: a corrupt log heals at its trim
-        # instead of staying over its bound for good.
+        # An undecodable byte is replaced: a line it breaks is dropped, one where it sits inside a string is kept with U+FFFD, and the
+        # trim bounds the log either way (it would otherwise stay over its bound for good).
         rows: list[dict] = []
         with open(self.path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
