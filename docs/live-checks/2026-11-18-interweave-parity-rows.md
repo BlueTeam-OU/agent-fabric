@@ -1,6 +1,8 @@
 # Rows behind the 2026-11-18 parity record
 
-Filed unedited from the wider collection (`--since 2026-11-14T00:00:00Z`), one JSON line each, for the times and ids
+The JSON lines below are filed unedited from the wider collection (`--since 2026-11-14T00:00:00Z`); the tables are built from
+both collections' `meta.json` and `collection.json`, the list of multi-copy pairs is derived from the wide collection's arrival
+lines, and the last section is `fabric-ctl` output. Together they hold the times and ids
 [2026-11-18-interweave-parity.md](2026-11-18-interweave-parity.md) cites that the tool's output does not print.
 
 ## Collection bounds and state (each account's `meta.json`, `collection.json`)
@@ -17,6 +19,15 @@ Filed unedited from the wider collection (`--since 2026-11-14T00:00:00Z`), one J
 wide: 30 accounts, journal not ok or incomplete: none
 
 narrow: 30 accounts, journal not ok or incomplete: none
+
+## When each collection was written
+
+The `meta.json` files' modification times (`ls --time-style=+%FT%TZ`, UTC), earliest and latest of each collection's accounts:
+
+```text
+wide    30 accounts  2026-11-18T01:40:12Z  2026-11-18T01:40:13Z
+narrow  30 accounts  2026-11-18T01:39:19Z  2026-11-18T01:39:20Z
+```
 
 ## The four control pairs
 
@@ -107,7 +118,7 @@ narrow: 30 accounts, journal not ok or incomplete: none
 01a1dce5-1641-7bb6-9363-927d7b6ba54f develop-qzapp/ux-designer-01 2026-11-15T01:49:24Z 2026-11-15T01:49:43Z
 ```
 
-## Modes at collection: `fabric-ctl all interweave`, read again 2026-11-18T06:19:09Z
+## Modes, read 2026-11-18T06:19:09Z (not at collection): `fabric-ctl all interweave`
 
 ```text
 account status mode stranded

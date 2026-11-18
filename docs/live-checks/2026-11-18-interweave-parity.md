@@ -12,10 +12,10 @@ to a `TO-ROLE` recipient. The relay delivered 562, InterWeave 560;
 InterWeave missed none. The two pairs it did not carry are a message's
 own sender, which the relay hands its copy back and the carrier never
 does (the tool counts them apart). No duplicate copy, no `FROM`
-mismatch, no pair recorded as sent with no copy and no receipt. At
-collection every account was in `relay-record` with nothing stranded
-(`fabric-ctl all interweave`, 2026-11-18: 30 of 30 `relay-record`, 30
-of 30 stranded 0). The mode's history over the window is not read
+mismatch, no pair recorded as sent with no copy and no receipt. The
+modes were read at 2026-11-18T06:19:09Z, not at collection: every
+account in `relay-record` with nothing stranded (`fabric-ctl all
+interweave`: 30 of 30 `relay-record`, 30 of 30 stranded 0). The mode's history over the window is not read
 here; plan §6 moves the first accounts only on gate 1's word. Every
 time, id, bound and mode below that the tool's output does not print is
 filed, as the lines it came from, in
@@ -27,8 +27,9 @@ On 2026-11-18, on develop-qzapp, with `gzcoord-carrier` run from the
 main checkout at 562474c8 (#645 merged):
 `fabric-ctl all interweave-evidence --since 2026-11-14T00:00:00Z
 --until 2026-11-18T02:00:00Z --out <dir>`, all 30 accounts `ok`, each
-account's `meta.json` `journal: ok` and `complete: true`, run between
-01:39 and 01:47Z, over an hour after the window's end. Then `gzcoord-carrier parity --window
+account's `meta.json` `journal: ok` and `complete: true`, its files
+written at 01:40:12-01:40:13Z (01:39:19-01:39:20Z for the narrow
+control collection), over an hour after the window's end. Then `gzcoord-carrier parity --window
 2026-11-15T10:00:00Z 2026-11-18T00:00:00Z --collected <dir>`. The
 tool's output is filed unedited in
 [`2026-11-18-interweave-parity-computed.md`](2026-11-18-interweave-parity-computed.md).
@@ -98,5 +99,4 @@ that absence; the default hour is not enough after an outage.
   writes an arrival line whatever its session does, so a stopped watch
   is not their cause; what remains is the addressee's carrier down, the
   sender's outbox retrying, or an id minted well before the send. None
-  is a miss. Under gate 1 they are the carrier's latency, and the soak
-  (D8) reads them from the senders' `deliveries.jsonl`.
+  is a miss.

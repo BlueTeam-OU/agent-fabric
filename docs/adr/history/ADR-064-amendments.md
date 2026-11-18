@@ -483,9 +483,10 @@ parity report of 562 pairs with no InterWeave miss and no duplicate
 copy (`docs/live-checks/2026-11-18-interweave-parity.md`). The first
 accounts to move are python-dev-02 and python-dev-03 (§7, D8), by the
 signed `interweave-mode` action, after this amendment merges and after
-the fix of a `send.py` defect #650's review found: in `carrier-record`
-a send whose relay mirror failed is put on the sent ledger and never
-backfilled (REQUEST 01a1ed4e-82ec to python-dev).
+the fix of a `send.py` defect #650's review found: a send is put on the
+sent ledger once its primary took it, whether or not the relay did (a
+`carrier-record` send whose mirror failed, a `carrier-only` send, a
+one-command override), and is then never backfilled (REQUEST 01a1ed4e-82ec to python-dev).
 
 Accepted by the owner, 2026-11-18, in the coordinator's session (gate
 1's word). ADR-033 is amended the same day.
