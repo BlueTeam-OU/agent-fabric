@@ -355,15 +355,18 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     One case is the account's own (A 2026-11-18): its login may start its
     own carrier and daemon units when both are down, by a local command
     that needs no operator's signature. The command refuses and touches
-    nothing when either unit is active, or when the installed programs
-    are not the ones `release.json` pins. So it never restarts or stops a
-    running unit, and never runs the programs the pin has moved away
-    from. Nothing else of this rule moves to the account: install,
-    update, restart and stop stay control-plane actions, and no login
-    touches another account's units. Starting units that are both down
-    cannot leave the account less reachable than it already is, which is
-    why it needs no signature. The command runs the same check as above.
-    A failed check leaves the units down, as they were. The agent reports
+    nothing unless both units are inactive or failed: a unit that is
+    activating, including one in systemd's auto-restart, counts as
+    running. It also refuses when the installed programs are not the ones
+    `release.json` pins. So it never restarts or stops a running unit,
+    and never runs the programs the pin has moved away from. Nothing else
+    of this rule moves to the account: install, update, restart and stop
+    stay control-plane actions, and no login touches another account's
+    units. Starting units that are both down cannot leave the account
+    less reachable than it already is, which is why it needs no
+    signature. The command runs the same check as above. A failed check
+    stops what the command started and changes nothing else: unlike the
+    signed start, it leaves each unit enabled or disabled as it was. The agent reports
     the failure to the coordinator over the relay where its mode still
     has one; under `carrier-only` it says so in its own session, for the
     operator. The account stays off the channel until an operator acts.

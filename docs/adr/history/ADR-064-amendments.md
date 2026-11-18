@@ -522,7 +522,11 @@ cannot make an account less reachable than it already is, so that start
 moves to the account's own login. A restart does not: `interweave-start`
 restarts running units, and a failed check then stops both, so a
 restart or a start over a live unit would be an unsigned stop. The
-command therefore refuses when either unit is active or the installed
-programs are not the pin's (#658 review round 1, F1). Install, update,
-restart and stop stay as they were. The local command and the watch's
+command therefore refuses unless both units are inactive or failed (a
+unit in auto-restart reads activating and counts as running), and when
+the installed programs are not the pin's (#658 review rounds 1 and 2,
+F1). Its failed check stops what it started and does not disable
+either unit, as the signed start does, so it changes no unit's
+persistent state (round 2, F6). Install, update, restart and stop stay
+as they were. The local command and the watch's
 exit text are python-dev's to build.

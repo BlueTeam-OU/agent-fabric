@@ -8,8 +8,8 @@ a reviewer can find, and the report of a fresh window. It decides nothing:
 the gate is the owner's word.
 
 File and line citations are of the tree at `0a68bf5e` (main after #642),
-paths under `tools/fabric/gzcoord/` (`engine.py`, `adapter.py` and `record.py` under its
-`carrier/`); the lines have moved on main since.
+paths under `tools/fabric/gzcoord/` (`engine.py`, `adapter.py`, `record.py` and `parity.py`
+under its `carrier/`); the lines have moved on main since.
 
 ## What was run
 
@@ -28,7 +28,7 @@ gzcoord-carrier parity --window 2026-11-16T00:00:00Z 2026-11-17T07:47:44Z --coll
 The first is the 11-09 report's window extended to the end of the collection;
 the second is the fresh window after 2026-11-16. Both were run twice: with
 the installed tool (the numbers of the 11-09 file's method) and with the
-branch's `parity.py` (below, "The one defect"). The classes were computed
+branch's `carrier/parity.py` (below, "The one defect"). The classes were computed
 from the same collection by a script that joins each missed pair to the
 senders' `deliveries.jsonl` and `backfills.jsonl` and to the addressees'
 `arrivals.jsonl` (not committed; the rule of each class is stated below so a
