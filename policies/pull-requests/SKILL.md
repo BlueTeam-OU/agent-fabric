@@ -77,7 +77,9 @@ with `--any-owner` when the PR is another session's, always where
 `authority_own_prs` is false). Ask the one it
 names, after the review; an authority vouches only for the head it names.
 Unless the dry-run says the owner arms it by their own hand. Never without
-the gate. On a PR-mode repository with no required check and no CI at
+the gate. Nobody waits idle on a word to arm: where the dry-run names an arming authority, ask it by
+`REQUEST`, not the owner, and take your next job (`fabric-jobs switch`)
+until the word arrives. On a PR-mode repository with no required check and no CI at
 all (no `.github/workflows` on the base, none added by the PR), a head
 with no check arms only on the owner's separate word, "owner's no-CI
 word" in the basis: "the owner's word" lifts the count, never the
