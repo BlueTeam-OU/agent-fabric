@@ -110,6 +110,38 @@ class WatchLog(ArrivalLog):
         self._append({"t": self._iso(), "event": "end", "pid": pid, "reason": reason, "code": code})
 
 
+class MirrorLog(ArrivalLog):
+    """gzcoord-mirror.jsonl, in the SENDER's state beside gzcoord-sent.jsonl: one line for each send the InterWeave carrier,
+    as a mirror, did not accept: {"mid","t","outcome","reason"}, `outcome` one of OUTCOMES. The relay's record then holds the
+    message alone, and the parity report (ADR-064 rule 11) sees a pair with no InterWeave copy and no sender record; before this
+    log the reason was a stderr line of a send nobody kept. A send the carrier accepted leaves no line here: it has a
+    delivery row in the carrier's own outbox. The log is bounded (a sender with no carrier at all writes a line per send)."""
+
+    OUTCOMES = ("absent", "not-carried", "failed", "no-answer")
+    MAX_BYTES = 256 * 1024
+    REASON_MAX = 200
+
+    def append_refused(self, mid: str, outcome: str, reason: str) -> None:
+        assert outcome in self.OUTCOMES, outcome
+        self._append({"mid": mid, "t": self._iso(), "outcome": outcome, "reason": " ".join(reason.split())[:self.REASON_MAX]})
+
+    def _append(self, line: dict) -> None:
+        super()._append(line)
+        try:
+            if os.stat(self.path).st_size <= self.MAX_BYTES:
+                return
+            with self._lock:
+                fd = os.open(self.path, os.O_RDONLY)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX)     # the appenders' lock: no line is added between the read and the replace
+                    rows = _read(self.path)
+                    _rewrite(self.path, rows[len(rows) // 2:])
+                finally:
+                    os.close(fd)
+        except OSError:
+            pass      # unbounded for a while longer, never a lost line: the append above is done
+
+
 class Spool:
     """The arrivals the journal holds, as `unseen` lists them. `ledger_path` is the
     inbox's shown ledger, which the carrier only reads."""

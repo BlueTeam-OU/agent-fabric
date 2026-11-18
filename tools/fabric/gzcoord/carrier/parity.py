@@ -20,6 +20,10 @@ what it filed or printed):
              off, for the rollback drill
   watch      (only for the relay-outage drill) every account's watch log lines {t, event: start|end, pid, reason?, code?}: when a watch
              started and how it ended (carrier/arrivals.WatchLog)
+  mirror     every account's mirror-refusal log lines {mid, t, outcome, reason} (carrier/arrivals.MirrorLog): the sends the carrier did not
+             accept, as the SENDER kept them. Joined to a pair with no InterWeave copy and no sender record by MESSAGE-ID across every
+             account, it names the cause that was on the sender's stderr only; an account without the log (a daemon from before it)
+             says "not collected", never "no refusal" (load_mirror)
   shown, acks  (only for the relay-outage drill) every account's shown ledger lines {mid, via, t,
              pending?, flagged?} and the relay acknowledgements it made {mid, addressee, t, ok}
   relay drill  [start, end): the interval the relay refused every fetch
@@ -161,11 +165,12 @@ def _account(who: str, meta: dict, arrivals: list, deliveries: list, kinds: dict
         raise CollectedError(f"{who}: the files do not hold what the collection counted (cut short, or edited)")
 
 
-def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, list, dict, list | None, list | None, list | None, list | None]]:
-    """login -> (meta, arrivals, deliveries, kinds, shown, acks, backfills, watch) as filed; shown, acks, backfills and watch are None
+def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, list, dict, list | None, list | None, list | None, list | None, list | None]]:
+    """login -> (meta, arrivals, deliveries, kinds, shown, acks, backfills, watch, mirror) as filed; shown, acks, backfills and watch are None
     where the collection has none (one made before the relay-outage drill's sections, before the backfill log's or before the
-    watch log's) and always when `drill` is false: the rollback report must not depend on files it does not use."""
-    parts: dict[str, tuple[dict, list, list, dict, list | None, list | None, list | None, list | None]] = {}
+    watch log's) and always when `drill` is false: the rollback report must not depend on files it does not use. `mirror` is None
+    only where the collection has none, whatever `drill` says: it explains a miss of the report itself."""
+    parts: dict[str, tuple[dict, list, list, dict, list | None, list | None, list | None, list | None, list | None]] = {}
     if os.path.isdir(path):
         try:
             with open(os.path.join(path, MANIFEST), encoding="utf-8") as fh:
@@ -189,7 +194,8 @@ def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, l
             if not isinstance(meta, dict) or meta.get("login") != login:
                 raise CollectedError(f"{login}: meta.json is not this account's")
             extra = [_jsonl(os.path.join(d, n), login) if drill and os.path.exists(os.path.join(d, n)) else None for n in ("shown.jsonl", "acks.jsonl", "backfills.jsonl", "watch.jsonl")]
-            parts[login] = (meta, _jsonl(os.path.join(d, "arrivals.jsonl"), login), _jsonl(os.path.join(d, "deliveries.jsonl"), login), kinds, *extra)
+            mirror = _jsonl(os.path.join(d, "mirror.jsonl"), login) if os.path.exists(os.path.join(d, "mirror.jsonl")) else None
+            parts[login] = (meta, _jsonl(os.path.join(d, "arrivals.jsonl"), login), _jsonl(os.path.join(d, "deliveries.jsonl"), login), kinds, *extra, mirror)
     else:
         for n, line in enumerate(_jsonl(path, "collected"), 1):
             body = line.get("interweaveEvidence") if isinstance(line, dict) else None
@@ -199,7 +205,7 @@ def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, l
             if login in parts:
                 raise CollectedError(f"{login}: collected twice")
             parts[login] = (body, body["arrivals"], body["deliveries"], body.get("kinds") or {}, body.get("shown") if drill else None, body.get("acks") if drill else None,
-                           body.get("backfills") if drill else None, body.get("watch") if drill else None)
+                           body.get("backfills") if drill else None, body.get("watch") if drill else None, body.get("mirror"))
     if not parts:
         raise CollectedError("nothing was collected")
     return parts
@@ -284,13 +290,52 @@ def _watch(login: str, meta: dict, rows: list | None) -> list[dict] | None:
     return rows
 
 
+MIRROR_ROW_KEYS = ("mid", "t", "outcome", "reason")
+MIRROR_OUTCOMES = arrivals.MirrorLog.OUTCOMES      # one definition: the writer's
+
+
+def _mirror(login: str, meta: dict, rows: list | None) -> list[dict] | None:
+    """The account's mirror-refusal rows when the collection holds its log whole; None when it does not (no file, a section that
+    failed, a line that could not be read): "no refusal" cannot be said from it. A row the op would not send is a refusal."""
+    log = meta.get("mirror_log")
+    if rows is None or not isinstance(log, dict) or log.get("complete") is not True or log.get("skipped"):
+        return None
+    want = meta.get("counts")
+    if isinstance(want, dict) and "mirror" in want and want["mirror"] != len(rows):
+        raise CollectedError(f"{login}: the files do not hold what the collection counted of the mirror log (cut short, or edited)")
+    for r in rows:
+        if not (isinstance(r, dict) and set(r) == set(MIRROR_ROW_KEYS) and all(isinstance(r[k], str) for k in MIRROR_ROW_KEYS)
+                and r["mid"] and r["outcome"] in MIRROR_OUTCOMES):
+            raise CollectedError(f"{login}: a mirror log row is not {{{', '.join(MIRROR_ROW_KEYS)}}}")
+        try:
+            parse_t(r["t"])
+        except ValueError as e:
+            raise CollectedError(f"{login}: a mirror log row has no time ({r['t'][:30]!r})") from e
+    return rows
+
+
+def load_mirror(path: str) -> dict:
+    """{"rows": {mid: [{login, t, outcome, reason}]}, "uncollected": [login]}: every account's mirror refusals by MESSAGE-ID (the
+    sender's log carries no addressee), and the accounts whose log the collection does not hold whole."""
+    by_mid: dict[str, list[dict]] = defaultdict(list)
+    uncollected: list[str] = []
+    for login, part in _read_parts(path).items():
+        rows = _mirror(login, part[0], part[8])
+        if rows is None:
+            uncollected.append(login)
+            continue
+        for r in rows:
+            by_mid[r["mid"]].append({"login": login, "t": r["t"], "outcome": r["outcome"], "reason": r["reason"]})
+    return {"rows": dict(by_mid), "uncollected": sorted(uncollected)}
+
+
 def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]:
     """login -> {arrivals, deliveries, shown, acks, backfills, watch, watch_why, send_rows} (backfills None when the
     sender's log was not collected whole; send_rows whether its derived rows were) for the relay-outage drill, after load_collected's checks of the
     same collection. Refuses an account whose drill sections were not collected whole: an empty ledger from
     a daemon that never sent one would read as 'never shown', which is a verdict the files do not support."""
     out: dict[str, dict] = {}
-    for login, (meta, arr, dels, kinds, shown, acks, backfills, watch) in _read_parts(path, drill=True).items():
+    for login, (meta, arr, dels, kinds, shown, acks, backfills, watch, _mirror_rows) in _read_parts(path, drill=True).items():
         _account(login, meta, arr, dels, kinds, window)
         ro = meta.get("relay_outage")
         if shown is None or acks is None or not isinstance(ro, dict):
@@ -519,8 +564,9 @@ def relay_outage(per_account: dict[str, dict], drill: tuple[float, float], until
 
 def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[str, str], window: tuple[float, float],
             drill: tuple[float, float] | None = None, offline_after: float = OFFLINE_AFTER_S,
-            host: str = "") -> dict:
-    """`senders` maps a sender's login to its record.read_deliveries()."""
+            host: str = "", mirror: dict | None = None) -> dict:
+    """`senders` maps a sender's login to its record.read_deliveries(). `mirror` is load_mirror's answer; without it a miss with no
+    sender record keeps the words it had before the log, which cannot say which refusal it was."""
     pairs: dict[tuple[str, str], dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for a in arrivals:
         pairs[(a["mid"], a["addressee"])][a["carrier"]].append(a)
@@ -567,7 +613,7 @@ def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[st
             else:
                 per[c]["missed"] += 1
                 missed.append({"mid": mid, "addressee": addressee, "carrier": c,
-                               "cause": _cause(c, key, sent, copies, first_iw.get(addressee), created)})
+                               "cause": _cause(c, key, sent, copies, first_iw.get(addressee), created, mirror)})
     encs = defaultdict(set)
     for login, recs in senders.items():
         for r in recs:
@@ -576,6 +622,8 @@ def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[st
     out = {"window": window, "pairs": len(inside), "carriers": per, "missed": missed, "own_copies": own_copies, "stranded": stranded,
            "late": late, "offline_after_s": offline_after,
            "messages": {e: len(encs[e]) for e in ("plain", "compressed", "chunked")}}
+    if mirror is not None:
+        out["mirror_uncollected"] = list(mirror["uncollected"])
     if drill:
         d = []
         for key in sorted(inside):
@@ -590,13 +638,22 @@ def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[st
 
 
 def _cause(carrier: str, key: tuple, sent: dict, copies: dict, addressee_first: float | None = None,
-           made: float | None = None) -> str:
+           made: float | None = None, mirror: dict | None = None) -> str:
     if carrier == "interweave":
         rec = sent.get(key)
         if rec is None:
             # Which of the three the sender's refusal was is on its stderr only (adapter.Adapter.post_result); what the
             # collection can say is whether the addressee was receiving by InterWeave at all yet.
             said = "the sender recorded no InterWeave delivery (not carried: no roster row, carrier off or sender had none)"
+            if mirror is not None:
+                said = "the sender recorded no InterWeave delivery"
+                refused = mirror["rows"].get(key[0])
+                if refused:
+                    said += "; " + "; ".join(f"{x['login']}'s mirror log: the carrier did not accept it ({x['outcome']}: {x['reason']}) at {x['t']}" for x in refused)
+                elif mirror["uncollected"]:
+                    said += f"; the mirror log was not collected from {len(mirror['uncollected'])} account(s), the sender's among them or not, so a refusal is not ruled out"
+                else:
+                    said += "; no account's mirror log holds a refusal for it"
             if addressee_first is None:
                 return said + "; the addressee has no InterWeave arrival in the collection"
             if made is not None and made < addressee_first:
@@ -671,6 +728,9 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
             blind = sorted(login for login, j in a.items() if j == state)
             if blind:
                 L += ["", f"The journal {words} on {', '.join(blind)}: the kind of a message only they received is unknown."]
+        if rep.get("mirror_uncollected"):
+            L += ["", f"The mirror-refusal log was not collected whole from {', '.join(rep['mirror_uncollected'])}: a miss whose sender is one of them "
+                  "has no refusal to name (a daemon from before the log, or a section that failed)."]
         odd = sorted(login for login, j in a.items() if j not in ("ok", *said))
         if odd:
             L += ["", f"The journal state of {', '.join(odd)} is not one the report knows: their kinds are unknown."]

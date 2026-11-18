@@ -377,7 +377,7 @@ def cmd_parity(args: list[str]) -> int:
     if a.collected is not None:
         try:
             lines, senders, kinds, journals = parity.load_collected(a.collected, window)
-            rep = parity.compute(lines, senders, kinds, window, drill, host=a.host)
+            rep = parity.compute(lines, senders, kinds, window, drill, host=a.host, mirror=parity.load_mirror(a.collected))
             if relay_drill:
                 rep["relay_outage"] = parity.relay_outage(parity.load_relay_outage(a.collected, window), relay_drill, window[1])
             if carrier_drill:

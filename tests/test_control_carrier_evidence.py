@@ -28,7 +28,7 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 from control import agentd, carrier_evidence as ev, ctl, evidence_collect as ec, ops  # noqa: E402
 from control.sign import ACTION_OPS  # noqa: E402
-from gzcoord.carrier import main as carrier_main, parity, record  # noqa: E402
+from gzcoord.carrier import arrivals, main as carrier_main, parity, record  # noqa: E402
 
 T0 = 1_792_000_000
 OP = "interweave-evidence"
@@ -334,7 +334,7 @@ class Collect(unittest.TestCase):
         got = ec.collect(["a"], iso(0), iso(100), self.sender())
         out = os.path.join(self.root, "out")
         d = ec.write_dir(out, "a", got["a"], iso(0), iso(100))
-        self.assertEqual(sorted(os.listdir(d)), ["acks.jsonl", "arrivals.jsonl", "backfills.jsonl", "deliveries.jsonl", "kinds.json", "meta.json", "shown.jsonl", "watch.jsonl"])
+        self.assertEqual(sorted(os.listdir(d)), ["acks.jsonl", "arrivals.jsonl", "backfills.jsonl", "deliveries.jsonl", "kinds.json", "meta.json", "mirror.jsonl", "shown.jsonl", "watch.jsonl"])
         self.assertEqual(stat.S_IMODE(os.stat(d).st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(os.stat(out).st_mode), 0o700)
         for f in os.listdir(d):
@@ -344,7 +344,7 @@ class Collect(unittest.TestCase):
                 self.assertNotIn(BODY_TEXT, fh.read(), f)
         with open(os.path.join(d, "meta.json"), encoding="utf-8") as fh:
             meta = json.load(fh)
-        self.assertEqual((meta["complete"], meta["counts"], meta["login"]), (True, {"arrivals": 1, "deliveries": 1, "kinds": 0, "shown": 0, "acks": 0, "backfills": 0, "watch": 0}, "a"))
+        self.assertEqual((meta["complete"], meta["counts"], meta["login"]), (True, {"arrivals": 1, "deliveries": 1, "kinds": 0, "shown": 0, "acks": 0, "backfills": 0, "watch": 0, "mirror": 0}, "a"))
         # An interrupted rewrite leaves no meta.json: a reader refuses the directory instead of reading old rows under new counts.
         with unittest.mock.patch.object(ec, "_atomic", side_effect=[None, OSError("disk full")]):
             with self.assertRaises(OSError):
@@ -575,7 +575,7 @@ class Operator(unittest.TestCase):
         row = json.loads(lines[0])
         body = row["interweaveEvidence"]
         self.assertEqual((row["account"], body["complete"], body["arrivals"], body["kinds"], body["counts"]),
-                         ("a", True, [a1], {mid(1, 1): "direct"}, {"arrivals": 1, "deliveries": 0, "kinds": 1, "shown": 0, "acks": 0, "backfills": 0, "watch": 0}))
+                         ("a", True, [a1], {mid(1, 1): "direct"}, {"arrivals": 1, "deliveries": 0, "kinds": 1, "shown": 0, "acks": 0, "backfills": 0, "watch": 0, "mirror": 0}))
         self.assertEqual(seen[0][seen[0].index("--timeout") + 1], str(ev.EVIDENCE_BUDGET_S))
 
     def test_one_page_with_a_section_is_sent_as_one_signed_request_and_not_collected(self):
@@ -601,10 +601,10 @@ class Parity(unittest.TestCase):
     def acct(self, login, **over):
         a = {"arrivals": self.arr[login], "deliveries": self.dels[login], "kinds": self.kinds[login], "complete": True, "reason": None, "journal": "ok",
              "shown": [], "acks": [], "backfills": [], "relay_outage": {"complete": True, "reason": None},
-             "backfill_log": {"complete": True, "reason": None, "skipped": 0}, "watch": [], "watch_log": {"complete": True, "reason": None, "skipped": 0}, "since": iso(-100), "until": iso(2000), "margin_s": parity.MARGIN_S, "pages": {"arrivals": 1, "deliveries": 1}, "skipped": 0, "undated": 0}
+             "backfill_log": {"complete": True, "reason": None, "skipped": 0}, "watch": [], "watch_log": {"complete": True, "reason": None, "skipped": 0}, "mirror": [], "mirror_log": {"complete": True, "reason": None, "skipped": 0}, "since": iso(-100), "until": iso(2000), "margin_s": parity.MARGIN_S, "pages": {"arrivals": 1, "deliveries": 1}, "skipped": 0, "undated": 0}
         a.update(over)
         a["counts"] = over.get("counts", {"arrivals": len(a["arrivals"]), "deliveries": len(a["deliveries"]), "kinds": len(a["kinds"]),
-                                                       "shown": len(a["shown"]), "acks": len(a["acks"]), "backfills": len(a["backfills"]), "watch": len(a["watch"])})
+                                                       "shown": len(a["shown"]), "acks": len(a["acks"]), "backfills": len(a["backfills"]), "watch": len(a["watch"]), "mirror": len(a["mirror"])})
         return a
 
     def filed(self, **over) -> str:
@@ -642,6 +642,46 @@ class Parity(unittest.TestCase):
             self.assertEqual(rep["carriers"]["interweave"]["missed"], 1, "positive control: the fixture has a miss to find")
             self.assertIn("UnauthorizedPeer", out)
             self.assertIn("Collected from 2 account(s)", out)
+
+    def test_a_miss_with_no_sender_record_names_the_senders_mirror_refusal(self):
+        # m3: the relay delivered it to beta, no InterWeave copy and no delivery record anywhere, as when the carrier mirror refused the send.
+        m3 = mid(30, 3)
+        self.arr["beta"] = self.arr["beta"] + [arrival(m3, "h/beta", "relay", 31)]
+        self.kinds["beta"][m3] = "direct"
+        why = mrow(30, m3, "failed", "the InterWeave carrier refused (no roster)")
+        for make in (self.filed, self.jsonl):
+            rc, out, err = self.report(make(alpha={"mirror": [why]}, beta={"mirror": []}))
+            self.assertEqual((rc, err), (0, ""), make.__name__)
+            self.assertIn(f"{m3} to h/beta, interweave: the sender recorded no InterWeave delivery; alpha's mirror log: the carrier did not accept it "
+                          f"(failed: the InterWeave carrier refused (no roster)) at {iso(30)}", out)
+            self.assertNotIn("no account's mirror log holds a refusal", out.split(m3)[1].split("\n")[0])
+
+    def test_a_miss_the_logs_do_not_explain_says_so_and_an_uncollected_log_is_not_no_refusal(self):
+        m3 = mid(30, 3)
+        self.arr["beta"] = self.arr["beta"] + [arrival(m3, "h/beta", "relay", 31)]
+        self.kinds["beta"][m3] = "direct"
+        _, out, _ = self.report(self.filed(alpha={"mirror": []}, beta={"mirror": []}))
+        self.assertIn("no account's mirror log holds a refusal for it", out)
+        out_dir = self.filed(alpha={"mirror": []}, beta={"mirror": []})
+        os.unlink(os.path.join(out_dir, "alpha", "mirror.jsonl"))      # a collection from before the log
+        with open(os.path.join(out_dir, "alpha", "meta.json")) as fh:
+            meta = json.load(fh)
+        meta["mirror_log"] = {"complete": False, "reason": "mirror: no answer", "skipped": 0}
+        meta["counts"].pop("mirror")
+        with open(os.path.join(out_dir, "alpha", "meta.json"), "w") as fh:
+            json.dump(meta, fh)
+        _, out, _ = self.report(out_dir)
+        self.assertIn("the mirror log was not collected from 1 account(s)", out)
+        self.assertNotIn("no account's mirror log holds a refusal", out)
+        self.assertIn("The mirror-refusal log was not collected whole from alpha", out)
+
+    def test_a_mirror_row_that_is_not_what_the_op_sends_is_refused(self):
+        out_dir = self.filed(alpha={"mirror": [mrow(30)]}, beta={"mirror": []})
+        with open(os.path.join(out_dir, "alpha", "mirror.jsonl"), "w") as fh:
+            fh.write(json.dumps({**mrow(30), "outcome": "bored"}) + "\n")
+        rc, _, err = self.report(out_dir)
+        self.assertEqual(rc, 2)
+        self.assertIn("alpha: a mirror log row is not", err)
 
     def test_an_incomplete_account_refuses_the_whole_report(self):
         for make in (self.filed, self.jsonl):
@@ -852,9 +892,9 @@ class RelayOutage(unittest.TestCase):
                 "backfill_log": rows.get("backfill_log", {"complete": False, "reason": "backfills: section is one of arrivals, deliveries, shown, acks"}), "complete": True,
                 "reason": None, "journal": "ok", "relay_outage": rows.get("relay_outage", {"complete": True, "reason": None}),
                 "pages": {}, "skipped": 0, "undated": 0, "watch": rows.get("watch", []),
-                "watch_log": rows.get("watch_log", {"complete": True, "reason": None, "skipped": 0})}
+                "watch_log": rows.get("watch_log", {"complete": True, "reason": None, "skipped": 0}), "mirror": [], "mirror_log": {"complete": True, "reason": None, "skipped": 0}}
         acct["counts"] = {"arrivals": len(acct["arrivals"]), "deliveries": 0, "kinds": 0, "shown": len(acct["shown"]), "acks": len(acct["acks"]),
-                          "backfills": len(acct["backfills"]), "watch": len(acct["watch"])}
+                          "backfills": len(acct["backfills"]), "watch": len(acct["watch"]), "mirror": 0}
         ec.write_dir(out, "beta", acct, iso(-100), iso(2000))
         ec.write_manifest(out, ["beta"])
         return out
@@ -1334,8 +1374,8 @@ class RelayFixture(unittest.TestCase):
         log = ({"complete": True, "reason": None, "skipped": skipped, "send_rows": send_rows} if backfills is not None else {"complete": False, "reason": "backfills: not offered"})
         return {"arrivals": arr, "deliveries": dels, "kinds": {}, "shown": [], "acks": [], "backfills": backfills or [], "backfill_log": log,
                 "complete": True, "reason": None, "journal": "ok", "relay_outage": {"complete": True, "reason": None, "skipped": 0},
-                "pages": {}, "skipped": 0, "undated": 0, "watch": [], "watch_log": {"complete": True, "reason": None, "skipped": 0},
-                "counts": {"arrivals": len(arr), "deliveries": len(dels), "kinds": 0, "shown": 0, "acks": 0, "backfills": len(backfills or []), "watch": 0}}
+                "pages": {}, "skipped": 0, "undated": 0, "watch": [], "watch_log": {"complete": True, "reason": None, "skipped": 0}, "mirror": [], "mirror_log": {"complete": True, "reason": None, "skipped": 0},
+                "counts": {"arrivals": len(arr), "deliveries": len(dels), "kinds": 0, "shown": 0, "acks": 0, "backfills": len(backfills or []), "watch": 0, "mirror": 0}}
 
     def collect(self, accounts: dict, old: tuple = (), no_watch: tuple = ()) -> str:
         self.n = getattr(self, "n", 0) + 1
@@ -1706,6 +1746,118 @@ class WatchCollect(Collect):
             "complete": True, "reason": None, "counts": {"arrivals": 1}, "journal": "ok", "relay_outage": {"complete": True},
             "backfill_log": {"complete": True}, "watch_log": {"complete": False, "reason": "watch: section is one of arrivals"}}}
         self.assertIn("watch log: watch: section is one of", "\n".join(ctl._table_carrier_evidence([row])))
+
+
+def mrow(sec: int, m: str | None = None, outcome: str = "no-answer", reason: str = "the InterWeave carrier did not answer (timed out)") -> dict:
+    return {"mid": m or mid(sec, 9), "t": iso(sec), "outcome": outcome, "reason": reason}
+
+
+class MirrorAccount(RelayOutageAccount):
+    """gzcoord-mirror.jsonl, the sender's line for each send the carrier mirror did not accept (carrier/arrivals.MirrorLog)."""
+
+    def log(self, rows: list, torn: str = "") -> None:
+        with open(os.path.join(self.state, "gzcoord-mirror.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write("".join(json.dumps(r) + "\n" for r in rows) + torn)
+
+    def test_rows_leave_key_by_key_and_every_outcome_is_sent(self):
+        rows = [mrow(10 + i, outcome=o) for i, o in enumerate(ev.MIRROR_OUTCOMES)]
+        rows[0] = {**rows[0], "text": BODY_TEXT, "path": "/home/x/.secret"}
+        self.log(rows)
+        r = ev.carrier_evidence(request("mirror", 0, 100), state=self.state)
+        self.assertEqual((r["status"], r["next"], r["skipped"]), ("ok", None, 0))
+        self.assertEqual([x["outcome"] for x in r["rows"]], list(ev.MIRROR_OUTCOMES))
+        self.assertEqual(set(r["rows"][0]), {"mid", "t", "outcome", "reason"})
+        self.assertNotIn(BODY_TEXT, json.dumps(r))
+        self.assertNotIn(".secret", json.dumps(r))
+
+    def test_a_torn_line_and_a_line_of_the_wrong_shape_are_counted_and_not_sent(self):
+        bad = [{**mrow(30), "outcome": "bored"}, {**mrow(30), "t": "yesterday"}, {**mrow(30), "reason": None}, {**mrow(30), "mid": ""},
+               {"mid": mid(1, 1)}, [1]]
+        self.log([mrow(31)] + bad)
+        with open(os.path.join(self.state, "gzcoord-mirror.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write('{"mid": ')
+        r = ev.carrier_evidence(request("mirror", 0, 100), state=self.state)
+        self.assertEqual((len(r["rows"]), r["skipped"]), (1, len(bad) + 1))
+
+    def test_the_section_is_windowed_and_a_missing_file_is_an_empty_page(self):
+        r = ev.carrier_evidence(request("mirror", 0, 100), state=self.state)
+        self.assertEqual((r["status"], r["rows"], r["skipped"]), ("ok", [], 0))
+        self.log([mrow(99), mrow(100)])
+        self.assertEqual([x["t"] for x in ev.carrier_evidence(request("mirror", 0, 100), state=self.state)["rows"]], [iso(99)])
+
+    def test_it_is_a_section_the_op_knows_and_reaches_beyond_the_window(self):
+        self.assertIsNone(ev.check_args({"section": "mirror", "since": iso(0), "until": iso(100)}))
+        self.assertEqual(ev.window_for("mirror", iso(0), iso(100)), ev.window_for("arrivals", iso(0), iso(100)))
+
+    def test_what_the_writer_writes_is_what_the_op_reads(self):
+        # The writer's own class, not a hand-made line: a field the writer renames must break this.
+        log = arrivals.MirrorLog(os.path.join(self.state, "gzcoord-mirror.jsonl"), iso_now=lambda: iso(50))
+        for o in arrivals.MirrorLog.OUTCOMES:
+            log.append_refused(mid(1, 1), o, "why\nit\tfailed")
+        r = ev.carrier_evidence(request("mirror", 0, 100), state=self.state)
+        self.assertEqual(([x["outcome"] for x in r["rows"]], r["skipped"]), (list(arrivals.MirrorLog.OUTCOMES), 0))
+        self.assertEqual(r["rows"][0]["reason"], "why it failed")
+
+    def test_the_log_is_bounded_and_keeps_the_newest_whole_lines(self):
+        # A sender with no carrier at all writes a line per send: the file may not grow without end.
+        path = os.path.join(self.state, "gzcoord-mirror.jsonl")
+        tick = iter(range(1000))
+        log = arrivals.MirrorLog(path, iso_now=lambda: iso(next(tick)))
+        with unittest.mock.patch.object(arrivals.MirrorLog, "MAX_BYTES", 2000):
+            for n in range(60):
+                log.append_refused(mid(n, n), "absent", "no InterWeave carrier is running")
+        with open(path, encoding="utf-8") as fh:
+            kept = [json.loads(x) for x in fh]
+        self.assertLessEqual(os.path.getsize(path), 2000 + 200)
+        self.assertGreater(len(kept), 5)
+        self.assertLess(len(kept), 60)
+        self.assertEqual(kept[-1]["mid"], mid(59, 59), "the newest line survives")
+        self.assertEqual([k["mid"] for k in kept], [mid(n, n) for n in range(60 - len(kept), 60)], "a contiguous newest run, whole lines")
+        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+
+
+class MirrorCollect(Collect):
+    def mirror_account(self, login: str, rows: list) -> None:
+        self.account(login, [])
+        with open(os.path.join(self.states[login], "gzcoord-mirror.jsonl"), "w") as fh:
+            fh.writelines(json.dumps(x) + "\n" for x in rows)
+
+    def test_the_log_is_collected_filed_counted_and_printed(self):
+        self.mirror_account("a", [mrow(10), mrow(20, outcome="absent", reason="no InterWeave carrier is running")])
+        got = ec.collect(["a"], iso(0), iso(100), self.sender())
+        self.assertEqual((len(got["a"]["mirror"]), got["a"]["mirror_log"]), (2, {"complete": True, "reason": None, "skipped": 0}))
+        d = ec.write_dir(os.path.join(self.root, "out"), "a", got["a"], iso(0), iso(100))
+        with open(os.path.join(d, "mirror.jsonl")) as fh:
+            filed = [json.loads(x) for x in fh]
+        with open(os.path.join(d, "meta.json")) as fh:
+            meta = json.load(fh)
+        self.assertEqual((filed, meta["counts"]["mirror"], meta["mirror_log"]["complete"]), (got["a"]["mirror"], 2, True))
+        self.assertEqual(stat.S_IMODE(os.stat(os.path.join(d, "mirror.jsonl")).st_mode), 0o600)
+        body = ec.row_of("a", "h", got["a"], iso(0), iso(100), full=True)["interweaveEvidence"]
+        self.assertEqual(body["mirror"], got["a"]["mirror"])
+
+    def test_an_account_that_cannot_send_the_section_stays_complete_and_is_not_filed_as_having_none(self):
+        self.account("a", [arrival(mid(1, 1), "h/a", "relay", 1)])
+        old = self.sender()
+
+        def send(logins, section, since, until):
+            if section == "mirror":      # a daemon from before the section: the closed set refuses it
+                return {x: {"status": "refused", "reason": "section is one of arrivals"} for x in logins}
+            return old(logins, section, since, until)
+        got = ec.collect(["a"], iso(0), iso(100), send)
+        self.assertTrue(got["a"]["complete"])
+        self.assertFalse(got["a"]["mirror_log"]["complete"])
+        self.assertIn("mirror: section is one of", got["a"]["mirror_log"]["reason"])
+        d = ec.write_dir(os.path.join(self.root, "out"), "a", got["a"], iso(0), iso(100))
+        self.assertFalse(os.path.exists(os.path.join(d, "mirror.jsonl")), "an absent log is not an empty one")
+        self.assertNotIn("mirror", ec.row_of("a", "h", got["a"], iso(0), iso(100), full=True)["interweaveEvidence"])
+
+    def test_the_table_says_when_only_the_mirror_log_is_missing(self):
+        row = {"account": "a", "host": "h", "status": "ok", "interweaveEvidence": {
+            "complete": True, "reason": None, "counts": {"arrivals": 1}, "journal": "ok", "relay_outage": {"complete": True},
+            "backfill_log": {"complete": True}, "watch_log": {"complete": True},
+            "mirror_log": {"complete": False, "reason": "mirror: section is one of arrivals"}}}
+        self.assertIn("mirror log: mirror: section is one of", "\n".join(ctl._table_carrier_evidence([row])))
 
 
 class WatchReport(RelayFixture):

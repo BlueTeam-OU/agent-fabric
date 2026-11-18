@@ -51,7 +51,7 @@ class CarrierError(Exception):
 @dataclass(frozen=True)
 class Post:
     """What `Adapter.post_result` knows of one send: the state `post` answers, and why when it is not accepted."""
-    state: str            # accepted | not-carried | absent | failed
+    state: str            # accepted | not-carried | absent | failed | no-answer (only where the relay carries on: `fail_open`)
     detail: str = ""
     proved_unsent: bool = False   # no recipient was recorded by this call
 
@@ -64,25 +64,32 @@ class Adapter:
             path = server.socket_path(rd) if rd and os.path.isabs(rd) else ""
         self.path, self._call, self._clock = path, call, clock
         self._down_until = 0.0
+        # Why the last `_ask` returned nothing, for the Post the mirror's caller keeps a durable line of: (state, detail).
+        self._why: tuple[str, str] = ("failed", "")
 
     def present(self) -> bool:
         return bool(self.path) and os.path.exists(self.path)
 
     def _ask(self, req: dict, timeout: float) -> dict | None:
-        if not self.present() or self._clock() < self._down_until:
+        if not self.present():
+            self._why = ("absent", "no InterWeave carrier is running")
+            return None
+        if self._clock() < self._down_until:
+            self._why = ("no-answer", f"not asked: the carrier did not answer a call less than {DOWN_FOR:.0f} s ago")
             return None
         try:
             out = self._call(self.path, req, timeout=timeout)
         except OSError as e:
             self._down_until = self._clock() + DOWN_FOR
+            self._why = ("no-answer", f"the InterWeave carrier did not answer ({e})")
             print(f"gzcoord: the InterWeave carrier did not answer ({e}); the relay carries on", file=sys.stderr)
             return None
         if not out.get("ok"):
             # A refusal before any record (the engine's carried 0, queued 0) has no recipients to count: the mirror's line is the
             # one it was before the engine said so.
             queued = f", {out['queued']} recipient(s) recorded" if "queued" in out and out.get("carried") != 0 else ""
-            print(f"gzcoord: the InterWeave carrier refused ({out.get('error', 'no reason given')}{queued}); "
-                  "the relay carries on", file=sys.stderr)
+            self._why = ("failed", f"the InterWeave carrier refused ({out.get('error', 'no reason given')}{queued})")
+            print(f"gzcoord: {self._why[1]}; the relay carries on", file=sys.stderr)
             return None
         return out
 
@@ -110,7 +117,7 @@ class Adapter:
         if fail_open:
             out = self._ask(req, SEND_TIMEOUT)
             if out is None:
-                return Post("failed")
+                return Post(*self._why)
         else:
             try:
                 out = self._call(self.path, req, timeout=SEND_TIMEOUT)

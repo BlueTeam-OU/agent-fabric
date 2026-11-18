@@ -8,7 +8,7 @@ CONTRACT
             every op's, so what it carries is metadata a channel reader could already
             infer from the traffic, and never a body. With
             args {section, since, until}:
-              section  `arrivals` | `deliveries` | `shown` | `acks` | `backfills` | `watch`
+              section  `arrivals` | `deliveries` | `shown` | `acks` | `backfills` | `watch` | `mirror`
               since, until  YYYY-MM-DDTHH:MM:SSZ, since < until
             No other key, no other value: an argument never names a path.
   reply     data["<carrier>-evidence"] = {status: "ok", section, since, until,
@@ -48,6 +48,11 @@ CONTRACT
             gave-up, token-refused, journal-held), `code` its exit status, with `t` in [since, until). Read by the relay-outage
             drill's report (restarts and give-ups inside the outage) and nothing else. A failure of this section ends only this
             section, as the backfill log's does; a line of another shape is skipped and counted.
+  mirror    rows {mid, t, outcome, reason} of gzcoord-mirror.jsonl (carrier/arrivals.py MirrorLog): the SENDER's line for each send the
+            InterWeave carrier, as a mirror, did not accept, `outcome` one of MIRROR_OUTCOMES (absent, not-carried, failed, no-answer),
+            `reason` a short line of words (what the sender's stderr said, kept), with `t` in [since, until). Read by the parity
+            report to name the cause of a pair with no InterWeave copy and no sender record, and nothing else. A failure of this
+            section ends only this section, as the watch log's does; a line of another shape is skipped and counted.
   never     a body. Rows are built key by key from a closed list, each value a
             short string (but a backfill row's `delay_s`, a number, and its `channel`, a string or null): a line of the log with a text, a path or a key in it
             that a later version adds does not leave. The journal is opened
@@ -70,7 +75,7 @@ import sqlite3
 from typing import Any
 
 from control import opsutil as util
-from gzcoord.carrier import CARRIER_NAME, parity, record
+from gzcoord.carrier import CARRIER_NAME, arrivals, parity, record
 
 EVIDENCE_OP = f"{CARRIER_NAME}-evidence"
 SECTIONS = ("arrivals", "deliveries")
@@ -79,7 +84,9 @@ SECTIONS = ("arrivals", "deliveries")
 DRILL_SECTIONS = ("shown", "acks")
 BACKFILL_SECTION = "backfills"
 WATCH_SECTION = "watch"
-ALL_SECTIONS = SECTIONS + DRILL_SECTIONS + (BACKFILL_SECTION, WATCH_SECTION)
+MIRROR_SECTION = "mirror"
+MIRROR_OUTCOMES = arrivals.MirrorLog.OUTCOMES
+ALL_SECTIONS = SECTIONS + DRILL_SECTIONS + (BACKFILL_SECTION, WATCH_SECTION, MIRROR_SECTION)
 WATCH_EVENTS = ("start", "end")
 WATCH_REASONS = parity.WATCH_REASONS
 SHOWN_KEYS = ("mid", "via", "t")
@@ -246,6 +253,15 @@ def _watch_row(o: dict):
     return {"t": o["t"], "event": "end", "pid": pid, "reason": o["reason"], "code": code}
 
 
+def _mirror_row(o: dict):
+    """{mid, t, outcome, reason}: a line of another shape, or an outcome this version does not know, is skipped and counted, never
+    filed as one the report would then print."""
+    if (o.get("outcome") not in MIRROR_OUTCOMES or not isinstance(o.get("mid"), str) or not o["mid"]
+            or _time(o.get("t")) is None or not isinstance(o.get("reason"), str)):
+        return None
+    return {"mid": _short(o["mid"]), "t": o["t"], "outcome": o["outcome"], "reason": _short(o["reason"])}
+
+
 def _page(rows: list[dict], key: str, page_bytes: int | None = None) -> tuple[list[dict], str | None] | str:
     """The rows that fit page_bytes (PAGE_BYTES unless the account splits for the second carrier too), whole seconds only, and the time the next page starts at; or why
     the first second alone does not fit."""
@@ -332,6 +348,10 @@ def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | N
     elif section == WATCH_SECTION:
         every, skipped = _read_lines(os.path.join(state, "gzcoord-watch.jsonl"), _watch_row)
         # File order breaks a tie on the second: a watch's start line comes before its end line.
+        inside = sorted((r for r in every if start <= _time(r["t"]) < end), key=lambda r: r["t"])
+        key, extra = "t", {"skipped": skipped}
+    elif section == MIRROR_SECTION:
+        every, skipped = _read_lines(os.path.join(state, "gzcoord-mirror.jsonl"), _mirror_row)
         inside = sorted((r for r in every if start <= _time(r["t"]) < end), key=lambda r: r["t"])
         key, extra = "t", {"skipped": skipped}
     elif section in DRILL_SECTIONS:

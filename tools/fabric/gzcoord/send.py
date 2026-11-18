@@ -113,7 +113,7 @@ from typing import Any, Callable
 
 from . import bypass, gzmsg, i18n, inbox, intake, paths, placement, transport
 from . import jsvalues as js
-from .carrier import CARRIER_LABEL, CARRIER_NAME
+from .carrier import CARRIER_LABEL, CARRIER_NAME, arrivals
 
 import hidden_unicode  # noqa: E402 — tools/fabric, on sys.path through paths
 
@@ -171,6 +171,10 @@ def with_message_id(text: str, mid: str) -> str:
 
 def sent_ledger_path(who: dict) -> str:
     return os.path.join(os.path.dirname(who["binding"]), "gzcoord-sent.jsonl")
+
+
+def mirror_log_path(who: dict) -> str:
+    return os.path.join(os.path.dirname(who["binding"]), "gzcoord-mirror.jsonl")
 
 
 def _ledger(path: str, flags: int):
@@ -653,6 +657,15 @@ def main(argv: list[str]) -> int:
 
     to_one_login = bool(msg["metadata"].get("TO"))   # exactly one of TO, TO-ROLE, BROADCAST: the validator's rule
 
+    def refused_log(mid: str, s) -> None:
+        """The carrier mirror did not accept: a durable line beside the sent ledger (arrivals.MirrorLog), because the stderr line
+        of this send is gone with the session and the parity report needs the reason. It is evidence and never a condition of
+        the send: a log that cannot be written is said and the send goes on. With the journal off no mirror is asked (rule 8), so nothing is logged."""
+        try:
+            arrivals.MirrorLog(mirror_log_path(who), iso_now=lambda: _now_iso()[:19] + "Z").append_refused(mid, s.state, s.detail)
+        except OSError as e:
+            print(f"gzcoord: the mirror refusal log could not be written ({e.strerror or e})", file=sys.stderr)
+
     def via_mirrors() -> list[str]:
         """The same message to the mirror transports (ADR-064 rules 6, 7), after
         the primary's outcome is known and whatever it was: both get every
@@ -664,7 +677,11 @@ def main(argv: list[str]) -> int:
         rule 3), and the row is the primary's outcome's to set, so there is nothing to write.
         The names of the mirrors that accepted it: a failed primary's line must then not say "not sent", and a
         carrier-primary send is on the sent ledger only if the relay is among them."""
-        accepted = [s for s in tp.send_mirrors(mid, text) if s.state == "accepted"]
+        sent_to = tp.send_mirrors(mid, text)
+        for s in sent_to:
+            if s.name == CARRIER_NAME and s.state != "accepted":
+                refused_log(mid, s)
+        accepted = [s for s in sent_to if s.state == "accepted"]
         for s in accepted:
             # The relay is the journal's default carrier name (claude-bridge), not its transport name.
             done = journal(["gzcoord-out-final", mid, "--state", "accepted",
