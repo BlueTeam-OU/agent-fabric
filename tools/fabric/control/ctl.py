@@ -2374,7 +2374,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         err(f"fabric-ctl: {me['address']} is not a host operator in runtime/hosts/registry.json — no agent would answer; not sent")
         return 2
     alone = not carrier_cfg.uses_relay(cfg)
-    # The carrier's own read, alone: asked over the carrier, and an account that does not answer by hostexec (ADR-064 rule 14).
+    # The carrier's own read, alone: asked over the carrier, and an account the send never reached or that does not answer by hostexec (ADR-064 rule 14).
     carrier_read = alone and not args.get("via") and args["op"] == CARRIER_NAME
     if alone and not args.get("via") and args["op"] in link.CARRIER_ACTION_OPS:
         return _relay_only_by_hostexec(args, expected, me=me, cfg=cfg, new_id=agentd.new_id, registry=registry, out=out, err=err)
@@ -2433,6 +2433,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     else:
         relay_up = False
     session, early, attempted, maybe_handed = (_second_carrier(request, expected, args, err, relay_alone=not alone) if dual else (None, [], set(), False))
+    # Kept before the session is closed or dropped: it says, per account, whether the send certainly never reached the child.
+    send_why = dict(session.sent) if session is not None else {}
     if carrier_read and not attempted and session is not None:
         session.close()   # nothing was sent by it: the accounts are asked by hostexec below, with no wait for a silence
         session = None
@@ -2574,15 +2576,18 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     fallback_rc = 0
     if carrier_read and want:
         late = [e for e in expected if e["address"] in want]
-        # The two groups were given different things: the carrier was asked of one and waited on for `deadline - t0` s, the other
-        # was never sent to (its send did not happen), so it did not "not answer within" anything.
+        # Three groups, each told what it was given: asked and waited on for `deadline - t0` s; certainly never sent to (the send's
+        # own reason says so); and not known either way (a hand-off or a settle that failed after it was made), which is said as unknown.
         waited = [e["login"] for e in late if e["address"] not in unsent]
-        never = [e["login"] for e in late if e["address"] in unsent]
+        never = [e["login"] for e in late if e["address"] in unsent and link.never_sent(send_why.get(e["address"], (False, ""))[1])]
+        unknown = [e["login"] for e in late if e["address"] in unsent and e["login"] not in never]
         said = []
         if waited:
             said.append(f"{', '.join(waited)} did not answer by {CARRIER_LABEL} within {int(deadline - t0)} s")
         if never:
             said.append(f"{', '.join(never)} could not be asked by {CARRIER_LABEL} (the send did not reach them)")
+        if unknown:
+            said.append(f"{', '.join(unknown)} may not have been asked by {CARRIER_LABEL} (whether the send reached them is unknown)")
         got, fallback_rc = _each_by_hostexec(
             args, late, me=me, cfg=cfg, new_id=agentd.new_id, registry=registry, err=err,
             announce=f"fabric-ctl: {'; '.join(said)}: asked through hostexec to bin/fabric-op, one account at a time")

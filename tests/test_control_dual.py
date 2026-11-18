@@ -663,6 +663,22 @@ class Interweave(Harness):
         self.assertEqual(len(said), 1, self.err)
         self.assertIn("alice did not answer by InterWeave within 1 s; bob could not be asked by InterWeave (the send did not reach them): asked through hostexec", said[0])
 
+    def test_a_send_whose_outcome_is_unknown_is_not_announced_as_not_reached(self):
+        rows = [r for r in ROWS if r["login"] != "bob"]
+        self.boot("alice", "bob", op_rows=rows)
+        calls: list = []
+        # The reason a send failed for bob is one the link cannot call certain (a settle that timed out wrote its line): the
+        # positive control is the test above, where the same reason is a certain "never sent".
+        with mock.patch.object(ctl, "CARRIER_FIRST_ANSWER_S", 30.0), mock.patch.object(ctl.link, "never_sent", return_value=False), \
+                mock.patch("control.breakglass.via_hostexec", self.hostexec_reply(calls)):
+            box = self.run_ctl("all", "interweave", "--json", "--timeout", "60")
+            self.answer("alice", self.request_of("alice"), relay=False, data={"interweave": {"status": "ok"}})
+            self.assertEqual(self.finish(box), 0, self.err)
+        said = [e for e in self.err if "bin/fabric-op" in e]
+        self.assertEqual(len(said), 1, self.err)
+        self.assertIn("bob may not have been asked by InterWeave (whether the send reached them is unknown)", said[0])
+        self.assertNotIn("did not reach them", said[0])
+
     def test_no_operator_agentd_reads_every_account_by_hostexec_without_waiting(self):
         self.nodes["alice"] = Node(self, self.net, "alice")
         calls: list = []

@@ -89,7 +89,7 @@ PART_BYTES = 32 * 1024
 # The actions that take this channel down or change it: never carried by it, whatever control_carrier says.
 CARRIER_ACTION_OPS = frozenset({INSTALL_OP, START_OP, STOP_OP})
 # The read (`CARRIER_NAME`) asks about the channel. Under relay and dual it stays on the relay; under the carrier alone fabric-ctl
-# sends it by the carrier and asks an account that did not answer by hostexec to fabric-op (ADR-064 rule 14), so a daemon with its relay off
+# sends it by the carrier and asks an account the send never reached, or that did not answer, by hostexec to fabric-op (ADR-064 rule 14), so a daemon with its relay off
 # answers it when it arrives (Carrier.refused_ops).
 RELAY_ONLY_OPS = CARRIER_ACTION_OPS | {CARRIER_NAME}
 
