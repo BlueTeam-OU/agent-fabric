@@ -1766,9 +1766,12 @@ def main() -> int:
         j2 = w.add("the next piece")
         rc, out, err = w.switch()
         wt = f"{w.repo}-earlier"
-        check("a default branch that does not merge cleanly is refused, the merge undone, nothing started",
-              rc == 1 and "does not merge into" in err and w.job(j2)["state"] == "queued"
-              and subprocess.run(["git", "-C", wt, "status", "--porcelain"], capture_output=True, text=True).stdout == "", err)
+        check("a default branch that does not merge cleanly is handed to the fresh session: job started, merge undone, fabric-fresh printed",
+              rc == 0 and "does not merge into" in out and f"fabric-fresh --job {j2}" in out and w.job(j2)["state"] == "active"
+              and w.job(j2).get("branch") == mine and w.job(j2).get("worktree") == wt
+              and subprocess.run(["git", "-C", wt, "status", "--porcelain"], capture_output=True, text=True).stdout == ""
+              and subprocess.run(["git", "-C", wt, "rev-parse", "-q", "--verify", "MERGE_HEAD"], capture_output=True).returncode != 0
+              , out + err)
 
         print("…not addable: blocked on it when the job needs it merged, else a new branch")
         w = World()

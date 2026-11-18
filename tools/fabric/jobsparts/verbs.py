@@ -340,7 +340,10 @@ def switch_job(args) -> int:
         if settled:
             find(doc, old["id"]).setdefault("log", []).append(
                 {"at": identity.now_iso(), "kind": "switch", "note": f"switch to {job['id']}: {settled}; {where}"})   # no `state`: fleet.log_times reads the state of an entry as a transition
-        if not verdict["fresh"] and choice.kind != "blocked":
+        if choice.conflict:
+            # The merge belongs in the job's copy, which the guard refuses to this session (rule 3): always the fresh one.
+            verdict.update(fresh=True, reason="conflict")
+        elif not verdict["fresh"] and choice.kind != "blocked":
             verdict.update(outside_copy(job, stands) or {})
         verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, unpushed=unpushed, job=dict(job))
     try:
@@ -393,7 +396,10 @@ def switch_job(args) -> int:
         print(f"  ranked blocking: {named(verdict_for['who'], stale)} {'waits' if len(verdict_for['who']) == 1 else 'wait'} on its request "
               f"(stored {stored_priority(job)})")
     if verdict["fresh"]:
-        if verdict["reason"] == "outside_copy":
+        if choice.conflict:
+            print(f"fresh session: {choice.conflict}; the merge is left for the fresh session, which merges origin/main into the branch by hand "
+                  f"(git merge origin/main in {choice.worktree}), resolves it and commits before the job's work.")
+        elif verdict["reason"] == "outside_copy":
             print(f"fresh session: this one has worked no job, but stands in {verdict['here']}, outside the copies of {job['id']} "
                   f"({', '.join(verdict['copies'])}); the job copy guard refuses a commit from there (ADR-037 rule 3).")
         elif verdict["reason"] == "place_unreadable":
