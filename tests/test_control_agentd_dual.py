@@ -109,7 +109,7 @@ class Base(Scratch):
             self.relay.until_waiting()
         if self.carrier in ("dual", "interweave") and not self.argv:
             self.assertTrue(until(lambda: os.path.isdir(os.path.join(self.net, PEERS["alice"]))), self.logs)   # its child is up
-        self.op = Node(self, self.net, "op")
+        self.op = Node(self, self.net, "op", relay_off=self.carrier == "interweave")
         self.replies: list[tuple[dict, str]] = []
         self.op.carrier.watch("*", lambda r, s: None)
 
@@ -419,6 +419,23 @@ class AgentdInterweave(Base):
         self.send_iw(body("iw2"))
         self.assertTrue(until(lambda: got), self.logs)
         self.assertFalse(any("relay unreachable" in l or "not posted" in l for l in self.logs), self.logs)
+
+    def test_the_carriers_own_read_is_answered_by_the_carrier_and_the_three_actions_never_are(self):
+        # Under dual the same read is dropped (test_the_relay_only_ops_are_never_answered_when_they_arrive_by_the_second_carrier).
+        got = self.watch("rd")
+        self.send_iw(body("rd", op="interweave"))
+        self.assertTrue(until(lambda: got), self.logs)
+        self.assertIn("interweave", got[0][0]["data"])
+        refused = self.watch("acts")
+        for i, op in enumerate(sorted(link.CARRIER_ACTION_OPS)):
+            self.op.carrier.watch(f"act{i}", lambda r, s: refused.append((r, s)))
+            self.send_iw(body(f"act{i}", op=op))
+        self.assertTrue(until(lambda: self.arrival_verdicts().count("relay-only-op") == 3), self.arrival_verdicts())
+        after = self.watch("after-actions")   # the carrier's inbox is read in order: answered, so the actions before it were judged
+        self.send_iw(body("after-actions"))
+        self.assertTrue(until(lambda: after), self.logs)
+        self.assertEqual(refused, [])
+        self.assertEqual(self.relay.hits, [])
 
     def test_a_request_left_on_the_relay_is_not_answered(self):
         self.relay.add("h/op", json.dumps(body("on-relay")))

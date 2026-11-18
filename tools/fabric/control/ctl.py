@@ -2374,7 +2374,9 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         err(f"fabric-ctl: {me['address']} is not a host operator in runtime/hosts/registry.json — no agent would answer; not sent")
         return 2
     alone = not carrier_cfg.uses_relay(cfg)
-    if alone and not args.get("via") and args["op"] in link.RELAY_ONLY_OPS:
+    # The carrier's own read, alone: asked over the carrier, and an account that does not answer by hostexec (ADR-064 rule 14).
+    carrier_read = alone and not args.get("via") and args["op"] == CARRIER_NAME
+    if alone and not args.get("via") and args["op"] in link.CARRIER_ACTION_OPS:
         return _relay_only_by_hostexec(args, expected, me=me, cfg=cfg, new_id=agentd.new_id, registry=registry, out=out, err=err)
     if not tok and not args.get("via") and not alone:   # the second carrier alone posts and reads nothing at the relay
         err("fabric-ctl: no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)")
@@ -2411,7 +2413,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     # The second carrier (ADR-029 rule 18), only when control_carrier says "dual" or names it alone, and the op may go by it: the
     # sends are handed to the operator's own agentd, which holds the lease, and its replies come back here.
     # With the second carrier alone it is the only one: no relay post, no relay read, and no merge, which compares the two.
-    dual = carrier_cfg.uses_second_carrier(cfg) and args["op"] not in link.RELAY_ONLY_OPS
+    dual = carrier_cfg.uses_second_carrier(cfg) and (args["op"] not in link.RELAY_ONLY_OPS or carrier_read)
     merge = link.Merge() if dual and not alone else None
     arrivals = link.ArrivalLog(os.path.join(state_dir(), "control-arrivals.jsonl"), "ctl", log=err) if dual else None
     if arrivals is not None:
@@ -2431,7 +2433,10 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     else:
         relay_up = False
     session, early, attempted, maybe_handed = (_second_carrier(request, expected, args, err, relay_alone=not alone) if dual else (None, [], set(), False))
-    if alone and not attempted:
+    if carrier_read and not attempted and session is not None:
+        session.close()   # nothing was sent by it: the accounts are asked by hostexec below, with no wait for a silence
+        session = None
+    if alone and not attempted and not carrier_read:
         # No send is known to have gone, and there is no relay copy to wait for: the whole --timeout would be a silence.
         if session is not None:
             session.close()
@@ -2523,9 +2528,12 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
             return []
     for ev in early:
         take(link.VIA, ev["record"])
-    deadline = t0 + args["timeout"]
+    # The carrier's read: an account the send did not reach cannot answer by it, and one that was reached is given only
+    # CARRIER_FIRST_ANSWER_S, since a stopped carrier takes the send and never answers; the rest are asked by hostexec below.
+    unsent = (expected_addresses - attempted) if carrier_read else set()
+    deadline = t0 + (min(args["timeout"], CARRIER_FIRST_ANSWER_S) if carrier_read else args["timeout"])
     since = sent["id"] if sent else None
-    while now() < deadline and (want or short() or lingering()):
+    while now() < deadline and (want - unsent or short() or lingering()):
         if relay_up:
             try:
                 page = api_call("/api/messages?" + js.search_params([("channel", cfg["channel"]), ("since_id", since), ("limit", "500"), ("full", "1")]))
@@ -2558,10 +2566,23 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
             take(link.VIA, ev["record"])
         if not relay_up and session is None:
             break   # both carriers are gone: nothing more can arrive
-        if session is None and (want or short() or lingering()):
+        if session is None and (want - unsent or short() or lingering()):
             sleep(0.5)
     if session is not None:
         session.close()
+    by_hostexec: set[str] = set()
+    fallback_rc = 0
+    if carrier_read and want:
+        late = [e for e in expected if e["address"] in want]
+        got, fallback_rc = _each_by_hostexec(
+            args, late, me=me, cfg=cfg, new_id=agentd.new_id, registry=registry, err=err,
+            announce=f"fabric-ctl: {', '.join(e['login'] for e in late)} did not answer by {CARRIER_LABEL} within {int(deadline - t0)} s: "
+                     f"asked through hostexec to bin/fabric-op, one account at a time")
+        for r in got or []:
+            r["latency_ms"] = int((now() - t0) * 1000)
+            replies.append(r)
+            want.discard(r["from"])
+            by_hostexec.add(r["from"])
     refused = 0
     if args["op"] == "memory":
         write_bundles(args["out"], expected, replies, parts)
@@ -2581,11 +2602,17 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         for e, row in zip(expected, rs):
             if row["status"] == "ok":
                 row.update(merge.verdict(e["address"]))
+    if carrier_read:
+        for e, row in zip(expected, rs):
+            if row["status"] == "ok":
+                row["carrier"] = "hostexec" if e["address"] in by_hostexec else link.VIA
     if args["json"]:
         for r in rs:
             out(js.stringify(r))
     else:
         out(table(args["op"], rs))
+        if by_hostexec:
+            out(f"answered through hostexec, not {CARRIER_LABEL}: {', '.join(e['login'] for e in expected if e['address'] in by_hostexec)}")
         if merge is not None:
             for key, words in (("relay only", "relay only"), ("differs", f"the relay's copy differs from the {CARRIER_LABEL} copy")):
                 names = [r["account"] for r in rs if (r.get("carrier") == key if key == "relay only" else r.get("relay_differs"))]
@@ -2594,13 +2621,17 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     # An action that failed on an account is a failed run, whatever else
     # answered: the first fleet upgrade printed nine failed rows and exited 0.
     action_failed = args["op"] in ACTION_OPS and any(dig(r, "data", args["op"], "status") not in ACTION_OK.get(args["op"], []) for r in replies)
-    return 1 if want or short() or refused or action_failed else 0
+    return fallback_rc or (1 if want or short() or refused or action_failed else 0)
 
 
 # How long, once every account has answered, fabric-ctl waits for the other carrier's copy of an answer on a dual
 # run: long enough for a copy sent beside the first, short enough that a carrier that is down costs a command
 # seconds, not its whole timeout.
 DUAL_GRACE_S = 3.0
+
+# The carrier's own read under the carrier alone: how long an account the send reached is given to answer by it before it is
+# asked through hostexec. A stopped carrier accepts the send and never answers, so the read's whole budget would be a silence.
+CARRIER_FIRST_ANSWER_S = 30.0
 
 
 def _second_carrier(request: dict, expected: list[dict], args: dict, err: Callable[[str], None], *, relay_alone: bool = True) -> tuple:
@@ -2634,33 +2665,29 @@ def _second_carrier(request: dict, expected: list[dict], args: dict, err: Callab
     return session, early, sent_to, not sent_to and not all(link.never_sent(session.sent[a][1]) for a in lost)
 
 
-def _relay_only_by_hostexec(args: dict, expected: list[dict], *, me: dict, cfg: dict, new_id: Callable[[], str], registry: str | None,
-                            out: Callable[[str], None], err: Callable[[str], None]) -> int:
-    """An op the carrier cannot carry (control_link.RELAY_ONLY_OPS, ADR-064 rule 14) with the second carrier alone:
-    each signed request goes to its own account through hostexec to bin/fabric-op (ADR-029 rule 19, one login per request: the
-    target refuses one addressed to everyone), and the command says so. fabric-op takes action ops only, so the carrier's own read op
-    is refused here, in words: dropped silently it would read as an account that did not answer."""
+def _each_by_hostexec(args: dict, targets: list[dict], *, me: dict, cfg: dict, new_id: Callable[[], str], registry: str | None,
+                      err: Callable[[str], None], announce: str = "") -> tuple[list[dict] | None, int]:
+    """The replies of `targets`, each asked alone by a signed request through hostexec to bin/fabric-op (ADR-029 rule 19, one login
+    per request: the target refuses one addressed to everyone), and the exit status of the ones that gave none: 2 refused by
+    fabric-op, 3 not sent or failed. None for the replies when there is no signing key: nothing was sent.
+    `announce` is said once the key is in hand, so it is never said of a send that did not happen."""
     from control import breakglass
-    op = args["op"]
-    if op not in ACTION_OPS:
-        err(f"fabric-ctl: {op} cannot ride {CARRIER_LABEL} (ADR-064 rule 14), control_carrier is {carrier_cfg.SECOND_ONLY} so there is no relay to ask by, "
-            f"and bin/fabric-op takes action ops only: read it on the account with fabric-host run; nothing sent")
-        return 2
-    err(f"fabric-ctl: control_carrier is {carrier_cfg.SECOND_ONLY} and {op} cannot ride {CARRIER_LABEL} (ADR-064 rule 14): sent through hostexec "
-        f"to bin/fabric-op, one account at a time")
     k = signing_key()
     if "error" in k:
-        err(f"fabric-ctl: {k['error']} — an action is signed or not sent")
-        return 3
+        what = "an action" if args["op"] in ACTION_OPS else f"the {args['op']} read"
+        err(f"fabric-ctl: {k['error']} — {what} is signed or not sent")
+        return None, 3
+    if announce:
+        err(announce)
     replies: list[dict] = []
     rc = 0
-    for i, target in enumerate(expected):
+    for i, target in enumerate(targets):
         # Built and signed here, not for all targets first: a request's `ts` is when it was built, its ttl_s runs from it, and
         # each call below can take the whole --timeout, so a request signed up front would reach a late account expired.
         try:
             request = sign_request(build_request(args, id=new_id(), from_=me["address"], to=[target["address"]], cfg=cfg), k["key"])
         except Exception as e:  # noqa: BLE001 — the signer's own words, as for a relay run
-            untried = ", ".join(t["login"] for t in expected[i:])
+            untried = ", ".join(t["login"] for t in targets[i:])
             err(f"fabric-ctl: {e}; not sent to {untried}")
             rc = max(rc, 3)
             break
@@ -2674,10 +2701,28 @@ def _relay_only_by_hostexec(args: dict, expected: list[dict], *, me: dict, cfg: 
             err(f"fabric-ctl: {target['login']}: {'refused by fabric-op: ' if o.kind == 'refused' else ''}{o.detail}")
             rc = max(rc, 2 if o.kind == "refused" else 3)
             continue
+        if o.kind == "reply" and o.exit and args["op"] not in ACTION_OPS:
+            # fabric-op's verdict on a read is its exit: the reply is there, but the target called it a failure (no section for the op).
+            err(f"fabric-ctl: {target['login']}: fabric-op exited {o.exit}: the reply holds no {args['op']} section")
+            rc = max(rc, 3)
+            continue
         if o.reply is not None:
             replies.append(o.reply)
         if o.detail or o.reply is None:
             err(f"fabric-ctl: {target['login']}: {o.detail}")
+    return replies, rc
+
+
+def _relay_only_by_hostexec(args: dict, expected: list[dict], *, me: dict, cfg: dict, new_id: Callable[[], str], registry: str | None,
+                            out: Callable[[str], None], err: Callable[[str], None]) -> int:
+    """An action the carrier cannot carry (control_link.CARRIER_ACTION_OPS, ADR-064 rule 14) with the second carrier alone:
+    each signed request goes to its own account through hostexec to bin/fabric-op, and the command says so."""
+    op = args["op"]
+    err(f"fabric-ctl: control_carrier is {carrier_cfg.SECOND_ONLY} and {op} cannot ride {CARRIER_LABEL} (ADR-064 rule 14): sent through hostexec "
+        f"to bin/fabric-op, one account at a time")
+    replies, rc = _each_by_hostexec(args, expected, me=me, cfg=cfg, new_id=new_id, registry=registry, err=err)
+    if replies is None:
+        return rc
     rs = rows(expected, replies)
     if args["json"]:
         for r in rs:

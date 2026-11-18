@@ -2,7 +2,7 @@
 InterWeave, through `interweave-human` on the profile's `fabric-control`
 endpoint (agent-fabric ADR-029 rule 18; ADR-064 rule 12). Off unless
 runtime/control/config.json `control_carrier` is "dual" or "interweave" (agentd.control_config; control/carrier_cfg.py).
-Under "interweave" it is the only carrier, and RELAY_ONLY_OPS go through hostexec to bin/fabric-op instead.
+Under "interweave" it is the only carrier, and CARRIER_ACTION_OPS go through hostexec to bin/fabric-op instead; the read of the carrier itself goes by the carrier and, for an account that does not answer, by hostexec.
 
 CONTRACT (ADR-029 rule 18, line for line):
   child      agentd runs ONE supervised long-lived child,
@@ -29,9 +29,11 @@ CONTRACT (ADR-029 rule 18, line for line):
              cancels it, so nothing is left in the human store for a later
              run to send. A send is never retried here. A request's send is
              bounded by the request's ttl_s.
-  ops        RELAY_ONLY_OPS (`interweave`, `-install`, `-start`,
-             `-stop`) are never sent by this carrier, and one that arrives on
-             it is dropped: they take this channel down or ask about it.
+  ops        CARRIER_ACTION_OPS (`-install`, `-start`, `-stop`) are never sent
+             by this carrier, and one that arrives on it is dropped: they take
+             this channel down. The read, `interweave`, is sent by fabric-ctl
+             only under the carrier alone and is answered when it arrives;
+             under relay and dual it stays among RELAY_ONLY_OPS.
   parts      an account on both splits once, at PART_BYTES, the bound this
              path was measured to carry (see below), and sends those parts by
              both carriers.
@@ -84,7 +86,18 @@ VIA = CARRIER_NAME
 PROGRAM_NAME = "interweave-human"
 LISTEN_ARGS = ("--profile", PROFILE, "listen", "--json", "--input", "--consume", "--endpoint", ENDPOINT)
 PART_BYTES = 32 * 1024
-RELAY_ONLY_OPS = frozenset({CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP})
+# The actions that take this channel down or change it: never carried by it, whatever control_carrier says.
+CARRIER_ACTION_OPS = frozenset({INSTALL_OP, START_OP, STOP_OP})
+# The read (`CARRIER_NAME`) asks about the channel. Under relay and dual it stays on the relay; under the carrier alone fabric-ctl
+# sends it by the carrier and asks an account that did not answer by hostexec to fabric-op (ADR-064 rule 14), so a daemon with its relay off
+# answers it when it arrives (Carrier.refused_ops).
+RELAY_ONLY_OPS = CARRIER_ACTION_OPS | {CARRIER_NAME}
+
+
+def _refusal_why(refused: frozenset[str]) -> str:
+    """Where a refused op goes instead, which depends on the mode: with the read among the refused ones the relay carries it;
+    without, the carrier is alone and only hostexec reaches the actions."""
+    return "goes on the relay only" if CARRIER_NAME in refused else "goes through hostexec, never on the carrier"
 INBOUND_MAX = 256          # the daemon's per-client queue (InterWeave ADR-0055 decision 2)
 BACKOFF_S = (1, 2, 4, 8, 16, 32, 60)
 SEND_WAIT_S = 10.0         # a reply's send; a request's is its ttl_s
@@ -545,8 +558,11 @@ class Carrier:
     waiting for the reply; outbound ones go to `<peer>/fabric-control`."""
 
     def __init__(self, *, directory: Directory, child: Child, me: str, on_request: Callable[[dict, str], None],
-                 arrivals: ArrivalLog, log: Callable[[str], None] = say) -> None:
+                 arrivals: ArrivalLog, log: Callable[[str], None] = say, relay_off: bool = False) -> None:
         self.directory, self.child, self.me, self._on_request, self.arrivals, self._log = directory, child, me, on_request, arrivals, log
+        # With the relay off (the carrier alone) this account is asked the carrier's own read by the carrier and answers it;
+        # under dual it is asked on the relay only, so one that arrives here is dropped as before.
+        self.refused_ops = CARRIER_ACTION_OPS if relay_off else RELAY_ONLY_OPS
         self._waiters: dict[str, Callable[[dict, str], None]] = {}
         self._early: dict[str, tuple[list[dict], float]] = {}   # this account's own replies that came before their waiter
         self._ended: dict[str, None] = {}                       # request ids whose waiter came and went (insertion-ordered, bounded)
@@ -585,9 +601,9 @@ class Carrier:
             self.arrivals.add(VIA, record, "forged-from", sender)
             self._log(f"dropped a {js.string(kind)} from {sender} that says it is from {js.slice(js.string(frm), 60)}")
             return
-        if isinstance(record.get("op"), str) and record["op"] in RELAY_ONLY_OPS:
+        if isinstance(record.get("op"), str) and record["op"] in self.refused_ops:
             self.arrivals.add(VIA, record, "relay-only-op", sender)
-            self._log(f"dropped {record['op']} from {sender}: that op goes on the relay only")
+            self._log(f"dropped {record['op']} from {sender}: {_refusal_why(self.refused_ops)}")
             return
         if kind == "request":
             self.arrivals.add(VIA, record, "ok", sender)
@@ -655,7 +671,7 @@ class Carrier:
     # -- out -----------------------------------------------------------
     def start_send(self, address: str, record: dict) -> Send:
         if address == self.me:
-            if record.get("kind") != "request" or (isinstance(record.get("op"), str) and record["op"] in RELAY_ONLY_OPS):
+            if record.get("kind") != "request" or (isinstance(record.get("op"), str) and record["op"] in self.refused_ops):
                 return failed("this account (only a request that may go by InterWeave loops back)")
             self._loop_request(record)
             sent = Send("self")
@@ -684,7 +700,7 @@ class Carrier:
         sender is this account). Nothing here raises: the relay
         copy is posted first and is the record."""
         op = request.get("op")
-        if isinstance(op, str) and op in RELAY_ONLY_OPS:
+        if isinstance(op, str) and op in self.refused_ops:
             return
         to = request.get("from")
         if to == self.me:
@@ -717,8 +733,11 @@ class Server:
     hold; it returns None when it held nothing (a restart was already asked for)."""
 
     def __init__(self, path: str, carrier: Carrier, me: str, log: Callable[[str], None] = say,
-                 hold: Callable[[], Callable[[], None] | None] | None = None) -> None:
+                 hold: Callable[[], Callable[[], None] | None] | None = None,
+                 refused_ops: frozenset[str] = RELAY_ONLY_OPS) -> None:
         self.path, self.carrier, self.me, self._log = path, carrier, me, log
+        # Defaults to the larger set: a Server built without the Carrier's own choice refuses more, never less.
+        self._refused_ops = refused_ops
         self._hold = hold
         self._sock: socket.socket | None = None
         self._stop = threading.Event()
@@ -786,8 +805,7 @@ class Server:
                 return
             self._run(conn, request)
 
-    @staticmethod
-    def _read_request(conn: socket.socket) -> dict:
+    def _read_request(self, conn: socket.socket) -> dict:
         conn.settimeout(5)
         buf = b""
         while b"\n" not in buf:
@@ -812,8 +830,8 @@ class Server:
         rec = req["record"]
         if rec.get("kind") != "request" or not isinstance(rec.get("id"), str) or not rec["id"]:
             raise Refused("the record is not a request with an id")
-        if isinstance(rec.get("op"), str) and rec["op"] in RELAY_ONLY_OPS:
-            raise Refused(f"{rec['op']} goes on the relay only")
+        if isinstance(rec.get("op"), str) and rec["op"] in self._refused_ops:
+            raise Refused(f"{rec['op']} {_refusal_why(self._refused_ops)}")
         return req
 
     def _run(self, conn: socket.socket, req: dict) -> None:
@@ -1141,14 +1159,15 @@ def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed
     host = me.partition("/")[0]
     carrier = Carrier(directory=directory or default_directory(host, placed, log),
                       child=Child(argv or [program_path(env), *LISTEN_ARGS], child_env(env), lambda ev: None, log=log),
-                      me=me, on_request=on_request, arrivals=ArrivalLog(os.path.join(state_dir(), "control-arrivals.jsonl"), "agentd", log=log), log=log)
+                      me=me, on_request=on_request, arrivals=ArrivalLog(os.path.join(state_dir(), "control-arrivals.jsonl"), "agentd", log=log), log=log,
+                      relay_off=relay_off)
     server: Server | None = None
     path = socket_path(env)
     if path is None:
         log("XDG_RUNTIME_DIR is not set: fabric-ctl has no socket to hand its sends to, and "
             + ("fabric-ctl cannot send to this account's agentd" if relay_off else "sends by the relay alone"))
     else:
-        server = Server(path, carrier, me, log, hold)
+        server = Server(path, carrier, me, log, hold, carrier.refused_ops)
         try:
             server.start()
         except OSError as e:

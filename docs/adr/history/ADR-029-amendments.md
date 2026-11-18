@@ -506,3 +506,19 @@ backfills' does; `fabric-ctl` records in `meta.json` whether it was
 collected whole, and the report reads an account whose log was not as
 not collected, never as no watch ran. A watch the kernel kills writes no
 end line, so a start without one is not given a reason.
+
+### Amendment 2026-11-18 — fabric-op admits the signed InterWeave read
+
+With `control_carrier` naming InterWeave alone, the read of an account's
+InterWeave state has no relay to fall back on when the carrier is the
+thing that is down. python-dev-04's BlueTeam-OU/agent-fabric#656 (j145)
+reads it over InterWeave and, for an account that has not answered
+within 30 seconds or that the send never reached, through `bin/fabric-op`.
+Rule 19 refused every read there; it now admits this one read, signed
+and verified by the same `accept()` as an action, under an action's ttl
+cap (600 s) with a future `ts` refused. It takes no claim on the replay
+floor: a read changes nothing, and replaying it within its ttl shows the
+same account state. The admission rule stays one rule, a request signed
+by an operator; an unsigned read was proposed and declined, because the
+break-glass path is the one used when the normal one is down, and an
+exception to its admission there is the one nobody re-reads.

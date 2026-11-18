@@ -166,6 +166,49 @@ class Decision(Target):
                 self.accepted(good)
                 self.assertEqual(self.fake.calls[-1], good, f"the control for {label}")
 
+    def test_the_carriers_own_read_is_admitted_signed_and_by_no_other_rule(self):
+        # The one read fabric-op takes (ADR-064 rule 14's fallback): accept() checks an action's signature only, so decide() holds the
+        # read to the same rule. Each defect is paired with the accepted request without it, as for an action.
+        def read(**o):
+            return action(**{"op": "interweave", **o})
+        for label, make, why in [
+                ("unsigned", lambda: read(signer=None), "not signed by"),
+                ("signed by another key", lambda: read(signer=OTHER_KEY), "not signed by"),
+                ("addressed to everyone", lambda: read(to="*"), "must name h1/acct explicitly"),
+                ("a sender that is no operator", lambda: read(**{"from": f"{HOST}/{ACCOUNT}"}), "is not an operator")]:
+            with self.subTest(label):
+                self.refused(make(), why, argv=["interweave"])
+                good = read()
+                out = self.accepted(good, argv=["interweave"])
+                self.assertEqual(json.loads(out)["op"], "interweave")
+                self.assertEqual(self.fake.calls[-1], good, f"the control for {label}")
+        self.refused(read(), "the request is for interweave", argv=["interweave-stop"])
+        self.refused(action(op="ping"), "not an action op or the carrier's own read", argv=["ping"])   # no other read is admitted, signed or not
+
+    def test_the_carriers_own_read_takes_the_action_ttl_cap_and_refuses_a_future_ts(self):
+        # ADR-064 rule 14, owner 2026-11-18: "the same rule" includes the cap (accept() gives any other read 3600 s) and the skew.
+        now = time.time() * 1000
+        for label, make, why in [
+                ("older than the action cap though inside the read cap", lambda: action(op="interweave", ts=iso(now - 700000), ttl_s=3600), "expired"),
+                ("dated beyond the skew", lambda: action(op="interweave", ts=iso(now + 120000)), "in the future")]:
+            with self.subTest(label):
+                self.refused(make(), why, argv=["interweave"])
+        self.accepted(action(op="interweave", ts=iso(now - 500000), ttl_s=3600), argv=["interweave"])   # inside the cap: the control
+
+    def test_the_carriers_own_read_spends_nothing_of_the_action_ledger_and_is_journaled(self):
+        self.accepted(action(op="interweave"), argv=["interweave"])
+        self.assertEqual(self.ledger.floor(OP_ADDRESS), 0, "a read orders nothing: it must not move the floor real actions are held to")
+        self.assertEqual([ln["phase"] for ln in self.lines()], ["before", "after"])
+        self.assertEqual(self.lines()[1]["status"], "ok")
+        self.accepted(action(), argv=["local-prune"])   # an action whose ts is older than the read's is still accepted
+
+    def test_a_reply_with_no_section_for_the_read_is_a_failure_not_a_success(self):
+        with mock.patch.object(agentd, "answer", lambda request, ctx: {"v": 1, "kind": "reply", "id": "r", "in_reply_to": request["id"],
+                                                                      "from": ME["address"], "op": request["op"], "ok": True, "data": {}}):
+            rc, out, err = self.run_op(action(op="interweave"), argv=["interweave"])
+        self.assertEqual(rc, 1, err)
+        self.assertEqual(self.lines()[1]["status"], "failed")
+
     def test_a_signature_openssl_cannot_check_is_a_refusal_not_a_run(self):
         with mock.patch.object(agentd, "verify_request", side_effect=sign.SignError("openssl is not installed")):
             self.refused(action(), r"the signature could not be checked \(openssl is not installed\)")
@@ -371,6 +414,18 @@ class EndToEnd(Scratch):
         rc, out, err = self.hostexec(r)
         self.assertEqual((rc, out), (2, ""))
         self.assertRegex(err, r"^fabric-op: refused: local-prune: not newer than the last action accepted from .*\(a replay\)\n$")
+
+    def test_the_carriers_own_read_runs_through_the_real_entry_point_signed_and_is_refused_unsigned(self):
+        r = self.request(op="interweave")
+        rc, out, err = self.hostexec(r, op="interweave")
+        self.assertEqual((rc, err), (0, ""), out)
+        reply = json.loads(out)
+        self.assertEqual((reply["in_reply_to"], reply["from"], reply["op"]), (r["id"], self.target, "interweave"))
+        self.assertIn("status", reply["data"]["interweave"])
+        self.assertEqual([ln["phase"] for ln in self.target_journal()], ["before", "after"])
+        rc, out, err = self.hostexec(self.request(op="interweave", signer=None), op="interweave")   # the positive control is the run above
+        self.assertEqual((rc, out), (2, ""))
+        self.assertRegex(err, r"^fabric-op: refused: interweave: not signed by .*\n$")
 
     def test_a_defect_through_the_real_entry_point_is_a_refusal_with_exit_2_and_stdin_never_in_argv(self):
         for label, r in (("unsigned", self.request(signer=None)), ("wildcard", self.request(to="*"))):

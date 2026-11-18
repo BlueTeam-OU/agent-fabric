@@ -733,6 +733,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-14 — open ctl session holds agentd's restart (r18).
 - A 2026-11-14 — interweave-mode: the transport mode by signed action (§2).
 - A 2026-11-15 — evidence takes a sixth section, watch: the watch log's starts and ends (§2).
+- A 2026-11-18 — fabric-op admits one read, the signed `interweave` read, ADR-064 rule 14's fallback; action ttl cap (rule 19).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, HOLD_MAX_S, interweave-mode.
@@ -1530,6 +1531,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-15 — drills read the watch log (starts, give-ups); a carrier-outage drill is judged by `parity --carrier-drill`: held, the carrier's one copy after (a relay mirror copy beside it), shown once (rule 11).
 - A 2026-11-16 — journal off: the mode's primary, no mirror; the carrier in a carrier mode, a receive refused (rule 8).
 - A 2026-11-18 — gate 1: the record is the account's mode's, InterWeave in `carrier-record`; its acceptance sets the journal row, the exit status the primary's (§2, rules 7, 11).
+- A 2026-11-18 — InterWeave alone for control: install/start/stop by break-glass; the read over InterWeave, then break-glass after 30 s (rule 14).
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
