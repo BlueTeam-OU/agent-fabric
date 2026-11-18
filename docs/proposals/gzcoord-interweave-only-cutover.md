@@ -1,12 +1,15 @@
 # GZCoord on InterWeave only: the cutover from the dual run
 
-**Status 2026-11-15.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, and D6, D7 and
+**Status 2026-11-18.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, and D6, D7 and
 D8 on 2026-11-15, each as recommended (§7). D3's first half is done: #573 merged on 2026-11-13.
 W1 is done: #573's real-carrier read-back is the 2026-11-15 drill's record. D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
 and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in §4 change when
-each gate's word is given. W3 to W14 and W17 are done (§5): W6, W7 and W8 merged as
-#613, W7's Stop-hook probe is on #612, W11 and W17's code are #623, and W17's records
-were amended 2026-11-16.
+each gate's word is given. W2 to W14, W17 and W18 are done (§5): W6, W7 and W8 merged as
+#613, W7's Stop-hook probe is on #612, W11 and W17's code are #623, W17's records
+were amended 2026-11-16, and W2's parity report, gate 1's last item, was filed 2026-11-18.
+The owner gave gate 1's word on 2026-11-18; ADR-033 and ADR-064 are amended for it. The same day
+the owner shortened D8's soak at both rungs (§7), and #638 merged: `carrier-only` needs no relay
+token or relay section, and the one-command mode override is built (§6).
 
 A plan for the owner's review, drafted for fabric-coordinator. It decides nothing: every step
 that changes what carries a message waits for the owner's word and the record named beside it
@@ -43,7 +46,8 @@ claim about the code names its file and function; a path with no function is the
   prints is still the `units` column: the daemon unit and the client unit are both active. What
   changes what is sent remains the carrier's presence (`tools/fabric/gzcoord/carrier/adapter.py`
   `Adapter.present`, "The switch is the carrier itself"). §6 says what each mode must do.
-- **The relay's record is kept whole, and replay no longer needs it** (#573, #581).
+- **The relay's record is kept whole, once §8 item 1's fix merges, and replay no longer needs it**
+  (#573, #581).
   `tools/fabric/gzcoord/backfill.py` `tick`, run by `agentd.backfill_tick` on a timer, posts to
   the relay a message the carrier alone delivered, once the relay answers. `gzcoord-inbox
   --replay <message-id>` and `--history` read the account's own journal first
@@ -62,7 +66,8 @@ claim about the code names its file and function; a path with no function is the
   still goes first; under `dual` the request also goes through the account's own agentd to each
   other account (`_open_leg`, `control_link.Leg.open`), and a failed relay post is made up by
   that leg. `queue.ask_holder` does the same. `send.py` `main` still stops without the relay
-  token (`if not tok: return 3`). That a send with the relay stopped passes without `--force`
+  token in `relay-record` and `carrier-record` (`if not tok and not carrier_only`); in
+  `carrier-only` it looks for none (#638). That a send with the relay stopped passes without `--force`
   is W12's read-back, not yet run.
 - **`fabric-history` does not read the relay.** `tools/fabric/history.py` reads the account's
   journal through `episodic.open_readonly`, and the docstring of `backfill.py` no longer lists
@@ -87,10 +92,10 @@ carrier's `interweave/inbox.jsonl` (`carrier/arrivals.py` `Spool`), "outbox" is 
 
 | where | uses the relay for | replacement | exists? |
 |---|---|---|---|
-| `tools/fabric/gzcoord/send.py` `main` | the post (`tp.send_primary`), whose outcome is the exit status; the token is required before anything is sent (`if not tok: return 3`) | the carrier's `send` op: accepted when every roster recipient is in the outbox | the op exists (`carrier/engine.py` `Carrier.send`, `adapter.Adapter.post`); as the exit status it does not: `via_mirrors` changes no status |
+| `tools/fabric/gzcoord/send.py` `main` | the post (`tp.send_primary`), whose outcome is the exit status; outside `carrier-only` the token is required before anything is sent (`if not tok and not carrier_only`); in `carrier-only` none is looked for (#638) | the carrier's `send` op: accepted when every roster recipient is in the outbox | the op exists (`carrier/engine.py` `Carrier.send`, `adapter.Adapter.post`); as the exit status it does not: `via_mirrors` changes no status |
 | `send.py` `main`, the `send.sent` line and `record_sent` | the relay's `seq` on stdout (`sent seq <n> <TYPE> <id>`) and in `gzcoord-sent.jsonl` | no sequence: the MESSAGE-ID (UUIDv7) names the message | no: the stdout contract is frozen in the docstring and in `communication/gzcoord/i18n/en-US.json` `send.sent` |
 | `send.py` `main`, the `gzcoord-out-final --seq` call; `tools/fabric/episodic.py` `out_final` | the relay's seq as the journal row's provenance | `--carrier interweave`, no seq | yes (`via_mirrors` already writes it) |
-| `send.py` `check_addressees`, `asked_presence` | presence, over the relay's control channel, with the relay token in the request | the same op over control's second carrier | in code, under `dual` (#586, W12): `presence.ask_presence` also opens a `control_link` leg through the account's own agentd; the relay post still goes first and the send still needs the token. Not read back with the relay stopped |
+| `send.py` `check_addressees`, `asked_presence` | presence, over the relay's control channel, with the relay token in the request | the same op over control's second carrier | in code, under `dual` (#586, W12): `presence.ask_presence` also opens a `control_link` leg through the account's own agentd; the relay post still goes first; outside `carrier-only` the send still needs the token, and in `carrier-only` neither the send nor its presence ask needs one (#638). Not read back with the relay stopped |
 | `tools/fabric/gzcoord/transport/relay.py` `RelayTransport.send`, `refresh`, `never_delivered`, `explain` | `POST /api/send`; a refused token re-read; what a failure proves | the carrier transport's own answers to the same four questions | no: `transport/carrier.py` `CarrierTransport` is a mirror and has none of `Primary`'s verbs (`transport/base.py` says a mirror "need not implement them; moving the record to another transport is the day it must") |
 | `tools/fabric/gzcoord/intake.py` `queue_for_addressee` | `fabric-ctl <login> jobs-add`, a control action over the relay | the same action over control's carrier | partly: it runs `fabric-ctl`, which uses the second carrier under `dual` (`ctl.py` `_second_carrier`); not read back with the relay stopped |
 | `tools/fabric/gzcoord/backfill.py` `tick` and `agentd.backfill_tick` (#573, merged) | reads the relay's newest page and posts carrier-only rows to it | nothing: under InterWeave only it must not run | done (#611, W9): it reads the mode and is a no-op in `carrier-only`, where no relay is made, asked or posted to and nothing is logged; a mode file that cannot be read leaves every row pending |
@@ -105,8 +110,8 @@ carrier's `interweave/inbox.jsonl` (`carrier/arrivals.py` `Spool`), "outbox" is 
 | `transport/mux.py` `TransportMux.fetch_page`, `ack`, `_log_ack`, `on_arrival` | the page, the acknowledgement, and the two evidence logs of the relay's copies (`gzcoord-arrivals.jsonl` relay lines, `gzcoord-acks.jsonl`) | carrier arrival lines only; no acknowledgement log | yes (`carrier/engine.py` `Carrier.finish` writes the arrival line) |
 | `inbox_parts/records.py` `mark_retransmissions`; `inbox.py` `fetch_recent` | the relay's newest 500 records, to mark a retransmission by its earlier seq | the ledger already refuses a second showing | yes |
 | `inbox.py` `main`, `--wait --keyword`; `records.keyword_hit` | every reader sees every message, so a keyword can fire on a message addressed to someone else | nothing: a `TO` reaches its addressee only, and a copy not addressed here is receipted and dropped (`Carrier.finish`) | given up (§3) |
-| `inbox_parts/config.py` `integration_config`, `default_relay` | a project counts as configured only with `relay_url` and `channel` (`projects/<id>/integration/gzcoord/config.json`, 15 files) | "configured" means the account has a valid roster row | no |
-| `inbox_parts/tokens.py` `token`, `_token`, `synced_token` | `CLAUDE_BRIDGE_AUTH_TOKEN`; the inbox and the sender stop without it | no token: the PeerId is the credential | yes (roster) |
+| `inbox_parts/config.py` `integration_config`, `default_relay` | a project counts as configured only with `relay_url` and `channel` (`projects/<id>/integration/gzcoord/config.json`, 15 files) | "configured" means the account has a valid roster row | in `carrier-only` (#638): `config.resolve_integration` answers `carrier_only_config`, which asks no relay section; the other two modes still do (W15) |
+| `inbox_parts/tokens.py` `token`, `_token`, `synced_token` | `CLAUDE_BRIDGE_AUTH_TOKEN`; the inbox and the sender stop without it outside `carrier-only` (#638), and `fabric-ctl`, so a REQUEST's job intake, stops without it under control's `dual` | no token: the PeerId is the credential | yes (roster) |
 | `runtime/claude-code/hooks/watch-on-stop.py` `relay_down`, `relay_answers`, `configured_relay_url`, `decide` | probes the relay before asking a session to re-arm its watch; while the give-up marker stands and the relay is silent it asks for none, so a session stays unwatched through the outage | a probe of the carrier's socket | yes, on #612 (W7's Stop-hook supply): outside `relay-record` the marker is probed at the carrier socket |
 
 ### 2.3 Readers of the relay's record
@@ -177,7 +182,8 @@ The owner's word is asked three times, each on evidence filed in `docs/live-chec
 landing as records only fabric-coordinator writes. Nothing in the grammar changes, so ADR-032 is
 not amended; what the carrier observes of ordering and loss is the evidence its §7 waits for.
 
-**Gate 1: InterWeave becomes the transport of record** (ADR-064 rule 11, as written). Evidence:
+**Gate 1: InterWeave becomes the transport of record** (ADR-064 rule 11 as it read before
+2026-11-18). Given by the owner on 2026-11-18. Evidence:
 
 1. #573 merged (done, 2026-11-13), and its missing read-back done: a message through the real
    carrier to a second account, shown once, then found on the relay after its return. Filed:
@@ -200,7 +206,9 @@ not amended; what the carrier observes of ordering and loss is the evidence its 
 4. A fresh parity report over a window after 2026-11-09 in which every InterWeave miss has a
    cause other than "the sender recorded no InterWeave delivery", or that cause is itself
    traced; and the duplicate copies explained. Under InterWeave only a miss is a lost message.
-5. A `TO-ROLE` recipient: held (100 pairs in the last report).
+   Filed 2026-11-18: 562 pairs from 2026-11-15T10:00Z to 2026-11-18T00:00Z, InterWeave missed
+   none, no duplicate copy (`docs/live-checks/2026-11-18-interweave-parity.md`).
+5. A `TO-ROLE` recipient: held (100 pairs in the 2026-11-09 report, 7 in the 2026-11-18 one).
 
 Records: an amendment of ADR-033 (§2 third bullet, §8: the relay is the mirror) and of ADR-064
 (rule 11: the record moves account by account under a mode; rule 7: which carrier's acceptance
@@ -214,7 +222,10 @@ agreed soak (D8) with no stranded delivery; a carrier-outage drill (one account'
 for 30 minutes: senders' outboxes hold, everything arrives once on its return, shown once, judged by `gzcoord-carrier parity --carrier-drill` (#620)); two
 accounts in `carrier-only` through a relay stop of a working hour with every GZCoord function
 exercised (send, watch, replay, `fabric-pr arm --authorization`, `fabric-jobs add --request`,
-a REQUEST's job intake); and W12's read-back if the owner takes D1's recommendation. Records:
+a REQUEST's job intake); and W12's read-back if the owner takes D1's recommendation. Since #638
+(merged 2026-11-18) a `carrier-only` send, its presence ask and the inbox need neither a relay
+token nor a relay section; the job intake still does, since it runs `fabric-ctl <login> jobs-add`
+and `ctl.py` asks the token under control's `dual`. Records:
 ADR-033 amended again (the relay carries control only; rule 7's trigger; rule 5's "the hosting
 session's start brings it up"), ADR-064 (rules 8, 11 and 14, whose "the relay carries for it
 alone" goes; the dual run ends), ADR-041 rule 7 (its relay-row half goes), ADR-030 rule 3's wording, and ADR-069 §1
@@ -229,7 +240,8 @@ step; ADR-069 loses the relay rows. This plan sizes it only as far as §5's W16.
 
 **#573's place.** It is needed for the window and moot after it. While the relay is the record
 (today) and while it is the mirror (`carrier-record`), the backfill keeps the relay complete, so
-a relay-only reader misses nothing and a step back loses nothing. W3 has landed, so no reader
+a relay-only reader misses nothing and a step back loses nothing: once §8 item 1's fix merges,
+since until then a send already on the sent ledger is never backfilled. W3 has landed, so no reader
 that holds the MESSAGE-ID needs the relay's copy, and the backfill's only remaining use is the
 rollback target. In `carrier-only` it must be off, since it is a writer to the relay; since
 W9 (#611) it reads the mode and is a no-op there. Both have merged.
@@ -248,7 +260,7 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | id | piece | surface | accepted when | size | needs |
 |---|---|---|---|---|---|
 | W1 | Land #573; do its real-carrier read-back; file the 2026-11-12 drill | PD (python-dev-03); FC for the record | the PR's suite; the read-back's three facts (shown once, on the relay after return, a `gzcoord-backfill.jsonl` line) in a live check | **Done.** #573 merged (2026-11-13); the drill's record filed (#612); the read-back filed from the 2026-11-15 drill (j879) | - |
-| W2 | The two drills (filed: gate 1 items 2 and 3) and the fresh parity report (item 4, left); trace the misses and duplicates | FC runs and files; PD reads `carrier/engine.py` `send_due` and `Adapter.post` for the causes | the report's "what it lacks" section is empty; each miss has a cause a reviewer can find in the computed file | S, mostly operations | W1 |
+| W2 | **Done, 2026-11-18.** The two drills (filed: gate 1 items 2 and 3) and the fresh parity report (item 4, `docs/live-checks/2026-11-18-interweave-parity.md`); trace the misses and duplicates | FC runs and files; PD reads `carrier/engine.py` `send_due` and `Adapter.post` for the causes | the report's "what it lacks" section is empty; each miss has a cause a reviewer can find in the computed file | S, mostly operations | W1 |
 | W3 | **Done, #581.** Journal-first `--replay` and `--history`: a MESSAGE-ID is answered from the journal in every mode; `--json` gains `carrier` and `sender_verified`; a relay seq is still answered from the relay while one is configured | PD (`inbox.py` `main`, `inbox_parts/records.py`; reads through `episodic.open_readonly`, so no supply-tier file changes) | a test with the relay refusing every connection: a row journaled by the carrier alone replays with exit 0, one not addressed exits 2; `jobsparts/records.py` `fetch_message` adds the job | M | - |
 | W4 | **Done, on this PR, #604.** `verify_grant`: a journal row a carrier other than the relay brought counts only with `sender_verified` true and that sender equal to `FROM`; a relay-brought row is judged as the relay's record always was, until the relay stops carrying GZCoord at gate 2 | DX (`tools/fabric/github/arm.py`); FC for ADR-041 rule 7 (amended 2026-11-14) | `tests/test_arm_cli.py`: a grant the carrier alone delivered arms with the relay down; an unverified sender on such a row is refused | S | W3, D4 |
 | W5 | **Done, #584** (the mode is read, set and shown; the transports that honour it are W6 to W8). The transport mode: `relay-record` (today), `carrier-record`, `carrier-only`; read by `open_transport`; set by a signed action and shown by the `interweave` read and `_table_carrier` (§6) | PD (`gzcoord/transport/`, `control/`); FC supplies ADR-029's op row (done on #604) | default unchanged with no state file; `fabric-ctl all interweave` prints each account's mode; a running watch takes a changed mode within a minute; `carrier-only` is refused while any placed account reports `relay-record` | M | D2, D10 |
@@ -263,12 +275,11 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W12 | **Done, #586** (the relay-stopped read-back is gate 2's). Presence and the other public ops off the relay's outage: control's dual run switched on (`runtime/control/config.json`), and `presence.ask_presence` and `queue.ask_holder` handed to the account's own agentd socket | PD (`control/presence.py`, `control/queue.py`, `control_link.Server`); FC for the switch and ADR-029 | with the relay stopped, an addressed send from one staged account to another is checked and sent without `--force` | M to L | D1 |
 | W13 | **Done, #609** (in `carrier-only`, `status.inbox_state` and the status op's `_inbox` read `gzcoord/carrier/position.py`; `drift.inbox` and the `interweave` read are unchanged; the live read-back with the relay stopped is not run). Read position and health without the relay's cursor: `drift.inbox`, `status.inbox_state` and the `interweave` read show the spool's unseen count and the outbox's oldest outstanding and blocked deliveries | PD | `fabric-status` on a `carrier-only` account prints them with the relay stopped; a lagging relay cursor is no longer reported for it | M | W5 |
 | W14 | **Done, #587** (`store_step.py` no longer calls `relay_catchup.py`; the live read-back is not run: python-dev-03's j158 on the scratch login fabric-probe, waiting on the owner's root run of its relay cut). A new login without the relay: the roster row, the install and the start become provisioning steps, and `relay_catchup.py` leaves them. `Bootstrap.journal_import` stays until W15: it is best effort and never fails a bootstrap, so a dead relay costs one `!` line (decided 2026-11-17, j849) | PD (`provisioning/store_step.py`, `new_agent.py`); PD-supply (`bootstrap.py`, `relay_catchup.py`); FC countersigns rows | a scratch login provisioned on a host with the relay stopped sends and receives | M | - |
-| W15 | Removal, after gate 2: `RelayTransport` out of the send and inbox paths, `integration_config` no longer asks for a relay, the backfill, the acknowledgement log and the relay half of `parity.py` deleted, a one-carrier health report in its place, the state copy takes the outbox, `Bootstrap.journal_import` and `episodic_import.py` deleted with an amendment of ADR-041 rule 9 (the import that reads the relay), `transport-calls.json` loses `drift.py`, and `verify_grant`'s relay-row branch (`RELAY_CARRIER`) goes | PD, PD-supply (`relay.py`, `episodic_import.py`, `bootstrap.py`), DX (`tools/fabric/github/arm.py`), FC (the 15 integration files, the skills, the manuals, `transport-calls.json`) | `grep` finds no `/api/` call under `tools/fabric/gzcoord/`; `tests/test_arm_cli.py` refuses a grant row whose carrier is the relay; `tools/fabric/transport_calls.py` is clean with the shorter policy; the suite is green with no relay fixture in the GZCoord tests | L | gate 2 |
+| W15 | Removal, after gate 2: `RelayTransport` out of the send and inbox paths, `integration_config` no longer asks for a relay in any mode (#638 did it for `carrier-only`), the backfill, the acknowledgement log and the relay half of `parity.py` deleted, a one-carrier health report in its place, the state copy takes the outbox, `Bootstrap.journal_import` and `episodic_import.py` deleted with an amendment of ADR-041 rule 9 (the import that reads the relay), `transport-calls.json` loses `drift.py`, and `verify_grant`'s relay-row branch (`RELAY_CARRIER`) goes | PD, PD-supply (`relay.py`, `episodic_import.py`, `bootstrap.py`), DX (`tools/fabric/github/arm.py`), FC (the 15 integration files, the skills, the manuals, `transport-calls.json`) | `grep` finds no `/api/` call under `tools/fabric/gzcoord/`; `tests/test_arm_cli.py` refuses a grant row whose carrier is the relay; `tools/fabric/transport_calls.py` is clean with the shorter policy; the suite is green with no relay fixture in the GZCoord tests | L | gate 2 |
 | W16 | The relay retired (gate 3): control on InterWeave alone, the state stream replaced, the relay unit, its token, its backup timer and `secret_relay.py` removed | PD, FC | sized when gate 3 is asked for | L | gate 3 |
 
-W3 to W14 and W17 are done. What is left, and in this order: W2 (the fresh parity
-report, gate 1 item 4; W1 is done, and both drills are filed as gate 1 items 2 and 3); then the gates. W15 and W16
-follow gate 2 and gate 3. The staged switches of §6 are operations, not code:
+W1 to W14, W17 and W18 are done; gate 1's evidence is filed (items 1 to 4). What is left is the
+`send.py` fix of §8 item 1, then the gates. W15 and W16 follow gate 2 and gate 3. The staged switches of §6 are operations, not code:
 fabric-coordinator's, on the owner's word.
 
 ## 6. The switch, staged, and its way back
@@ -282,8 +293,11 @@ control action as `interweave-start` and `interweave-stop` are today, read back 
 `interweave` op, with an environment override for one command that says so on stderr every
 time. The default with no state file is a constant (`mode.DEFAULT`, read through
 `open_transport`), which W15 changes last. W5 built the state file, the signed action
-`interweave-mode` and the read; it built no environment override (a grep of `tools/fabric` finds
-none), so the one-command override is still to build.
+`interweave-mode` and the read. #638 (merged 2026-11-18) built the override:
+`GZCOORD_TRANSPORT_MODE` (`transport/mode.py`, `effective`) names the mode for one command, says
+so on stderr, wins over the state file (a damaged one too), and is refused when it names no mode
+(exit 2 for a send, 7 for the inbox). Send, inbox, replay, the watch and the presence child honour
+it; the signed action, the fleet's reads and the backfill still report the account's file.
 
 **The order is forced by one fact:** a sender in `relay-record` whose carrier is down posts to
 the relay alone and exits 0 (`Adapter.post` answers `absent` or `failed`, and `send.py`
@@ -292,7 +306,8 @@ the relay alone and exits 0 (`Adapter.post` answers `absent` or `failed`, and `s
 1. Gate 1. Two accounts to `carrier-record`; recommended python-dev-02 and python-dev-03, the
    pair of ADR-064 rule 13. Any sender still reaches them by either carrier.
 2. Every account to `carrier-record`, the coordinator's last. From here no send succeeds
-   without the carrier, and the relay stays complete through the mirror and the backfill.
+   without the carrier, and the relay stays complete through the mirror and the backfill (once §8
+   item 1's fix merges; no account moves before it).
 3. Gate 2. Two accounts to `carrier-only`, then every account, then the default.
 
 **The way back** is the same action with the earlier mode, one account or all. It takes effect
@@ -300,7 +315,8 @@ at the next send; a running watch builds its transport once (`inbox.py` `main`),
 `mode.Watcher` ends the arm within `MODE_POLL_S` (5 s) of a changed mode. What keeps it safe:
 
 - In `carrier-record` the relay has every message (mirror plus backfill), so a step back to
-  `relay-record` loses nothing.
+  `relay-record` loses nothing. This holds once the `send.py` fix of §8 item 1 merges: until
+  then a send whose relay mirror failed is never backfilled.
 - The ledger is not rotated while any account can still read the relay
   (`communication/gzcoord/docs/CARRIER-CONTRACT.md` §6). An account that returns from
   `carrier-only` meets its old relay backlog; `dedup.admit` marks what was shown as `quiet`
@@ -309,14 +325,16 @@ at the next send; a running watch builds its transport once (`inbox.py` `main`),
   a hole for that period, and by then no reader uses it (W3). The hole is partly refilled, late:
   in `carrier-only` the backfill leaves the journal's rows as they are and logs nothing (W9), so
   back in `carrier-record` every outbound row the carrier alone took in that period is a
-  candidate again. A row younger than `backfill.MAX_AGE_S` (12 h) is posted to the relay hours
+  candidate again, once §8 item 1's fix merges (until then the sent ledger already holds each such
+  row and the backfill logs it `present` unposted). A row younger than `backfill.MAX_AGE_S` (12 h) is posted to the relay hours
   after its thread, and an older one is logged `over-age` and not posted. Nothing is shown twice
   (`dedup.admit`: each addressee's ledger already holds the message), but a relay reader sees those rows as
   arriving at the step back.
 - If the control plane cannot reach an account, the same signed request goes through
   `fabric-ctl <login> … --via hostexec` to `bin/fabric-op`, for a step back to `carrier-record`
   or `relay-record` only: `fabric-ctl` refuses `carrier-only` over `--via`, because the fleet's
-  modes it checks first are read over the relay. The one-command override is not built yet.
+  modes it checks first are read over the relay. The one-command override (`GZCOORD_TRANSPORT_MODE`,
+  #638) moves one command, not the account: it is a probe, not a way back.
 - The relay, its token and its 6-hourly copy stay as they are until gate 3.
 
 Step back at once on: a delivery outstanding past an agreed age in any outbox, a `blocked` code
@@ -331,7 +349,7 @@ other than `NotInRoster`, a roster that fails to verify on any account, or an ac
   single point of failure for sending one.
 - **D2. The intermediate rung.** Recommended: keep `carrier-record` as a stage of its own. It
   is the switch ADR-064 rule 11 describes, it is reversible without loss, and it is what makes
-  `carrier-only` safe (§6).
+  `carrier-only` safe (§6). (2026-11-18: lossless once §8 item 1's fix merges, #650's review.)
 - **D3. #573.** Recommended: merge it now, keep it through `carrier-record`, switch it off at
   `carrier-only` (W9). The owner's choice of 2026-11-12, backfill rather than readers of the
   InterWeave copy, holds for the window; under InterWeave only the readers must read the
@@ -351,9 +369,12 @@ other than `NotInRoster`, a roster that fails to verify on any account, or an ac
 - **D7. Journal-off.** Accepted, owner 2026-11-15 (W17). Recommended: a `GZCOORD_JOURNAL=off` send goes through the carrier with
   its bypass line, since the outbox keeps the text; there is no journal-off receiving, and the
   human relay is the break-glass for an account whose journal cannot be written.
-- **D8. The soak and the first accounts.** Accepted, owner 2026-11-15 (gates 1 and 2). Recommended: three working days on two accounts and
-  seven days on the fleet at each rung, python-dev-02 and python-dev-03 first, the
-  coordinator's account last.
+- **D8. The soak and the first accounts.** Accepted, owner 2026-11-15 (gates 1 and 2), as
+  recommended: three working days on two accounts and seven days on the fleet at each rung,
+  python-dev-02 and python-dev-03 first, the coordinator's account last. **Shortened by the
+  owner on 2026-11-18, at both rungs** (`carrier-record` and `carrier-only`): two hours on
+  python-dev-02 and python-dev-03, then every account for one day, the coordinator's account
+  last. The order and the first two accounts are unchanged.
 - **D9. The second host.** Recommended: W10 before gate 2, and the two-host check before any
   agent moves (ADR-064 rule 1, ADR-069 rule 2). One question in it is architect-cto's, not the
   owner's: fabric-h2 cannot open a connection to develop-qzapp
@@ -385,11 +406,19 @@ recommended:
 
 ## 8. What happens first
 
-W1, W3 to W14 and W17 are done: #573 is merged, the 2026-11-12 drills are filed, and its
-real-carrier read-back is the 2026-11-15 drill's record. What is left, in this order:
+W1 to W14, W17 and W18 are done: #573 is merged and its real-carrier read-back is the 2026-11-15
+drill's record, both drills are filed, and so is the 2026-11-18 parity report. What is left,
+in this order (gate 1's word was given on 2026-11-18, on items 1 to 4 of §4):
 
-1. **W2**: a parity report with no untraced miss (gate 1 item 4). The rollback drill
-   (2026-11-12) and the relay-outage drill (2026-11-15) are filed as items 2 and 3. With W1
-   this is everything gate 1 asks for.
+1. **The `send.py` fix** #650's review found: in every mode `send.py` puts a send on the sent ledger once its
+   primary took it, whether or not the relay did (`record_sent` after `send_primary`), and the
+   backfill logs a ledger row `present` without posting it. So a `carrier-record` send whose relay
+   mirror failed, a `carrier-only` send, and a send under `GZCOORD_TRANSPORT_MODE=carrier-only`
+   each leave a hole in the relay's record, and the way back in §6 is not lossless
+   (REQUEST 01a1ed4e-82ec to python-dev). Gate 1's mode switch waits on it.
 2. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
-   gate 3.
+   gate 3. D8's soak follows gate 1's word, not before it: the word moves python-dev-02 and
+   python-dev-03 to `carrier-record` (§6 step 1) and they soak two hours; then every account
+   moves, the coordinator's last, and the fleet soaks one day, which is gate 2's first item.
+   Gate 2's word repeats both at `carrier-only`: two hours on the pair, then one day on every
+   account, the coordinator's last (D8 as the owner shortened it on 2026-11-18).

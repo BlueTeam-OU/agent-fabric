@@ -457,3 +457,36 @@ amendment brings the record to it, as #624's review found it behind.
 
 Accepted by the owner, 2026-11-15 (D7, in the coordinator's session).
 ADR-041 rule 10 is amended the same day for the receive.
+
+### Amendment 2026-11-18 — The data plane's first gate: the record is the account's mode's
+
+What changed: §2's dual-run bullet and rule 11 said the relay stays the
+transport of record until the owner's word. The word is given, and the
+record is now the account's mode's (§7): the relay in `relay-record`,
+InterWeave in `carrier-record`, where the relay is the mirror both
+ways. Every message still goes by both carriers; the dual run ends at
+gate 2. Rule 11 keeps the parity report and the drills as the evidence
+a later word is given on. Rule 7 says which carrier sets the journal
+row: the mode's primary posts first, so in `carrier-record` the
+carrier's acceptance sets it; the row is still accepted when either
+carrier accepts, and in `carrier-record` the send's exit status is the
+carrier's answer alone, a relay mirror's copy said and never counted
+(`send.py` `carrier_not_accepted`, #613). In `relay-record` nothing
+changes: a carrier mirror's copy is said only for a `TO` to one login.
+
+Why: gate 1 of the cutover plan
+(`docs/proposals/gzcoord-interweave-only-cutover.md` §4), whose evidence
+is filed: #573's real-carrier read-back, the rollback drill
+(`docs/live-checks/2026-11-12-interweave-drills.md`), the relay-outage
+drill (`docs/live-checks/2026-11-15-relay-outage-drill.md`) and the
+parity report of 562 pairs with no InterWeave miss and no duplicate
+copy (`docs/live-checks/2026-11-18-interweave-parity.md`). The first
+accounts to move are python-dev-02 and python-dev-03 (§7, D8), by the
+signed `interweave-mode` action, after this amendment merges and after
+the fix of a `send.py` defect #650's review found: a send is put on the
+sent ledger once its primary took it, whether or not the relay did (a
+`carrier-record` send whose mirror failed, a `carrier-only` send, a send under
+`GZCOORD_TRANSPORT_MODE=carrier-only`), and is then never backfilled (REQUEST 01a1ed4e-82ec to python-dev).
+
+Accepted by the owner, 2026-11-18, in the coordinator's session (gate
+1's word). ADR-033 is amended the same day.
