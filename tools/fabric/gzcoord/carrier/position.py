@@ -31,6 +31,8 @@ from . import server
 # One day, as drift.LAG_S (a test holds them equal): what "behind" means must not differ with the transport that is read.
 LAG_S = 86400
 TIMEOUT_S = 5.0
+# fabric-status asks once, in every session start: a hung carrier must not cost it the full read bound.
+JOURNAL_TIMEOUT_S = 2.0
 # A delivery still outstanding after this long is "stranded" for the soak of gate 2 (cutover plan D8): the outbox retries from 1 s
 # doubling to 5 min, so ten minutes is two attempts at the ceiling past a receipt that should take seconds.
 STRANDED_AFTER_S = 600
@@ -87,6 +89,31 @@ def section(call: Callable[..., dict] = server.call, runtime_dir: str | None = N
             "outstanding": len(pending), "oldest_outstanding_at": out_at, "oldest_outstanding_s": out_s,
             "blocked": blocked,
             "awaiting_receipt": sum(1 for d in pending if isinstance(d, dict) and d.get("posted"))}
+
+
+def journal_refusals(call: Callable[..., dict] = server.call, runtime_dir: str | None = None) -> dict:
+    """What the carrier's status op says of arrivals its journal refused since it started (engine.Counters.not_journaled), for
+    fabric-status: {"status": "none"} where no carrier socket exists (nothing to say, never printed); {"status": "unknown",
+    "reason"} where one exists and cannot be read; else {"status": "ok", "not_journaled": n, "last": {mid, at, error} | None},
+    `last` None when the count is nonzero and the running carrier does not report it (one older than the field). A carrier
+    that was restarted counts from zero: the number is "since it started", and says so where it is printed."""
+    rd = os.environ.get("XDG_RUNTIME_DIR") if runtime_dir is None else runtime_dir
+    if not rd or not os.path.isabs(rd):
+        return {"status": "none"}
+    sock = server.socket_path(rd)
+    if not os.path.exists(sock):
+        return {"status": "none"}
+    try:
+        status = call(sock, {"op": "status"}, timeout=JOURNAL_TIMEOUT_S)
+    except OSError as e:
+        return {"status": "unknown", "reason": f"the InterWeave carrier did not answer ({e.__class__.__name__}: {e})"}
+    counters = status.get("counters") if isinstance(status, dict) and status.get("ok") else None
+    n = counters.get("not_journaled") if isinstance(counters, dict) else None
+    if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+        return {"status": "unknown", "reason": "the InterWeave carrier's status has no not_journaled count"}
+    last = status.get("not_journaled_last")
+    ok = isinstance(last, dict) and all(isinstance(last.get(k), str) for k in ("mid", "at", "error"))
+    return {"status": "ok", "not_journaled": n, "last": {k: last[k] for k in ("mid", "at", "error")} if ok else None}
 
 
 def for_mode(mode_state_dir: str | None = None, **opts: Any) -> dict | None:

@@ -390,6 +390,13 @@ def main() -> int:
             time.sleep(0.6)       # a receipt sent in error would be on the wire by now
             check("a journal that cannot keep the message earns no receipt: none is sent, the delivery stays outstanding",
                   receipts_for(b, "M-6") == 0 and not gone(a, "M-6", "beta"), str(receipts_for(b, "M-6")))
+            st = b.carrier.handle_request({"op": "status"})
+            last = st.get("not_journaled_last") or {}
+            check("the status op names the refusal: the count, and the last arrival's MESSAGE-ID, time and error (fabric-status prints it)",
+                  st["counters"]["not_journaled"] >= 1 and last.get("mid") == "M-6" and "journal" in last.get("error", "")
+                  and set(last) == {"mid", "at", "error"} and last["at"].endswith("Z"), str(st))
+            check("  positive control: the carrier that refused nothing says null, not an empty object",
+                  a.carrier.handle_request({"op": "status"})["not_journaled_last"] is None)
             b.journal_fail[0] = False
             clock.t += 400
             check("after the journal recovers the retry is journaled and receipted",
