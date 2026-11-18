@@ -219,6 +219,9 @@ STARTUP_STATUS_POLLS = 45
 CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_LEASE_WAIT_S + LEASE_GRACE_S + RENDER_TIMEOUT_S + SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
                           + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20)
 CARRIER_STOP_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20
+# A restart of the client unit alone (an upgrade moved the engine it runs): the unit states, the restart, the check with the start's patience
+# (the restarted carrier verifies the roster before it opens its socket, as a started one does), and the lock's open.
+CARRIER_RESTART_BUDGET_S = (3 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 20)
 # The read: the installed programs' versions, the units' states, and one look of the check (which asks the states and the
 # daemon's version again).
 CARRIER_READ_BUDGET_S = (2 * VERSION_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
@@ -1405,6 +1408,48 @@ def carrier_stop(request: Any, root: str | None = None, home: str | None = None,
         if left or still:
             return {"status": "failed", "units": states, "reason": f"the units are not both stopped ({left or still})"}
         return {"status": "stopped", "units": states}
+    finally:
+        os.close(fd)
+
+
+def restart_client(root: str, home: str, state: str, run: Callable[..., Any] = subprocess.run,
+                   sleep: Callable[[float], None] = time.sleep) -> dict:
+    """Restart the client unit, the only process that runs the checkout's carrier engine (`gzcoord-carrier run`), and read it back with the
+    check a start ends with: the unit active twice, the carrier answering `status`. A fabric upgrade moves the engine under a carrier that
+    keeps the code it started with, so a changed engine is stale until this runs. The daemon is the pinned release's program, not the
+    checkout's, and is left alone. {"status": "restarted" | "not-running" | "failed", "reason"?, "units"?}: "not-running" is a manager that
+    answers and a client that is not active (nothing to bring up: starting is the dual run's switch, ADR-064 rule 11), and a manager that
+    does not answer in time is a failure, never "not-running"."""
+    try:
+        profile = roster_profile(root)
+    except InstallError as e:
+        return {"status": "failed", "reason": str(e)}
+    fd, busy = _lock(state)
+    if fd is None:
+        return {"status": "failed", "reason": f"{(busy or {}).get('reason') or LOCK_BUSY}; the carrier was not restarted"}
+    try:
+        _, client = unit_names(profile)
+        try:
+            states, running = running_units(profile, run, home)
+        except ChannelUnknown as e:
+            return {"status": "failed", "reason": f"{e}; the carrier was not restarted"}
+        if states[client] is None:
+            # show_property answers None for a manager that errors as well as for one that is absent: whether the client runs is not known.
+            return {"status": "failed", "reason": f"whether {client} runs is not known (the user manager gave no state); the carrier was not restarted", "units": states}
+        if client not in running:
+            return {"status": "not-running", "units": states}
+        try:
+            # The unit runs this copy, not runtime/<carrier>/client of the checkout; a changed source is stale until it is replaced.
+            install_client.install(home, client_source(root))
+        except OSError as e:
+            return {"status": "failed", "reason": f"the client unit's program could not be installed ({_oneline(e)}); the carrier was not restarted", "units": states}
+        problem = restart_units([client], run, home)
+        if problem:
+            return {"status": "failed", "reason": problem, "units": states}
+        c = channel_check(profile, [client], {}, root, run, home, sleep, pinned=False, status_polls=STARTUP_STATUS_POLLS)
+        if c["status"] != "passed":
+            return {"status": "failed", "reason": f"restarted, but the check failed: {_channel_text(c)}", "units": c["units"]}
+        return {"status": "restarted", "units": c["units"]}
     finally:
         os.close(fd)
 

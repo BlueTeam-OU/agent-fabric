@@ -126,7 +126,7 @@ from control import harness_restart, state_read, state_record, units
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
 from control.clone import CLONE_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
-from control.carrier_install import (CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDGET_S, CARRIER_START_BUDGET_S, CARRIER_STOP_BUDGET_S,
+from control.carrier_install import (CARRIER_INSTALL_BUDGET_S, CARRIER_RESTART_BUDGET_S, CARRIER_READ_BUDGET_S, CARRIER_START_BUDGET_S, CARRIER_STOP_BUDGET_S,
                                      INSTALL_OP, START_OP, STOP_OP)
 from control.carrier_evidence import EVIDENCE_BUDGET_S, EVIDENCE_OP, ISO_RE as EVIDENCE_TIME, ALL_SECTIONS as EVIDENCE_SECTIONS
 from control import evidence_collect
@@ -675,7 +675,7 @@ def parse_args(argv: list[str]) -> dict:
     op = out["op"]
     if out["timeout"] is None:
         out["timeout"] = (units.STEP_TIMEOUT_S if op in units.UNIT_OPS or op == units.RESTART_OP else 5 if op == "ping" else 120 if op == "memory" else 60 if op == "tokens" else 300 if op == "accounts"
-                          else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
+                          else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S + CARRIER_RESTART_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
                           else 240 if op == "secrets-sync" else CLONE_BUDGET_S if op == "clone" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
                           else CARRIER_INSTALL_BUDGET_S if op == INSTALL_OP

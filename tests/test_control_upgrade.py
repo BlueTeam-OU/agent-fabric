@@ -430,6 +430,9 @@ class FabricFx:
         git(self.base, "init", "-q", "--bare", "-b", "main", origin)
         git(self.base, "init", "-q", "-b", "main", self.seed)
         os.makedirs(os.path.join(self.seed, "runtime", "claude-code"))
+        os.makedirs(os.path.join(self.seed, "runtime", "interweave"))
+        with open(os.path.join(self.seed, "runtime", "interweave", "client"), "w") as fh:
+            fh.write("#!/bin/sh\n# the client unit's program\n")
         unit = 'echo "  *  agent-fabric-agentd: unit changed; restart left to the caller"\n' if unit_changed else ""
         body = (unit + 'echo "  *  settings"\necho "bootstrap: the agent files could not be written" >&2\nexit 1\n' if bootstrap_fails else
                 f"printf 'defer=%s provider=%s\\n' \"${{AGENT_FABRIC_DEFER_AGENTD_RESTART:-}}\" \"${{AGENT_FABRIC_LAUNCH_PROVIDER:-}}\" >> \"{self.record}\"\n" + unit)
@@ -442,9 +445,11 @@ class FabricFx:
         git(self.base, "clone", "-q", origin, self.root)
         self.env = {"PATH": os.environ["PATH"], "HOME": self.base, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
 
-    def advance(self, msg: str) -> str:
-        with open(os.path.join(self.seed, f"{msg}.txt"), "w") as fh:
-            fh.write(msg)
+    def advance(self, msg: str, files: dict[str, str] | None = None) -> str:
+        for rel, text in (files or {f"{msg}.txt": msg}).items():
+            os.makedirs(os.path.dirname(os.path.join(self.seed, rel)), exist_ok=True)
+            with open(os.path.join(self.seed, rel), "w") as fh:
+                fh.write(text)
         git(self.seed, "add", "-A")
         git(self.seed, "commit", "-q", "-m", msg)
         git(self.seed, "push", "-q", "origin", "main")
@@ -460,7 +465,7 @@ class FabricFx:
         return git(self.root, "rev-parse", "HEAD")
 
     def opts(self, **over):
-        return {"root": self.root, "sessions": [], "env": self.env, "directory": os.path.join(self.base, "state"), **over}
+        return {"root": self.root, "home": self.base, "sessions": [], "env": self.env, "directory": os.path.join(self.base, "state"), **over}
 
 
 def freq(commit: str) -> dict:
@@ -640,6 +645,139 @@ class UpgradeFabric(unittest.TestCase):
         r = U.upgrade_fabric(freq(f.head()), **f.opts())
         self.assertEqual((r["status"], r["restart_daemon"]), ("failed", True))
         self.assertNotIn("note", r)
+
+
+ENGINE = {"tools/fabric/gzcoord/carrier/engine.py": "x = 1\n", "runtime/interweave/roster.json": '{"profile": "fleet"}'}
+CLIENT = "interweave-client@fleet.service"
+
+
+class CarrierRestart(unittest.TestCase):
+    """An upgrade whose range touches the code a running carrier loaded restarts its client unit and reads it back (j163)."""
+
+    def fx(self, state: str = "active", restart_rc: int = 0, status_rc: int = 0, manager: str = "answers"):
+        f = FabricFx(self)
+        calls: list[list[str]] = []
+        self.at_restart = at_restart = []   # the installed client program as it was when the restart arrived
+
+        def run(cmd, **kw):
+            if cmd[0] in ("git", "bash"):
+                return U.default_run(cmd, **kw)
+            calls.append(cmd)
+            if cmd[0] == "systemctl" and cmd[2] == "show":
+                if manager == "hangs":
+                    raise subprocess.TimeoutExpired(cmd, 10)
+                if manager == "errors":
+                    return subprocess.CompletedProcess(cmd, 1, "", "Failed to connect to bus")
+                return subprocess.CompletedProcess(cmd, 0, f"{state if cmd[-1] == CLIENT else 'inactive'}\n", "")
+            if cmd[0] == "systemctl" and cmd[2] == "restart":
+                try:
+                    with open(os.path.join(f.base, ".local", "libexec", "interweave", "client")) as fh:
+                        at_restart.append(fh.read())
+                except OSError:
+                    at_restart.append(None)
+                return subprocess.CompletedProcess(cmd, restart_rc, "", "")
+            if cmd[-1] == "status":
+                return subprocess.CompletedProcess(cmd, status_rc, "{}", "")
+            return done()
+        return f, calls, run
+
+    def go(self, f, run, target):
+        return U.upgrade_fabric(freq(target), **f.opts(run=run, sleep=lambda _s: None))
+
+    def test_carrier_code_paths_exist(self):
+        for rel in U.CARRIER_CODE:
+            self.assertTrue(os.path.exists(os.path.join(HERE, rel)), f"{rel} is named as the carrier's code and is not in the checkout")
+
+    def test_carrier_code_covers_what_the_engine_loads(self):
+        # The import trace is the oracle for the list: the engine and what its commands import lazily, loaded in a clean interpreter.
+        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "tests", "fixtures", "carrier_import_trace.py"), HERE], capture_output=True, text=True,
+                           timeout=60, env={"PATH": os.environ["PATH"]}, cwd="/")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        loaded = json.loads(r.stdout)
+        self.assertIn("tools/fabric/gzcoord/carrier/engine.py", loaded, "the control: the trace saw the engine")
+        outside = [m for m in loaded if not m.startswith(U.CARRIER_CODE)]
+        self.assertEqual(outside, [], "the carrier loads these and an upgrade that changes only them would not restart it")
+
+    def test_a_range_touching_a_module_the_engine_imports_from_outside_gzcoord_restarts_it(self):
+        for rel in ("tools/fabric/episodic.py", "runtime/identity.py", "tools/fabric/signing/sign.py", "tools/fabric/secretstore/core.py", "tools/fabric/launch_locale.py"):
+            f, calls, run = self.fx()
+            r = self.go(f, run, f.advance("two", {"runtime/interweave/roster.json": ENGINE["runtime/interweave/roster.json"], rel: "x"}))
+            self.assertEqual(r["carrier"][:9], "restarted", rel)
+
+    def test_a_changed_client_program_is_installed_before_the_restart(self):
+        f, calls, run = self.fx()
+        r = self.go(f, run, f.advance("two", {**ENGINE, "runtime/interweave/client": "#!/bin/sh\n"}))
+        self.assertEqual(r["carrier"][:9], "restarted")
+        self.assertEqual(self.at_restart, ["#!/bin/sh\n"], "the unit restarts onto the new program, not before it is in place")
+
+    def test_a_manager_that_gives_no_state_is_not_not_running(self):
+        f, calls, run = self.fx(manager="errors")
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual(r["status"], "failed")
+        self.assertRegex(r["reason"], r"carrier: failed \(whether .* runs is not known")
+
+    def test_a_range_that_touches_the_engine_restarts_the_client_unit_alone_and_reads_it_back_with_status(self):
+        f, calls, run = self.fx()
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual((r["status"], r["carrier"][:9]), ("upgraded", "restarted"))
+        self.assertEqual([c[2:] for c in calls if c[0] == "systemctl" and c[2] == "restart"], [["restart", CLIENT]], "the client only: the daemon is the release's")
+        kinds = [c[2] if c[0] == "systemctl" else "status" for c in calls]
+        self.assertGreater(kinds.index("status"), kinds.index("restart"), "the read-back is after the restart")
+
+    def test_a_range_that_leaves_the_carriers_code_alone_restarts_nothing_and_asks_nothing(self):
+        f, calls, run = self.fx()
+        r = self.go(f, run, f.advance("two", {"tools/fabric/other.py": "x", "tools/fabric/gzcoord_notes.md": "y"}))
+        self.assertEqual(r["status"], "upgraded")
+        self.assertNotIn("carrier", r)
+        self.assertEqual(calls, [])
+
+    def test_a_current_checkout_has_no_range_and_restarts_nothing(self):
+        f, calls, run = self.fx()
+        r = self.go(f, run, f.head())
+        self.assertEqual((r["status"], calls), ("current", []))
+
+    def test_a_restart_the_manager_refuses_is_the_upgrades_failure_in_its_answer(self):
+        f, calls, run = self.fx(restart_rc=1)
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual(r["status"], "failed")
+        self.assertRegex(r["reason"], rf"^carrier: failed \(restarting {CLIENT} exited 1\)$")
+        self.assertRegex(r["carrier"], r"^failed")
+
+    def test_a_carrier_that_restarts_and_never_answers_status_is_failed_and_not_restarted_ok(self):
+        f, calls, run = self.fx(status_rc=3)
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual(r["status"], "failed")
+        self.assertRegex(r["reason"], r"carrier: failed \(restarted, but the check failed: .*does not answer")
+
+    def test_a_client_that_is_not_running_is_said_and_not_started(self):
+        f, calls, run = self.fx(state="inactive")
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual((r["status"], r["carrier"]), ("upgraded", "not-running"))
+        self.assertEqual([c for c in calls if c[0] == "systemctl" and c[2] != "show"], [])
+
+    def test_a_manager_that_does_not_answer_is_unknown_never_not_running(self):
+        f, calls, run = self.fx(manager="hangs")
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual(r["status"], "failed")
+        self.assertRegex(r["reason"], r"carrier: failed \(the user manager did not answer")
+
+    def test_a_diff_git_cannot_make_is_unknown_not_untouched(self):
+        f, calls, inner = self.fx()
+
+        def run(cmd, **kw):
+            if cmd[0] == "git" and "diff" in cmd:
+                raise failed(cmd, code=128, err="fatal: bad revision")
+            return inner(cmd, **kw)
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual(r["status"], "failed")
+        self.assertRegex(r["reason"], r"carrier: unknown: git diff .*fatal: bad revision; the carrier was not restarted")
+        self.assertEqual(calls, [])
+
+    def test_a_failed_bootstrap_and_a_failed_restart_are_both_in_the_reason(self):
+        f = FabricFx(self, bootstrap_fails=True)
+        _, _, run = self.fx(restart_rc=1)
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertRegex(r["reason"], r"^bootstrap: .*; carrier: failed \(restarting")
 
 
 class PortAdditions(unittest.TestCase):

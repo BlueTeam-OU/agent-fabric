@@ -90,6 +90,7 @@ from control import opsutil as util
 from provisioning import bounded
 import roots  # noqa: E402 — control.opsutil puts tools/fabric on sys.path
 import operator_checkout  # noqa: E402
+from gzcoord.carrier import CARRIER_NAME  # noqa: E402
 
 PIECES = ["claude", "fabric"]
 
@@ -678,9 +679,36 @@ def session_provider(pids: list[int], proc: str = "/proc") -> str | None:
     return None
 
 
+# What a running carrier has loaded: the whole gzcoord package (the engine imports the paths, messages and tokens beside carrier/), the
+# modules it imports from outside it (episodic and what that reads, roots, signing, identity), its program and the client unit's. A path
+# here that stops existing fails test_carrier_code_paths_exist, and a module the engine loads at import time that is not under a prefix
+# fails test_carrier_code_covers_what_the_engine_loads. A module imported inside a function is not seen by that trace: whoever adds
+# one adds it to the fixture's list (tests/fixtures/carrier_import_trace.py) and here.
+CARRIER_CODE = ("tools/fabric/gzcoord/", "tools/fabric/episodic.py", "tools/fabric/roots.py", "tools/fabric/secret_store.py", "tools/fabric/secretstore/", "tools/fabric/signing/",
+                "tools/fabric/launch_locale.py",
+                "runtime/identity.py", "bin/gzcoord-carrier", f"runtime/{CARRIER_NAME}/client")
+
+
+def restart_carrier(root: str, home: str, env: dict[str, str], from_: str, to: str, run: Callable[..., Any],
+                    sleep: Callable[[float], None]) -> str | None:
+    """None when the move from_..to left the carrier's code alone; else what became of the carrier, one line starting with its state.
+    A diff git cannot make is "unknown", not "untouched": a stale carrier counts its peers down without saying why."""
+    from control import carrier_install   # carrier_install imports this module
+    try:
+        r = run(["git", "-C", root, "diff", "--name-only", "-z", from_, to, "--", *CARRIER_CODE], timeout=FABRIC_GIT_TIMEOUT_MS / 1000,
+                check=True, capture_output=True, stdin=subprocess.DEVNULL)
+    except (subprocess.SubprocessError, OSError) as e:
+        return f"unknown: git diff {from_}..{to}: {_failure_line(e, ['git'])[:160]}; the carrier was not restarted"
+    if not util.decode(r.stdout):
+        return None
+    out = carrier_install.restart_client(root, home, state_dir(home, env), run=run, sleep=sleep)
+    detail = f" ({out['reason']})" if out.get("reason") else ""
+    return f"{out['status']}{detail}"
+
+
 def upgrade_fabric(request: dict, *, home: str | None = None, root: str | None = None, run: Callable[..., Any] = default_run,
                    pgrep: Callable[[list[str]], str] | None = None, sessions: list[int] | None = None, proc: str = "/proc",
-                   env: dict[str, str] | None = None, **_unused: Any) -> dict:
+                   env: dict[str, str] | None = None, sleep: Callable[[float], None] = time.sleep, **_unused: Any) -> dict:
     home = os.path.expanduser("~") if home is None else home
     root = root or roots.checkout_root(home)
     env = dict(os.environ) if env is None else env
@@ -803,9 +831,13 @@ def upgrade_fabric(request: dict, *, home: str | None = None, root: str | None =
         unit_deferred = marker in util.decode(getattr(e, "stdout", None))
         reason = f"bootstrap: {_failure_line(e, ['bash'])[:200]}"
     moved = from_ != to
+    carrier = restart_carrier(root, home, env, from_, to, run, sleep) if moved else None
+    if carrier and not carrier.startswith(("restarted", "not-running")):
+        reason = f"{reason}; carrier: {carrier}" if reason else f"carrier: {carrier}"
     return {
         "status": "failed" if reason else "current" if not moved else "upgraded", "piece": "fabric", "from": from_, "to": to,
         **({"provider": provider} if provider else {}), **({"reason": reason} if reason else {}),
+        **({"carrier": carrier} if carrier else {}),
         **({"operator": "; ".join(operator_notes)} if operator_notes else {}),
         "session": "unknown" if pids is None else "running: next launch uses it" if pids else "none",
         "restart_daemon": moved or unit_deferred,
