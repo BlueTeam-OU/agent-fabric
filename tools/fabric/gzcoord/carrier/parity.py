@@ -319,14 +319,20 @@ def load_mirror(path: str) -> dict:
     sender's log carries no addressee), and the accounts whose log the collection does not hold whole."""
     by_mid: dict[str, list[dict]] = defaultdict(list)
     uncollected: list[str] = []
+    began = 0.0
     for login, part in _read_parts(path).items():
         rows = _mirror(login, part[0], part[8])
         if rows is None:
             uncollected.append(login)
             continue
+        # Each account's log was asked for from its meta's `since` less the margin; the latest start is the span all of them cover.
+        try:
+            began = max(began, parse_t(part[0]["since"]) - MARGIN_S)
+        except (KeyError, ValueError, TypeError):
+            began = float("inf")      # a collection that does not say what it covers rules nothing out
         for r in rows:
             by_mid[r["mid"]].append({"login": login, "t": r["t"], "outcome": r["outcome"], "reason": r["reason"]})
-    return {"rows": dict(by_mid), "uncollected": sorted(uncollected)}
+    return {"rows": dict(by_mid), "uncollected": sorted(uncollected), "began": began}
 
 
 def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]:
@@ -652,6 +658,8 @@ def _cause(carrier: str, key: tuple, sent: dict, copies: dict, addressee_first: 
                     said += "; " + "; ".join(f"{x['login']}'s mirror log: the carrier did not accept it ({x['outcome']}: {x['reason']}) at {x['t']}" for x in refused)
                 elif mirror["uncollected"]:
                     said += f"; the mirror log was not collected from {len(mirror['uncollected'])} account(s), the sender's among them or not, so a refusal is not ruled out"
+                elif made is not None and made < mirror.get("began", 0.0):
+                    said += "; the message was made before the span the mirror logs were collected over, so a refusal is not ruled out"
                 else:
                     said += "; no account's mirror log holds a refusal for it"
             if addressee_first is None:

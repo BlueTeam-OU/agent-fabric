@@ -95,7 +95,7 @@ class Adapter:
 
     def post(self, mid: str, text: str) -> str:
         """accepted (every recipient durably recorded), not-carried (no roster
-        recipient: relay alone), absent (no carrier) or failed. The request is
+        recipient: relay alone), absent (no carrier), no-answer (there and silent) or failed. The request is
         encoded first and refused here, naming its size, when the message is over
         the 4 MiB the carrier carries or the line over the 9 MiB it reads."""
         return self.post_result(mid, text, fail_open=True).state

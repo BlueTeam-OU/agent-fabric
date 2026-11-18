@@ -259,7 +259,8 @@ def _mirror_row(o: dict):
     if (o.get("outcome") not in MIRROR_OUTCOMES or not isinstance(o.get("mid"), str) or not o["mid"]
             or _time(o.get("t")) is None or not isinstance(o.get("reason"), str)):
         return None
-    return {"mid": _short(o["mid"]), "t": o["t"], "outcome": o["outcome"], "reason": _short(o["reason"])}
+    # The carrier's own error can name a file of the sender's (an OSError on its outbox): a path never leaves the account.
+    return {"mid": _short(o["mid"]), "t": o["t"], "outcome": o["outcome"], "reason": _short(re.sub(r"\S*/\S*", "<path>", o["reason"]))}
 
 
 def _page(rows: list[dict], key: str, page_bytes: int | None = None) -> tuple[list[dict], str | None] | str:

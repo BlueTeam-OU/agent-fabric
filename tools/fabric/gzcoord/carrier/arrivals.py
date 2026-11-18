@@ -126,20 +126,20 @@ class MirrorLog(ArrivalLog):
         self._append({"mid": mid, "t": self._iso(), "outcome": outcome, "reason": " ".join(reason.split())[:self.REASON_MAX]})
 
     def _append(self, line: dict) -> None:
-        super()._append(line)
-        try:
-            if os.stat(self.path).st_size <= self.MAX_BYTES:
-                return
-            with self._lock:
-                fd = os.open(self.path, os.O_RDONLY)
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX)     # the appenders' lock: no line is added between the read and the replace
+        # The lock is a file of its own, never the log: the trim replaces the log by rename, and a lock on the replaced inode would
+        # let a second appender write into a file that no longer has a name (a lost line, silently).
+        with self._lock:
+            os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
+            lock = os.open(self.path + ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                jsonl.repair(self.path)
+                jsonl.append_path(self.path, line)
+                if os.stat(self.path).st_size > self.MAX_BYTES:
                     rows = _read(self.path)
                     _rewrite(self.path, rows[len(rows) // 2:])
-                finally:
-                    os.close(fd)
-        except OSError:
-            pass      # unbounded for a while longer, never a lost line: the append above is done
+            finally:
+                os.close(lock)
 
 
 class Spool:

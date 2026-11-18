@@ -82,9 +82,11 @@ class FakeAdapter:
     def __init__(self, post: str = "accepted", unseen: list[dict] | None = None, present: bool = True) -> None:
         self._post, self._unseen, self._present, self.posted = post, unseen or [], present, []
 
-    def post(self, mid: str, text: str) -> str:
+    def post_result(self, mid: str, text: str, *, fail_open: bool = False):
+        from gzcoord.carrier import adapter
+        assert fail_open, "a mirror fails open"
         self.posted.append(mid)
-        return self._post
+        return adapter.Post(self._post, "" if self._post == "accepted" else f"why {self._post}")
 
     def unseen(self) -> list[dict]:
         return [dict(r) for r in self._unseen]
@@ -183,11 +185,12 @@ def main() -> int:
                                                R.RelayError("x", 500), R.RelayError("x", reached=False))] == [4, 4, 4, 0, 0])
 
         # ── the carrier as a mirror ──────────────────────────────────────────────────────────────────────────────
-        for state in ("accepted", "not-carried", "absent", "failed"):
+        for state in ("accepted", "not-carried", "absent", "failed", "no-answer"):
             fake = FakeAdapter(post=state)
             c = transport.CarrierTransport(fake)
-            check(f"carrier send answers the adapter's {state!r} under the carrier's own name",
-                  c.send("m", "T") == transport.Sent(CARRIER_NAME, state) and fake.posted == ["m"])
+            check(f"carrier send answers the adapter's {state!r} under the carrier's own name, with its reason",
+                  c.send("m", "T") == transport.Sent(CARRIER_NAME, state, detail="" if state == "accepted" else f"why {state}")
+                  and fake.posted == ["m"])
         fake = FakeAdapter(unseen=[{"message_id": "u1"}], present=False)
         c = transport.CarrierTransport(fake)
         check("carrier receive is what the adapter lists unseen, ack tells it nothing, health is whether it is running",

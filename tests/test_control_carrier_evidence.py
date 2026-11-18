@@ -1798,6 +1798,32 @@ class MirrorAccount(RelayOutageAccount):
         self.assertEqual(([x["outcome"] for x in r["rows"]], r["skipped"]), (list(arrivals.MirrorLog.OUTCOMES), 0))
         self.assertEqual(r["rows"][0]["reason"], "why it failed")
 
+    def test_a_path_in_the_carriers_own_error_does_not_leave_the_account(self):
+        self.log([mrow(10, reason="only 1 of 2 recipients recorded: beta: [Errno 13] Permission denied: '/home/x/.local/state/interweave/deliveries.jsonl'")])
+        r = ev.carrier_evidence(request("mirror", 0, 100), state=self.state)
+        self.assertNotIn("/home", json.dumps(r))
+        self.assertIn("<path>", r["rows"][0]["reason"])
+        self.assertIn("Permission denied", r["rows"][0]["reason"], "positive control: the rest of the words stay")
+
+    def test_an_append_waits_for_the_lock_file_and_never_for_the_log_it_may_replace(self):
+        # A trim replaces the log by rename: a lock on the log's own inode would let a second appender write into an unlinked file.
+        import fcntl
+        import threading
+        path = os.path.join(self.state, "gzcoord-mirror.jsonl")
+        log = arrivals.MirrorLog(path, iso_now=lambda: iso(1))
+        held = os.open(path + ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
+        fcntl.flock(held, fcntl.LOCK_EX)
+        t = threading.Thread(target=log.append_refused, args=(mid(1, 1), "absent", "x"))
+        t.start()
+        t.join(0.5)
+        blocked = t.is_alive()
+        fcntl.flock(held, fcntl.LOCK_UN)
+        os.close(held)
+        t.join(10)
+        self.assertTrue(blocked, "the appender waits for the lock file")
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual([json.loads(x)["mid"] for x in fh], [mid(1, 1)])
+
     def test_the_log_is_bounded_and_keeps_the_newest_whole_lines(self):
         # A sender with no carrier at all writes a line per send: the file may not grow without end.
         path = os.path.join(self.state, "gzcoord-mirror.jsonl")
@@ -1814,6 +1840,17 @@ class MirrorAccount(RelayOutageAccount):
         self.assertEqual(kept[-1]["mid"], mid(59, 59), "the newest line survives")
         self.assertEqual([k["mid"] for k in kept], [mid(n, n) for n in range(60 - len(kept), 60)], "a contiguous newest run, whole lines")
         self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+
+
+class MirrorSpan(unittest.TestCase):
+    def test_a_message_made_before_the_collected_span_does_not_say_no_refusal(self):
+        old, new = mid(-5000, 1), mid(10, 2)
+        arr = [arrival(old, "h/beta", "relay", 11), arrival(new, "h/beta", "relay", 12)]
+        mirror = {"rows": {}, "uncollected": [], "began": T0 - 3700}
+        rep = parity.compute(arr, {}, {}, (T0, T0 + 1000), host="h", mirror=mirror)
+        said = {x["mid"]: x["cause"] for x in rep["missed"] if x["carrier"] == "interweave"}
+        self.assertIn("made before the span the mirror logs were collected over", said[old])
+        self.assertIn("no account's mirror log holds a refusal for it", said[new], "positive control: a message inside the span")
 
 
 class MirrorCollect(Collect):

@@ -232,19 +232,22 @@ def mirror_log_cases() -> None:
     """ADR-064 rule 11, the sender's durable line: a mirror send the carrier did not accept leaves {mid, t, outcome, reason} in
     gzcoord-mirror.jsonl beside gzcoord-sent.jsonl, one outcome each; an accepted send leaves none (the positive control).
     The parity report reads it (test_gzcoord_carrier_parity.py); the mutation that drops the write fails each case here."""
-    def logged(run: str, relay_status: int = 200, **env: str) -> tuple:
+    def logged(run: str, relay_status: int = 200, seed: bytes = b"", **env: str) -> tuple:
         relay = P.Relay(status=relay_status)
         base = P.scratch("send-mirrorlog-")
         state, store = os.path.join(base, "state"), P.id_store()
         agent = os.path.join(state, "agents", P.LOGIN)
         os.makedirs(agent)
+        if seed:
+            with open(os.path.join(agent, "gzcoord-mirror.jsonl"), "wb") as fh:
+                fh.write(seed)
         try:
             r = P.send_with(relay.url, P.VALID, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store, XDG_RUNTIME_DIR=run, **env)
         finally:
             relay.close()
         try:
-            with open(os.path.join(agent, "gzcoord-mirror.jsonl"), encoding="utf-8") as fh:
-                lines = [json.loads(x) for x in fh if x.strip()]
+            with open(os.path.join(agent, "gzcoord-mirror.jsonl"), encoding="utf-8", errors="replace") as fh:
+                lines = [json.loads(x) for x in fh if x.strip().startswith('{')]
         except FileNotFoundError:
             lines = None
         return r, lines
@@ -278,6 +281,11 @@ def mirror_log_cases() -> None:
     f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
     r, lines = logged(f.run)
     check("  positive control: a carrier that accepts leaves no line", r.code == 0 and lines is None, f"{r.code} {r.err} {lines}")
+    f.close()
+    f = Fake({"ok": False, "error": "no roster"})
+    r, lines = logged(f.run, seed=b"\xff\xfe not utf-8\n" * 30000)
+    check("  a log with bytes that are not UTF-8, over its bound: the trim cannot read it, the send still ends 0 with its stdout line",
+          r.code == 0 and r.out.startswith("sent seq 42 INFO ") and "mirror refusal log could not be written" in r.err, f"{r.code} {r.out!r} {r.err}")
     f.close()
     f = Fake({"ok": False, "error": "no roster"})
     r, lines = logged(f.run, 500)

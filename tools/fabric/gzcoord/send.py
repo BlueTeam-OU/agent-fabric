@@ -663,8 +663,8 @@ def main(argv: list[str]) -> int:
         the send: a log that cannot be written is said and the send goes on. With the journal off no mirror is asked (rule 8), so nothing is logged."""
         try:
             arrivals.MirrorLog(mirror_log_path(who), iso_now=lambda: _now_iso()[:19] + "Z").append_refused(mid, s.state, s.detail)
-        except OSError as e:
-            print(f"gzcoord: the mirror refusal log could not be written ({e.strerror or e})", file=sys.stderr)
+        except (OSError, ValueError) as e:      # ValueError: a log with bytes that are not UTF-8, found by the trim
+            print(f"gzcoord: the mirror refusal log could not be written ({getattr(e, 'strerror', None) or e})", file=sys.stderr)
 
     def via_mirrors() -> list[str]:
         """The same message to the mirror transports (ADR-064 rules 6, 7), after
@@ -673,8 +673,9 @@ def main(argv: list[str]) -> int:
         here changes the exit status: the primary is the transport of record
         (rule 11), and a mirror's trouble is a stderr line from its transport.
         With no mirror running, and with the journal off (rule 8), it is a no-op. A mirror
-        that did not accept is reported to nobody: `failed` marks only a pending row (ADR-041
-        rule 3), and the row is the primary's outcome's to set, so there is nothing to write.
+        that did not accept leaves the journal row alone (`failed` marks only a pending row, ADR-041
+        rule 3, and the row is the primary's outcome's to set); the carrier mirror's refusal is kept in
+        the mirror log instead.
         The names of the mirrors that accepted it: a failed primary's line must then not say "not sent", and a
         carrier-primary send is on the sent ledger only if the relay is among them."""
         sent_to = tp.send_mirrors(mid, text)
