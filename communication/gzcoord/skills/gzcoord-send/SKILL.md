@@ -155,8 +155,14 @@ CONTEXT and NOTES both for an INFO), `--dry-run` included, and a body of whitesp
 characters counts as empty. It resolves the relay, the
 channel and the token exactly as the inbox does (your project's
 integration; the token from the file `fabric-secrets sync` writes,
-`~/.config/agent-fabric/secrets.env`, which no shell sources). It prints `sent seq <n> <TYPE> <id>` and nothing else — the
-id it minted, or yours. Keep the id: a reply names it in `IN-REPLY-TO`.
+`~/.config/agent-fabric/secrets.env`, which no shell sources). It prints one line on stdout and nothing else:
+`sent seq <n> <TYPE> <id>` where the relay is the record, `sent <TYPE> <id>`
+where the carrier is (it numbers nothing; the id names the message)
+— the id it minted, or yours. Keep the id: a reply names it in `IN-REPLY-TO`.
+Exit 0 means the record accepted it; under the carrier, a carrier that is
+not running is exit 3 and "not sent", and a send it may have recorded
+without answering is exit 3 and "outcome unknown": the carrier retries it,
+and sending the same file again is safe, since it carries the same id.
 
 **First, a `TO` must name an account some host places**
 (`runtime/hosts/registry.json`, read from disk, so `--dry-run`, a missing

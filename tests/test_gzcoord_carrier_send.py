@@ -121,13 +121,13 @@ def carrier_primary_cases() -> None:
     f = Fake({"ok": False, "error": "disk", "carried": 3, "queued": 1})
     r, db, posts = send_in("carrier-only", 200, f.run)
     check("W8 failed with some recipients recorded: exit 3, outcome unknown, the row stays pending",
-          r.code == 3 and "outcome unknown" in r.err and "same id" in r.err and db == [("outbound", "pending", None, None)],
+          r.code == 3 and "outcome unknown" in r.err and "same id" in r.err and "keeps retrying it until it is receipted" in r.err and db == [("outbound", "pending", None, None)],
           f"{r.code} {r.err} {db}")
     f.close()
 
     r, db, posts = send_in("carrier-record", 200, P.scratch("run-"))
     check("W8 carrier-record, no carrier, the relay taking it: still exit 3, and the relay's copy is said, not counted",
-          r.code == 3 and "not sent" in r.err and "the relay took a copy" in r.err and posts == 1, f"{r.code} {r.err} {posts}")
+          r.code == 3 and "not sent" in r.err and "the relay took a copy of it as well" in r.err and posts == 1, f"{r.code} {r.err} {posts}")
     check("  and the row is the relay's accept, in the journal's name for the relay, the second transport's",
           db == [("outbound", "accepted", "claude-bridge", None)], str(db))
 
