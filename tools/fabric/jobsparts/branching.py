@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import re
 from typing import NamedTuple
+from fabric_jobs import artifacts as art
 from fabric_jobs import vcs
 from fabric_jobs.base import FABRIC_ROOT, Refused, _load, identity
 
@@ -182,6 +183,25 @@ def _repoint_offer(job: dict, repo: str) -> str:
     return f"; or take it to your open pull request #{mine[0]['number']}: fabric-jobs switch {job['id']} --repoint"
 
 
+def checkout_of_project(path: str | None, project: str | None) -> bool | None:
+    """Whether `path` is a checkout of the repository the registry lists for `project`, by origin's host and path; None when that
+    cannot be told (no project, not in the registry, no origin). The registry, not the job's record, is the witness: a pause before
+    j164 overwrote the job's working copy with the foreign worktree, so the record alone agrees with itself."""
+    repos, _ = art.registry_repos()
+    expected = repos.get(project or "")
+    if not expected or not path or not os.path.isdir(path):
+        return None
+    try:
+        r = vcs.run(path, "config", "--get", "remote.origin.url", check=False)
+    except vcs.VcsError:
+        return None
+    # The configured URL, not `remote get-url`: an insteadOf rewrite is this machine's route to the repository, not which one it is.
+    parsed = _load("fabric_workingcopy", os.path.join(FABRIC_ROOT, "tools", "fabric", "workingcopy.py")).parse_remote(r.stdout) if r.returncode == 0 else None
+    if not parsed:
+        return None
+    return parsed["host"] == "github.com" and parsed["path"].lower() == expected.lower()
+
+
 def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choice:
     """The job's recorded branch, prepared. One that is on neither this clone nor origin, or that a pull request landed, is refused
     and said: replacing it would hand the job a branch that is another's work (j511 got j513's). A paused job asked to `repoint` is the
@@ -190,7 +210,7 @@ def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choic
     # A recorded worktree of another repository than the job's working copy is another project's work (j164: j170 held j168's gzapp
     # branch and worktree): never resumed, and `fabric-jobs project <id> <project> --forget-checkout` clears the record.
     there = job.get("worktree")
-    if there and vcs.same_repo(there, wc) is False:
+    if there and (vcs.same_repo(there, wc) is False or checkout_of_project(there, job.get("project")) is False):
         raise Refused(f"{job['id']} records branch {own} and worktree {there}, a checkout of another repository than its working copy "
                       f"{wc}: it is not resumed there; clear the record with fabric-jobs project {job['id']} {job.get('project') or '<project>'} "
                       f"--working-copy {wc} --forget-checkout")

@@ -10,6 +10,7 @@ from fabric_jobs import vcs
 from fabric_jobs.settle import settle
 from fabric_jobs.leave_sweep import after_leaving
 from fabric_jobs.leave_targets import clean_targets
+from fabric_jobs import branching
 from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
 from fabric_jobs.base import MESSAGE_ID, Job, hold_view, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate, work
@@ -418,16 +419,18 @@ def repoint(args) -> int:
         # The one-job guard and the sweep key on these: a job with work in a checkout is that checkout's.
         held = [f"{k} {job[k]}" for k in ("branch", "worktree") if job.get(k)]
         if args.forget_checkout:
-            # The one repair of a record that holds another repository's branch (j164): proven against the working copy it is named
-            # with, never taken on the caller's word, so a job's own branch cannot be dropped by it.
+            # The one repair of a record that holds another repository's branch (j164): the worktree must be shown to be of another
+            # repository than DIR, and DIR not shown to be of another repository than the project it is named with, so a job's own
+            # branch is not dropped by a DIR that is itself foreign. Where the registry cannot say, only the first proof stands.
             target = named_working_copy(args.project, args.working_copy)
+            if branching.checkout_of_project(target, args.project) is False:
+                raise Refused(f"{target} is not a checkout of {args.project}'s repository: it cannot show that {job['id']}'s record is foreign")
             if not held:
                 raise Refused(f"{job['id']} records no branch or worktree: nothing to forget")
             if vcs.same_repo(job.get("worktree"), target) is not False:
                 raise Refused(f"{job['id']}'s worktree {job.get('worktree') or '-'} is not shown to be a checkout of another repository than "
                               f"{target or 'the working copy named'}: only a record from another repository is cleared")
-            job.pop("branch", None)
-            job.pop("worktree", None)
+            forgot = [f"{k} {job.pop(k)}" for k in ("branch", "worktree") if job.get(k)]
             held = []
         # Its own worktree is no other checkout: naming it syncs the two fields a job's record had drifted on (j474).
         own = bool(job.get("worktree") and args.working_copy
@@ -446,7 +449,8 @@ def repoint(args) -> int:
         else:
             working_copy = named_working_copy(args.project, args.working_copy)
             job["project"], job["working_copy"], job["project_from"] = args.project, working_copy, "re-pointed"
-            note = f"project re-pointed from {old or '-'} to {args.project}" + (f"; working copy {working_copy}" if working_copy else "; no working copy")
+            note = (f"project re-pointed from {old or '-'} to {args.project}" + (f"; working copy {working_copy}" if working_copy else "; no working copy")
+                    + (f"; forgot {' and '.join(forgot)}" if args.forget_checkout else ""))
         # No `state`: fleet.log_times reads the state of an entry as a transition.
         job.setdefault("log", []).append({"at": now, "kind": "project", "note": note})
         return job

@@ -1973,6 +1973,25 @@ def main() -> int:
         rc, out, err = w.switch(stray)
         check("a job that already records another repository's checkout is refused, naming the repair, and left as it was",
               rc == 1 and "another repository" in err and "--forget-checkout" in err and w.job(stray)["state"] == "queued", out + err)
+        # The shape a pause before j164 actually wrote: lifecycle copies the worktree over the working copy, so the record agrees with
+        # itself and only the registry says the checkout is another project's.
+        bare_of_other = subprocess.run(["git", "-C", other, "remote", "get-url", "origin"], check=True, env=git_env(), capture_output=True, text=True).stdout.strip()
+        git_in(other, "remote", "set-url", "origin", "https://github.com/BlueTeam-OU/gzapp.git")
+        git_in(other, "config", f"url.{bare_of_other}.insteadOf", "https://github.com/BlueTeam-OU/gzapp.git")      # fetch stays local
+        poisoned = w.add("poisoned working copy too")
+        doc = json.load(open(jpath))
+        rec = next(x for x in doc["jobs"] if x["id"] == poisoned)
+        rec["project"], rec["branch"], rec["worktree"], rec["working_copy"] = "agent-fabric", "elsewhere/j168", other, other
+        json.dump(doc, open(jpath, "w"))
+        rc, out, err = w.switch(poisoned)
+        check("a job whose working copy was overwritten with the foreign worktree is refused too, by the registry's repository for its project",
+              rc == 1 and "another repository" in err and w.job(poisoned)["state"] == "queued", out + err)
+        rc, out, err = w.sw("project", mine_job, "agent-fabric", "--working-copy", other, "--forget-checkout")
+        check("--forget-checkout with a DIR that is another project's checkout is refused, and the job's own branch and worktree are kept",
+              rc == 1 and w.job(mine_job).get("branch") and w.job(mine_job).get("worktree") and "not a checkout of agent-fabric" in err, out + err)
+        rc, out, err = w.sw("project", poisoned, "agent-fabric", "--working-copy", w.repo, "--forget-checkout")
+        check("…and what it forgot is named in the job's log",
+              rc == 0 and "forgot branch elsewhere/j168 and worktree" in w.job(poisoned)["log"][-1]["note"], out + err + str(w.job(poisoned)["log"][-1]))
         rc, out, err = w.sw("project", stray, "agent-fabric", "--working-copy", w.repo, "--forget-checkout")
         check("--forget-checkout clears it", rc == 0 and not w.job(stray).get("branch") and not w.job(stray).get("worktree"), out + err)
         rc, out, err = w.sw("project", mine_job, "agent-fabric", "--working-copy", w.repo, "--forget-checkout")
