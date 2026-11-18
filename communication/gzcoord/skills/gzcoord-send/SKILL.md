@@ -157,7 +157,7 @@ channel and the token exactly as the inbox does (your project's
 integration; the token from the file `fabric-secrets sync` writes,
 `~/.config/agent-fabric/secrets.env`, which no shell sources). It prints one line on stdout and nothing else:
 `sent seq <n> <TYPE> <id>` where the relay is the record, `sent <TYPE> <id>`
-where the InterWeave carrier is (it numbers nothing; the id names the message)
+where the carrier is (it numbers nothing; the id names the message)
 — the id it minted, or yours. Keep the id: a reply names it in `IN-REPLY-TO`.
 Exit 0 means the record accepted it; under the carrier, a carrier that is
 not running is exit 3 and "not sent", and a send it may have recorded
