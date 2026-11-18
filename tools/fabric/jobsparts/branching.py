@@ -182,11 +182,41 @@ def _repoint_offer(job: dict, repo: str) -> str:
     return f"; or take it to your open pull request #{mine[0]['number']}: fabric-jobs switch {job['id']} --repoint"
 
 
+def checkout_of_project(path: str | None, project: str | None) -> bool | None:
+    """Whether `path` is a checkout of `project`, by the registry's own resolver over every remote it lists for each project: True when
+    origin names `project`, False only when it names another registered project, None when that cannot be told (no project, no origin,
+    a remote no project lists). Both the configured URL and the one insteadOf resolves it to are asked, as an alias names the repository
+    only as resolved and a mirror only as configured. The registry, not the job's record, is the witness: a pause before j164
+    overwrote the job's working copy with the foreign worktree, so the record alone agrees with itself."""
+    if not project or not path or not os.path.isdir(path):
+        return None
+    wc = _load("fabric_workingcopy", os.path.join(FABRIC_ROOT, "tools", "fabric", "workingcopy.py"))
+    try:
+        registry = wc.load_registry()
+        urls = [vcs.run(path, *ask, check=False) for ask in (("config", "--get", "remote.origin.url"), ("remote", "get-url", "origin"))]
+    except (vcs.VcsError, OSError, ValueError):
+        return None
+    named = {wc.project_for_remote(r.stdout.strip(), registry) for r in urls if r.returncode == 0 and r.stdout.strip()} - {None}
+    if project in named:
+        return True
+    return False if named else None
+
+
 def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choice:
     """The job's recorded branch, prepared. One that is on neither this clone nor origin, or that a pull request landed, is refused
     and said: replacing it would hand the job a branch that is another's work (j511 got j513's). A paused job asked to `repoint` is the
     one exception for a landed branch."""
     own = job["branch"]
+    # A recorded worktree of another repository than the job's working copy is another project's work (j164: j170 held j168's
+    # branch and worktree): never resumed, and `fabric-jobs project <id> <project> --forget-checkout` clears the record.
+    there = job.get("worktree")
+    if there and (vcs.same_repo(there, wc) is False or checkout_of_project(there, job.get("project")) is False):
+        # A working copy that is itself the foreign checkout (what a pause before j164 left) cannot name the repair: that command is
+        # refused for a DIR of another project, so a checkout of the job's own project is asked for.
+        dir_for_repair = f"<a checkout of {job.get('project')}>" if checkout_of_project(wc, job.get("project")) is False else wc
+        raise Refused(f"{job['id']} records branch {own} and worktree {there}, a checkout of another repository than {wc}, the job's "
+                      f"working copy or the project's: it is not resumed there; clear the record with fabric-jobs project {job['id']} "
+                      f"{job.get('project') or '<project>'} --working-copy {dir_for_repair} --forget-checkout")
     # Landed is asked first: a merged branch is usually deleted too, and "restore it" would be the wrong advice for it.
     if _landed(wc, repo, own):
         if repoint and job["state"] == "paused":
