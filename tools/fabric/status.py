@@ -687,7 +687,7 @@ def inbox_state(drift, root, ctx, relay=None, home=None, carrier=None):
 
 
 def carrier_journal(**opts):
-    """Arrivals the InterWeave carrier's journal refused since it started, as a host_tools line: `status` none (no carrier, or
+    """Arrivals the second carrier's journal refused since it started, as a host_tools line: `status` none (no carrier, or
     none refused: not printed), `unknown` (a carrier there that cannot be read: printed, never taken for a zero), or
     `journal-refused` with the count and the last error. `opts` are position.journal_refusals' seams, a test's."""
     from gzcoord.carrier import CARRIER_LABEL, position

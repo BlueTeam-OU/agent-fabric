@@ -20,8 +20,8 @@ CONTRACT
              which the rows of messages the relay took at send are derived; false or absent: "no row" proves nothing) and neither the report nor the
              drill's other sections are touched (an account whose daemon predates it must still
              yield the 11-12 drill's collection). No rows are claimed for it: the file is not written.
-             The sender's mirror-refusal log (mirror: the sends the InterWeave carrier did not accept, for the report's cause of a
-             pair with no InterWeave copy) is kept the same way: `mirror_log` {complete, reason, skipped}, its own failure, no
+             The sender's mirror-refusal log (mirror: the sends the second carrier did not accept, for the report's cause of a
+             pair with no second-carrier copy) is kept the same way: `mirror_log` {complete, reason, skipped}, its own failure, no
              mirror.jsonl for a daemon that predates it, which the report reads as "not collected", never as "no refusal".
              The watch log's section (watch: when watches started and ended, for the relay-outage report's restarts and give-ups)
              is the same: its meta says `watch_log` {complete, reason, skipped}, it fails on its own, and an account whose

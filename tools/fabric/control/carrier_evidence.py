@@ -49,9 +49,9 @@ CONTRACT
             drill's report (restarts and give-ups inside the outage) and nothing else. A failure of this section ends only this
             section, as the backfill log's does; a line of another shape is skipped and counted.
   mirror    rows {mid, t, outcome, reason} of gzcoord-mirror.jsonl (carrier/arrivals.py MirrorLog): the SENDER's line for each send the
-            InterWeave carrier, as a mirror, did not accept, `outcome` one of MIRROR_OUTCOMES (absent, not-carried, failed, no-answer),
+            second carrier, as a mirror, did not accept, `outcome` one of MIRROR_OUTCOMES (absent, not-carried, failed, no-answer),
             `reason` a short line of words (what the sender's stderr said, kept), with `t` in [since, until). Read by the parity
-            report to name the cause of a pair with no InterWeave copy and no sender record, and nothing else. A failure of this
+            report to name the cause of a pair with no second-carrier copy and no sender record, and nothing else. A failure of this
             section ends only this section, as the watch log's does; a line of another shape is skipped and counted.
   never     a body. Rows are built key by key from a closed list, each value a
             short string (but a backfill row's `delay_s`, a number, and its `channel`, a string or null): a line of the log with a text, a path or a key in it
