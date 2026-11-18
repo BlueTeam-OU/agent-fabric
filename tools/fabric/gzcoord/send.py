@@ -13,7 +13,7 @@ CONTRACT, frozen from the Node:
             1), GZCOORD_PRESENCE_WAIT_MS (the presence CLI's),
             AGENT_FABRIC_HOSTS_REGISTRY / AGENT_FABRIC_OPERATOR (the hosts
             registry a REQUEST's job intake reads)
-  stdout    `sent seq <n> <TYPE> <id>` and nothing else
+  stdout    `sent seq <n> <TYPE> <id>` under the relay, `sent <TYPE> <id>` under the carrier, and nothing else
   stderr    everything else: the id minted, warnings, refusals, presence,
             the journal's own lines, fabric-jobs's own lines, and for a
             REQUEST to a login (intake.py) one line: `queued as jN on
@@ -739,8 +739,8 @@ def main(argv: list[str]) -> int:
         print(t("send.ledger-not-written", {"detail": e.strerror or str(e)}), file=sys.stderr)
     deduplicated = sent.deduplicated
     if tp.primary.name == CARRIER_NAME:
-        # The carrier numbers nothing: the MESSAGE-ID names the message. The line is the owner's to word (cutover W8).
-        print(f"sent {msg['type']} {mid}")
+        # The carrier numbers nothing: the MESSAGE-ID names the message.
+        print(t("send.carrier-sent", {"type": msg["type"], "id": mid}))
     else:
         print(t("send.sent", {"seq": seq, "type": msg["type"], "id": mid,
                               "deduplicated": t("send.deduplicated") if deduplicated else ""}))
@@ -764,21 +764,20 @@ def main(argv: list[str]) -> int:
 def carrier_not_accepted(error: BaseException, never: bool, relay_took_it: bool, address: str, file: str, mid: str,
                          t: i18n.Printer) -> int:
     """The exit and the line when the carrier, the transport of record, did not accept the send (exit 3 always): not sent
-    when it provably recorded nothing, its outcome unknown when it may have. These lines are plain, not the dictionary's: the
-    owner words them (cutover W8). A relay mirror that took a copy is said, never counted: the carrier's answer is the status."""
+    when it provably recorded nothing, its outcome unknown when it may have. A relay mirror that took a copy is said, never counted: the carrier's answer is the status."""
     login = address.rpartition("/")[2]
-    fix = f"fabric-ctl {login} {CARRIER_NAME} says why, and fabric-ctl {login} {CARRIER_NAME}-start starts it"
+    fix = t("carrier.fix", {"login": login, "name": CARRIER_NAME})
     if never:
         if getattr(error, "absent", False):
-            print(f"send: not sent: the {CARRIER_LABEL} carrier is not running ({fix})", file=sys.stderr)
+            print(t("send.carrier-absent", {"carrier": CARRIER_LABEL, "fix": fix}), file=sys.stderr)
         else:
-            print(f"send: not sent: {error}", file=sys.stderr)
+            print(t("send.carrier-not-sent", {"detail": str(error)}), file=sys.stderr)
     else:
         # The same id on a resend: a file carries it, stdin mints one unless the text names it (SPEC §7.2).
         again = t("send.again-file") if file != "-" else t("send.again-stdin", {"id": mid})
-        print(f"send: outcome unknown: {error}; the carrier may hold it and retries it to the receipt; {again}", file=sys.stderr)
+        print(t("send.carrier-outcome-unknown", {"detail": str(error), "again": again}), file=sys.stderr)
     if relay_took_it:
-        print("send: the relay took a copy of it; that does not change this status", file=sys.stderr)
+        print(t("send.carrier-relay-copy"), file=sys.stderr)
     return 3
 
 

@@ -600,8 +600,7 @@ def main(argv: list[str]) -> int:
     cause = {"reason": None}
 
     def primary_down_line(kind: str) -> str:
-        """What the watch says of its primary being down, gone for good, or back. The relay's three are the dictionary's;
-        the carrier's are not yet (the owner's strings, cutover W7), so they are plain lines of the same shape."""
+        """What the watch says of its primary being down, gone for good, or back: the relay's or the carrier's three lines."""
         if primary.name != CARRIER_NAME:
             # Each key literally beside its t(: the i18n suite reads the source for them.
             if kind == "down":
@@ -609,15 +608,12 @@ def main(argv: list[str]) -> int:
             if kind == "gave-up":
                 return t("watch.relay-gave-up", {"relay_url": relay_url})
             return t("watch.relay-back")
-        who = me["address"].rpartition("/")[2]
-        label = f"the {CARRIER_LABEL} carrier"
-        fix = f"fabric-ctl {who} {CARRIER_NAME} says why, and fabric-ctl {who} {CARRIER_NAME}-start starts it"
+        fix = t("carrier.fix", {"login": me["address"].rpartition("/")[2], "name": CARRIER_NAME})
         if kind == "down":
-            return f"gzcoord watch: {label} is not answering — waiting for it ({fix}; this line prints once)"
+            return t("watch.carrier-down", {"carrier": CARRIER_LABEL, "fix": fix})
         if kind == "gave-up":
-            return (f"gzcoord watch: {label} did not answer for {UNTIL_DELIVERY_DOWN_S / 60:g} minutes — the watch ended; "
-                    f"run it again when it is back ({fix})")
-        return f"gzcoord watch: {label} answers again; watching again"
+            return t("watch.carrier-gave-up", {"carrier": CARRIER_LABEL, "minutes": f"{UNTIL_DELIVERY_DOWN_S / 60:g}", "fix": fix})
+        return t("watch.carrier-back", {"carrier": CARRIER_LABEL})
 
     def held_line(reason: str, n: int) -> str:
         if off:
