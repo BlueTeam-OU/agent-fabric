@@ -1,12 +1,12 @@
 # GZCoord on InterWeave only: the cutover from the dual run
 
-**Status 2026-11-15.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, and D6, D7 and
+**Status 2026-11-18.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, and D6, D7 and
 D8 on 2026-11-15, each as recommended (§7). D3's first half is done: #573 merged on 2026-11-13.
 W1 is done: #573's real-carrier read-back is the 2026-11-15 drill's record. D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
 and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in §4 change when
-each gate's word is given. W3 to W14 and W17 are done (§5): W6, W7 and W8 merged as
-#613, W7's Stop-hook probe is on #612, W11 and W17's code are #623, and W17's records
-were amended 2026-11-16.
+each gate's word is given. W2 to W14 and W17 are done (§5): W6, W7 and W8 merged as
+#613, W7's Stop-hook probe is on #612, W11 and W17's code are #623, W17's records
+were amended 2026-11-16, and W2's parity report, gate 1's last item, was filed 2026-11-18.
 
 A plan for the owner's review, drafted for fabric-coordinator. It decides nothing: every step
 that changes what carries a message waits for the owner's word and the record named beside it
@@ -386,11 +386,14 @@ recommended:
 
 ## 8. What happens first
 
-W1 to W14 and W17 are done: #573 is merged, the 2026-11-18 parity report is filed, the 2026-11-12 drills are filed, and its
-real-carrier read-back is the 2026-11-15 drill's record. What is left, in this order:
+W1 to W14 and W17 are done: #573 is merged and its real-carrier read-back is the 2026-11-15
+drill's record, both drills are filed, and so is the 2026-11-18 parity report. What is left,
+in this order:
 
 1. **W2**, done 2026-11-18: the parity report with no InterWeave miss is gate 1 item 4. The
    rollback drill (2026-11-12) and the relay-outage drill (2026-11-15) are items 2 and 3. With
    W1 this is everything gate 1 asks for; the owner's gate-1 word is next.
 2. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
-   gate 3.
+   gate 3. D8's soak follows gate 1's word, not before it: the word moves python-dev-02 and
+   python-dev-03 to `carrier-record` (§6 step 1), they soak three working days, then the fleet
+   seven; the fleet's soak is gate 2's first item.

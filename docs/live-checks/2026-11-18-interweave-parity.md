@@ -12,16 +12,19 @@ to a `TO-ROLE` recipient. The relay delivered 562, InterWeave 560;
 InterWeave missed none. The two pairs it did not carry are a message's
 own sender, which the relay hands its copy back and the carrier never
 does (the tool counts them apart). No duplicate copy, no `FROM`
-mismatch, no pair recorded as sent with no copy and no receipt. Every
-account was in `relay-record` throughout (`fabric-ctl all interweave`,
-2026-11-18, 30 of 30 `relay-record`, 0 stranded).
+mismatch, no pair recorded as sent with no copy and no receipt. At
+collection every account was in `relay-record` with nothing stranded
+(`fabric-ctl all interweave`, 2026-11-18: 30 of 30 `relay-record`, 30
+of 30 stranded 0). The mode's history over the window is not read
+here; plan §6 moves the first accounts only on gate 1's word.
 
 ## How it was computed
 
-On 2026-11-18, on develop-qzapp, fabric at 562474c8 (main, #645 merged):
+On 2026-11-18, on develop-qzapp, with `gzcoord-carrier` run from the
+main checkout at 562474c8 (#645 merged):
 `fabric-ctl all interweave-evidence --since 2026-11-14T00:00:00Z
---until 2026-11-18T02:00:00Z --out <dir>`, all 30 accounts `ok`, every
-journal `ok`. Then `gzcoord-carrier parity --window
+--until 2026-11-18T02:00:00Z --out <dir>`, all 30 accounts `ok`, each
+account's `meta.json` `journal: ok` and `complete: true`. Then `gzcoord-carrier parity --window
 2026-11-15T10:00:00Z 2026-11-18T00:00:00Z --collected <dir>`. The
 tool's output is filed unedited in
 [`2026-11-18-interweave-parity-computed.md`](2026-11-18-interweave-parity-computed.md).
@@ -58,8 +61,13 @@ until 21:10:59, after the host's switch-off. Re-collected from
 2026-11-14, all four pairs leave the window, their first copy being the
 InterWeave one before 10:00 on 2026-11-15, and nothing else changes:
 566 pairs became 562, the relay's count with them, InterWeave's 560
-unchanged. Why the relay served `01a1db67-e363` a second time 29 hours
-later is not traced here; it is the relay's copy, not the carrier's.
+unchanged, and the away table lost the same pairs (relay direct 48 to
+46, broadcast 2 to 0). That run's output is filed unedited in
+[`2026-11-18-interweave-parity-control.md`](2026-11-18-interweave-parity-control.md). The relay served `01a1db67-e363` a second time 29 hours later, to a
+watch that had started at 23:57:42; user's `acks.jsonl` acknowledges it
+at 23:57:43, and `shown.jsonl` has it shown only on 2026-11-14, so the
+copy was admitted quiet, not shown twice. It is a relay copy and before
+the window, so the report counts no duplicate.
 Across the whole collection two other pairs have a second relay
 arrival, both before the window and seconds after the first
 (`01a1d922` to architect-cto-01, `01a1dce5` to ux-designer-01); none
