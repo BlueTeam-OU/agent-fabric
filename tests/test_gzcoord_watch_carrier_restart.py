@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A watch in carrier-only rides out carrier restarts (j169). The fleet upgrade restarts interweave-client under every running
-`gzcoord-inbox --until-delivery`; the watch must count its silence bound from the carrier's LAST ANSWER, not from the first
-failure of an earlier outage, and must neither exit nor lose a message across a restart.
+`gzcoord-inbox --until-delivery`; the watch must count its silence bound from the first failure after the carrier's LAST ANSWER,
+not from the first failure of an earlier outage, and must neither exit nor lose a message across a restart.
 
 The real bin/gzcoord-inbox against a fake carrier on its adapter socket, in the protocol suite's scratch environment, with a
 short give-up bound (GZCOORD_UNTIL_DELIVERY_DOWN_S) so the case measures it in seconds."""
@@ -124,7 +124,7 @@ class Restart(unittest.TestCase):
         self.assertIn("after-restart", "".join(self.out), "a message listed after the restart is delivered")
 
     def test_a_carrier_silent_past_the_bound_ends_the_watch_with_exit_5(self):
-        # The positive control: the bound is still enforced, counted from the carrier's last answer.
+        # The positive control: the bound is still enforced, counted from the first failure after the carrier's last answer.
         self.start()
         self.down()
         self.assertEqual(self.proc.wait(timeout=DOWN_S + 20), 5, "".join(self.out + self.err))

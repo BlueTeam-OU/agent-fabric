@@ -759,10 +759,9 @@ def main(argv: list[str]) -> int:
                 if x["code"] == 4:
                     print(x["line"], file=sys.stdout if until_delivery else sys.stderr, flush=True)
                     return ended("token-refused", 4)
-                if down and answered["at"] > down_since:
-                    # It answered after the outage began: that outage is over and this failure is a new one.
-                    if not until_delivery:
-                        print(primary_down_line("back"), flush=True)
+                if until_delivery and down and answered["at"] > down_since:
+                    # It answered after the outage began: that outage is over and this failure is a new one. Only the give-up
+                    # bound reads the clock, so --follow, which has none, keeps its lines exactly as they were.
                     down = False
                 if not down:
                     if not until_delivery:
