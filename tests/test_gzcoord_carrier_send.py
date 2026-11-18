@@ -149,7 +149,7 @@ def sent_ledger_cases() -> None:
             relay.close()
         try:
             with open(os.path.join(agent, "gzcoord-sent.jsonl"), encoding="utf-8") as fh:
-                ids = [json.loads(x)["id"] for x in fh if x.strip()]
+                ids = [json.loads(x)["id"] for x in fh if x.strip() and "id" in json.loads(x)]
         except FileNotFoundError:
             ids = []
         return r, ids
@@ -175,8 +175,31 @@ def sent_ledger_cases() -> None:
                                    {"GZCOORD_TRANSPORT_MODE": "carrier-only"})):
         f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
         r, ids = ledger_ids(mode_name, 503, f.run, **env)
-        check(f"{label}: the carrier alone takes it (exit 0) and the id is NOT on the sent ledger, so a backfill posts it",
+        check(f"{label}: the carrier alone takes it (exit 0) and the id is NOT on the sent ledger, so it is not skipped as on the relay",
               r.code == 0 and ids == [], f"{r.code} {r.err} {ids}")
+        f.close()
+    # The ledger's other job: an id spent with one body is refused for another, whatever the relay did and with the
+    # journal off, where the journal's own check does not run (review F1).
+    for label, mode_name, env in (("carrier-record", "carrier-record", {}), ("carrier-only", "carrier-only", {}),
+                                  ("relay-record", "relay-record", {})):
+        from gzcoord.transport import mode
+        f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
+        relay = P.Relay()
+        base = P.scratch("send-reuse-")
+        state, store = os.path.join(base, "state"), P.id_store()
+        agent = os.path.join(state, "agents", P.LOGIN)
+        os.makedirs(agent)
+        mode.write(mode_name, "h1/op", agent)
+        try:
+            kw = dict(AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store, XDG_RUNTIME_DIR=f.run, GZCOORD_JOURNAL="off")
+            first = P.send_with(relay.url, P.VALID, **kw)
+            second = P.send_with(relay.url, P.VALID.replace("hello", "hello, edited"), **kw)
+            again = P.send_with(relay.url, P.VALID, **kw)
+        finally:
+            relay.close()
+        check(f"{label}, journal off: the same id with another body is refused (exit 2); the same message again passes",
+              first.code == 0 and second.code == 2 and "already went out" in second.err and again.code == 0,
+              f"{first.code} {second.code} {second.err} {again.code}")
         f.close()
     f = Fake({"ok": False, "error": "down", "carried": 0, "queued": 0})
     r, ids = ledger_ids("relay-record", 200, f.run)

@@ -59,9 +59,11 @@ An id travels with its file, so a scratch file reused for the NEXT message
 would carry the last one's id (review of #47, R1). Each confirmed send is
 recorded — id and a hash of the message — in this login's state directory
 (<state>/agents/<login>/gzcoord-sent.jsonl), and an id that already went
-out with other content is refused; the same message again passes. A post
-whose reply was lost is not recorded, so an edited resend under that id is
-not caught.
+out with other content is refused; the same message again passes. A line
+with an "id" says the relay has the message (backfill skips it); a send the
+carrier took without the relay having it is recorded as "spent" instead,
+which only this refusal reads. A post whose reply was lost is not recorded,
+so an edited resend under that id is not caught.
 
 PLACEMENT comes before presence and does not depend on it: a TO is looked
 up in the hosts registry on this disk (placement.py) after the message
@@ -202,7 +204,7 @@ def spent_elsewhere(ledger: str, mid: str, sha: str, t: i18n.Printer | None = No
             r = json.loads(line)
         except ValueError:
             continue
-        if isinstance(r, dict) and r.get("id") == mid and r.get("sha256") != sha:
+        if isinstance(r, dict) and mid in (r.get("id"), r.get("spent")) and r.get("sha256") != sha:
             return r
     return None
 
@@ -744,16 +746,18 @@ def main(argv: list[str]) -> int:
         if done["status"] != 0:
             sys.stderr.write(done["stderr"] or "episodic: the sent message was not marked accepted\n")
     mirrored = via_mirrors()
-    # The ledger says "the relay has it" (backfill.on_sent_ledger skips an id on it): a post that failed spent nothing,
-    # and with the carrier as the record the relay is a mirror that may have failed, so the id stays off the ledger and
-    # the next backfill posts it. The relay as the record needs no mirror.
-    if tp.primary.name != CARRIER_NAME or "relay" in mirrored:
-        try:
-            record_sent(ledger, {"id": mid, "sha256": sha, "seq": js.coalesce(seq, None), "at": _now_iso()})
-        except LedgerNotTrimmed as e:
-            print(t("send.ledger-not-trimmed", {"detail": e.strerror or str(e)}), file=sys.stderr)
-        except OSError as e:
-            print(t("send.ledger-not-written", {"detail": e.strerror or str(e)}), file=sys.stderr)
+    # "id" on the ledger means "the relay has it": backfill.on_sent_ledger skips such an id. A post that failed spent
+    # nothing. With the carrier as the primary the relay is a mirror that may have failed or not been asked (journal off,
+    # carrier-only), so the entry is "spent" instead: the id is still refused for another body, and a carrier-record
+    # backfill still posts the row (carrier-only never backfills; its relay copy is the owner's step back to read).
+    relay_has_it = tp.primary.name != CARRIER_NAME or "relay" in mirrored
+    try:
+        record_sent(ledger, {("id" if relay_has_it else "spent"): mid, "sha256": sha,
+                             "seq": js.coalesce(seq, None), "at": _now_iso()})
+    except LedgerNotTrimmed as e:
+        print(t("send.ledger-not-trimmed", {"detail": e.strerror or str(e)}), file=sys.stderr)
+    except OSError as e:
+        print(t("send.ledger-not-written", {"detail": e.strerror or str(e)}), file=sys.stderr)
     deduplicated = sent.deduplicated
     if tp.primary.name == CARRIER_NAME:
         # The carrier numbers nothing: the MESSAGE-ID names the message. The line is the owner's to word (cutover W8).
