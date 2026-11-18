@@ -200,6 +200,8 @@ not amended; what the carrier observes of ordering and loss is the evidence its 
 4. A fresh parity report over a window after 2026-11-09 in which every InterWeave miss has a
    cause other than "the sender recorded no InterWeave delivery", or that cause is itself
    traced; and the duplicate copies explained. Under InterWeave only a miss is a lost message.
+   Filed 2026-11-18: 562 pairs from 2026-11-15T10:00Z to 2026-11-18T00:00Z, InterWeave missed
+   none, no duplicate copy (`docs/live-checks/2026-11-18-interweave-parity.md`).
 5. A `TO-ROLE` recipient: held (100 pairs in the last report).
 
 Records: an amendment of ADR-033 (§2 third bullet, §8: the relay is the mirror) and of ADR-064
@@ -248,7 +250,7 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | id | piece | surface | accepted when | size | needs |
 |---|---|---|---|---|---|
 | W1 | Land #573; do its real-carrier read-back; file the 2026-11-12 drill | PD (python-dev-03); FC for the record | the PR's suite; the read-back's three facts (shown once, on the relay after return, a `gzcoord-backfill.jsonl` line) in a live check | **Done.** #573 merged (2026-11-13); the drill's record filed (#612); the read-back filed from the 2026-11-15 drill (j879) | - |
-| W2 | The two drills (filed: gate 1 items 2 and 3) and the fresh parity report (item 4, left); trace the misses and duplicates | FC runs and files; PD reads `carrier/engine.py` `send_due` and `Adapter.post` for the causes | the report's "what it lacks" section is empty; each miss has a cause a reviewer can find in the computed file | S, mostly operations | W1 |
+| W2 | **Done, 2026-11-18.** The two drills (filed: gate 1 items 2 and 3) and the fresh parity report (item 4, `docs/live-checks/2026-11-18-interweave-parity.md`); trace the misses and duplicates | FC runs and files; PD reads `carrier/engine.py` `send_due` and `Adapter.post` for the causes | the report's "what it lacks" section is empty; each miss has a cause a reviewer can find in the computed file | S, mostly operations | W1 |
 | W3 | **Done, #581.** Journal-first `--replay` and `--history`: a MESSAGE-ID is answered from the journal in every mode; `--json` gains `carrier` and `sender_verified`; a relay seq is still answered from the relay while one is configured | PD (`inbox.py` `main`, `inbox_parts/records.py`; reads through `episodic.open_readonly`, so no supply-tier file changes) | a test with the relay refusing every connection: a row journaled by the carrier alone replays with exit 0, one not addressed exits 2; `jobsparts/records.py` `fetch_message` adds the job | M | - |
 | W4 | **Done, on this PR, #604.** `verify_grant`: a journal row a carrier other than the relay brought counts only with `sender_verified` true and that sender equal to `FROM`; a relay-brought row is judged as the relay's record always was, until the relay stops carrying GZCoord at gate 2 | DX (`tools/fabric/github/arm.py`); FC for ADR-041 rule 7 (amended 2026-11-14) | `tests/test_arm_cli.py`: a grant the carrier alone delivered arms with the relay down; an unverified sender on such a row is refused | S | W3, D4 |
 | W5 | **Done, #584** (the mode is read, set and shown; the transports that honour it are W6 to W8). The transport mode: `relay-record` (today), `carrier-record`, `carrier-only`; read by `open_transport`; set by a signed action and shown by the `interweave` read and `_table_carrier` (§6) | PD (`gzcoord/transport/`, `control/`); FC supplies ADR-029's op row (done on #604) | default unchanged with no state file; `fabric-ctl all interweave` prints each account's mode; a running watch takes a changed mode within a minute; `carrier-only` is refused while any placed account reports `relay-record` | M | D2, D10 |
@@ -266,9 +268,8 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W15 | Removal, after gate 2: `RelayTransport` out of the send and inbox paths, `integration_config` no longer asks for a relay, the backfill, the acknowledgement log and the relay half of `parity.py` deleted, a one-carrier health report in its place, the state copy takes the outbox, `Bootstrap.journal_import` and `episodic_import.py` deleted with an amendment of ADR-041 rule 9 (the import that reads the relay), `transport-calls.json` loses `drift.py`, and `verify_grant`'s relay-row branch (`RELAY_CARRIER`) goes | PD, PD-supply (`relay.py`, `episodic_import.py`, `bootstrap.py`), DX (`tools/fabric/github/arm.py`), FC (the 15 integration files, the skills, the manuals, `transport-calls.json`) | `grep` finds no `/api/` call under `tools/fabric/gzcoord/`; `tests/test_arm_cli.py` refuses a grant row whose carrier is the relay; `tools/fabric/transport_calls.py` is clean with the shorter policy; the suite is green with no relay fixture in the GZCoord tests | L | gate 2 |
 | W16 | The relay retired (gate 3): control on InterWeave alone, the state stream replaced, the relay unit, its token, its backup timer and `secret_relay.py` removed | PD, FC | sized when gate 3 is asked for | L | gate 3 |
 
-W3 to W14 and W17 are done. What is left, and in this order: W2 (the fresh parity
-report, gate 1 item 4; W1 is done, and both drills are filed as gate 1 items 2 and 3); then the gates. W15 and W16
-follow gate 2 and gate 3. The staged switches of §6 are operations, not code:
+W1 to W14 and W17 are done; gate 1's evidence is filed (items 1 to 4). What is left is the
+gates. W15 and W16 follow gate 2 and gate 3. The staged switches of §6 are operations, not code:
 fabric-coordinator's, on the owner's word.
 
 ## 6. The switch, staged, and its way back
@@ -385,11 +386,11 @@ recommended:
 
 ## 8. What happens first
 
-W1, W3 to W14 and W17 are done: #573 is merged, the 2026-11-12 drills are filed, and its
+W1 to W14 and W17 are done: #573 is merged, the 2026-11-18 parity report is filed, the 2026-11-12 drills are filed, and its
 real-carrier read-back is the 2026-11-15 drill's record. What is left, in this order:
 
-1. **W2**: a parity report with no untraced miss (gate 1 item 4). The rollback drill
-   (2026-11-12) and the relay-outage drill (2026-11-15) are filed as items 2 and 3. With W1
-   this is everything gate 1 asks for.
+1. **W2**, done 2026-11-18: the parity report with no InterWeave miss is gate 1 item 4. The
+   rollback drill (2026-11-12) and the relay-outage drill (2026-11-15) are items 2 and 3. With
+   W1 this is everything gate 1 asks for; the owner's gate-1 word is next.
 2. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
    gate 3.
