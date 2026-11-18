@@ -681,6 +681,19 @@ class Memory(Base):
         whole = ops.memory("/home/x", root="/r", run=run, dirs=[dirs[0]])
         self.assertEqual(whole["bundles"][0]["parts"], 1, "a 3 KB tar is one part at the real size")
 
+    def test_a_report_after_the_harvesters_warning_lines_is_still_read(self):
+        # What harvest_memory.py writes: one line per warning, correction and
+        # superseded entry, then the indent=2 report on the same stream (j254).
+        report = {"claims": 161, "drainable": 161, "oldest_drainable_ms": 1700000000000, "counts": {"in_scope": 9}, "needs_rendering": [], "skipped_no_roles_class": []}
+        lines = ["harvest_memory: warning: anchor {x} gone", "harvest_memory: applied correction: a -> b", "harvest_memory: superseded: old.md"]
+        err = ("\n".join(lines) + "\n" + json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
+        run = lambda c, **k: subprocess.CompletedProcess(c, 0, b"tar", err)
+        d = {"slug": "s", "memory": "/m", "files": 1, "working_copy": "/home/x/projects/p"}
+        got = ops.memory("/home/x", root="/r", run=run, dirs=[d])["bundles"][0]["report"]
+        self.assertEqual((got["claims"], got["drainable"], got["oldest_drainable_ms"]), (161, 161, 1700000000000))
+        bad = lambda c, **k: subprocess.CompletedProcess(c, 0, b"tar", ("\n".join(lines) + "\n").encode())
+        self.assertIsNone(ops.memory("/home/x", root="/r", run=bad, dirs=[d])["bundles"][0]["report"], "no report on the stream is still unknown")
+
     def test_a_harvest_that_failed_with_nothing_on_stderr_says_why(self):
         def timeout(cmd, **kw):
             raise subprocess.TimeoutExpired(cmd, 120)
