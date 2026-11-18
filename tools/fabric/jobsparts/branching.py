@@ -207,7 +207,7 @@ def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choic
     and said: replacing it would hand the job a branch that is another's work (j511 got j513's). A paused job asked to `repoint` is the
     one exception for a landed branch."""
     own = job["branch"]
-    # A recorded worktree of another repository than the job's working copy is another project's work (j164: j170 held j168's gzapp
+    # A recorded worktree of another repository than the job's working copy is another project's work (j164: j170 held j168's
     # branch and worktree): never resumed, and `fabric-jobs project <id> <project> --forget-checkout` clears the record.
     there = job.get("worktree")
     if there and (vcs.same_repo(there, wc) is False or checkout_of_project(there, job.get("project")) is False):
