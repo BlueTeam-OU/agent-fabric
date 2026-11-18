@@ -17,7 +17,7 @@ behind bin/fabric-jobs.
     fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
     fabric-jobs tidy [--dry-run]                                 build output (target, node_modules) of every checkout under ~/projects no open job holds
     fabric-jobs drop <id> "<why>"
-    fabric-jobs project <id> <project> [--working-copy W]        re-point a job that has no branch or worktree yet (or sync it to its own worktree); logged on the job
+    fabric-jobs project <id> <project> [--working-copy W] [--forget-checkout]        re-point a job that has no branch or worktree yet (or sync it to its own worktree); logged on the job; --forget-checkout clears a branch and worktree recorded from another repository than W (j164), refused for any other
     fabric-jobs show <id> [--json]
     fabric-jobs export                                           this login's whole list, every state, as one versioned JSON document on stdout
     fabric-jobs import                                           that document on stdin into this login's EMPTY list; ids kept
@@ -345,6 +345,7 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("id")
     rp.add_argument("project")
     rp.add_argument("--working-copy")
+    rp.add_argument("--forget-checkout", action="store_true", help="clear a branch and worktree recorded from another repository than --working-copy (j164); refused for any other")
     pa = sub.add_parser("pause", help="set the active job aside, to be taken back by name")
     pa.add_argument("id")
     pa.add_argument("why")

@@ -1949,6 +1949,36 @@ def main() -> int:
               os.path.exists(os.path.join(left, "docs", "target", "y")) and os.path.exists(os.path.join(left, "a/b/c/d/target/z"))
               and os.path.exists(os.path.join(left, "Cargo.toml")), out + err)
 
+        print("a job is never bound to another repository's branch or worktree (j164)")
+        w = World()
+        other = jobs_world.seeded(os.path.join(tmp, f"other{w.n}"), origins)      # a clone of another project, the session's directory
+        git_in(other, "checkout", "-q", "-b", "elsewhere/j168")
+        mine_job = w.working("a job of this project")
+        rc, out, err = w.sw("pause", mine_job, "later", cwd=other)
+        rec = w.job(mine_job)
+        check("pause run in another repository's checkout does not record its branch or worktree",
+              rc == 0 and not rec.get("branch") and not rec.get("worktree") and rec["working_copy"] == w.repo, out + err)
+        rc, out, err = w.switch(mine_job)
+        check("…so switch gives it a branch and worktree of its own repository (the working copy follows its worktree as j474 made it, never the other project's)",
+              rc == 0 and w.job(mine_job)["branch"] != "elsewhere/j168" and w.job(mine_job)["worktree"].startswith(w.repo) and w.job(mine_job)["working_copy"] == w.job(mine_job)["worktree"], (out + err, w.job(mine_job)["working_copy"], w.repo))
+        w.sw("pause", mine_job, "again", cwd=w.job(mine_job)["worktree"])
+        check("control: a pause run in the job's own checkout still records its branch",
+              w.job(mine_job)["branch"] and w.job(mine_job)["worktree"].startswith(w.repo), w.job(mine_job))
+        stray = w.add("recorded elsewhere")
+        jpath = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jpath))
+        rec = next(x for x in doc["jobs"] if x["id"] == stray)
+        rec["branch"], rec["worktree"] = "elsewhere/j168", other
+        json.dump(doc, open(jpath, "w"))
+        rc, out, err = w.switch(stray)
+        check("a job that already records another repository's checkout is refused, naming the repair, and left as it was",
+              rc == 1 and "another repository" in err and "--forget-checkout" in err and w.job(stray)["state"] == "queued", out + err)
+        rc, out, err = w.sw("project", stray, "agent-fabric", "--working-copy", w.repo, "--forget-checkout")
+        check("--forget-checkout clears it", rc == 0 and not w.job(stray).get("branch") and not w.job(stray).get("worktree"), out + err)
+        rc, out, err = w.sw("project", mine_job, "agent-fabric", "--working-copy", w.repo, "--forget-checkout")
+        check("…and is refused for a job whose checkout is its own repository's (control)",
+              rc == 1 and w.job(mine_job).get("branch"), out + err)
+
         w = World(under=home)
         j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
         assert w.sw("drop", j, "x")[0] == 0

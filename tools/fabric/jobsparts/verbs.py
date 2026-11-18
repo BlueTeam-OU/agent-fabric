@@ -417,6 +417,18 @@ def repoint(args) -> int:
             raise Refused(f"{job['id']} is {job['state']}; a closed job is not re-pointed")
         # The one-job guard and the sweep key on these: a job with work in a checkout is that checkout's.
         held = [f"{k} {job[k]}" for k in ("branch", "worktree") if job.get(k)]
+        if args.forget_checkout:
+            # The one repair of a record that holds another repository's branch (j164): proven against the working copy it is named
+            # with, never taken on the caller's word, so a job's own branch cannot be dropped by it.
+            target = named_working_copy(args.project, args.working_copy)
+            if not held:
+                raise Refused(f"{job['id']} records no branch or worktree: nothing to forget")
+            if vcs.same_repo(job.get("worktree"), target) is not False:
+                raise Refused(f"{job['id']}'s worktree {job.get('worktree') or '-'} is not shown to be a checkout of another repository than "
+                              f"{target or 'the working copy named'}: only a record from another repository is cleared")
+            job.pop("branch", None)
+            job.pop("worktree", None)
+            held = []
         # Its own worktree is no other checkout: naming it syncs the two fields a job's record had drifted on (j474).
         own = bool(job.get("worktree") and args.working_copy
                    and os.path.realpath(os.path.expanduser(args.working_copy)) == os.path.realpath(job["worktree"]))
@@ -596,7 +608,13 @@ def move(args, said: dict) -> Job:
             # The branch the paused work is on, read from where this command runs: pause asks that it is pushed.
             # The branch `switch` recorded stays unless this runs in its checkout: another directory's branch is not the job's.
             keep = bool(job.get("branch")) and paused_branch.get("worktree") != job.get("worktree")
-            fields = {"reason": why, "note": why, **({} if keep else paused_branch)}
+            # Nor the branch of a checkout of another repository: a session whose directory is another project's clone paused j170
+            # with j168's branch and worktree (j164), and switch then resumed it there. Only a checkout that is told to be of the
+            # job's own repository is adopted; one that cannot be told is not (the branch is then named by the job's own start).
+            adopt = paused_branch
+            if not keep and paused_branch and vcs.same_repo(paused_branch["worktree"], job.get("working_copy") or job.get("worktree")) is not True:
+                adopt = {}
+            fields = {"reason": why, "note": why, **({} if keep else adopt)}
             if left:
                 note = f"{why} (not pushed, the push fence refuses it: branch {left['unpushed']['branch']} at {left['unpushed']['head']})"
                 fields.update(left, note=note)
