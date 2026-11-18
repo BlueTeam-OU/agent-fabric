@@ -85,7 +85,9 @@ def text(kind: str, n: int, frm: str, to: str, body: str = "NOTES:\nhello\n", ex
 class World:
     """One account in carrier-only, its relay unreachable, and the peer's far end."""
 
-    def __init__(self, base: str) -> None:
+    def __init__(self, base: str, relay: bool = True) -> None:
+        """`relay` False is an account whose project integration has no relay section, with no relay URL, channel or token
+        anywhere in its environment: what carrier-only alone must work on (cutover W15, first part)."""
         self.base = base
         self.port = closed_port()
         self.relay_url = f"http://127.0.0.1:{self.port}"
@@ -106,6 +108,9 @@ class World:
         for rel in ("identities/roles/catalog.json", "projects/gzapp/integration/gzcoord/config.json"):
             os.makedirs(os.path.dirname(os.path.join(fab, rel)), exist_ok=True)
             shutil.copy(os.path.join(P.FIXTURE_OPERATOR, rel), os.path.join(fab, rel))
+        if not relay:
+            with open(os.path.join(fab, "projects/gzapp/integration/gzcoord/config.json"), "w", encoding="utf-8") as fh:
+                fh.write("{}\n")
         git(fab, "init", "-q", "-b", "main")
         git(fab, "add", "-A")
         git(fab, "commit", "-q", "-m", "keys")
@@ -139,7 +144,8 @@ class World:
                     "AGENT_FABRIC_SECRET_STORE": store, "AGENT_FABRIC_STATE_DIR": self.state, "XDG_RUNTIME_DIR": self.run_dir,
                     "AGENT_FABRIC_HOSTS_REGISTRY": reg, "GZCOORD_CARRIER_ROSTER": ros, "AGENT_FABRIC_PYTHON": sys.executable,
                     # the relay is configured, as on an account whose relay was stopped, and nothing listens there
-                    "CLAUDE_BRIDGE_URL": self.relay_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture", "GZCOORD_CHANNEL": "fixture:chan"}
+                    **({"CLAUDE_BRIDGE_URL": self.relay_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture", "GZCOORD_CHANNEL": "fixture:chan"}
+                       if relay else {})}
         # FABRIC_CONTROL_CARRIER is deliberately unset: control runs as the fleet's committed runtime/control/config.json says
         # ("dual"), and its agentd socket would be looked for under this XDG_RUNTIME_DIR, which is the case's own.
         mode.write("carrier-only", "h1/op", self.agent_dir)

@@ -69,12 +69,12 @@ relay, one host first:
   to remote hosts, the first likely edge-hosting, and InterWeave is how
   they stay reached. Until a second host opens under §5 rule 1, no profile
   listens beyond `127.0.0.1`.
-- **Dual run.** Every message goes by both carriers. The relay stays the
-  transport of record and ADR-033 rule 7's fallback order is unchanged;
-  ADR-041's journal collapses the two copies by `MESSAGE-ID`, the carrier
-  being provenance. InterWeave becomes the transport of record only on
-  the owner's word, given on a measured parity report, as an amendment of
-  ADR-033.
+- **Dual run.** Every message goes by both carriers. ADR-041's journal
+  collapses the two copies by `MESSAGE-ID`, the carrier being provenance,
+  and ADR-033 rule 7's fallback order is unchanged. The record is the
+  account's mode's (A 2026-11-18): the relay in `relay-record`, InterWeave
+  in `carrier-record`, the owner's word for it given on a measured parity
+  report and the drills, as an amendment of ADR-033 (rule 11).
 - **The fabric's own automated client.** One long-lived carrier process
   per agent account, InterWeave ADR-0055 decision 1's shape, holding its
   profile's `gzcoord` endpoint lease over the data socket under the
@@ -227,7 +227,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    is accepted when either carrier accepts the post, a failed row
    included. The first carrier to accept sets its provenance, name and
    sequence together; a later accept leaves them, which the adapters'
-   build makes `episodic.out_final` do. Each carrier's own outcome is
+   build makes `episodic.out_final` do. The mode's primary posts first,
+   so in `carrier-record` the carrier's acceptance sets the row and the
+   send's exit status is the carrier's answer alone, a relay mirror
+   that took a copy said, never counted (A 2026-11-18). Each carrier's own outcome is
    in its record and the arrival log. The receiving carrier
    journals only what ADR-041 rule 2 admits, and a repeat collapses by
    `MESSAGE-ID` (ADR-041 rule 5).
@@ -252,9 +255,12 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
 10. No transport-native value — PeerId, EndpointId, transport
     `message_id`, port — appears as GZCoord metadata (ADR-033 rule 1).
     Where a message needs one, as a reference, it is body text.
-11. The relay stays the transport of record and ADR-033 rule 7's fallback
-    stands, until an amendment of ADR-033 says otherwise on the owner's
-    word. That word is given on a parity report in `docs/live-checks/`,
+11. The transport of record moves account by account under the
+    account's mode (§7): the relay in `relay-record`, InterWeave in
+    `carrier-record`, the relay its mirror both ways; ADR-033 rule 7's
+    fallback stands. The owner gave that word, amending ADR-033,
+    on the drills and on a parity report with no InterWeave miss
+    (A 2026-11-18). A word is given on a parity report in `docs/live-checks/`,
     computed from an arrival log each inbox keeps beside its journal:
     one line per copy received, (`MESSAGE-ID`, addressee, carrier, time,
     rule 9's verdict), written before the journal collapses the copy.
@@ -434,3 +440,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-14 | A second host with no fixed coordinator address is reached at a public forward, any source | §5 rule 1: admission by roster PeerId alone; the exposure a known limit in the operator's record (ADR-069 rule 2) |
 | 2026-11-15 | The drills read each account's watch log; a carrier-outage drill is judged | §5 rule 11: restarts and give-ups from `gzcoord-watch.jsonl`; `gzcoord-carrier parity --carrier-drill` (#620) |
 | 2026-11-16 | journal off, a carrier mode sends through the carrier and refuses a receive | §5 rule 8: the route is the mode's primary with no mirror; a receive is refused in `carrier-record` and `carrier-only` (D7, #623) |
+| 2026-11-18 | The data plane's first gate: the record is the account's mode's | §2 dual run; §5 rule 7: in `carrier-record` the carrier's acceptance sets the row, the exit status the primary's alone; §5 rule 11: InterWeave is the record in `carrier-record` (gate 1, ADR-033) |

@@ -421,6 +421,19 @@ def main() -> int:
             check("  and is sent once it has", until(lambda: [x for x in a.daemon.sends if x["message_id"] in second]))
             clock.t += 500
             check("  ... both reach their receipt", until(lambda: gone(a, "M-8", "beta") and gone(a, "M-8b", "beta")))
+            # A remote peer in its shutdown grace answers BackendUnavailable on an open
+            # connection: nothing of this session is lost (InterWeave TRANSPORT.md, Error model).
+            reconnects = a.carrier.counters.reconnects
+            session_before = a.carrier.session
+            a.daemon.send_answers = ["BackendUnavailable"]
+            a.carrier.handle_request({"op": "send", "message_id": "M-8c", "text": msg("M-8c", "h/alpha", to="h/beta")})
+            d8c = a.box.deliveries[("M-8c", "beta")]
+            check("a send answered BackendUnavailable is retried, not blocked",
+                  until(lambda: d8c.attempts >= 1) and d8c.blocked is None)
+            clock.t += 500
+            check("  and delivered later, on the same session: no re-open, no lease dropped",
+                  until(lambda: gone(a, "M-8c", "beta")) and a.carrier.counters.reconnects == reconnects
+                  and a.carrier.session is session_before and a.carrier.session.alive)
             a.daemon.send_answers = ["UnauthorizedPeer"]
             a.carrier.handle_request({"op": "send", "message_id": "M-9", "text": msg("M-9", "h/alpha", to="h/beta")})
             d9 = a.box.deliveries[("M-9", "beta")]

@@ -40,3 +40,34 @@ host (ADR-064), and ADR-029 rule 18 adds the control records once
 its carrier is built.
 
 Why: the same day's ADR-029 and ADR-064 amendments (agent-fabric j422).
+
+### Amendment 2026-11-18 — The data plane's first gate: an account in `carrier-record` has InterWeave as its record, the relay as its mirror
+
+What changed: §2's third bullet said the relay is the transport, and
+§7 that it stays the record until the owner's word. For GZCoord
+messages the record now moves account by account, under the mode
+ADR-064 §7 names: an account in `carrier-record` has InterWeave as its
+transport of record (its send's exit status is the carrier's answer,
+its watch waits on the carrier, its replay reads the journal) and the
+relay as its mirror both ways; an account in `relay-record` is as
+before. The amendment does not say the mirror is complete: #650's
+review found that `send.py` writes a send to the sent ledger once its
+primary took it, whether or not the relay did (a `carrier-record` send
+whose mirror failed, any `carrier-only` send, a send under `GZCOORD_TRANSPORT_MODE=carrier-only`),
+and the backfill then logs it `present` without posting it. That is a defect in `send.py`, sent to python-dev
+(REQUEST 01a1ed4e-82ec), and no account moves to `carrier-record`
+before its fix merges (cutover plan §8 item 1). Control stays on
+the relay (ADR-029). §8 says the same.
+
+Why: gate 1 of the cutover plan
+(`docs/proposals/gzcoord-interweave-only-cutover.md` §4). Its evidence
+is filed: #573's real-carrier read-back, the rollback drill
+(`docs/live-checks/2026-11-12-interweave-drills.md`), the relay-outage
+drill (`docs/live-checks/2026-11-15-relay-outage-drill.md`) and a parity
+report with no InterWeave miss over 562 pairs
+(`docs/live-checks/2026-11-18-interweave-parity.md`). Rule 7, the human
+relay when the relay is down, changes at gate 2, when an account leaves
+the relay altogether.
+
+Accepted by the owner, 2026-11-18, in the coordinator's session (gate
+1's word). ADR-064 §2, rules 7 and 11 are amended the same day.
