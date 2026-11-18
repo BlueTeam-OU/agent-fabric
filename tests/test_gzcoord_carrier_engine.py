@@ -422,7 +422,7 @@ def main() -> int:
             clock.t += 500
             check("  ... both reach their receipt", until(lambda: gone(a, "M-8", "beta") and gone(a, "M-8b", "beta")))
             # A remote peer in its shutdown grace answers BackendUnavailable on an open
-            # connection: nothing of this session is lost (OBSERVATION 01a1e907).
+            # connection: nothing of this session is lost (InterWeave TRANSPORT.md, Error model).
             reconnects = a.carrier.counters.reconnects
             session_before = a.carrier.session
             a.daemon.send_answers = ["BackendUnavailable"]

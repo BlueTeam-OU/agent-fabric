@@ -77,7 +77,7 @@ def main() -> int:
         alive_after = s.alive
         e4 = raised(lambda: s.direct_send("p", "gzcoord", MID, "a/b", b"x"))
         # A remote peer's shutdown refusal arrives as an ordinary answer with this
-        # session's connection whole (OBSERVATION 01a1e907).
+        # session's connection whole (InterWeave TRANSPORT.md, Error model).
         check("an answered BackendUnavailable is retryable and does not end the session",
               isinstance(e3, ipc.IpcError) and not isinstance(e3, ipc.SessionLost) and e3.code == "BackendUnavailable"
               and e3.retryable and not e3.session_lost and alive_after)
@@ -108,7 +108,7 @@ def main() -> int:
         check("a dropped connection ends the session", until(lambda: not s.alive) and s.events.get(timeout=5) is None)
         e = raised(lambda: s.direct_send("p", "gzcoord", MID, "a/b", b"x"))
         check("a send on an ended session is SessionLost, retryable on a new one",
-              isinstance(e, ipc.SessionLost) and e.session_lost)
+              isinstance(e, ipc.SessionLost) and e.session_lost and not e.retryable and e.code == "BackendUnavailable")
 
         s2 = ipc.Session.open(daemon.path, endpoint="gzcoord", kind="automated-client")
         check("a fresh session after the loss is a fresh hello", len(daemon.hellos) == 2 and s2.alive)

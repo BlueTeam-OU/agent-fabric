@@ -40,9 +40,9 @@ SILENCE_TIMEOUT = 120.0
 # The one answer code that says the LOCAL daemon is stopping. BackendUnavailable
 # is not here: on a response it is also how a REMOTE peer's shutdown refusal
 # reaches the sender (InterWeave TRANSPORT.md, Error model), with this
-# session's connection and lease whole. A session ends with its connection
-# (a `close` frame or end of stream), which the reader sees and raises as
-# SessionLost; the code of an answer never decides it (OBSERVATION 01a1e907).
+# session's connection and lease whole. A session otherwise ends with its
+# connection (a `close` frame or end of stream), which the reader sees and
+# raises as SessionLost; of the codes an answer carries, only this one ends it.
 SESSION_CODES = frozenset({"ShuttingDown"})
 # A refusal a later attempt under the same message_id can mend (ADR-0055
 # decision 2); anything else is the sender's to see.
