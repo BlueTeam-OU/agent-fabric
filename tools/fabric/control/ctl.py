@@ -2417,7 +2417,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     if arrivals is not None:
         # What was asked of whom and when, for the control parity computation (gzcoord/carrier/control_parity.py): replies alone
         # cannot show an account that never answered. `sent-alone`: the relay carries no copy, so its absence is no miss.
-        arrivals.add("relay", request, "sent-alone" if alone else "sent", me["address"])
+        arrivals.add("relay", request, "sent-alone" if alone else "sent", me["address"], to=[e["address"] for e in expected])
     # The relay is the record, so its post comes first and is never held behind the second carrier: a hand-off that
     # waits on a silent child for ttl_s would put the relay copy on the wire already expired.
     relay_up = True

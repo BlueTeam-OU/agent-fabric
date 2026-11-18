@@ -7,8 +7,7 @@ INPUT   `control-arrivals.jsonl` of the operator's account (control_link.Arrival
         accounts, each as `LOGIN=FILE`. One JSON line per record that arrived, written by two processes into the
         one file of an account: `who` "ctl" (fabric-ctl: a `sent`/`sent-alone` line per request it made, with its
         `to`, and a line per reply copy it was shown, by carrier relay|interweave) and "agentd" (the replies its
-        carrier routed — verdict ok | no-waiter | held | forged-from —, the requests that came by InterWeave, and a
-        `seen` line for a request copy it refused because the other carrier's had been answered).
+        carrier routed — verdict ok | no-waiter | held | forged-from — and the requests that came by InterWeave).
         `t` has a one-second resolution, so a latency is good to a second either way.
 PAIR    (request id, addressee) for every request sent by fabric-ctl in dual (the `sent` line's `to`), whose `t` is
         in [start, end). A reply line whose request has no `sent` line (a fabric-ctl from before it wrote them) is a
@@ -17,8 +16,7 @@ OUTCOME per pair, by the copies fabric-ctl was shown: `both`; `interweave-only` 
         `relay-only` (the miss of the second carrier, with its CAUSE); `none` (cause `timeout`).
 CAUSE   of a relay-only pair, first that the logs show:
           no-waiter   the operator's agentd routed the reply and no session was waiting for it
-          seen        an agentd log holds a `seen` line for the request's InterWeave copy (the relay's was answered)
-          relay-only  none of the above: the InterWeave copy is not in any log given. Said so, never guessed.
+          relay-only  none of the above (a refused request copy is no cause: agentd answers both carriers whichever copy it took): the InterWeave copy is not in any log given. Said so, never guessed.
         `sent-alone` requests (control_carrier names the second carrier alone) have no relay copy to be missed.
 DRILL   `--drill START END`: the interval the InterWeave units were stopped. A pair whose request is inside it is
         listed apart and counted in no carrier's delivered or missed: a relay-only answer is what the drill expects.
@@ -35,7 +33,7 @@ import time
 from typing import Any, Iterable
 
 CARRIERS = ("relay", "interweave")
-CAUSES = ("no-waiter", "seen", "relay-only", "timeout")
+CAUSES = ("no-waiter", "relay-only", "timeout")
 
 
 class InputError(Exception):
@@ -100,12 +98,9 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
     requests: dict[str, dict] = {}
     copies: dict[tuple[str, str], dict[str, float]] = {}          # (id, addressee) -> carrier -> first t
     routed: dict[tuple[str, str], set[str]] = {}                  # (id, sender) -> agentd verdicts of the reply
-    seen: set[tuple[str, str]] = set()                            # (id, login) with a seen line on interweave
     for login, rows in files.items():
         for r in rows:
             who, kind, rid, verdict, carrier = r.get("who"), r.get("kind"), r.get("id"), r.get("verdict"), r.get("carrier")
-            if who == "agentd" and verdict == "seen" and carrier == "interweave" and _is_str(rid):
-                seen.add((rid, login))
             if login != operator:
                 continue
             if who == "ctl" and kind == "request" and isinstance(verdict, str) and verdict.startswith("sent") and _is_str(rid):
@@ -135,12 +130,11 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
             continue
         key = (p["id"], p["addressee"])
         got = copies.get(key, {})
-        login = p["addressee"].rsplit("/", 1)[-1]
         row = {"id": p["id"], "addressee": p["addressee"], "t": iso(p["t"]), "op": p["op"], "carriers": sorted(got)}
         if p.get("unrecorded"):
             row["unrecorded"] = True
         if drill and drill[0] <= p["t"] < drill[1]:
-            in_drill.append({**row, "outcome": "relay" if "relay" in got else "none"})
+            in_drill.append({**row, "outcome": "both" if len(got) == 2 else (f"{next(iter(got))}-only" if got else "none")})
             continue
         for c in CARRIERS:
             if c in got:
@@ -161,8 +155,6 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
                 row["outcome"] = "relay-only"
                 if "no-waiter" in routed.get(key, ()):
                     row["cause"] = "no-waiter"
-                elif (p["id"], login) in seen:
-                    row["cause"] = "seen"
                 else:
                     row["cause"] = "relay-only"
             else:
@@ -170,7 +162,7 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
                 row["cause"] = "timeout"
                 if not p["alone"]:
                     stats["relay"]["missed"] += 1
-        if row.get("cause"):
+        if row.get("cause") and not p.get("unrecorded"):
             causes[row["cause"]] += 1
         out_pairs.append(row)
     for c in CARRIERS:

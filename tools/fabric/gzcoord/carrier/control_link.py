@@ -217,16 +217,17 @@ class ArrivalLog:
         self._lock = threading.Lock()
         self._said = False
 
-    def add(self, carrier: str, record: Any, verdict: str, sender: str | None = None) -> None:
+    def add(self, carrier: str, record: Any, verdict: str, sender: str | None = None, to: list[str] | None = None) -> None:
         r = record if isinstance(record, dict) else {}
         line = {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self._clock())), "who": self.who, "carrier": carrier,
                 "kind": r.get("kind") if isinstance(r.get("kind"), str) else None, "id": r.get("id") if isinstance(r.get("id"), str) else None,
                 "in_reply_to": r.get("in_reply_to") if isinstance(r.get("in_reply_to"), str) else None,
                 "from": sender if sender is not None else (r.get("from") if isinstance(r.get("from"), str) else None),
                 "op": r.get("op") if isinstance(r.get("op"), str) else None, "verdict": verdict}
-        to = r.get("to")
-        if isinstance(to, list) and all(isinstance(x, str) for x in to):
-            line["to"] = to   # a request's addressees: the parity computation needs who was asked, to see who never answered
+        # A request's addressees, for the parity computation: it needs who was asked to see who never answered. The caller
+        # passes the expanded list, because the record's own `to` is the string "*" for a request to everyone.
+        if to is not None:
+            line["to"] = to
         part = (r.get("data") or {}).get("part") if isinstance(r.get("data"), dict) else None
         if isinstance(part, dict):
             line["part"] = f"{part.get('slug')}/{part.get('part')}"
@@ -598,6 +599,7 @@ class Carrier:
 
     def _route_reply(self, record: dict, sender: str) -> None:
         rid = record.get("in_reply_to")
+        dropped: list[dict] = []
         with self._lock:
             waiter = self._waiters.get(rid) if isinstance(rid, str) else None
             # This account's own answer can beat its fabric-ctl's session to `watch`: fabric-ctl posts the relay copy
@@ -609,10 +611,13 @@ class Carrier:
             if keep:
                 now = time.monotonic()
                 for k in [k for k, (_r, t) in self._early.items() if now - t > EARLY_HOLD_S]:
-                    del self._early[k]
+                    dropped.extend(self._early.pop(k)[0])
                 if len(self._early) >= EARLY_MAX:
-                    del self._early[next(iter(self._early))]
+                    dropped.extend(self._early.pop(next(iter(self._early)))[0])
                 self._early.setdefault(rid, ([], now))[0].append(record)
+        # A held reply nobody came for ends as the no-waiter it would have been: said, so its cause stays readable.
+        for old in dropped:
+            self.arrivals.add(VIA, old, "no-waiter", self.me)
         self.arrivals.add(VIA, record, "ok" if waiter else ("held" if keep else "no-waiter"), sender)
         if waiter is not None:
             waiter(record, sender)

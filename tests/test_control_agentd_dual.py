@@ -168,7 +168,6 @@ class AgentdDual(Base):
         self.barrier("other", via="interweave")
         self.barrier("other-relay", via="relay")
         self.assertEqual((len(got), len(self.relay_replies("dup"))), (1, 1), "one seen-set across both carriers")
-        self.assertEqual(self.arrival_verdicts().count("seen"), 1, "the refused copy is in the arrival log: the parity computation names a cause by it")
 
     def test_two_requests_of_one_minute_are_two_answers_and_their_lines_tell_them_apart(self):
         # j150: agentd logged "answered ping (01a1ddcd)" twice, 7 s apart, for one `fabric-ctl all ping`. A UUIDv7's first 8

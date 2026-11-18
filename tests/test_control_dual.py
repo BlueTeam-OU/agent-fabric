@@ -164,7 +164,19 @@ class Dual(Harness):
         self.answer("alice", request)
         self.assertEqual(self.finish(box), 0, self.err)
         lines = [a for a in self.arrivals() if a["kind"] == "request"]
-        self.assertEqual([(a["who"], a["id"], a["verdict"], a["to"]) for a in lines], [("ctl", request["id"], "sent", request["to"])])
+        self.assertEqual([(a["who"], a["id"], a["verdict"], a["to"]) for a in lines], [("ctl", request["id"], "sent", ["h/alice"])])
+
+    def test_a_request_to_all_is_logged_with_the_addresses_it_expanded_to_and_not_the_wildcard(self):
+        self.boot("alice")
+        box = self.run_ctl("all", "ping", "--json", "--timeout", "10")
+        request = self.request_of("alice")
+        self.assertEqual(request["to"], "*")
+        self.answer("alice", request)
+        self.finish(box)   # bob is placed and silent: the run's status is not what is asked here
+        lines = [a for a in self.arrivals() if a["kind"] == "request"]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("h/alice", lines[0]["to"])
+        self.assertTrue(all(isinstance(x, str) and x != "*" for x in lines[0]["to"]), lines[0]["to"])
 
     def test_a_reply_only_the_relay_carried_says_so_in_the_row_and_under_the_table(self):
         self.boot("alice")

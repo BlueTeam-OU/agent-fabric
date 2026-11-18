@@ -584,6 +584,9 @@ class SocketCases(Net):
             a.carrier._early[k] = (a.carrier._early[k][0], time.monotonic() - cc.EARLY_HOLD_S - 1)
         a.carrier._route_reply(reply(rid="px", to="qx", frm="h/alice"), "h/alice")
         self.assertEqual(list(a.carrier._early), ["qx"])
+        lines = a.arrival_lines()
+        self.assertEqual(sum(1 for l in lines if l["verdict"] == "held"), cc.EARLY_MAX + 6)
+        self.assertEqual(sum(1 for l in lines if l["verdict"] == "no-waiter"), cc.EARLY_MAX + 5, "every evicted or expired one is said as no-waiter")
 
     def test_the_operators_own_address_is_answered_through_its_own_socket(self):
         op = self.nodes["op"]

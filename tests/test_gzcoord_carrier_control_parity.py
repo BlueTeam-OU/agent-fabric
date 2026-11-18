@@ -93,12 +93,11 @@ class Pairs(unittest.TestCase):
         rep = run(rows)
         self.assertEqual((pair(rep, "r1", OP)["outcome"], rep["causes"]["no-waiter"]), ("both", 0))
 
-    def test_seen_is_the_cause_when_the_addressees_agentd_refused_the_interweave_copy_of_the_request(self):
+    def test_a_refused_request_copy_is_no_cause_of_a_miss(self):
+        # agentd answers on both carriers whichever copy it took, so a `seen` line says nothing of a lost reply.
         seen = {"t": iso(1), "who": "agentd", "carrier": "interweave", "kind": "request", "id": "r1", "verdict": "seen"}
         rep = run([sent("r1", 0, [A]), got("r1", A, "relay", 2)], others={"alice": [seen]})
-        self.assertEqual(pair(rep, "r1", A)["cause"], "seen")
-        self.assertEqual(pair(run([sent("r1", 0, [A]), got("r1", A, "relay", 2)], others={"bob": [seen]}), "r1", A)["cause"], "relay-only",
-                         "another account's seen line says nothing of alice's request")
+        self.assertEqual(pair(rep, "r1", A)["cause"], "relay-only")
 
     def test_a_reply_only_interweave_brought_is_a_relay_miss_and_not_a_cause(self):
         rep = run([sent("r1", 0, [A]), got("r1", A, "interweave", 1)])
@@ -113,6 +112,7 @@ class Pairs(unittest.TestCase):
     def test_a_reply_with_no_request_line_is_a_pair_marked_unrecorded_and_counts_no_interweave_miss(self):
         rep = run([got("old", A, "relay", 5)])
         self.assertEqual((rep["unrecorded"], pair(rep, "old", A)["unrecorded"], rep["carriers"]["interweave"]["missed"]), (1, True, 0))
+        self.assertEqual(sum(rep["causes"].values()), 0, "the causes never add up to more than the misses")
 
 
 class Window(unittest.TestCase):
@@ -132,9 +132,13 @@ class Drill(unittest.TestCase):
 
     def test_a_pair_inside_the_drill_is_listed_apart_and_counted_in_no_carriers_row(self):
         rep = run(self.ROWS, drill=(0, 100))
-        self.assertEqual([(p["id"], p["outcome"]) for p in rep["in_drill"]], [("d", "relay")])
+        self.assertEqual([(p["id"], p["outcome"]) for p in rep["in_drill"]], [("d", "relay-only")])
         self.assertEqual([p["id"] for p in rep["pairs"]], ["o"])
         self.assertEqual((rep["carriers"]["relay"]["delivered"], rep["carriers"]["interweave"]["missed"]), (1, 0))
+
+    def test_a_drill_pair_the_second_carrier_still_delivered_says_both(self):
+        rep = run([sent("d", 50, [A]), got("d", A, "relay", 51), got("d", A, "interweave", 51), sent("e", 60, [A]), got("e", A, "interweave", 61)], drill=(0, 100))
+        self.assertEqual({p["id"]: p["outcome"] for p in rep["in_drill"]}, {"d": "both", "e": "interweave-only"})
 
     def test_the_drill_is_open_at_its_end_and_a_pair_with_no_copy_in_it_says_none(self):
         rep = run([sent("d", 100, [A]), sent("e", 99, [A])], drill=(0, 100))
