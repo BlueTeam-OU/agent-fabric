@@ -18,6 +18,16 @@ CONTRACT
                    the record, written atomically; mode names one of MODES. Under the agent lock when state_dir is None (the
                    login's own directory, which its other writers share); with an explicit state_dir no lock is taken, the
                    login's lock protecting nothing there.
+  ENV              GZCOORD_TRANSPORT_MODE: the one-command override (plan section 6, D10). When set and not empty it names the mode
+                   of THIS command, whatever the state file says, and the file is not read (a damaged file does not stop the
+                   command that overrides it: that is what the override is for). A value that is not one of MODES raises
+                   ModeError: an unknown mode is never read as the default. Empty is read as unset, as a shell's `VAR= cmd`
+                   means. Only the commands that build a transport (send, inbox, replay, the watch) and the presence child
+                   they start honour it; the signed action, the fleet's reads and the backfill report the account's file.
+  effective(state_dir, env, say)
+                   the Mode a command runs in: the override when set, else read(). `say` is called once with the line that
+                   tells the override is in force ("every time it is used"); a repeated read of the same command (the watch's
+                   poll, the presence child) passes none.
   Nothing here says what a mode sends or reads: that is the transports' (W6 to W8). open_transport only carries the mode
   on the mux it returns."""
 from __future__ import annotations
@@ -36,6 +46,7 @@ CARRIER_ONLY = "carrier-only"
 MODES = (RELAY_RECORD, CARRIER_RECORD, CARRIER_ONLY)
 DEFAULT = RELAY_RECORD
 FILE = "transport-mode.json"
+ENV = "GZCOORD_TRANSPORT_MODE"
 
 
 class ModeError(Exception):
@@ -79,6 +90,24 @@ def read(state_dir: str | None = None) -> dict:
     return {"mode": doc["mode"], "set_by": doc.get("set_by"), "set_at": doc.get("set_at")}
 
 
+def effective(state_dir: str | None = None, env: dict | None = None,
+              say: Callable[[str], None] | None = None) -> dict:
+    value = (os.environ if env is None else env).get(ENV)
+    if not value:
+        return read(state_dir)
+    if value not in MODES:
+        shown = value if len(value) <= 40 and value.isprintable() else value[:40].encode("unicode_escape").decode("ascii") + "..."
+        raise ModeError(f"{ENV}={shown} is not a transport mode ({', '.join(MODES)}); unset it or name one of them")
+    if say is not None:
+        say(f"gzcoord: transport mode {value} for this command, from {ENV} (the account's own mode is not read)")
+    return {"mode": value, "set_by": ENV, "set_at": None}
+
+
+def say_stderr(line: str) -> None:
+    import sys
+    print(line, file=sys.stderr, flush=True)
+
+
 def write(mode: str, set_by: str, state_dir: str | None = None) -> dict:
     if mode not in MODES:
         raise ValueError(f"the transport mode is one of {', '.join(MODES)}")
@@ -103,7 +132,7 @@ class Watcher:
     it could not read, and it is never moved by one. `changed()` is True once per change."""
 
     def __init__(self, current: str, state_dir: str | None = None, every: float = 5.0,
-                 clock: Callable[[], float] | None = None, reader: Callable[[str | None], dict] = read,
+                 clock: Callable[[], float] | None = None, reader: Callable[[str | None], dict] = effective,
                  on_error: Callable[[str], None] = lambda reason: None) -> None:
         import time
         self.current = current
