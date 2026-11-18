@@ -3,8 +3,8 @@ ADR-029 rule 18, §2): for a window, which carriers each account's reply to each
 long each took, and why the second carrier missed. It measures; whether InterWeave becomes control's record is
 the owner's word on a report made from it (docs/live-checks/), never this code's.
 
-INPUT   `control-arrivals.jsonl` of the operator's account (control_link.ArrivalLog) and, optionally, of the other
-        accounts, each as `LOGIN=FILE`. One JSON line per record that arrived, written by two processes into the
+INPUT   `control-arrivals.jsonl` of the operator's account (control_link.ArrivalLog), as `LOGIN=FILE`; only that file is
+        read for pairs and causes (other accounts' files are accepted and listed, and contribute nothing yet). One JSON line per record that arrived, written by two processes into the
         one file of an account: `who` "ctl" (fabric-ctl: a `sent`/`sent-alone` line per request it made, with its
         `to`, and a line per reply copy it was shown, by carrier relay|interweave) and "agentd" (the replies its
         carrier routed — verdict ok | no-waiter | held | forged-from — and the requests that came by InterWeave).
@@ -16,7 +16,8 @@ OUTCOME per pair, by the copies fabric-ctl was shown: `both`; `interweave-only` 
         `relay-only` (the miss of the second carrier, with its CAUSE); `none` (cause `timeout`).
 CAUSE   of a relay-only pair, first that the logs show:
           no-waiter   the operator's agentd routed the reply and no session was waiting for it
-          relay-only  none of the above (a refused request copy is no cause: agentd answers both carriers whichever copy it took): the InterWeave copy is not in any log given. Said so, never guessed.
+          relay-only  unknown: the operator's log shows no reason the InterWeave reply is missing (a refused request copy is
+                      no cause: agentd answers both carriers whichever copy it took). Said so, never guessed.
         `sent-alone` requests (control_carrier names the second carrier alone) have no relay copy to be missed.
 DRILL   `--drill START END`: the interval the InterWeave units were stopped. A pair whose request is inside it is
         listed apart and counted in no carrier's delivered or missed: a relay-only answer is what the drill expects.
@@ -145,7 +146,7 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
             row["outcome"] = "both"
         elif "interweave" in got:
             row["outcome"] = "interweave-only"
-            if not p["alone"]:
+            if not p["alone"] and not p.get("unrecorded"):
                 stats["relay"]["missed"] += 1
         else:
             # Not for a request that is not on record as sent in dual, or whose relay copy was never to come.
@@ -153,7 +154,8 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
                 stats["interweave"]["missed"] += 1
             if "relay" in got:
                 row["outcome"] = "relay-only"
-                if "no-waiter" in routed.get(key, ()):
+                # A reply still `held` when agentd last wrote about it was never collected: agentd exits drop the held store with no line.
+                if "no-waiter" in routed.get(key, ()) or ("held" in routed.get(key, ()) and "ok" not in routed.get(key, ())):
                     row["cause"] = "no-waiter"
                 else:
                     row["cause"] = "relay-only"

@@ -30,7 +30,7 @@ CONTRACT
           control-parity --window START END --operator LOGIN --arrivals LOGIN=FILE...
                  [--drill START END] [--json]
                                  the control plane's parity report (ADR-029
-                                 rule 18) from the accounts' control-arrivals.jsonl
+                                 rule 18) from the operator's control-arrivals.jsonl
                                  (control_parity.py): per request and addressee
                                  the carriers its reply came by, p50 and p95 per
                                  carrier, each second-carrier miss with its cause

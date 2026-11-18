@@ -87,6 +87,15 @@ class Pairs(unittest.TestCase):
         rep = run([sent("r1", 0, [OP]), got("r1", OP, "relay", 1), agentd])
         self.assertEqual(pair(rep, "r1", OP)["cause"], "no-waiter")
 
+    def test_a_reply_still_held_at_the_end_of_the_log_was_never_collected_and_is_a_no_waiter(self):
+        held = got("r1", OP, "interweave", 0, who="agentd", verdict="held")
+        rep = run([sent("r1", 0, [OP]), got("r1", OP, "relay", 1), held])
+        self.assertEqual(pair(rep, "r1", OP)["cause"], "no-waiter")
+
+    def test_an_unrecorded_reply_only_interweave_brought_is_no_relay_miss(self):
+        rep = run([got("old", A, "interweave", 5)])
+        self.assertEqual((rep["carriers"]["relay"]["missed"], pair(rep, "old", A)["outcome"]), (0, "interweave-only"))
+
     def test_a_held_reply_that_was_then_delivered_is_no_miss(self):
         rows = [sent("r1", 0, [OP]), got("r1", OP, "relay", 1), got("r1", OP, "interweave", 1),
                 got("r1", OP, "interweave", 0, who="agentd", verdict="held"), got("r1", OP, "interweave", 1, who="agentd", verdict="ok")]
