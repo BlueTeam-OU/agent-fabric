@@ -82,6 +82,7 @@ import os
 import signal
 import sqlite3
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -190,6 +191,24 @@ def parse(text: str):
         raise ValueError(str(e)) from None
 
 
+def stop_on_signals(stop: threading.Event) -> None:
+    stopping = False
+
+    def on_stop(*_: object) -> None:
+        nonlocal stopping
+        # A plain flag, not stop.is_set(), says a stop has begun: a group INT is followed at once by TERM, whose handler
+        # can run nested inside this one's stop.set(). Event.set() holds its non-reentrant lock before the flag is true, so
+        # a nested handler that checked is_set() called set() again and deadlocked the main thread (the shape #645 fixed
+        # in tests/run_python_suites.py, j863).
+        if stopping:
+            return
+        stopping = True
+        stop.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, on_stop)
+
+
 def cmd_run(profile: str | None = None) -> int:
     if os.environ.get("GZCOORD_JOURNAL") == "off":
         return _refuse("GZCOORD_JOURNAL=off: the carrier receives, and a journal-off receive is refused (ADR-064 rule 8, ADR-041 rule 10)")
@@ -237,8 +256,7 @@ def cmd_run(profile: str | None = None) -> int:
     except OSError as e:
         box.close()
         return _refuse(str(e))
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda *_: carrier.stop.set())
+    stop_on_signals(carrier.stop)
     say(f"up as {me.address}, profile {r.profile}, {len(good)} valid roster row(s)")
     try:
         carrier.run()
