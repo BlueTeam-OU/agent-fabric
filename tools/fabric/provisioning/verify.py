@@ -30,14 +30,15 @@ while [ "$#" -ge 2 ]; do
   if [ "$mode" = q ]; then out=$(timeout -k 5 "$AGENT_FABRIC_LINE_TIMEOUT" bash -c "$line" 2>/dev/null; printf 'x%s' "$?")
   else out=$(timeout -k 5 "$AGENT_FABRIC_LINE_TIMEOUT" bash -c "$line"; printf 'x%s' "$?"); fi
   rc=${out##*x}; out=${out%x*}
-  printf 'new-agent-frame\t%s\t%s\n' "$rc" "$(printf '%s' "$out" | base64 -w0)"
+  printf '\nnew-agent-frame\t%s\t%s\n' "$rc" "$(printf '%s' "$out" | base64 -w0)"
 done
 '''
 
 
 class Account:
-    """One shell line as the account, in a LOGIN shell (its profile: what
-    its installers put on PATH), exactly as the worker's as_login runs it.
+    """Shell lines as the account, through ONE login shell (its profile: what
+    its installers put on PATH), each line a child `bash -c` of it with its own
+    bound, so an unexported profile variable is not seen (run_many).
     The PATH is re-asserted INSIDE the shell: Debian's /etc/profile assigns
     PATH outright for a non-root login, so what env -i set would be gone
     by the time the line runs (found by the Debian smoke container, which
@@ -71,7 +72,7 @@ class Account:
                 out.append(base64.b64decode(payload, validate=True))
             except (binascii.Error, ValueError) as exc:
                 raise ReadbackError(f"a read-back's answer as {self.login} is not what the shell frames") from exc
-            if status == "124":
+            if status in ("124", "137"):      # timeout's own, or its -k kill of a line that ignored TERM
                 print(f"new-agent:    sudo: no answer within {bounded.READBACK_TIMEOUT_S} s", file=sys.stderr)
                 out[-1] = b""
         return out

@@ -201,7 +201,8 @@ class Worker:
         got = self.as_login([self.py, "-I", "-c", PATH_PROBE, *paths], login_shell=False, timeout=PROBE_TIMEOUT_S)
         try:
             if got.returncode != 0:
-                raise ValueError(f"the probe exited {got.returncode}")
+                refused = next((ln for ln in (got.stdout or "").splitlines() if ln.startswith("new-agent-path-error: ")), "")
+                raise ValueError(refused.removeprefix("new-agent-path-error: ") or f"the probe exited {got.returncode}")
             tags = parse_tags(got.stdout or "", "path")
             if sorted(tags) != sorted(str(i) for i in range(len(paths))) or not set(tags.values()) <= {"dir", "file", "other", "absent"}:
                 raise ValueError("it answered other than one kind per path")
@@ -240,7 +241,10 @@ for i, p in enumerate(sys.argv[1:]):
         kind = "dir" if stat.S_ISDIR(m) else "file" if stat.S_ISREG(m) else "other"
     except (FileNotFoundError, NotADirectoryError):
         kind = "absent"
-    print("new-agent-path\\t%d\\t%s" % (i, kind))
+    except OSError as e:
+        print("new-agent-path-error: %s: %s" % (p, e.strerror), flush=True)
+        sys.exit(1)
+    print("new-agent-path\\t%d\\t%s" % (i, kind), flush=True)
 """
 
 # A batched step's answer: one "new-agent-<kind><TAB><name><TAB><value>" line per check on stdout. A login shell's profile may print
@@ -274,7 +278,8 @@ def pin_problem(root: str) -> str | None:
 
 
 def tail(text: str, n: int = 5) -> None:
-    for line in (text or "").splitlines()[-n:]:
+    # The batched steps' own tag lines are the protocol, not what a person needs to read.
+    for line in [ln for ln in (text or "").splitlines() if not ln.startswith(("new-agent-path\t", "new-agent-step\t"))][-n:]:
         _log(line + "\n")
 
 
@@ -431,7 +436,7 @@ def trust_github_host_keys(w: Worker) -> None:
 # a branch other than main, a failed fetch, commits not on origin/main, a failed merge. One tag line per check it reached. In a dry
 # run only the branch is read: the fetch and the merge are said, never made.
 FABRIC_UPDATE = r'''repo=$1; mode=$2
-tag() { printf 'new-agent-step\t%s\t%s\n' "$1" "$2"; }
+tag() { printf '\nnew-agent-step\t%s\t%s\n' "$1" "$2"; }   # a leading newline: a profile's unterminated line cannot glue to the tag
 branch=$(git -C "$repo" symbolic-ref -q --short HEAD 2>/dev/null); tag branch "$branch"
 [ "$branch" = main ] && [ "$mode" = real ] || exit 0
 timeout 60 git -C "$repo" fetch -q origin main; rc=$?; tag fetch "$rc"; [ "$rc" = 0 ] || exit 0
@@ -496,6 +501,8 @@ def fabric_checkout(w: Worker) -> None:
 
 def finish(w: Worker) -> int:
     a = w.a
+    # A project named twice is one project: the batched answers below are read once, before any clone or install.
+    a.projects = list(dict.fromkeys(a.projects))
     w.settle_home()
     for pid in a.projects:
         # A Python probe (ADR-040) is run with the pin; a project that still has a script gets it run by bash.
@@ -514,6 +521,7 @@ def finish(w: Worker) -> int:
                 _log(f"   {line}\n")
     # ---- 6. each project's clone, as the account, over SSH
     # One question for every project, asked before the first clone: a clone of one makes nothing the others ask about.
+    # (Duplicates were removed above: a second pass over a name would read this stale answer.)
     clone_git = {pid: os.path.join(w.home, "projects", pid, ".git") for pid in a.projects}
     held = w.path_kinds(list(clone_git.values()))
     for pid in a.projects:
@@ -525,7 +533,6 @@ def finish(w: Worker) -> int:
             w.must_as_login(["git", "clone", "-q", remote, os.path.join(w.home, "projects", pid)],
                             f"git clone -q '{remote}' ~/projects/'{pid}'")
             w.say(f"6. {pid} cloned from {remote}")
-            held[clone_git[pid]] = "dir"    # a project named twice finds its first clone
     # Step 4's https clone is the one that stays when agent-fabric is not a --project: the loop above never saw it.
     # A dry run has made no clone yet, so there is nothing to read. Asked after the clones, with the operator checkout's
     # module: a clone of agent-fabric as a project can bring that module.

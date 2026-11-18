@@ -484,7 +484,8 @@ def main() -> int:
                 finally:
                     os.chmod(os.path.join(home, "locked"), 0o700)
             check("a path the account cannot stat stops the run, naming the step: not read as absent",
-                  stopped == 1 and "step failed: could not read 1 path(s)" in err.getvalue() and "nothing after it ran" in err.getvalue(), err.getvalue())
+                  stopped == 1 and "step failed: could not read 1 path(s)" in err.getvalue() and "nothing after it ran" in err.getvalue()
+                  and os.path.join(home, "locked", "child") in err.getvalue() and "Permission denied" in err.getvalue(), err.getvalue())
     for label, stdout, rc in (("no answer at all", "", 0), ("a kind for only one of two paths", "new-agent-path\t0\tdir\n", 0),
                               ("a repeated index", "new-agent-path\t0\tdir\nnew-agent-path\t0\tdir\n", 0),
                               ("an unknown kind", "new-agent-path\t0\tdir\nnew-agent-path\t1\tmaybe\n", 0),
@@ -505,6 +506,26 @@ def main() -> int:
     with mock.patch.object(w, "account_exists", lambda: True), mock.patch.object(
             w, "as_login", lambda *a, **k: subprocess.CompletedProcess(a, 0, "profile noise\nnew-agent-path\t0\tdir\nmore\nnew-agent-path\t1\tfile\n", None)):
         check("(control) a profile's own lines around the tag lines are ignored", w.path_kinds(["/a", "/b"]) == {"/a": "dir", "/b": "file"})
+
+    # A project named twice is one project: its clone and its install are asked about once, before either is made.
+    seen_paths: list = []
+
+    def dup_fake(cmd, **kw):
+        if cmd[:1] == ["getent"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if worker.PATH_PROBE in cmd:
+            seen_paths.append(cmd[cmd.index(worker.PATH_PROBE) + 1:])
+            return subprocess.CompletedProcess(cmd, 0, stdout="".join(f"new-agent-path\t{i}\tabsent\n" for i in range(len(seen_paths[-1]))), stderr="")
+        raise Reached
+    w = make_worker("--clone", "demo=git@h:o/demo.git", "--project", "demo", "--project", "demo")
+    w.a.phase = "finish"
+    with mock.patch.object(subprocess, "run", dup_fake), redirect_stderr(io.StringIO()):
+        try:
+            worker.finish(w)
+        except Reached:
+            pass
+    check("a project named twice is asked about once: one .git path, the list without the repeat", w.a.projects == ["demo"]
+          and len(seen_paths) == 1 and len(seen_paths[0]) == 1, f"{w.a.projects} {seen_paths}")
 
     print("j168: step 4 in one login shell, each check keeping its failure class")
 

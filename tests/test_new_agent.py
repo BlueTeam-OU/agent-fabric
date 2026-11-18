@@ -469,7 +469,7 @@ def main() -> int:
         sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
         os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
         try:
-            slow = vf.Account("acct", home, f"{tmp}/vbin/sudo").run_many(["sleep 20", "echo after"])
+            slow = vf.Account("acct", home, f"{tmp}/vbin/sudo").run_many(["echo partial; sleep 20", "echo after"])
             sys.stderr.flush()
             said_slow = sys.stderr.buffer.getvalue().decode()
         finally:
@@ -478,6 +478,26 @@ def main() -> int:
             os.environ["PATH"] = saved_path
         check("…a line that outruns its bound answers nothing, says so, and the lines after it are still answered",
               slow == [b"", b"after\n"] and "no answer within 1 s" in said_slow, f"{slow} {said_slow}")
+        # An unterminated line a profile prints must not glue to the first frame (the review's risk): the frame starts its own line.
+        put(f"{home}/.bash_profile", "printf 'no newline at the end'\n")
+        os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
+        try:
+            glued = vf.Account("acct", home, f"{tmp}/vbin/sudo").run_many(["echo ok"])
+        finally:
+            os.environ["PATH"] = saved_path
+            os.remove(f"{home}/.bash_profile")
+        check("…a profile's text with no newline at its end does not glue to the first frame", glued == [b"ok\n"], glued)
+        saved_t, bounded.READBACK_TIMEOUT_S = bounded.READBACK_TIMEOUT_S, 1
+        os.environ["PATH"] = f"{tmp}/vbin:{saved_path}"
+        saved_err = sys.stderr
+        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+        try:
+            stubborn = vf.Account("acct", home, f"{tmp}/vbin/sudo").run_many(["trap '' TERM; echo partial; sleep 30"], quiet=frozenset())
+        finally:
+            sys.stderr = saved_err
+            bounded.READBACK_TIMEOUT_S = saved_t
+            os.environ["PATH"] = saved_path
+        check("…a line that ignores TERM is killed after its grace and answers nothing, like a plain timeout", stubborn == [b""], stubborn)
         for label, shell in (("no frame at all", "exit 0"), ("one frame for two lines", "printf 'new-agent-frame\\t0\\tYQ==\\n'"),
                              ("a frame whose answer is not base64", "printf 'new-agent-frame\\t0\\t!!!\\nnew-agent-frame\\t0\\t\\n'"),
                              ("a frame of the wrong shape", "printf 'new-agent-frame\\t0\\nnew-agent-frame\\t0\\t\\n'"),
