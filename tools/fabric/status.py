@@ -58,7 +58,8 @@ undrained_memories ({drainable, no_roles_class, oldest_ms, bound_days, since, di
 base_url_host, session_model, launch_profile, pins, credentials,
 claude_sign_in}), capabilities ({class: line}), engines ({"<provider> <class>":
 line}, the engine providers' classes), routing_check ("clean" or
-a list), host_tools ({moveto, python, journal, agentd, claude, inbox, account_switch, managed}; agentd's status
+a list), host_tools ({moveto, python, journal, agentd, claude, inbox, carrier_journal, account_switch, managed}; carrier_journal's status
+none, ok, journal-refused or unknown, printed only for the last two; agentd's status
 python, refused, drift, none or unknown), control_plane.
 """
 from __future__ import annotations
@@ -528,6 +529,7 @@ def build_report(root, environ=None, cred_environ=None):
     claude = claude_state(drift, root)
     managed = managed_state(root)
     inbox = inbox_state(drift, root, ctx)
+    carrier_refusals = carrier_journal()
     journal = episodic_journal(root)
     agentd = agentd_implementation(root, ctx["agent"], environ)
     switch = account_switch(root, ctx["state_dir"])
@@ -562,7 +564,7 @@ def build_report(root, environ=None, cred_environ=None):
         "engines": engines,
         "routing_check": "clean" if not checks else checks,
         "host_tools": {"moveto": moveto, "python": python, "journal": journal, "agentd": agentd, "claude": claude, "inbox": inbox,
-                       "account_switch": switch, "managed": managed},
+                       "carrier_journal": carrier_refusals, "account_switch": switch, "managed": managed},
         "control_plane": root,
     }
     return report, base
@@ -682,6 +684,29 @@ def inbox_state(drift, root, ctx, relay=None, home=None, carrier=None):
     cap = "+" if d["capped"] else ""
     text = f"{d['unread']}{cap} unread, the oldest {_age_words(d['lag_s'])} old (seq {d['oldest_unread_seq']}; relay newest {d['newest_seq']})"
     return {**d, "status": "lag" if d["lagging"] else "ok", "detail": text}
+
+
+def carrier_journal(**opts):
+    """Arrivals the second carrier's journal refused since it started, as a host_tools line: `status` none (no carrier, or
+    none refused: not printed), `unknown` (a carrier there that cannot be read: printed, never taken for a zero), or
+    `journal-refused` with the count and the last error. `opts` are position.journal_refusals' seams, a test's."""
+    from gzcoord.carrier import CARRIER_LABEL, position
+    try:
+        d = position.journal_refusals(**opts)
+    except Exception as e:  # noqa: BLE001 — a status line, never a traceback
+        return {"status": "unknown", "detail": str(e)[:200]}
+    if d["status"] == "none":
+        return {"status": "none", "detail": f"no {CARRIER_LABEL} carrier running"}
+    if d["status"] != "ok":
+        return {"status": "unknown", "detail": d["reason"]}
+    if not d["not_journaled"]:
+        return {"status": "ok", "detail": "no arrival refused by the journal", "not_journaled": 0, "last": None}
+    last = d["last"]
+    why = (f"; the last, {last['mid']} at {last['at']}: {last['error']}" if last
+           else "; this carrier version does not report the last error")
+    return {"status": "journal-refused", "not_journaled": d["not_journaled"], "last": last,
+            "detail": f"{d['not_journaled']} arrival(s) not journaled since the {CARRIER_LABEL} carrier started: not receipted, "
+                      f"the sender retries them{why}. Restart the carrier unit after a journal schema move"}
 
 
 def carrier_position(mode_state_dir, **opts):
@@ -845,6 +870,9 @@ def render(report, base):
         tool = report["host_tools"].get(name)
         if tool:
             p(f"{name:<12} {tool['detail']}" if tool["status"] in ("ok", "none", "unpinned") else f"{name:<12} {tool['status'].upper()}: {tool['detail']}")
+    refused = report["host_tools"].get("carrier_journal")
+    if refused and refused["status"] not in ("none", "ok"):      # a zero says nothing: the line is for a refusal or a carrier that cannot be read
+        p(f"carrier      {refused['status'].upper().replace('-', ' ')}: {refused['detail']}")
     managed = report["host_tools"].get("managed")
     if managed:
         p(f"managed      {managed['detail']}" if managed["status"] != "unknown" else f"managed      UNKNOWN: {managed['detail']}")

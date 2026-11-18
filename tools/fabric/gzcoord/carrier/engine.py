@@ -91,6 +91,9 @@ class Carrier:
     stop: threading.Event = field(default_factory=threading.Event)
     wake: threading.Event = field(default_factory=threading.Event)
     counters: Counters = field(default_factory=Counters)
+    # The last arrival the journal refused: {"mid", "at", "error"}. A refusal is never receipted, so the sender retries it for as
+    # long as it lasts; the count alone says that it happened, not why, and the log line is gone with the unit's journal of the day.
+    last_not_journaled: dict | None = None
     # Anything that changes when the roster file does; polled, and the roster
     # re-verified when it moves (verification runs gpg: not per message).
     roster_stamp: Callable[[], object] = lambda: None
@@ -198,6 +201,7 @@ class Carrier:
                     p["awaiting_receipt"] += 1
                 p["oldest"] = min(p["oldest"], d.queued_at)
             return {"outstanding": out, "recipients": per, "counters": self.counters.__dict__.copy(),
+                    "not_journaled_last": None if self.last_not_journaled is None else dict(self.last_not_journaled),
                     "connected": bool(self.session and self.session.alive), "now": now}
 
     def handle_request(self, req: dict) -> dict:
@@ -368,6 +372,7 @@ class Carrier:
                 self.journal(text, ts, sender)
             except Exception as e:  # noqa: BLE001 — a journal that cannot keep it is a refusal to receipt
                 self.counters.not_journaled += 1
+                self.last_not_journaled = {"mid": mid, "at": self.iso_now(), "error": f"{type(e).__name__}: {e}"[:200]}
                 log(f"the journal could not keep {mid}: {type(e).__name__}: {e}")
                 return
             # Every addressed arrival is listed by `unseen` until the shown ledger settles
