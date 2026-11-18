@@ -49,7 +49,11 @@ the terminal that started it.
   of its past. Every session on the host is a client of it; every
   managed project's integration joins the same channel, the client's channel (`projects/clients.json`);
   the control plane rides it on `fabric:control` (ADR-029). Hosting it is
-  fabric-coordinator's duty.
+  fabric-coordinator's duty. For GZCoord messages the record moves account
+  by account (A 2026-11-18): an account in `carrier-record` has InterWeave
+  as its transport of record and the relay as its mirror, both ways, kept
+  whole by the mirror post and the backfill (ADR-064 rules 7 and 11); an
+  account in `relay-record` keeps the relay's. Control stays on the relay.
 - **The human relay is the fallback.** When the relay is down, a person
   carries messages between terminals and is the adapter;
   `communication/gzcoord/docs/HUMAN-RELAY-TRANSPORT.md` is the procedure.
@@ -146,8 +150,10 @@ lets the decentralisation direction (ADR-000, P5) be measured against it.
   keeps binding loopback (ADR-064 rule 1, ADR-029 §7).
 - InterWeave carries GZCOORD/1 beside this relay on the relay's host
   (ADR-064), and will carry the control records once ADR-029 rule 18's
-  carrier is built and switched on; the relay stays the transport of
-  record for both until the owner's word.
+  carrier is built and switched on. The owner's word for the data plane's
+  first gate is given (A 2026-11-18): §2, ADR-064 rule 11. The relay
+  stays the record for control, and for an account still in
+  `relay-record`, until later gates.
 - A per-instance credential on the relay would make its `sender`
   authenticated; none exists.
 - An automated transport that exercises the grammar is what reopens the
@@ -155,8 +161,11 @@ lets the decentralisation direction (ADR-000, P5) be measured against it.
 
 ## 8. Decision Status
 
-Accepted. Telegram is retired, the relay is the transport, the human
-relay is the fallback, and the relay is central.
+Accepted. Telegram is retired, the relay is central and carries
+control, the human relay is the fallback. For GZCoord messages the relay
+is the transport of record of an account in `relay-record` and the
+mirror of one in `carrier-record`, whose record is InterWeave
+(A 2026-11-18).
 
 ## References
 
@@ -186,3 +195,4 @@ The body above reads current; each change's full note is in [history/ADR-033-ame
 | 2026-10-04 | cccc recorded as a refused alternative | §3: the owner's refusal, carried until now in a project's rationale slice |
 | 2026-10-13 | a persona marked as AI is not a human-style identity (ADR-056) | §5 rule 3 |
 | 2026-10-28 | A second host is reached over InterWeave, not by the relay | §7 first and second bullets |
+| 2026-11-18 | The data plane's first gate: an account in `carrier-record` has InterWeave as its record, the relay as its mirror | §2 third bullet, §7 second bullet, §8 |

@@ -7,6 +7,7 @@ and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in
 each gate's word is given. W2 to W14 and W17 are done (§5): W6, W7 and W8 merged as
 #613, W7's Stop-hook probe is on #612, W11 and W17's code are #623, W17's records
 were amended 2026-11-16, and W2's parity report, gate 1's last item, was filed 2026-11-18.
+The owner gave gate 1's word on 2026-11-18; ADR-033 and ADR-064 are amended for it.
 
 A plan for the owner's review, drafted for fabric-coordinator. It decides nothing: every step
 that changes what carries a message waits for the owner's word and the record named beside it
@@ -177,7 +178,8 @@ The owner's word is asked three times, each on evidence filed in `docs/live-chec
 landing as records only fabric-coordinator writes. Nothing in the grammar changes, so ADR-032 is
 not amended; what the carrier observes of ordering and loss is the evidence its §7 waits for.
 
-**Gate 1: InterWeave becomes the transport of record** (ADR-064 rule 11, as written). Evidence:
+**Gate 1: InterWeave becomes the transport of record** (ADR-064 rule 11, as written). Given by
+the owner on 2026-11-18. Evidence:
 
 1. #573 merged (done, 2026-11-13), and its missing read-back done: a message through the real
    carrier to a second account, shown once, then found on the relay after its return. Filed:
@@ -392,7 +394,7 @@ in this order:
 
 1. **W2**, done 2026-11-18: the parity report with no InterWeave miss is gate 1 item 4. The
    rollback drill (2026-11-12) and the relay-outage drill (2026-11-15) are items 2 and 3. With
-   W1 this is everything gate 1 asks for; the owner's gate-1 word is next.
+   W1 this is everything gate 1 asks for; the owner gave gate 1's word on 2026-11-18.
 2. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
    gate 3. D8's soak follows gate 1's word, not before it: the word moves python-dev-02 and
    python-dev-03 to `carrier-record` (§6 step 1), they soak three working days, then the fleet

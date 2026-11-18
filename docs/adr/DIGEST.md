@@ -831,6 +831,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-04 — cccc recorded among the refused alternatives (§3).
 - A 2026-10-13 — a persona marked as AI is not a human-style identity (§5 rule 3).
 - A 2026-10-28 — a second host is reached over InterWeave (§7).
+- A 2026-11-18 — gate 1: an account in `carrier-record` has InterWeave as its record, the relay as its mirror; control stays on the relay (§2, §7, §8).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
@@ -1527,6 +1528,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-14 — a coordinator with no fixed address reaches the second host at a public forward from any source, on the owner's word: admission by roster PeerId, exposure a known limit (rule 1).
 - A 2026-11-15 — drills read the watch log (starts, give-ups); a carrier-outage drill is judged by `parity --carrier-drill`: held, the carrier's one copy after (a relay mirror copy beside it), shown once (rule 11).
 - A 2026-11-16 — journal off: the mode's primary, no mirror; the carrier in a carrier mode, a receive refused (rule 8).
+- A 2026-11-18 — gate 1: the record is the account's mode's, InterWeave in `carrier-record`; its acceptance sets the journal row, the exit status the primary's (§2, rules 7, 11).
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
