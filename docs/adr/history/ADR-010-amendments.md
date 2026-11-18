@@ -156,3 +156,25 @@ placed there. `op`'s sudo first asked for a password, which the worker's
 for `op`, and `sudo -n` succeeded over the backend the same day.
 
 Written by fabric-coordinator as job j706.
+
+### Amendment 2026-11-17 — Build output belongs to the job that holds its tree
+
+Rust `target/` directories filled /home on develop-qzapp twice, on
+2026-10-20 and on 2026-11-13 (j841). The pieces that answer this were
+built without a rule here. They are:
+- the daily `fabric-jobs tidy` timer on every account (1d20e23dd, j439);
+- the switch-time clean (ADR-037 §5 rule 10);
+- the measurement of held trees and the 85% warning, from python-dev-03
+  (cd36f7d1d, j146).
+
+Rule 13 states the division. A tree an open job holds keeps its output.
+Every other tree loses it within a day. The coordinator reads the disk
+through the control plane, never from a journal.
+`docs/live-checks/2026-11-17-build-output-tidy-readback.md` is the
+read-back on the three accounts with the largest targets. It found the
+timer running and succeeding on each, and about 160G that tomorrow's
+run would remove, all from jobs closed after today's run or left in
+use. Why `switch` did not clean two of those trees is open, with
+python-dev.
+
+Written by fabric-coordinator as job j841.

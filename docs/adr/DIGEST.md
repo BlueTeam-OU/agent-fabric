@@ -309,8 +309,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-19 — `full-suite`: one full local test run at a time (§5 rule 9).
 - A 2026-10-28 — `cpu`, N slots with a thread budget, taken by shims ahead of cargo and dotnet and by tests/run.py (§5 rules 9-11).
 - A 2026-11-11 — ssh backend read back on fabric-h2, the second host; `--as` not yet (§7).
+- A 2026-11-17 — build output belongs to the job that holds its tree: a daily tidy on every account, switch cleans the left job's cargo targets, 85% warning, disk read via fabric-ctl (§5 rule 13).
 - Keywords: host, placement, hostexec, fabric-host, ssh, provisioning,
-  new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM, cpu, load, cargo, dotnet, shim.
+  new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM, cpu, load, cargo, dotnet, shim, disk, target, tidy.
 
 ### ADR-011 — Managed projects consume the fabric at a pinned ref (Accepted)
 
@@ -494,6 +495,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-05 — `record_paths`: the owner's ruling arms (rule 1).
 - A 2026-11-10 — `fabric-pr disarm`: withdrawn with a basis; another's PR on a word (rule 5).
 - A 2026-11-12 — organisation's names and counts out: direct projects, counts, account, access are policy data (rules 1, 4, 6, §6).
+- A 2026-11-14 — under the minimum, bundle queued jobs of any topic first; a word only for what cannot wait (rule 4).
 - Keywords: Answers, armed_status, disarm.
 
 ### ADR-020 — The review class is the review (Accepted)

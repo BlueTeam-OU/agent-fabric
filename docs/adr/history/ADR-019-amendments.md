@@ -239,3 +239,25 @@ its collaborator. `policies/arming.json` already says the counts are the
 policy's, so the record points at the data (docs/split/adr-classification.md,
 the table row and "Decided"). The numbers were not changed, only where the
 record states them: the values stay in `policies/arming.json`.
+
+### Amendment 2026-11-14 — under the minimum, bundle first
+
+What changed: §2 and §5 rule 4 say what an agent does with a PR under
+the repository's minimum before it asks for any word: its queued jobs in
+that repository ride the PR as further work commits, whatever their
+topic, until the count reaches the minimum. A word below the minimum,
+the owner's or the arming authority's, is for work that cannot wait (a
+broken `main`, a path the owner has put first). `identities/prompt/team.md`
+and `policies/pull-requests/SKILL.md` say the same.
+
+Why: the owner, 2026-11-14, after agent-fabric's CI grew long: "PR should
+move to 8 minimum commits like gzapp ... and agents must be encouraged to
+put together even jobs to reach 8". Each PR costs a full CI run, a review
+and an arming, so one PR of eight unrelated jobs costs less than eight of
+one. This replaces a rule the owner gave on 2026-11-12, that only work of
+the open PR's topic rides it, which was queued (j807) and never landed.
+The minimum itself is not this record's: agent-fabric's moves from 1 to
+the fleet's 8 in its settings repository (`repos/agent-fabric.json`,
+`commits.min`), with `commits.below_min_authority` fabric-coordinator.
+Applied to PRs opened after the settings change; those open before it keep
+the word they were given. j885.

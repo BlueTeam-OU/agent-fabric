@@ -239,9 +239,16 @@ def on_stop(signum: int, _frame: object) -> None:
     """The first signal ends the run's work; a second changes nothing (a runner's cancel sends INT, then TERM). The suites'
     trees get TERM once; whatever is still running after the grace is KILLed, so the run ends within about the grace."""
     global stop_signal
-    if stopping.is_set():
+    # A plain global, not the Event, says a stop has begun: a group INT is followed at once by run.py's TERM, whose handler
+    # can run nested inside this one's stopping.set(). Event.set() holds its non-reentrant lock before the flag is true, so
+    # a nested handler that checked is_set() called set() again and deadlocked the main thread, and the workers with it in
+    # stopping.wait(); run.py KILLed the runner 10 s later and its suites' output was lost (j863, CI run 44108957646).
+    if stop_signal:
         return
     stop_signal = signum
+    # A nested signal that landed between the check and the store has done all of what follows.
+    if stopping.is_set():
+        return
     stopping.set()
     with running_lock:
         procs = list(running)
