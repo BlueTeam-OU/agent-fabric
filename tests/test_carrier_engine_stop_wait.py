@@ -31,6 +31,9 @@ if sys.argv[2] == "event":
 else:
     stop = engine.Carrier.__dataclass_fields__["stop"].default_factory()
     carrier_main.stop_on_signals(stop)
+    # Off the main thread on purpose: raise() from the Timer thread leaves the main thread's lock acquire uninterrupted, so
+    # a threading.Event as the stop is still waiting at the deadline. A process-directed os.kill would interrupt that
+    # acquire while the lock is free and let an Event pass; the held-lock window itself is the positive control's.
     threading.Timer(0.3, lambda: signal.raise_signal(signal.SIGTERM)).start()
     t0 = time.monotonic()
     got = stop.wait(30)
@@ -74,12 +77,14 @@ def main() -> int:
     check("wait(0.25) times out false in slices of at most SLICE", g.wait(0.25) is False and max(ticks) <= g.SLICE
           and abs(sum(ticks) - 0.25) < 1e-9, str(ticks))
     t = [0.0]
+    slept: list[float] = []
 
     def sleep_then_set(s: float) -> None:
         t[0] += s   # time moves, so a flag that ignores set() times out false instead of looping
+        slept.append(s)
         h.set()
     h = engine.StopFlag(sleep=sleep_then_set, clock=lambda: t[0])
-    check("a flag set during a slice ends the wait true", h.wait(5) is True)
+    check("a flag set during a slice ends the wait true", h.wait(5) is True and len(slept) == 1, f"slept {len(slept)} slices")
 
     def boom(s: float) -> None:
         raise AssertionError("slept")
