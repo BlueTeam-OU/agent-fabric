@@ -57,8 +57,10 @@ WHAT THE CHILD DOES NOT TELL US, said so a reader does not look for it:
 the `outbound` event is printed twice per send (same ref, id and status), and
 `accepted` is the daemon taking the message, not the peer receiving it: the
 reply is the receipt (ADR-029 rule 18's source, docs/proposals/j422 §4.3).
-interweave-human is not in release.json `reports` or `program_sha256` yet
-(j422 F1), so its digest is not checked here; its `--version` is logged.
+interweave-human is in release.json `reports` and `program_sha256` from
+0.3.0 (j422 F1): the install and `fabric-ctl interweave` check its
+`--version`, but nothing here checks its digest before the child is spawned;
+its `--version` is logged.
 """
 from __future__ import annotations
 
