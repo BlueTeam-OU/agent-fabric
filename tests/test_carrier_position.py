@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -286,6 +287,83 @@ class Stranded(unittest.TestCase):
 def position_op_name() -> str:
     from control.carrier_install import CARRIER_NAME
     return CARRIER_NAME
+
+
+class JournalRefusals(unittest.TestCase):
+    """The carrier's not_journaled count, which fabric-status names when nonzero (job j166, ADR-064 rule 11): an arrival the
+    journal refused is never receipted, so a unit left running over a schema move holds every arrival until restarted."""
+
+    RD = "/run/user/1"
+
+    def read(self, counters, last=..., ok=True, exists=True):
+        def call(path, req, timeout=15.0):
+            assert req == {"op": "status"}
+            out = {"ok": ok, "outstanding": [], "recipients": {}, "counters": counters}
+            if last is not ...:
+                out["not_journaled_last"] = last
+            return out
+        with unittest.mock.patch("os.path.exists", return_value=exists):
+            return position.journal_refusals(call, self.RD)
+
+    LAST = {"mid": "M-6", "at": "2026-11-18T10:05:34Z", "error": "OSError: journal is held"}
+
+    def test_a_count_with_its_last_error(self):
+        d = self.read({"not_journaled": 3}, self.LAST)
+        self.assertEqual(d, {"status": "ok", "not_journaled": 3, "last": self.LAST})
+
+    def test_a_carrier_older_than_the_field_has_a_count_and_no_last_error(self):
+        self.assertEqual(self.read({"not_journaled": 2}), {"status": "ok", "not_journaled": 2, "last": None})
+
+    def test_no_socket_is_nothing_to_say_and_a_socket_that_cannot_be_read_is_unknown(self):
+        self.assertEqual(self.read({"not_journaled": 1}, exists=False), {"status": "none"})
+        self.assertEqual(position.journal_refusals(lambda *a, **k: 1 / 0, "relative"), {"status": "none"})
+
+        def gone(path, req, timeout=15.0):
+            raise ConnectionRefusedError("no listener")
+        with unittest.mock.patch("os.path.exists", return_value=True):
+            d = position.journal_refusals(gone, self.RD)
+        self.assertEqual(d["status"], "unknown")
+        self.assertIn("did not answer", d["reason"])
+
+    def test_an_answer_without_a_count_is_unknown_never_zero(self):
+        for counters in ({}, {"not_journaled": "3"}, {"not_journaled": True}, {"not_journaled": -1}, None):
+            self.assertEqual(self.read(counters)["status"], "unknown", counters)
+        self.assertEqual(self.read({"not_journaled": 0}, ok=False)["status"], "unknown")
+
+    def test_fabric_status_line_for_a_refusal_names_count_error_and_the_fix(self):
+        with unittest.mock.patch("os.path.exists", return_value=True):
+            line = status.carrier_journal(call=lambda path, req, timeout=15.0: {
+                "ok": True, "counters": {"not_journaled": 18}, "not_journaled_last": self.LAST}, runtime_dir=self.RD)
+        self.assertEqual((line["status"], line["not_journaled"], line["last"]), ("journal-refused", 18, self.LAST))
+        for word in ("18 arrival(s) not journaled since the", "M-6", "OSError: journal is held", "Restart the carrier unit"):
+            self.assertIn(word, line["detail"])
+
+    REPORT = {
+        "agent": "a", "host": "h", "placement": None, "role": None, "project": None, "working_copy": None, "session": None,
+        "binding_updated": None, "launched_role": None, "launch_prompt_digest": None, "drift": None, "session_effort": None,
+        "undrained_memories": None, "jobs": {"active": None, "queued": 0, "paused": 0, "blocked": 0, "delivered": 0},
+        "api": {"provider": "anthropic", "path": "vanilla claude", "base_url_host": None, "session_model": "m", "launch_profile": None,
+                "pins": "none (harness defaults)", "credentials": "none", "claude_sign_in": "own /login"},
+        "capabilities": {"code-low": "haiku"}, "routing_check": "clean", "control_plane": "/r"}
+
+    def rendered(self, entry):
+        return "\n".join(status.render({**self.REPORT, "host_tools": {"moveto": {"installed": False}, "carrier_journal": entry}}, ""))
+
+    def test_a_count_of_zero_prints_nothing_and_a_refusal_prints_one_line(self):
+        zero = {"status": "ok", "detail": "no arrival refused by the journal", "not_journaled": 0, "last": None}
+        for quiet in (zero, {"status": "none", "detail": "no carrier running"}):
+            self.assertNotIn("carrier", self.rendered(quiet).replace("claude sign-in", ""))
+        with unittest.mock.patch("os.path.exists", return_value=True):
+            refused = status.carrier_journal(call=lambda path, req, timeout=15.0: {
+                "ok": True, "counters": {"not_journaled": 2}, "not_journaled_last": self.LAST}, runtime_dir=self.RD)
+        text = self.rendered(refused)
+        self.assertEqual(len([x for x in text.split("\n") if x.startswith("carrier ")]), 1)
+        self.assertIn("carrier      JOURNAL REFUSED: 2 arrival(s) not journaled", text)
+        self.assertIn("carrier      UNKNOWN: boom", self.rendered({"status": "unknown", "detail": "boom"}))
+
+    def test_a_carrier_that_cannot_be_read_never_breaks_the_report(self):
+        with unittest.mock.patch.object(position, "journal_refusals", side_effect=RuntimeError("boom")):
+            self.assertEqual(status.carrier_journal(), {"status": "unknown", "detail": "boom"})
 
 
 if __name__ == "__main__":
