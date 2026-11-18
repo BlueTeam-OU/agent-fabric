@@ -442,9 +442,11 @@ class FabricFx:
         git(self.base, "clone", "-q", origin, self.root)
         self.env = {"PATH": os.environ["PATH"], "HOME": self.base, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
 
-    def advance(self, msg: str) -> str:
-        with open(os.path.join(self.seed, f"{msg}.txt"), "w") as fh:
-            fh.write(msg)
+    def advance(self, msg: str, files: dict[str, str] | None = None) -> str:
+        for rel, text in (files or {f"{msg}.txt": msg}).items():
+            os.makedirs(os.path.dirname(os.path.join(self.seed, rel)), exist_ok=True)
+            with open(os.path.join(self.seed, rel), "w") as fh:
+                fh.write(text)
         git(self.seed, "add", "-A")
         git(self.seed, "commit", "-q", "-m", msg)
         git(self.seed, "push", "-q", "origin", "main")
@@ -640,6 +642,99 @@ class UpgradeFabric(unittest.TestCase):
         r = U.upgrade_fabric(freq(f.head()), **f.opts())
         self.assertEqual((r["status"], r["restart_daemon"]), ("failed", True))
         self.assertNotIn("note", r)
+
+
+ENGINE = {"tools/fabric/gzcoord/carrier/engine.py": "x = 1\n", "runtime/interweave/roster.json": '{"profile": "fleet"}'}
+CLIENT = "interweave-client@fleet.service"
+
+
+class CarrierRestart(unittest.TestCase):
+    """An upgrade whose range touches the code a running carrier loaded restarts its client unit and reads it back (j163)."""
+
+    def fx(self, state: str = "active", restart_rc: int = 0, status_rc: int = 0, manager: str = "answers"):
+        f = FabricFx(self)
+        calls: list[list[str]] = []
+
+        def run(cmd, **kw):
+            if cmd[0] in ("git", "bash"):
+                return U.default_run(cmd, **kw)
+            calls.append(cmd)
+            if cmd[0] == "systemctl" and cmd[2] == "show":
+                if manager == "hangs":
+                    raise subprocess.TimeoutExpired(cmd, 10)
+                return subprocess.CompletedProcess(cmd, 0, f"{state if cmd[-1] == CLIENT else 'inactive'}\n", "")
+            if cmd[0] == "systemctl" and cmd[2] == "restart":
+                return subprocess.CompletedProcess(cmd, restart_rc, "", "")
+            if cmd[-1] == "status":
+                return subprocess.CompletedProcess(cmd, status_rc, "{}", "")
+            return done()
+        return f, calls, run
+
+    def go(self, f, run, target):
+        return U.upgrade_fabric(freq(target), **f.opts(run=run, sleep=lambda _s: None))
+
+    def test_a_range_that_touches_the_engine_restarts_the_client_unit_alone_and_reads_it_back_with_status(self):
+        f, calls, run = self.fx()
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual((r["status"], r["carrier"][:9]), ("upgraded", "restarted"))
+        self.assertEqual([c[2:] for c in calls if c[0] == "systemctl" and c[2] == "restart"], [["restart", CLIENT]], "the client only: the daemon is the release's")
+        kinds = [c[2] if c[0] == "systemctl" else "status" for c in calls]
+        self.assertGreater(kinds.index("status"), kinds.index("restart"), "the read-back is after the restart")
+
+    def test_a_range_that_leaves_the_carriers_code_alone_restarts_nothing_and_asks_nothing(self):
+        f, calls, run = self.fx()
+        r = self.go(f, run, f.advance("two", {"tools/fabric/other.py": "x", "tools/fabric/gzcoord_notes.md": "y"}))
+        self.assertEqual(r["status"], "upgraded")
+        self.assertNotIn("carrier", r)
+        self.assertEqual(calls, [])
+
+    def test_a_current_checkout_has_no_range_and_restarts_nothing(self):
+        f, calls, run = self.fx()
+        r = self.go(f, run, f.head())
+        self.assertEqual((r["status"], calls), ("current", []))
+
+    def test_a_restart_the_manager_refuses_is_the_upgrades_failure_in_its_answer(self):
+        f, calls, run = self.fx(restart_rc=1)
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual(r["status"], "failed")
+        self.assertRegex(r["reason"], rf"^carrier: failed \(restarting {CLIENT} exited 1\)$")
+        self.assertRegex(r["carrier"], r"^failed")
+
+    def test_a_carrier_that_restarts_and_never_answers_status_is_failed_and_not_restarted_ok(self):
+        f, calls, run = self.fx(status_rc=3)
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual(r["status"], "failed")
+        self.assertRegex(r["reason"], r"carrier: failed \(restarted, but the check failed: .*does not answer")
+
+    def test_a_client_that_is_not_running_is_said_and_not_started(self):
+        f, calls, run = self.fx(state="inactive")
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual((r["status"], r["carrier"]), ("upgraded", "not-running"))
+        self.assertEqual([c for c in calls if c[0] == "systemctl" and c[2] != "show"], [])
+
+    def test_a_manager_that_does_not_answer_is_unknown_never_not_running(self):
+        f, calls, run = self.fx(manager="hangs")
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual(r["status"], "failed")
+        self.assertRegex(r["reason"], r"carrier: failed \(the user manager did not answer")
+
+    def test_a_diff_git_cannot_make_is_unknown_not_untouched(self):
+        f, calls, inner = self.fx()
+
+        def run(cmd, **kw):
+            if cmd[0] == "git" and "diff" in cmd:
+                raise failed(cmd, code=128, err="fatal: bad revision")
+            return inner(cmd, **kw)
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertEqual(r["status"], "failed")
+        self.assertRegex(r["reason"], r"carrier: unknown: git diff .*fatal: bad revision; the carrier was not restarted")
+        self.assertEqual(calls, [])
+
+    def test_a_failed_bootstrap_and_a_failed_restart_are_both_in_the_reason(self):
+        f = FabricFx(self, bootstrap_fails=True)
+        _, _, run = self.fx(restart_rc=1)
+        r = self.go(f, run, f.advance("two", ENGINE))
+        self.assertRegex(r["reason"], r"^bootstrap: .*; carrier: failed \(restarting")
 
 
 class PortAdditions(unittest.TestCase):

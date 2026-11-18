@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from control import ctl  # noqa: E402
 from control.gzcoord import whoami as _whoami  # noqa: E402
 from control.sign import (ACTION_TTL_MAX_S, generate_operator_key, private_key_from, public_key_from, verify_request)  # noqa: E402
+from control.carrier_install import CARRIER_RESTART_BUDGET_S  # noqa: E402
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, UPGRADE_BUDGET_S, pinned_version  # noqa: E402
 
 BASE = {"targets": [], "op": "status", "json": False, "timeout": 20, "out": None, "days": None, "piece": None, "version": None, "force": False,
@@ -1005,7 +1006,7 @@ class Actions(unittest.TestCase):
 
     def test_upgrade_fabric_no_version_its_own_wait_a_current_row_names_main_the_commit_sent_is_origin_main_never_head(self):
         a = ctl.parse_args(["all", "upgrade", "fabric"])
-        self.assertEqual([a["piece"], a["timeout"]], ["fabric", FABRIC_UPGRADE_BUDGET_S])
+        self.assertEqual([a["piece"], a["timeout"]], ["fabric", FABRIC_UPGRADE_BUDGET_S + CARRIER_RESTART_BUDGET_S])
         with self.assertRaisesRegex(ctl.CtlError, "takes no --version"):
             ctl.parse_args(["all", "upgrade", "fabric", "--version", "2.1.282"])
         expected = placed("db-admin", "web-dev-01")
