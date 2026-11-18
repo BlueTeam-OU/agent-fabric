@@ -1312,6 +1312,10 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
                         f"({type(e).__name__}: {js.slice(str(e), 200)}){tag}")
                 return
             if not a["ok"]:
+                if a["why"] == "seen" and carrier_box[0] is not None:
+                    # The copy that lost the race to the other carrier's: said in the arrival log, because which copy was
+                    # answered is what the control parity computation names a relay-only row's cause by.
+                    carrier_box[0].carrier.arrivals.add(via, {"kind": "request", "id": rec.get("id")}, "seen")
                 if a["why"] not in QUIET:
                     _stderr(f"agentd: ignored a record {js.stringify(a['why'])}{tag}")
                 return

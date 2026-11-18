@@ -224,6 +224,9 @@ class ArrivalLog:
                 "in_reply_to": r.get("in_reply_to") if isinstance(r.get("in_reply_to"), str) else None,
                 "from": sender if sender is not None else (r.get("from") if isinstance(r.get("from"), str) else None),
                 "op": r.get("op") if isinstance(r.get("op"), str) else None, "verdict": verdict}
+        to = r.get("to")
+        if isinstance(to, list) and all(isinstance(x, str) for x in to):
+            line["to"] = to   # a request's addressees: the parity computation needs who was asked, to see who never answered
         part = (r.get("data") or {}).get("part") if isinstance(r.get("data"), dict) else None
         if isinstance(part, dict):
             line["part"] = f"{part.get('slug')}/{part.get('part')}"

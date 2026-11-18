@@ -157,6 +157,15 @@ class Dual(Harness):
         got = {(a["carrier"], a["who"], a["verdict"]) for a in self.arrivals() if a["kind"] == "reply"}
         self.assertEqual(got, {("interweave", "ctl", "ok"), ("relay", "ctl", "unauthenticated")}, "every arrival, with its carrier")
 
+    def test_the_request_is_logged_with_its_addressees_for_the_parity_computation(self):
+        self.boot("alice")
+        box = self.run_ctl("alice", "ping", "--json", "--timeout", "10")
+        request = self.request_of("alice")
+        self.answer("alice", request)
+        self.assertEqual(self.finish(box), 0, self.err)
+        lines = [a for a in self.arrivals() if a["kind"] == "request"]
+        self.assertEqual([(a["who"], a["id"], a["verdict"], a["to"]) for a in lines], [("ctl", request["id"], "sent", request["to"])])
+
     def test_a_reply_only_the_relay_carried_says_so_in_the_row_and_under_the_table(self):
         self.boot("alice")
         box = self.run_ctl("alice", "ping", "--timeout", "10")

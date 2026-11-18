@@ -27,6 +27,14 @@ CONTRACT
                                  --json lines; it is refused when any account's
                                  collection is incomplete or does not cover the
                                  window. It measures, the owner decides
+          control-parity --window START END --operator LOGIN --arrivals LOGIN=FILE...
+                 [--drill START END] [--json]
+                                 the control plane's parity report (ADR-029
+                                 rule 18) from the accounts' control-arrivals.jsonl
+                                 (control_parity.py): per request and addressee
+                                 the carriers its reply came by, p50 and p95 per
+                                 carrier, each second-carrier miss with its cause
+                                 and the interweave-stop drill marked
           render-config [--write PATH]
                                the profile's config.yaml rendered from the
                                roster for THIS agent; to stdout, or atomically
@@ -86,7 +94,8 @@ from gzcoord.carrier import CARRIER_NAME, admit, arrivals, engine, ipc, record, 
 ADMIT_LOCK_WAIT = 30.0
 USAGE = ("usage: gzcoord-carrier run [--profile P] | status | abandon <message-id> <recipient-login> | "
          "render-config [--write PATH] | roster-row | roster-admit ROW.json --port N | parity --window START END (--arrivals FILE... --senders DIR... "
-         "[--journal DB...] | --collected PATH) [--drill START END] [--relay-drill START END] [--carrier-drill START END LOGIN] [--host HOST]")
+         "[--journal DB...] | --collected PATH) [--drill START END] [--relay-drill START END] [--carrier-drill START END LOGIN] [--host HOST] | "
+         "control-parity --window START END --operator LOGIN --arrivals LOGIN=FILE... [--drill START END] [--json]")
 
 
 def say(msg: str) -> None:
@@ -412,6 +421,9 @@ def main(argv: list[str]) -> int:
         return cmd_roster_admit(rest)
     if cmd == "parity":
         return cmd_parity(rest)
+    if cmd == "control-parity":
+        from gzcoord.carrier import control_parity
+        return control_parity.cmd(rest)
     if cmd == "render-config" and (not rest or (len(rest) == 2 and rest[0] == "--write")):
         return cmd_render(rest[1] if rest else None)
     print(USAGE, file=sys.stderr)
