@@ -135,7 +135,7 @@ def carrier_primary_cases() -> None:
 def sent_ledger_cases() -> None:
     """The sent ledger means "the relay has it" (backfill skips an id on it). With the carrier as the record the relay
     is a mirror: its failure leaves the id off the ledger so the next backfill posts it; relay-record is unchanged."""
-    def ledger_ids(mode_name: str, relay_status: int, run: str) -> tuple:
+    def ledger_ids(mode_name: str, relay_status: int, run: str, **env: str) -> tuple:
         from gzcoord.transport import mode
         relay = P.Relay(status=relay_status)
         base = P.scratch("send-ledger-")
@@ -144,7 +144,7 @@ def sent_ledger_cases() -> None:
         os.makedirs(agent)
         mode.write(mode_name, "h1/op", agent)
         try:
-            r = P.send_with(relay.url, P.VALID, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store, XDG_RUNTIME_DIR=run)
+            r = P.send_with(relay.url, P.VALID, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store, XDG_RUNTIME_DIR=run, **env)
         finally:
             relay.close()
         try:
@@ -168,6 +168,16 @@ def sent_ledger_cases() -> None:
     r, ids = ledger_ids("relay-record", 200, f.run)
     check("relay-record is unchanged: the relay's accept is on the ledger", r.code == 0 and ids == [P.VALID_ID], f"{r.code} {r.err} {ids}")
     f.close()
+    for label, mode_name, env in (("carrier-only", "carrier-only", {}),
+                                  ("GZCOORD_TRANSPORT_MODE=carrier-only on a relay-record account", "relay-record",
+                                   {"GZCOORD_TRANSPORT_MODE": "carrier-only"}),
+                                  ("GZCOORD_TRANSPORT_MODE=carrier-only on a carrier-record account", "carrier-record",
+                                   {"GZCOORD_TRANSPORT_MODE": "carrier-only"})):
+        f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
+        r, ids = ledger_ids(mode_name, 503, f.run, **env)
+        check(f"{label}: the carrier alone takes it (exit 0) and the id is NOT on the sent ledger, so a backfill posts it",
+              r.code == 0 and ids == [], f"{r.code} {r.err} {ids}")
+        f.close()
     f = Fake({"ok": False, "error": "down", "carried": 0, "queued": 0})
     r, ids = ledger_ids("relay-record", 200, f.run)
     check("relay-record, the carrier mirror failing: still on the ledger", r.code == 0 and ids == [P.VALID_ID], f"{r.code} {r.err} {ids}")
