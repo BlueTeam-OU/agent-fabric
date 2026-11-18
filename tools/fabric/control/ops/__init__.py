@@ -91,6 +91,8 @@ def _inbox(ctx: Mapping[str, Any]) -> Any:
     carrier = position.for_mode(ctx.get("mode_state_dir"), **(ctx.get("inbox_carrier_opts") or {}))
     if carrier is not None:
         return carrier
+    if ctx.get("inbox_relay_unread"):
+        return {"status": "unknown", "reason": ctx["inbox_relay_unread"]}
     opts = ctx.get("inbox_opts")
     if opts is None:
         return {"status": "none", "reason": "no relay reader in this context"}

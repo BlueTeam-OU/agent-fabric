@@ -940,6 +940,14 @@ class Wire(Daemon):
         self.assertIn("no host operator", out.stderr)
         self.assertEqual(r.hits, [], "the relay was never contacted")
 
+    def test_dual_with_no_token_is_a_refusal_to_start_too(self):
+        r = self.with_relay()
+        home = self.scratch("agentd-notoken-dual-")
+        out = self.run_once(r.url(), cwd=home, HOME=home, AGENT_FABRIC_ROOT=os.path.join(home, "ws", "fabric"),
+                            GIT_CEILING_DIRECTORIES=os.path.dirname(home), FABRIC_CONTROL_CARRIER="dual")
+        self.assertEqual(out.status, 3, out.stderr)
+        self.assertIn("no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)", out.stderr)
+
     def test_port_no_token_is_a_refusal_to_start_too(self):
         r = self.with_relay()
         home = self.scratch("agentd-notoken-")

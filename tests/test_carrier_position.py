@@ -215,6 +215,15 @@ class Readers(unittest.TestCase):
         s = ops.SECTIONS["inbox"](ctx)
         self.assertEqual((s["status"], s["source"], s["blocked"]), ("ok", "interweave", {"Refused": 1}))
 
+    def test_a_daemon_on_the_second_carrier_alone_still_answers_carrier_only_from_the_carrier(self):
+        self.put(mode.CARRIER_ONLY)
+        ctx = {"mode_state_dir": self.tmp.name, "inbox_relay_unread": "the relay is not read here",
+               "inbox_carrier_opts": self.opts(outstanding=[])}
+        self.assertEqual(ops.SECTIONS["inbox"](ctx)["source"], "interweave")
+        self.put(mode.RELAY_RECORD)
+        s = ops.SECTIONS["inbox"](ctx)
+        self.assertEqual((s["status"], s["reason"]), ("unknown", "the relay is not read here"))
+
     def test_the_status_op_says_unknown_for_a_damaged_mode_and_keeps_no_reader_for_the_others(self):
         with open(mode.path(self.tmp.name), "w") as f:
             f.write("[]")
