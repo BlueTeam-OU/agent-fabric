@@ -527,6 +527,12 @@ unit in auto-restart reads activating and counts as running), and when
 the installed programs are not the pin's (#658 review rounds 1 and 2,
 F1). Its failed check stops what it started and, unlike the signed
 start, which disables both, leaves each unit enabled or disabled as it
-was; it renders no configuration (rounds 2 and 3, F6 and F8). Install, update, restart and stop stay
-as they were. The local command and the watch's
-exit text are python-dev's to build.
+was; it renders no configuration (rounds 2 and 3, F6 and F8). Units that
+are down because an operator stopped them must stay down: a signed stop,
+a drill's window and a failed signed start all leave both units
+disabled, while a crash or an upgrade's restart leaves them enabled. So
+the command also refuses unless both are enabled, and it takes the
+account's install/start/stop lock (ADR-029 rule 12), so it never runs
+beside a signed action (#658 full review, F9). Install, update, restart
+and stop stay as they were. The local command and the watch's exit text
+are python-dev's to build.

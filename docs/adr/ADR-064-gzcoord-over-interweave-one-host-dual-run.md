@@ -357,9 +357,16 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     that needs no operator's signature. The command refuses and touches
     nothing unless both units are inactive or failed: a unit that is
     activating, including one in systemd's auto-restart, counts as
-    running. It also refuses when the installed programs are not the ones
-    `release.json` pins. So it never restarts or stops a running unit,
-    and never runs the programs the pin has moved away from. Nothing else
+    running. It refuses as well unless both units are enabled: a signed
+    stop, a drill and a failed signed start all leave them disabled, and a
+    crash or an upgrade's restart leaves them enabled, so the account
+    restarts only what fell over and never undoes an operator's stop. It
+    also refuses when the installed programs are not the ones
+    `release.json` pins. It takes the account's one lock for install,
+    start and stop (ADR-029 rule 12), so it never runs beside a signed
+    action. So it never restarts or stops a running unit, never starts
+    one an operator stopped, and never runs the programs the pin has
+    moved away from. Nothing else
     of this rule moves to the account: install, update, restart and stop
     stay control-plane actions, and no login touches another account's
     units. Starting units that are both down cannot leave the account
@@ -467,4 +474,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-16 | journal off, a carrier mode sends through the carrier and refuses a receive | §5 rule 8: the route is the mode's primary with no mirror; a receive is refused in `carrier-record` and `carrier-only` (D7, #623) |
 | 2026-11-18 | The data plane's first gate: the record is the account's mode's | §2 dual run; §5 rule 7: in `carrier-record` the carrier's acceptance sets the row, the exit status the primary's alone; §5 rule 11: InterWeave is the record in `carrier-record` (gate 1, ADR-033) |
 | 2026-11-18 | The carrier's own ops when control rides InterWeave alone | rule 14: install, start and stop by the break-glass path; the read over InterWeave, read again by that path after 30 s (#656) |
-| 2026-11-18 | An account starts its own carrier | rule 14: its login starts its own carrier and daemon units when both are down and the pinned programs are installed, unsigned, with the same check; install, update, restart and stop stay control-plane actions |
+| 2026-11-18 | An account starts its own carrier | rule 14: its login starts its own carrier and daemon units when both are down but enabled and the pinned programs are installed, unsigned, under the account's install/start/stop lock, with the same check; install, update, restart and stop stay control-plane actions |

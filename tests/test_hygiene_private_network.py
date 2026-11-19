@@ -19,6 +19,8 @@ LEAKS = [
     "It lives in /home/alice/projects/x.", "cd /home/python-dev-03/.cache/", "at /home/_svc/x",
     # A bare home and a dashed address (#658 review round 1, F2): both reached a slice past the older patterns.
     "(cwd /home/user), not", 'started in /home/user". The', "[[proxmox-host-192-168-1-2]]",
+    # The dashed form covers all three ranges, as the dotted ones do (#658 full review, F10).
+    "[[qubes-vm-10-137-0-2]]", "[[nas-172-16-4-9]]", "ip-10-0-0-1.ec2.internal",
 ]
 FINE = [
     "Version 1.10.0.1 and 2.10.0.0.5 shipped.", "Public 8.8.8.8, 1.1.1.1 and 172.15.0.1 and 172.32.0.1 and 192.169.0.1.",
@@ -27,6 +29,7 @@ FINE = [
     "/home/$USER/x", "192-168-1-256 and v192-168-1-2000 and 1192-168-1-2",
     # A home under another root or a relative one is no login's home: the bare pattern's lookbehind keeps them (#658 round 3, F7).
     "/srv/home/alice", "./home/alice", "docs/home/index",
+    "10-1-2-3-4-5 and v10-0-0-1000 and 172-15-0-1 and 172-32-0-1",
     # A section number is no address (a gzapp slice cited §10.2.1.4, 2026-10-14).
     "fix the §10.2.1.4 sites, see §192.168.1.1 and §172.16.0.1",
 ]
