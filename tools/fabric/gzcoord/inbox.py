@@ -216,6 +216,7 @@ from typing import Any, Callable
 
 from .carrier import CARRIER_LABEL, CARRIER_NAME, arrivals
 from . import bypass, gzmsg, i18n, intake, paths, transport
+from .transport import carrier as carrier_transport
 from . import jsvalues as js
 from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
 
@@ -646,7 +647,7 @@ def main(argv: list[str]) -> int:
             if kind == "gave-up":
                 return t("watch.relay-gave-up", {"relay_url": relay_url})
             return t("watch.relay-back")
-        fix = t("carrier.fix", {"login": me["address"].rpartition("/")[2], "name": CARRIER_NAME})
+        fix = carrier_transport.fix_line(t, me["address"])
         if kind == "down":
             return t("watch.carrier-down", {"carrier": CARRIER_LABEL, "fix": fix})
         if kind == "gave-up":

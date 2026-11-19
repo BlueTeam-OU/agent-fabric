@@ -109,7 +109,7 @@ def carrier_primary_cases() -> None:
 
     r, db, posts = send_in("carrier-only", 200, P.scratch("run-"))
     check("W8 absent: exit 3, the line names the command that says why, the row failed, the relay never posted",
-          r.code == 3 and "not sent" in r.err and "fabric-ctl" in r.err and f"{P.LOGIN} interweave" in r.err
+          r.code == 3 and "not sent" in r.err and "OBSERVATION" in r.err and "fabric-ctl" not in r.err
           and db == [("outbound", "failed", "claude-bridge", None)] and posts == 0, f"{r.code} {r.err} {db} {posts}")
 
     f = Fake({"ok": False, "error": "disk", "carried": 3, "queued": 0})
@@ -220,7 +220,7 @@ def journal_off_cases() -> None:
         f.close()
         r, db, posts = send_in(m, 200, P.scratch("run-"), GZCOORD_JOURNAL="off")
         check(f"D7 {m}: no carrier running is the carrier's failure (exit 3), never a fall back to the relay",
-              r.code == 3 and "not sent" in r.err and "fabric-ctl" in r.err and posts == 0 and bypass in r.err, f"{r.code} {r.err} {posts}")
+              r.code == 3 and "not sent" in r.err and "OBSERVATION" in r.err and posts == 0 and bypass in r.err, f"{r.code} {r.err} {posts}")
     f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
     r, db, posts = send_in("relay-record", 200, f.run, GZCOORD_JOURNAL="off")
     check("D7 relay-record unchanged: the relay alone takes it, the carrier is not asked, the bypass line is said",

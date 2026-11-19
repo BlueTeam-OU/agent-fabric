@@ -8,12 +8,20 @@ import threading
 import time
 from typing import Any, Callable
 
-from .. import i18n
+from .. import i18n, placement
 from ..carrier import CARRIER_LABEL, CARRIER_NAME, adapter
 from ..gzmsg import en
 from .base import Health, Sent
 
 NAME = CARRIER_NAME
+
+
+def fix_line(t: i18n.Printer, address: str) -> str:
+    """The {fix} of every carrier line, by who reads it: fabric-ctl refuses a login that is not a host operator, so an agent
+    told to run it could do nothing (2026-11-18, two agents asked the owner). Anyone else is told what they can do."""
+    if address and placement.is_operator(address):
+        return t("carrier.fix", {"login": address.rpartition("/")[2], "name": CARRIER_NAME})
+    return t("carrier.fix-agent", {})
 
 
 class CarrierTransport:
@@ -55,7 +63,7 @@ class CarrierPrimary(CarrierTransport):
                  journal_newest: Callable[[int], list[dict]] | None = None,
                  clock: Callable[[], float] = time.monotonic) -> None:
         super().__init__(ask)
-        self._login = address.rpartition("/")[2]
+        self._address, self._login = address, address.rpartition("/")[2]
         self._journal_newest, self._clock = journal_newest, clock
         self._last_ids: tuple[str, ...] = ()
         self._last_at = 0.0
@@ -91,7 +99,7 @@ class CarrierPrimary(CarrierTransport):
     def explain(self, error: BaseException, t: i18n.Printer | None = None) -> dict:
         """The one line for a failure of the carrier. Code 0: the carrier being down is not a refusal no retry cures."""
         t = t or en()
-        fix = t("carrier.fix", {"login": self._login or "<login>", "name": CARRIER_NAME})
+        fix = fix_line(t, getattr(self, "_address", ""))
         if isinstance(error, adapter.CarrierError) and error.absent:
             return {"line": t("transport.carrier-absent", {"carrier": CARRIER_LABEL, "fix": fix}), "code": 0}
         return {"line": t("transport.carrier-failed", {"carrier": CARRIER_LABEL, "detail": str(error), "fix": fix}), "code": 0}
