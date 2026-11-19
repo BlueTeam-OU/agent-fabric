@@ -692,6 +692,15 @@ def main(argv: list[str]) -> int:
         # rather than leaving a session believing it is watched.
         down = False
         down_since = 0.0
+        # When the primary last answered a slice. An arm lasts up to an hour of slices and returns only at its end, so `down`
+        # (reset after an arm returns) outlives a recovery: without this the next restart is measured from the first
+        # failure of the previous outage and the watch gives up at once (j169, every fleet upgrade).
+        answered = {"at": 0.0}
+
+        def fetch_noting(slice_s: int, abort: threading.Event) -> Any:
+            page = tp.fetch_page(slice_s, abort)
+            answered["at"] = time.monotonic()
+            return page
         started = time.monotonic()
         deadline = started + deadline_s
 
@@ -736,7 +745,7 @@ def main(argv: list[str]) -> int:
                 print(QUIET_LINE.format(minutes=int((time.monotonic() - started) // 60)), flush=True)
                 return ended("quiet", 0)
             try:
-                r = with_fresh_token(primary, lambda: wait_loop(tp.fetch_page, tp.ack, min(3600, math.ceil(left)) if until_delivery else 3600,
+                r = with_fresh_token(primary, lambda: wait_loop(fetch_noting, tp.ack, min(3600, math.ceil(left)) if until_delivery else 3600,
                                                            mine_fn, [], me["address"], held, on_hold, journal=journal,
                                                            on_journal_fail=on_journal_fail,
                                                            deadline=deadline if until_delivery else None,
@@ -750,6 +759,10 @@ def main(argv: list[str]) -> int:
                 if x["code"] == 4:
                     print(x["line"], file=sys.stdout if until_delivery else sys.stderr, flush=True)
                     return ended("token-refused", 4)
+                if until_delivery and down and answered["at"] > down_since:
+                    # It answered after the outage began: that outage is over and this failure is a new one. Only the give-up
+                    # bound reads the clock, so --follow, which has none, keeps its lines exactly as they were.
+                    down = False
                 if not down:
                     if not until_delivery:
                         print(primary_down_line("down"), flush=True)
