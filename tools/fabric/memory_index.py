@@ -106,7 +106,7 @@ class Section:
 # in tests/test_memory_mcp.py EXPECTED_HITS and these: a right slice scored 15.6-30.5 at coverage 0.58-1.0; an
 # off-topic query ("how do I bake a sourdough bread", "css grid layout") scored 5.3-10.2 at coverage 0.18-0.33; a
 # query whose words are all present but scattered ("queued branch refuses a push") scored 9.2 at coverage 1.0.
-# Re-measured on the 1956-section corpus after the 2026-11-17 drain: the set's right slices score 16.6-48.3, while a slice
+# Re-measured on the 1956-section corpus after the 2026-11-17 drain: the right slices score 16.6-48.3 (the set itself was not committed; tests/test_memory_mcp.py REAL_RIGHT/REAL_WRONG is its re-measured successor, 18.97-49.70), while a slice
 # that only shares the query's common words ("lease held by another process fabric-lease" against a section on process
 # lifetime, 'process' twenty times) scored 12.9 at coverage 0.83 and banded strong under the old 12.0. A bigger corpus
 # lifts the off-topic ceiling, so the floor follows the lowest right slice measured (15.6), not the old ceiling.
