@@ -33,31 +33,6 @@ EXPECTED_HITS = (
 )
 
 
-# The query set STRONG_SCORE (memory_index.py) was measured on: queries against the repository's own committed memory, not
-# the fixture corpus below. (query, role, the section a person asking it wants first). Each must band strong at rank 0.
-# Re-measured 2026-11-19 on the 1956-section tree: 19.31-50.65 at coverage 0.66-1.0. Natural-language questions ("how
-# long may a subprocess run" 9.86, "retry backoff rule" as python-dev: download-retry-seam-j121 13.83 / 0.86) band weak
-# on purpose. The floor was not lowered, and coverage cannot carry them: asked with no role, the same retry query ranks
-# three other roles' slices above it at 17.83 / 0.86, 16.00 / 1.00 and 15.87 / 0.86, and "grep resolves to ugrep" puts
-# fabric-coordinator's prompt-change-readback at 15.30 / 0.91 -- wrong hits with coverage at or above the right one's.
-# A weak hit is still returned, with its notice.
-REAL_RIGHT = (
-    ("grep resolves to ugrep on this host", "python-dev", "p:shared/workflow-local-grep-is-ugrep#1"),
-    ("what does RLIMIT_CPU do when both limits are equal", "python-dev", "f:domains/python-dev/domain/rlimit-cpu-equal-limits-sigkill-not-sigxcpu#1"),
-    ("text=True folds CRLF", "python-dev", "f:domains/python-dev/domain/text-true-folds-crlf-review-claim-unobservable#1"),
-    ("lock file separate from replaced journal", "python-dev", "f:domains/python-dev/domain/lock-file-separate-from-replaced-journal#1"),
-    ("stale AGENT_FABRIC_ROOT worktree breaks commands", "python-dev", "p:python-dev/workflow/stale-agent-fabric-root-worktree-breaks-fabric-commands#1"),
-    ("mutation backup path check before restore", "python-dev", "p:python-dev/workflow/mutation-backup-path-check-before-restore#1"),
-)
-# Queries whose first hit is wrong or absent: none may band strong. Their best scores are the ceiling the floor sits above.
-REAL_WRONG = (
-    ("how do I bake a sourdough bread", "python-dev"),
-    ("css grid layout", "python-dev"),
-    ("lease held by another process fabric-lease", "python-dev"),
-    ("queued branch refuses a push", "python-dev"),
-)
-
-
 def slice_text(role: str, kind: str, topic: str, description: str, sections: dict[str, str], project: str | None = None,
                shared_with: tuple[str, ...] = ()) -> str:
     origin = "origin:\n  - agent: \"a-agent\"\n    host: \"h\"\n" + (f"    project: \"{project}\"\n" if project else "")
@@ -270,26 +245,6 @@ def main() -> int:
         for query, role, want in EXPECTED_HITS:
             got = hit_text(tools.find(corpus, tools.Session(role=role, project="agent-fabric"), {"query": query})[0]).splitlines()[0].split(" | ")[0]
             check(f"{query!r} as {role}: {want}", got == want, got)
-
-        print("the floor against the repository's own memory (REAL_RIGHT / REAL_WRONG)")
-        real = memory_index.build(os.path.join(HERE, "memory"), HERE)
-        right_scores = []
-        for query, role, want in REAL_RIGHT:
-            top = real.find(query, role, "agent-fabric")[:1]
-            got = memory_index.section_id(top[0].section) if top else "no hit"
-            check(f"{query!r}: {want} first, banded strong", got == want and top[0].band == "strong",
-                  f"{got} {top[0].score:.2f}/{top[0].coverage:.2f} {top[0].band}" if top else got)
-            if top:
-                right_scores.append(top[0].score)
-        wrong_scores = []
-        for query, role in REAL_WRONG:
-            top = real.find(query, role, "agent-fabric")[:1]
-            check(f"{query!r}: no strong hit", not top or top[0].band != "strong",
-                  f"{top[0].score:.2f}/{top[0].coverage:.2f}" if top else "")
-            wrong_scores.extend(h.score for h in top)
-        check("the floor lies above the best wrong hit and at or below the worst right one: re-measure it when this fails",
-              bool(right_scores) and bool(wrong_scores) and max(wrong_scores) < memory_index.STRONG_SCORE <= min(right_scores),
-              f"wrong max {max(wrong_scores, default=0):.2f}, floor {memory_index.STRONG_SCORE}, right min {min(right_scores, default=0):.2f}")
 
         print("bands")
         exact = tools.find(corpus, sess, {"query": "the launcher pins the interpreter at runtime/python.json"})[0].splitlines()

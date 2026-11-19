@@ -60,6 +60,26 @@ def main() -> int:
     check(f"all {sum(len(q.get('expect', [])) for q in queries)} expected sections and {sum('no_better_than' in q for q in queries)} "
           f"claims of nothing hold", not problems, "\n".join(problems))
 
+    # The floor (memory_index.STRONG_SCORE) was measured on this set: the lowest expected-strong hit is at or above it
+    # (18.51 on the 1956-section corpus), and each topic with nothing on it stays under the score floor or under the
+    # coverage floor ("how do I bake a sourdough bread" with no role: 16.54, held weak by coverage 0.33). Natural-language
+    # questions such as "retry backoff rule" (python-dev: 13.83 / 0.86) band weak on purpose and are not in the set: no
+    # coverage rule lifts them without lifting wrong hits (no role: 15.30 / 0.91, 15.87 / 0.86, 16.00 / 1.00).
+    right: list[float] = []
+    wrong: list[tuple[float, float]] = []
+    for q in queries:
+        hits = index.find(q["query"], q.get("role"), q.get("project"))
+        for want in q.get("expect", []):
+            right += [h.score for h in hits if memory_index.slice_ref(h.section.slice_id) == want["slice"]
+                      and h.section.heading.startswith(want["heading"]) and want["band"] == "strong"]
+        if q.get("no_better_than") and hits:
+            wrong.append((hits[0].score, hits[0].coverage))
+    check("the lowest expected-strong hit scores at or above STRONG_SCORE, and no first hit of a topic with nothing on it "
+          "clears both the score and the coverage floor: when a drain moves them, re-measure",
+          bool(right) and bool(wrong) and min(right) >= memory_index.STRONG_SCORE
+          and all(sc < memory_index.STRONG_SCORE or cov < memory_index.STRONG_COVERAGE for sc, cov in wrong),
+          f"expected-strong min {min(right, default=0):.2f}, floor {memory_index.STRONG_SCORE}/{memory_index.STRONG_COVERAGE}, nothing-on-it {wrong}")
+
     print("the checker can fail")
     wanted = queries[0]["expect"][0]
     without = copy.copy(index)
