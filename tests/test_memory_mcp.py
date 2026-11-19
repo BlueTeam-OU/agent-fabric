@@ -35,10 +35,12 @@ EXPECTED_HITS = (
 
 # The query set STRONG_SCORE (memory_index.py) was measured on: queries against the repository's own committed memory, not
 # the fixture corpus below. (query, role, the section a person asking it wants first). Each must band strong at rank 0.
-# Re-measured 2026-11-19 on this tree: 18.97-49.70 at coverage 0.66-1.0. Natural-language questions ("how long may a
-# subprocess run", "retry backoff rule") score 7-14 at coverage under 0.9 and band weak on purpose: the floor was not
-# lowered for them, because the off-topic hits below sit at 11-14 with coverage 0.57-0.66 and one measured at 15.3 / 0.91
-# on a later corpus, so coverage does not separate right from wrong there; a weak hit is still returned, with its notice.
+# Re-measured 2026-11-19 on the 1956-section tree: 19.31-50.65 at coverage 0.66-1.0. Natural-language questions ("how
+# long may a subprocess run" 9.86, "retry backoff rule" as python-dev: download-retry-seam-j121 13.83 / 0.86) band weak
+# on purpose. The floor was not lowered, and coverage cannot carry them: asked with no role, the same retry query ranks
+# three other roles' slices above it at 17.83 / 0.86, 16.00 / 1.00 and 15.87 / 0.86, and "grep resolves to ugrep" puts
+# fabric-coordinator's prompt-change-readback at 15.30 / 0.91 -- wrong hits with coverage at or above the right one's.
+# A weak hit is still returned, with its notice.
 REAL_RIGHT = (
     ("grep resolves to ugrep on this host", "python-dev", "p:shared/workflow-local-grep-is-ugrep#1"),
     ("what does RLIMIT_CPU do when both limits are equal", "python-dev", "f:domains/python-dev/domain/rlimit-cpu-equal-limits-sigkill-not-sigxcpu#1"),
