@@ -308,8 +308,8 @@ def committed_versions(path: str) -> list[tuple[dict[str, Any], dict[str, str]]]
 
 def drop_undoing_curation(run: Run) -> int | None:
     """A claim that is an EARLIER committed text of its section, and not the text the section holds now, is the author's
-    memory harvested again after someone edited the section by hand (a review-fix commit on the drain's branch, gzapp #1231
-    round 1, 2026-11-17: eleven slices back to the text of the drain before it, a closed thread reopened, two removed slices
+    memory harvested again after someone edited the section by hand (a review-fix commit on the drain's branch, round 1 of a project's review,
+    2026-11-17: eleven slices back to the text of the drain before it, a closed thread reopened, two removed slices
     restored). The same-agent rule would supersede the curated section, and nothing in a report of earlier drains knows of
     a commit made by hand, so the tree's own history is read. The claim is not written and the report names it
     (`superseded_harvests`). An author who really means the older text again says so with a merge_target, which is
