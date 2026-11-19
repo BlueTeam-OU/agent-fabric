@@ -105,12 +105,16 @@ All 516 extra copies belong to 38 pairs and to messages sent on **2026-10-30**,
 other. 477 are the owner's broadcast `01a18c45` (fabric d941d5b0 on every
 account; its text says "the journal moves to schema 3 the first time new code
 opens it", and that a watch still running the old code ends with exit 6, "the
-delivery was not acknowledged and comes again"): 28 of 29 addressees hold 18
-copies from 10:05:34Z: the first retry after 333 s, the second after 384 s, then
-every 300 s (`record.py` `BACKOFF_CAP`, line 44; `backoff`, 58-60), the last
-of each account at 11:29:46Z to 11:31:54Z, account by account. Two more messages of
-10:xx hold 16 copies each (32 extras), and eight pairs two copies (gap about
-510 s).
+delivery was not acknowledged and comes again"): 28 of its 29 addressees hold
+18 copies (17 extras each, 476) from 10:05:34Z: the first retry after 333 s,
+the second after 384 s, then every 300 s (`record.py` `BACKOFF_CAP`, line 44;
+`backoff`, 58-60), the last of each account at 11:29:46Z to 11:31:54Z, account
+by account; the 29th holds 2 (1 extra). Two messages (`01a18c47-4d19` to
+python-dev-01, `01a18c47-57c4` to brand-comms-01) hold 17 copies each (16
+extras each, 32; first retry gap about 347 s), and seven pairs, all to the
+coordinator, two copies each (7 extras; gap about 511 s). 477 + 32 + 7 = 516;
+pairs 29 + 2 + 7 = 38. (Recomputed by python-dev-03 from the collection,
+REPLY 01a1f1f6, after #658 review round 1 F4.)
 
 **Cause**: one mechanism, by design, and not a duplicate seen by anyone.
 `Carrier.finish` appends the arrival line **before** the journal write
