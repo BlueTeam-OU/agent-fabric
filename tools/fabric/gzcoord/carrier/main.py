@@ -35,6 +35,11 @@ CONTRACT
                                  the carriers its reply came by, p50 and p95 per
                                  carrier, each second-carrier miss with its cause
                                  and the interweave-stop drill marked
+          self-start           the account's own login starts its own carrier and daemon units, with no
+                               operator's signature, only when both are down and enabled, the programs
+                               are the pin's and no earlier self-start's failure mark stands (ADR-064
+                               rule 14; control/carrier_selfstart.py has the whole contract). Prints the
+                               reply as one JSON line on stdout
           render-config [--write PATH]
                                the profile's config.yaml rendered from the
                                roster for THIS agent; to stdout, or atomically
@@ -64,12 +69,13 @@ CONTRACT
           release.json other than runtime/interweave/release.json: a test)
   stdout  `status`'s JSON; `render-config`'s YAML; `roster-row`'s JSON
   stderr  every other line, prefixed `gzcoord-carrier:`; no secret, no body
-  exit    0 done (run: stopped by SIGTERM/SIGINT); 1 usage; 2 refused to run
+  exit    0 done (run: stopped by SIGTERM/SIGINT; self-start: started); 1 usage; 2 refused to run
           (journal off, own row names a host other than the identity address's,
           another carrier already holds the record or the socket, no XDG_RUNTIME_DIR); 3 the carrier is not
           reachable (status, abandon); 4 roster-row, roster-admit: the agent's key is not committed on
           origin/main yet (commit identities/keys/ and merge it, new-agent step 5; waiting converges, no
-          other refusal does)
+          other refusal does); 5 self-start: the units did not come up, were stopped again and the failure
+          mark stands (a refusal is 2, with nothing touched)
 
 The carrier never opens the admin socket and never carries fabric:control
 (ADR-064 rules 5, 12).
@@ -94,7 +100,7 @@ from gzcoord.carrier import CARRIER_NAME, admit, arrivals, engine, ipc, record, 
 
 ADMIT_LOCK_WAIT = 30.0
 USAGE = ("usage: gzcoord-carrier run [--profile P] | status | abandon <message-id> <recipient-login> | "
-         "render-config [--write PATH] | roster-row | roster-admit ROW.json --port N | parity --window START END (--arrivals FILE... --senders DIR... "
+         "render-config [--write PATH] | self-start | roster-row | roster-admit ROW.json --port N | parity --window START END (--arrivals FILE... --senders DIR... "
          "[--journal DB...] | --collected PATH) [--drill START END] [--relay-drill START END] [--carrier-drill START END LOGIN] [--host HOST] | "
          "control-parity --window START END --operator LOGIN --arrivals LOGIN=FILE... [--drill START END] [--json]")
 
@@ -310,6 +316,15 @@ def release_path() -> str:
     return os.environ.get("GZCOORD_CARRIER_RELEASE") or os.path.join(_checkout(), "runtime", "interweave", "release.json")
 
 
+def cmd_self_start() -> int:
+    from control import carrier_selfstart
+    reply = carrier_selfstart.carrier_selfstart()
+    print(json.dumps(reply, sort_keys=True))
+    if reply["status"] != "started":
+        say(f"self-start {reply['status']}: {reply.get('reason', '')}")
+    return {"started": 0, "refused": 2}.get(reply["status"], 5)
+
+
 def cmd_roster_row() -> int:
     import pwd
     from gzcoord import paths
@@ -433,6 +448,8 @@ def main(argv: list[str]) -> int:
         return cmd_status()
     if cmd == "abandon" and len(rest) == 2:
         return cmd_abandon(rest[0], rest[1])
+    if cmd == "self-start" and not rest:
+        return cmd_self_start()
     if cmd == "roster-row" and not rest:
         return cmd_roster_row()
     if cmd == "roster-admit":
