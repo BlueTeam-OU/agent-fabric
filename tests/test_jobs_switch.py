@@ -1780,9 +1780,13 @@ def main() -> int:
         check("...the job's log says which ref conflicts, and the printed merge names it",
               "origin/main conflicts: merge it first" in json.dumps(w.job(j2)["log"]) and f"git merge origin/main in {wt}" in out, out + repr(w.job(j2)))
         w, j2 = conflicting_world(False)
-        rc, out, err = w.switch("--json")
+        # Standing inside the job's own worktree, a session that worked no job would be told "continue here" for any other branch: only
+        # the conflict makes it fresh. The worktree is made first, as `_checkout` reuses a worktree the branch already has.
+        inside = f"{w.repo}-earlier"
+        subprocess.run(["git", "-C", w.repo, "worktree", "add", "-q", inside, mine], check=True, env=git_env())
+        rc, out, err = w.switch("--json", cwd=inside)
         said = json.loads(out) if rc == 0 else {}
-        check("a session that worked no job is still told fresh, reason conflict: the merge belongs in the job's copy",
+        check("a session that worked no job and stands inside the job's copy is still told fresh, reason conflict",
               rc == 0 and said.get("fresh") is True and said.get("reason") == "conflict" and w.job(j2)["state"] == "active", out + err)
         w, j2 = conflicting_world(True)
         branching = sys.modules["fabric_jobs"].branching

@@ -316,7 +316,9 @@ def switch_job(args) -> int:
         unpushed = job.get("unpushed") if job["state"] == "paused" else None      # the transition drops it; the reminder is said below
         where = f"branch {choice.branch}" if choice.branch else f"no branch ({choice.note})"
         if choice.conflict:
-            where += f"; {choice.merge_with} conflicts: merge it first"      # the job's log is what a fresh session can read of this switch
+            # First, not last: the launcher puts only the first 400 characters of the job's last note in the fresh session's prompt, and the
+            # evidence of the job just left, which `mark` carries after `where`, has no bound.
+            where = f"{choice.merge_with} conflicts: merge it first; {where}"
         if choice.branch:
             # The open pull request's branch is shared by design (one open pull request per agent), but never silently.
             sharing = [j["id"] for j in doc["jobs"] if j["id"] != job["id"] and j["state"] not in TERMINAL and j.get("branch") == choice.branch]
@@ -343,7 +345,7 @@ def switch_job(args) -> int:
             find(doc, old["id"]).setdefault("log", []).append(
                 {"at": identity.now_iso(), "kind": "switch", "note": f"switch to {job['id']}: {settled}; {where}"})   # no `state`: fleet.log_times reads the state of an entry as a transition
         if choice.conflict:
-            # The merge belongs in the job's copy, which the guard refuses to this session (rule 3): always the fresh one.
+            # Always the fresh one, whatever this session worked or where it stands: the merge is the launched session's to make, never this one's.
             verdict.update(fresh=True, reason="conflict")
         elif not verdict["fresh"] and choice.kind != "blocked":
             verdict.update(outside_copy(job, stands) or {})
