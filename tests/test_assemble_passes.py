@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 
@@ -286,6 +287,95 @@ def test_a_correction_that_fell_in_another_budget_part_than_its_memory_is_not_wr
     assert_converged(first, second)
 
 
+GIT_ENV = {"PATH": os.environ["PATH"], "HOME": "/nonexistent", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+
+
+def git(wc: str, *argv: str) -> None:
+    subprocess.run(["git", "-C", wc, *argv], env=GIT_ENV, check=True, capture_output=True, timeout=60)
+
+
+def slice_files(wc: str) -> list[str]:
+    return sorted(os.path.join(d, f) for d, _s, fs in os.walk(os.path.join(wc, ".agent-fabric", "memory")) for f in fs
+                  if "/solution" in os.path.join(d, f) and f.endswith(".md") and "INDEX" not in f)
+
+
+def curated_tree(tmp: str, curate) -> tuple[str, str, str, str, str]:
+    """A drain that wrote the claim, committed in the project's repository, then `curate(path)` edited its slice by hand and
+    committed it. (drain, claims_dir, out, slice path, the text the slice holds after the curation)"""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    ta.with_agents(drain, AGENTS)
+    ta.set_claims(claims_dir, "alpha", [ORIGINAL])
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    wc = ta.working_copy(out)
+    git(wc, "init", "-q")
+    git(wc, "add", "-A")
+    git(wc, "commit", "-q", "--no-verify", "-m", "drain")
+    (path,) = slice_files(wc)
+    curate(path)
+    git(wc, "add", "-A")
+    git(wc, "commit", "-q", "--no-verify", "-m", "review answer")
+    return drain, claims_dir, out, path, ta.read(path) if os.path.exists(path) else ""
+
+
+def test_an_unchanged_harvest_does_not_undo_a_section_edited_by_a_later_commit(tmp: str) -> None:
+    def edit(path: str) -> None:
+        text = ta.read(path).replace("Original text of the finding.", "Original text, closed by hand.")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    drain, claims_dir, out, path, curated = curated_tree(tmp, edit)
+    assert "closed by hand" in curated
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert ta.read(path) == curated, "the curated slice was rewritten"
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert any("memory 't'" in n and "not written" in n for n in listed), listed
+
+
+def test_a_section_a_later_commit_removed_is_not_written_back_by_an_unchanged_harvest(tmp: str) -> None:
+    def remove(path: str) -> None:
+        os.remove(path)
+    drain, claims_dir, out, path, _curated = curated_tree(tmp, remove)
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert not slice_files(ta.working_copy(out)), "the removed slice came back"
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert any("memory 't'" in n and "section is gone" in n for n in listed), listed
+
+
+def test_a_changed_memory_is_written_over_a_curated_section(tmp: str) -> None:
+    """The control: the claim matches no committed version, so it is the author's newer text."""
+    def edit(path: str) -> None:
+        text = ta.read(path).replace("Original text of the finding.", "Original text, closed by hand.")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    drain, claims_dir, out, path, _curated = curated_tree(tmp, edit)
+    ta.set_claims(claims_dir, "alpha", [claim("t", "Status v1 of the thing", "The author rewrote the finding.", "h4")])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(path)
+    assert "The author rewrote the finding." in text and "closed by hand" not in text, text
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert not any("memory 't'" in n for n in listed), listed
+
+
+def test_an_unchanged_harvest_over_an_uncurated_tree_is_a_no_op_and_unnamed(tmp: str) -> None:
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    ta.with_agents(drain, AGENTS)
+    ta.set_claims(claims_dir, "alpha", [ORIGINAL])
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    wc = ta.working_copy(out)
+    git(wc, "init", "-q")
+    git(wc, "add", "-A")
+    git(wc, "commit", "-q", "--no-verify", "-m", "drain")
+    (path,) = slice_files(wc)
+    before = ta.read(path)
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    assert ta.read(path) == before
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert not listed, listed
+
+
 def main() -> int:
     cases = [
         test_a_second_pass_over_two_bundles_with_a_chained_correction_and_a_flat_class_file_changes_nothing,
@@ -301,6 +391,10 @@ def main() -> int:
         test_a_replayed_original_whose_links_the_run_points_is_still_a_replay,
         test_an_earlier_drains_correction_is_not_judged_as_this_drains,
         test_a_correction_that_fell_in_another_budget_part_than_its_memory_is_not_written_again_by_a_second_pass,
+        test_an_unchanged_harvest_does_not_undo_a_section_edited_by_a_later_commit,
+        test_a_section_a_later_commit_removed_is_not_written_back_by_an_unchanged_harvest,
+        test_a_changed_memory_is_written_over_a_curated_section,
+        test_an_unchanged_harvest_over_an_uncurated_tree_is_a_no_op_and_unnamed,
     ]
     # A case written and not listed passes silently and forever (test_assemble_seams.py's registry guard).
     declared = {name for name, obj in sorted(globals().items()) if name.startswith("test_") and callable(obj)}

@@ -108,7 +108,7 @@ from assembler.intake import parse_args, open_layout, read_claims, screen_hygien
 from assembler.targets import plan_classes, held_files, resolve_all_targets, point_disk  # noqa: E402
 from assembler.anchorkeep import keep_resolving_anchors  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
-from assembler.shapes import check_correction_shapes, drop_replayed, verify_replacements  # noqa: E402
+from assembler.shapes import check_correction_shapes, drop_replayed, drop_undoing_curation, verify_replacements  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
 from assembler.index import bound_roles_with_domain_slices, index_role, read_crossref_index, roles_with_project_directory  # noqa: E402
 from assembler.report import report, record_rehomed, read_rehome_report  # noqa: E402
@@ -194,6 +194,8 @@ def assemble_project(run: Run) -> int | None:
         return 1
     keep_resolving_anchors(run)
     drop_replayed(run)
+    if drop_undoing_curation(run):
+        return 1
     if check_correction_shapes(run):
         return 1
     if check_collisions(run):

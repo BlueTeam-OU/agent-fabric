@@ -21,13 +21,14 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import defaultdict
 from typing import Any
 from assembler.core import layout, CLASS_FILES, Run, in_report, hygiene_substitute, patterns_for
 from corrections import demote_headings, section_key
-from assembler.slices import read_existing_slice, claim_heading, claim_block, undated, is_retire
-from assembler.targets import existing_sections, slice_candidates
+from assembler.slices import parse_slice, read_existing_slice, claim_heading, claim_block, undated, is_retire
+from assembler.targets import existing_sections, slice_candidates, topic_stem
 
 
 def _groups(run: Run) -> list[tuple[str | None, str, str, str, list[dict[str, Any]]]]:
@@ -267,3 +268,84 @@ def drop_replayed(run: Run) -> None:
                 run.reharvested_replaced.append(
                     f"{where} carries other text than the section {heading!r} a correction replaced (claim key {key}, replaced "
                     f"{', '.join(sorted({e['key'] for e in same_heading}))}); written")
+
+
+GIT_TIMEOUT_S = 60
+
+
+class HistoryUnreadable(Exception):
+    """git could not say what a slice file held before: not the same as "it held nothing", which a fixture tree answers."""
+
+
+def _git(directory: str, *argv: str) -> subprocess.CompletedProcess[bytes]:
+    try:
+        return subprocess.run(["git", "-C", directory, *argv], capture_output=True, timeout=GIT_TIMEOUT_S, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise HistoryUnreadable(f"git {' '.join(argv)} in {directory}: {exc}") from exc
+
+
+def committed_versions(path: str) -> list[tuple[dict[str, Any], dict[str, str]]]:
+    """The (frontmatter, sections) of every committed version of the slice file `path` (newest first), deleted versions left out. A file
+    in no repository, or in one with no commit yet, has none; any other git failure is HistoryUnreadable, since an
+    unreadable history must not be read as an empty one."""
+    directory, name = os.path.split(path)
+    if not os.path.isdir(directory):
+        return []
+    log = _git(directory, "log", "--format=%H", "--diff-filter=AMR", "--", name)
+    if log.returncode:
+        err = log.stderr.decode("utf-8", "replace")
+        if "not a git repository" in err or "does not have any commits yet" in err:
+            return []
+        raise HistoryUnreadable(f"git log of {path} failed: {err.strip()}")
+    versions = []
+    for sha in log.stdout.decode().split():
+        shown = _git(directory, "show", f"{sha}:./{name}")
+        if shown.returncode:
+            raise HistoryUnreadable(f"git show {sha}:{name} in {directory} failed: {shown.stderr.decode('utf-8', 'replace').strip()}")
+        versions.append(parse_slice(shown.stdout.decode("utf-8")))
+    return versions
+
+
+def drop_undoing_curation(run: Run) -> int | None:
+    """A claim that is an EARLIER committed text of its section, and not the text the section holds now, is the author's
+    memory harvested again after someone edited the section by hand (a review-fix commit on the drain's branch, gzapp #1231
+    round 1, 2026-11-17: eleven slices back to the text of the drain before it, a closed thread reopened, two removed slices
+    restored). The same-agent rule would supersede the curated section, and nothing in a report of earlier drains knows of
+    a commit made by hand, so the tree's own history is read. The claim is not written and the report names it
+    (`superseded_harvests`). An author who really means the older text again says so with a merge_target, which is
+    authorised and skipped here; a memory whose text changed matches no earlier version and is written as before.
+    1 when git cannot say, with nothing written."""
+    versions: dict[str, list[tuple[dict[str, Any], dict[str, str]]]] = {}
+    try:
+        for role, label, klass, topic, group in _groups(run):
+            stem = topic_stem(run, role, klass, topic)
+            candidates = slice_candidates(run, role, klass, topic)
+            # The topic file itself even when a curation deleted it: a removed slice has no candidate left to read.
+            # A role's flat class file too, which holds a lone topic.
+            flat = [] if role is None else [os.path.join(layout.class_home(klass, role, run.project), f"{CLASS_FILES[klass]}.md")]
+            paths = list(dict.fromkeys([*candidates, stem + ".md", *flat]))
+            present = existing_sections(candidates)
+            for claim in list(group):
+                if is_retire(claim) or (claim.get("merge_target") or "").strip():
+                    continue
+                heading = hygiene_substitute(claim_heading(claim), "replaced section heading", patterns_for(klass))[0]
+                keys = {section_key(claim_block(claim).split("\n", 1)[1].strip())}
+                if "_body_as_written" in claim:
+                    keys.add(section_key(claim_block({**claim, "body": claim["_body_as_written"]}).split("\n", 1)[1].strip()))
+                siblings = [k for k in present if k == heading or re.fullmatch(re.escape(heading) + r" \(\d+\)", k)]
+                if any(section_key(present[k]) in keys for k in siblings):
+                    continue
+                for path in paths:
+                    if path not in versions:
+                        versions[path] = committed_versions(path)
+                if any(section_key(old[heading]) in keys for path in paths for _meta, old in versions[path] if heading in old):
+                    group.remove(claim)
+                    run.superseded_harvests.append(
+                        f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r} is a text of this section an earlier "
+                        f"commit of its slice held, not the text it holds now{'' if siblings else ' (the section is gone)'}; not written "
+                        f"— it would undo an edit made since. Update {claim['topic']!r}, or name the section in merge_target to "
+                        "write the older text again")
+    except HistoryUnreadable as exc:
+        print(f"SLICE HISTORY UNREADABLE — {exc}. This run wrote NOTHING and exits 1.", file=sys.stderr)
+        return 1
+    return None
