@@ -1742,7 +1742,7 @@ def main() -> int:
         check("…in a worktree beside the working copy, the working copy untouched",
               wt == f"{w.repo}-earlier" and subprocess.run(["git", "-C", w.repo, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip() == "main", wt)
 
-        def conflicting_world(worked: bool):
+        def conflicting_world(worked: bool, reason: str = "x"):
             w = World()
             subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
             subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "on the pull request"], check=True, env=git_env())
@@ -1764,7 +1764,7 @@ def main() -> int:
             gh_says(open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
             j1 = w.working("done before") if worked else None
             if worked:
-                w.sw("drop", j1, "x")
+                w.sw("drop", j1, reason)
             return w, w.add("the next piece")
 
         w, j2 = conflicting_world(True)
@@ -1779,6 +1779,14 @@ def main() -> int:
 
         check("...the job's log says which ref conflicts, and the printed merge names it",
               "origin/main conflicts: merge it first" in json.dumps(w.job(j2)["log"]) and f"git merge origin/main in {wt}" in out, out + repr(w.job(j2)))
+
+        # The launcher's prompt carries the first 400 characters of the last note (launcher/session.py); the left job's drop reason is
+        # free text, so the instruction must stand before it.
+        w_long, j2_long = conflicting_world(True, "r" * 600)
+        rc, out, err = w_long.switch()
+        prompt_part = " ".join(str(w_long.job(j2_long)["log"][-1]["note"]).split())[:400]
+        check("...and stays inside the 400 characters of the prompt when the job just left was dropped with a long reason",
+              rc == 0 and prompt_part.startswith("origin/main conflicts: merge it first"), out + err + prompt_part)
         w, j2 = conflicting_world(False)
         # Standing inside the job's own worktree, a session that worked no job would be told "continue here" for any other branch: only
         # the conflict makes it fresh. The worktree is made first, as `_checkout` reuses a worktree the branch already has.

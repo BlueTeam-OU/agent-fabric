@@ -315,10 +315,6 @@ def switch_job(args) -> int:
         resumed = job.get("reason") if job["state"] == "paused" else None
         unpushed = job.get("unpushed") if job["state"] == "paused" else None      # the transition drops it; the reminder is said below
         where = f"branch {choice.branch}" if choice.branch else f"no branch ({choice.note})"
-        if choice.conflict:
-            # First, not last: the launcher puts only the first 400 characters of the job's last note in the fresh session's prompt, and the
-            # evidence of the job just left, which `mark` carries after `where`, has no bound.
-            where = f"{choice.merge_with} conflicts: merge it first; {where}"
         if choice.branch:
             # The open pull request's branch is shared by design (one open pull request per agent), but never silently.
             sharing = [j["id"] for j in doc["jobs"] if j["id"] != job["id"] and j["state"] not in TERMINAL and j.get("branch") == choice.branch]
@@ -326,6 +322,10 @@ def switch_job(args) -> int:
                 where += f" (also recorded by {', '.join(sharing)})"
                 verdict_for["sharing"] = sharing
         mark = f"switch from {old['id']} ({settled}); {where}" if settled else f"switch; {where}"
+        if choice.conflict:
+            # In front of the whole note, not of `where`: the launcher puts only the first 400 characters of the job's last note in the
+            # fresh session's prompt, and the evidence of the job just left, which `mark` carries before `where`, has no bound.
+            mark = f"{choice.merge_with} conflicts: merge it first; {mark}"
         if choice.kind == "blocked":
             on = f"pr:{choice.repo}#{choice.pr}"
             was_blocked = job["state"] == "blocked"
