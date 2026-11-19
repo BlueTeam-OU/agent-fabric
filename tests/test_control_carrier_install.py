@@ -2658,6 +2658,61 @@ class SelfStart(StartStopHarness):
         self.assertIn("failure mark cannot be written", r["reason"])
         self.assertEqual((self.systemd.started, self.systemd.stopped), ([], []))
 
+    def unlink_refused(self):
+        real = os.unlink
+
+        def unlink(path, *a, **k):
+            if os.path.basename(str(path)) == iw.SELFSTART_MARK:
+                raise PermissionError(13, "denied")
+            return real(path, *a, **k)
+        return unittest.mock.patch("os.unlink", unlink)
+
+    def test_a_signed_action_that_cannot_remove_the_mark_install_and_start_fail_and_stop_says_it(self):
+        self.failing()
+        self.assertEqual(self.selfstart()["status"], "failed")
+        self.systemd.after_start.clear()
+        self.systemd.states = {}
+        self.systemd.calls.clear()
+        with self.unlink_refused():
+            r = self.install()
+            self.assertEqual(r["status"], "failed", r)
+            self.assertIn("could not be removed", r["reason"])
+            self.assertNotIn("fetch", self.events, "nothing was installed")
+            r = self.start()
+            self.assertEqual(r["status"], "failed", r)
+            self.assertIn("could not be removed", r["reason"])
+            self.assertEqual((self.systemd.enabled, self.systemd.rendered), ([], []), "nothing was started")
+            r = self.stop()
+            self.assertEqual(r["status"], "stopped", "a stop is never held back")
+            self.assertIn("could not be removed", r["selfstart_mark"])
+        self.assertTrue(os.path.lexists(self.mark))
+        rows = [{"account": "a", "status": "ok", "interweaveStop": r}]
+        self.assertIn("could not be removed", ctl.table("interweave-stop", rows), "the operator's table says the mark stands")
+
+    def test_a_check_that_passes_but_a_mark_that_cannot_be_removed_is_a_failure_with_the_units_running(self):
+        with self.unlink_refused():
+            r = self.selfstart()
+        self.assertEqual(r["status"], "failed", r)
+        self.assertIn("could not be removed", r["reason"])
+        self.assertEqual(self.systemd.stopped, [], "the units run and are left running")
+        self.assertTrue(os.path.lexists(self.mark))
+
+    def test_a_state_directory_that_cannot_be_opened_is_a_refusal_not_a_failure(self):
+        blocker = os.path.join(self._tmp.name, "blocker")
+        with open(blocker, "w") as fh:
+            fh.write("x")
+        r = self.selfstart(state=os.path.join(blocker, "state"))
+        self.assertEqual(r["status"], "refused", r)
+        self.assertIn("state directory cannot be prepared", r["reason"])
+        self.assertEqual((self.systemd.started, self.systemd.stopped), ([], []))
+
+    def test_an_is_enabled_that_hangs_names_the_question_that_went_unanswered(self):
+        self.systemd.hang = "is-enabled"
+        r = self.selfstart()
+        self.assertIn("whether the units are enabled is not known", r["reason"])
+        self.systemd.hang = "show"
+        self.assertIn("whether the units are down is not known", self.selfstart()["reason"])
+
 
 class SelfStartCommand(unittest.TestCase):
     """The subcommand: reply on stdout as JSON, the reason on stderr, the exit status by kind."""

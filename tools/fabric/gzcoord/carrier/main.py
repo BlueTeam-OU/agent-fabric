@@ -67,15 +67,16 @@ CONTRACT
           GZCOORD_CARRIER_ROSTER (a roster file other than
           runtime/interweave/roster.json: a test), GZCOORD_CARRIER_RELEASE (a
           release.json other than runtime/interweave/release.json: a test)
-  stdout  `status`'s JSON; `render-config`'s YAML; `roster-row`'s JSON
+  stdout  `status`'s JSON; `render-config`'s YAML; `roster-row`'s JSON; `self-start`'s reply as one JSON line
   stderr  every other line, prefixed `gzcoord-carrier:`; no secret, no body
   exit    0 done (run: stopped by SIGTERM/SIGINT; self-start: started); 1 usage; 2 refused to run
           (journal off, own row names a host other than the identity address's,
           another carrier already holds the record or the socket, no XDG_RUNTIME_DIR); 3 the carrier is not
           reachable (status, abandon); 4 roster-row, roster-admit: the agent's key is not committed on
           origin/main yet (commit identities/keys/ and merge it, new-agent step 5; waiting converges, no
-          other refusal does); 5 self-start: the units did not come up, were stopped again and the failure
-          mark stands (a refusal is 2, with nothing touched)
+          other refusal does); 5 self-start failed after it began: the units did not come up and were stopped again
+          with the failure mark standing, or the check passed and the mark could not be removed, or the stop
+          did not take (the reply's reason says which; a refusal is 2, with nothing touched)
 
 The carrier never opens the admin socket and never carries fabric:control
 (ADR-064 rules 5, 12).

@@ -93,7 +93,9 @@ def carrier_selfstart(root: str | None = None, home: str | None = None, state: s
         return ci._refused(f"{e}; nothing was started")
     fd, busy = ci._lock(state)
     if fd is None:
-        return busy or ci._refused(ci.LOCK_BUSY)
+        # A state directory that cannot be opened leaves the lock unconfirmed: an unknown is a refusal, nothing was touched.
+        busy = busy or ci._refused(ci.LOCK_BUSY)
+        return busy if busy["status"] == "refused" else ci._refused(f"{busy['reason']}; nothing was started")
     try:
         return _selfstart(build, profile, root, home, state, run, sleep)
     finally:
@@ -116,9 +118,12 @@ def _selfstart(build: dict, profile: str, root: str, home: str, state: str, run:
         up = [f"{u} is {st}" for u, st in states.items() if st not in STOPPED_STATES]
         if up:
             return refuse(f"the units are not both down ({', '.join(up)})", states)
-        words = {u: unit_enabled(u, run, home) for u in both}
     except ci.ChannelUnknown as e:
         return refuse(f"whether the units are down is not known ({e})")
+    try:
+        words = {u: unit_enabled(u, run, home) for u in both}
+    except ci.ChannelUnknown as e:
+        return refuse(f"whether the units are enabled is not known ({e})", states)
     off = [f"{u} reads {w!r}" if w else f"{u} gave no answer" for u, w in words.items() if w != ENABLED]
     if off:
         return refuse(f"both units must be enabled ({', '.join(off)}); a unit an operator stopped is not this command's to start", states)
