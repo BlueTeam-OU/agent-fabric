@@ -64,7 +64,7 @@ carrier.pin.verify_program, the reader admit.py shares). A digest that
 differs, a file that cannot be read and a pin without the key each refuse the
 spawn with their own log line and leave the channel `off`; under dual the relay
 still carries control, and the supervisor's restart re-reads both, so a
-corrected install recovers without agentd restarting. Its `--version` is logged.
+corrected install recovers without agentd restarting.
 """
 from __future__ import annotations
 
@@ -356,8 +356,8 @@ class Inbox:
 class Child:
     """`interweave-human … listen --json --input --consume --endpoint fabric-control`, supervised: restarted with
     backoff 1, 2, 4 … 60 s however it ends (the exit code only says what the log line and `state` say), its
-    stderr read into the log so it never blocks, its stdout read line by line. State is `off` (no daemon, or the
-    store cannot be used), `restarting`, or `ok` (a `session ready` was read)."""
+    stderr read into the log so it never blocks, its stdout read line by line. State is `off` (no daemon, the
+    store cannot be used, or the digest check refused the program), `restarting`, or `ok` (a `session ready` was read)."""
 
     def __init__(self, argv: list[str], env: dict[str, str], on_message: Callable[[dict], None], *,
                  log: Callable[[str], None] = say, popen: Callable[..., Any] = subprocess.Popen,
@@ -406,7 +406,10 @@ class Child:
             ready = False
             # A refusal is no spawn failure: the program is there and a check says it must not run. The next
             # backoff asks again, so a corrected install recovers without agentd restarting.
-            refusal = self._check() if self._check is not None else None
+            try:
+                refusal = self._check() if self._check is not None else None
+            except Exception as e:   # noqa: BLE001 — an unforeseen failure of the check must not end the supervisor thread unseen
+                refusal = f"the digest check failed ({type(e).__name__}: {js.slice(str(e), 200)})"
             proc: Any = None
             if refusal is not None:
                 self.state = "off"

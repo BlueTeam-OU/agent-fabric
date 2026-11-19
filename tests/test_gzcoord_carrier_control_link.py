@@ -316,6 +316,7 @@ class PinnedDigest(Scratch):
     def install(self, body: bytes) -> None:
         with open(self.program, "wb") as fh:
             fh.write(body)
+        os.chmod(self.program, 0o755)
 
     def popen(self, *a, **k):
         self.spawns.append(a)
@@ -367,6 +368,39 @@ class PinnedDigest(Scratch):
         self.assertEqual(self.spawns, [])
         self.install(self.BODY)
         self.assertTrue(until(lambda: self.spawns), self.logs)
+
+    def test_a_check_that_raises_refuses_and_the_supervisor_lives(self):
+        def broken():
+            raise RuntimeError("boom")
+        c = cc.Child([self.program], {}, lambda ev: None, log=self.logs.append, popen=self.popen, backoff=(0.02,), check=broken)
+        self.addCleanup(c.stop)
+        self.refused(c, "the digest check failed (RuntimeError: boom)")
+
+    def agentd_start(self, digest_of_body: bytes) -> tuple[list, str]:
+        """start_for_agentd as agentd calls it (no argv): the program writes a marker if it is ever run."""
+        marker = os.path.join(self.env["HOME"], "ran")
+        self.install(f"#!/bin/sh\n: > {marker}\n".encode())
+        self.pin(digest=hashlib.sha256(digest_of_body).hexdigest())
+        logs = []
+        env = {**self.env, "AGENT_FABRIC_STATE_DIR": self.scratch()}
+        with mock.patch.dict(os.environ, {"AGENT_FABRIC_STATE_DIR": env["AGENT_FABRIC_STATE_DIR"]}):
+            running = cc.start_for_agentd(me="h/alice", on_request=lambda r, s: None, placed=lambda: PLACED, env=env, log=logs.append,
+                                          directory=cc.Directory(lambda: ROWS, "h", lambda: PLACED, log=logs.append))
+        self.addCleanup(running.stop)
+        return logs, marker
+
+    def test_agentd_start_refuses_a_program_the_release_does_not_pin(self):
+        logs, marker = self.agentd_start(b"something else")
+        self.assertTrue(until(lambda: any(l.startswith("not starting") for l in logs)), logs)
+        time.sleep(0.3)
+        self.assertFalse(os.path.exists(marker), "the unpinned program ran")
+
+    def test_agentd_start_runs_the_pinned_program(self):
+        # The positive control of the refusal above: same wiring, the file the release pins.
+        marker = os.path.join(self.env["HOME"], "ran")
+        body = f"#!/bin/sh\n: > {marker}\n".encode()
+        logs, _ = self.agentd_start(body)
+        self.assertTrue(until(lambda: os.path.exists(marker)), logs)
 
     def test_an_injected_argv_is_not_checked(self):
         logs = []

@@ -57,13 +57,6 @@ class NoCommittedKey(AdmitError):
     commits identities/keys/ (provisioning step 5) and its merge. main.py gives it its own exit status."""
 
 
-def _release_entry(release_path: str, machine: str | None = None) -> dict:
-    try:
-        return pin.release_entry(release_path, machine)
-    except pin.PinError as e:
-        raise AdmitError(str(e)) from e
-
-
 def pinned_version(release_path: str, machine: str | None = None) -> str:
     """What `transportctl --version` must print: release.json's `reports` for the current release on this machine."""
     try:
