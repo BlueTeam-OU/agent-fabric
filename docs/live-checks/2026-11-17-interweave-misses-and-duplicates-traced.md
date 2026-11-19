@@ -8,7 +8,8 @@ a reviewer can find, and the report of a fresh window. It decides nothing:
 the gate is the owner's word.
 
 File and line citations are of the tree at `0a68bf5e` (main after #642),
-paths under `tools/fabric/gzcoord/`; the lines have moved on main since.
+paths under `tools/fabric/gzcoord/` (`engine.py`, `adapter.py`, `record.py` and `parity.py`
+under its `carrier/`); the lines have moved on main since.
 
 ## What was run
 
@@ -27,7 +28,7 @@ gzcoord-carrier parity --window 2026-11-16T00:00:00Z 2026-11-17T07:47:44Z --coll
 The first is the 11-09 report's window extended to the end of the collection;
 the second is the fresh window after 2026-11-16. Both were run twice: with
 the installed tool (the numbers of the 11-09 file's method) and with the
-branch's `parity.py` (below, "The one defect"). The classes were computed
+branch's `carrier/parity.py` (below, "The one defect"). The classes were computed
 from the same collection by a script that joins each missed pair to the
 senders' `deliveries.jsonl` and `backfills.jsonl` and to the addressees'
 `arrivals.jsonl` (not committed; the rule of each class is stated below so a
@@ -54,7 +55,7 @@ are exclusive and applied in this order; they sum to 941.
 |---|---|---|---|
 | A. the sender's own copy of its broadcast | 27 (12 of the 13 after 10-27; 1 of the fresh window) | The carrier sends a broadcast or TO-ROLE to every roster member but its sender; the relay returns the sender its own copy, which the relay column then expects an InterWeave twin of. **Not a miss**: the pair is the sender and the message it sent. The sender is known because it recorded deliveries to others for the same MESSAGE-ID (the account holding the 29 `done` rows is the addressee). | `carrier/engine.py` `Carrier.recipients` (lines 135-144: `others` drops `row["agent_id"] == me.agent_id`); ADR-064 rule 6 and CARRIER-CONTRACT.md §4 ("every other valid roster member"). Defect in the report, fixed (below) |
 | B. the rollback drill | 6 | All six were sent between `interweave-stop` (2026-11-12T09:33:54Z) and `interweave-start` (10:09:36Z): no carrier ran on any account. The sender's backfill log says `relay-took-send` for each. Not a miss: the drill is what stops the carrier ([drills record](2026-11-12-interweave-drills.md)). | `adapter.py` `Adapter.post_result` returns `absent` when the socket is missing (line 99-100); the mirror then carries on with the relay (`send.py` 641-651) |
-| C. the addressee was not receiving by InterWeave yet | 902 (906 on 10-24 to 10-26 in the 11-09 report, less those that were class A or B) | The message is older than the addressee's first InterWeave arrival in the collection. The 30 accounts' first InterWeave arrivals run from 2026-10-25T19:23:29Z (python-dev-03) to 2026-10-27T07:05:40Z; the last carrier to start receiving is the staged rollout's end. Before it, a sender's roster had no row for the addressee, or the addressee's carrier was not running. Not a miss of the carrier: the dual run had not reached that account. Why a given sender recorded none (no row, carrier off) is the fact the 11-09 report called "not traced to rollout dates": the roster's admission date per account is not in the collection. | `engine.py` `Carrier.refresh_roster` (110-129) and `recipients` (135-144); `adapter.py` `Post("not-carried")` (125) |
+| C. the addressee was not receiving by InterWeave yet | 902 (906 on 10-24 to 10-26 in the 11-09 report, less the four that are class E or F: class B's pairs were all sent on 11-12) | The message is older than the addressee's first InterWeave arrival in the collection. The 30 accounts' first InterWeave arrivals run from 2026-10-25T19:23:29Z (python-dev-03) to 2026-10-27T07:05:40Z; the last carrier to start receiving is the staged rollout's end. Before it, a sender's roster had no row for the addressee, or the addressee's carrier was not running. Not a miss of the carrier: the dual run had not reached that account. Why a given sender recorded none (no row, carrier off) is the fact the 11-09 report called "not traced to rollout dates": the roster's admission date per account is not in the collection. | `engine.py` `Carrier.refresh_roster` (110-129) and `recipients` (135-144); `adapter.py` `Post("not-carried")` (125) |
 | E. the sender's carrier had not delivered yet | 2 | user to python-dev-02, 10-25 19:33 and 19:56: the sender's first delivery record of any kind is 10-26T05:31:09Z. The same staged start, seen from the sender. | as C |
 | F. unexplained by the collection | 4 | 10-25 19:29 and 19:46, python-dev-02 to python-dev-03 (both accounts were receiving since 19:23; the 0.1.0 exercise of [10-25](2026-10-25-interweave-two-accounts.md) ran its carriers as processes, not units, that evening); 10-28 11:38 architect-cto-01 to p2p-network-dev-02; 11-13 06:05 rust-ui-dev-02 to architect-cto-01. In each the sender's backfill log says `relay-took-send` and the addressee was receiving by InterWeave before and after. | below |
 
@@ -104,12 +105,16 @@ All 516 extra copies belong to 38 pairs and to messages sent on **2026-10-30**,
 other. 477 are the owner's broadcast `01a18c45` (fabric d941d5b0 on every
 account; its text says "the journal moves to schema 3 the first time new code
 opens it", and that a watch still running the old code ends with exit 6, "the
-delivery was not acknowledged and comes again"): 28 of 29 addressees hold 18
-copies from 10:05:34Z: the first retry after 333 s, the second after 384 s, then
-every 300 s (`record.py` `BACKOFF_CAP`, line 44; `backoff`, 58-60), the last
-of each account at 11:29:46Z to 11:31:54Z, account by account. Two more messages of
-10:xx hold 16 copies each (32 extras), and eight pairs two copies (gap about
-510 s).
+delivery was not acknowledged and comes again"): 28 of its 29 addressees hold
+18 copies (17 extras each, 476) from 10:05:34Z: the first retry after 333 s,
+the second after 384 s, then every 300 s (`record.py` `BACKOFF_CAP`, line 44;
+`backoff`, 58-60), the last of each account at 11:29:46Z to 11:31:54Z, account
+by account; the 29th holds 2 (1 extra). Two messages (`01a18c47-4d19` to
+python-dev-01, `01a18c47-57c4` to brand-comms-01) hold 17 copies each (16
+extras each, 32; first retry gap about 347 s), and seven pairs, all to the
+coordinator, two copies each (7 extras; gap about 511 s). 477 + 32 + 7 = 516;
+pairs 29 + 2 + 7 = 38. (Recomputed by python-dev-03 from the collection,
+REPLY 01a1f1f6, after #658 review round 1 F4.)
 
 **Cause**: one mechanism, by design, and not a duplicate seen by anyone.
 `Carrier.finish` appends the arrival line **before** the journal write

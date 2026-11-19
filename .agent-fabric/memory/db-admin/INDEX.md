@@ -3,7 +3,7 @@ role: "db-admin"
 class: index
 description: "What db-admin knows and where it lives."
 tier: 1
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-17"
 ---
 
 # db-admin — knowledge index
@@ -35,8 +35,10 @@ control plane checked out beside it.
 - [`memory/domains/db-admin/domain/an-implied-check-is-never-reported.md`](memory/domains/db-admin/domain/an-implied-check-is-never-reported.md) — A CHECK implied by others (x > 0 when 0 < y < x exists) can never be the constraint a refusal names — drop it, or its test asserts the wrong name.
 - [`memory/domains/db-admin/domain/btrim-is-not-dotnet-trim.md`](memory/domains/db-admin/domain/btrim-is-not-dotnet-trim.md) — A blank or leading-digit test written in SQL and again in .NET disagrees on whitespace: btrim's default strips U+0020 only, Trim()/IsNullOrWhiteSpace strip 25 code points, [[:space:]] depends on the ctype.
 - [`memory/domains/db-admin/domain/check-constraints-fire-in-name-order.md`](memory/domains/db-admin/domain/check-constraints-fire-in-name-order.md) — A test asserting WHICH CHECK refused a row must make the row violate only that one — Postgres evaluates a row's CHECKs alphabetically by name and reports the first.
+- [`memory/domains/db-admin/domain/join-to-a-mostly-ended-parent-hashes-it-all.md`](memory/domains/db-admin/domain/join-to-a-mostly-ended-parent-hashes-it-all.md) — "Open children whose parent has ended" as a plain join makes the planner hash every ended parent; no index fixes it, the query shape does
 - [`memory/domains/db-admin/domain/keycloak-db-migration.md`](memory/domains/db-admin/domain/keycloak-db-migration.md) — Keycloak self-migrates its backing database across intermediate minor versions on restart, unlike Postgres across majors
 - [`memory/domains/db-admin/domain/latest-by-uuidv7-pk-walks-every-newer-row.md`](memory/domains/db-admin/domain/latest-by-uuidv7-pk-walks-every-newer-row.md) — WHERE key = @k ORDER BY <uuidv7 pk> DESC LIMIT 1 looks cheap in a probe and costs the whole table for an idle key; and an index on a column the hot UPDATE rewrites kills HOT
+- [`memory/domains/db-admin/domain/lax-jsonpath-unwraps-arrays-in-a-check.md`](memory/domains/db-admin/domain/lax-jsonpath-unwraps-arrays-in-a-check.md) — A jsonb "every value is a string" CHECK in lax jsonpath admits {"k": ["x"]}; use strict with silent => true
 - [`memory/domains/db-admin/domain/nullability-encodes-a-state-machine.md`](memory/domains/db-admin/domain/nullability-encodes-a-state-machine.md) — A nullable timestamp copied from a sibling table carries that table's state machine; if the copy's status CHECK has no state where the column is absent, the nullability is a bug.
 - [`memory/domains/db-admin/domain/pg-regex-s-admits-nbsp.md`](memory/domains/db-admin/domain/pg-regex-s-admits-nbsp.md) — Postgres 18's regex \S admits U+00A0 and follows the DB ctype; spell an ASCII range for a "no whitespace" CHECK
 - [`memory/domains/db-admin/domain/pg18-not-null-is-a-pg-constraint-row.md`](memory/domains/db-admin/domain/pg18-not-null-is-a-pg-constraint-row.md) — Counting or listing a table's constraints from pg_constraint on Postgres 18 — NOT NULL is a row there too (contype 'n'), and LIKE's '_' is a wildcard; filter by contype and assert the exact set

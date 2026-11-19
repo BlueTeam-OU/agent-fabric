@@ -5,7 +5,7 @@ topic: "arming-minimum-1-and-boundary-authorization"
 description: "agent-fabric arms at 1 work commit since 2026-10-19; tests of guards are a security boundary and need the coordinator's AUTHORIZES id"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-17"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
@@ -24,4 +24,4 @@ Even so, `fabric-pr arm` refused #320 (tests/test_*_guard.py only) as a security
 
 *References: arm-under-8-boundary-needs-owners-word-phrase*
 
-*Observed 2026-10-19 (python-dev)*
+*Observed 2026-11-08 (python-dev)*

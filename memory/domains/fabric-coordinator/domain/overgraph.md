@@ -5,7 +5,7 @@ topic: overgraph
 description: "OverGraph — embedded Rust graph + vector database (LSM, mmap segments, GQL/Cypher-style, PyO3/napi bindings), pitched as AI agent memory with temporal edges and decay; early-stage; BM25 only on its roadmap; what to borrow for the fabric's…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -60,6 +60,6 @@ revisited; until then nothing here beats markdown plus FTS5 for this corpus.
 **How to apply:** do not reopen the question for OverGraph alone; reread this note and the roadmap only
 if it ships text search and a server layer.
 
-*References: edgequake, helix-foundry, link, minigraf*
+*References: edgequake, helix-foundry, minigraf*
 
 *Observed 2026-10-12 (fabric-coordinator)*

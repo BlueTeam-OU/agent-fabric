@@ -3,7 +3,7 @@ role: "architect-cto"
 class: index
 description: "What architect-cto knows and where it lives."
 tier: 1
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 ---
 
 # architect-cto — knowledge index
@@ -112,7 +112,10 @@ control plane checked out beside it.
 
 ## threads
 
-- [`.agent-fabric/memory/architect-cto/threads.md`](.agent-fabric/memory/architect-cto/threads.md) — gzapp PR 9 (#1167) carries the stop-call-shadow-summary flush-gap sentence as 1.0.2 at its fold after 13b (#1169, 1.0.1) merges
+- [`.agent-fabric/memory/architect-cto/threads/gzapp-pr9-flush-gap-sentence-lands-as-1-0-2-after-13b.md`](.agent-fabric/memory/architect-cto/threads/gzapp-pr9-flush-gap-sentence-lands-as-1-0-2-after-13b.md) — gzapp PR 9 (#1167) carries the stop-call-shadow-summary flush-gap sentence as 1.0.2 at its fold after 13b (#1169, 1.0.1) merges
+- [`.agent-fabric/memory/architect-cto/threads/idle-round-11-dispatch-2026-11-16.md`](.agent-fabric/memory/architect-cto/threads/idle-round-11-dispatch-2026-11-16.md) — InterWeave idle round 11 (j738, 2026-11-16 ~17:00Z) — five REQUESTs to the Rust and network developers, what each asks, what I owe on their replies, and what was left unready
+- [`.agent-fabric/memory/architect-cto/threads/idle-round-6-dispatch-2026-11-09.md`](.agent-fabric/memory/architect-cto/threads/idle-round-6-dispatch-2026-11-09.md) — 2026-11-09 sixth idle-agent round across gzapp, InterWeave and the brand/legal repositories (fabric-coordinator REQUEST 01a1c220, my j572) — the 15 REQUESTs sent, the 5 logins with nothing, and what I owe on each
+- [`.agent-fabric/memory/architect-cto/threads/idle-round-7-dispatch-2026-11-09.md`](.agent-fabric/memory/architect-cto/threads/idle-round-7-dispatch-2026-11-09.md) — 2026-11-09 seventh idle-agent round (fabric-coordinator REQUEST 01a1c27f, my j577; four logins) — one REQUEST sent, three logins with nothing and the owner's words each waits on
 
 ## recall
 
