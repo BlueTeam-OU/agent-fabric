@@ -30,6 +30,8 @@ FINE = [
     # A home under another root or a relative one is no login's home: the bare pattern's lookbehind keeps them (#658 round 3, F7).
     "/srv/home/alice", "./home/alice", "docs/home/index",
     "10-1-2-3-4-5 and v10-0-0-1000 and 172-15-0-1 and 172-32-0-1",
+    # A dashed date-time is no address: the digit-dash lookbehind keeps its 10-12-30-45 (#658 full review round 2, F11).
+    "2026-11-10-12-30-45 and build-2026-11-10-1-2-3",
     # A section number is no address (a gzapp slice cited §10.2.1.4, 2026-10-14).
     "fix the §10.2.1.4 sites, see §192.168.1.1 and §172.16.0.1",
 ]

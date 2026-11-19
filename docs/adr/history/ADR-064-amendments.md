@@ -533,6 +533,11 @@ a drill's window and a failed signed start all leave both units
 disabled, while a crash or an upgrade's restart leaves them enabled. So
 the command also refuses unless both are enabled, and it takes the
 account's install/start/stop lock (ADR-029 rule 12), so it never runs
-beside a signed action (#658 full review, F9). Install, update, restart
+beside a signed action (#658 full review, F9). A failed check leaves a
+mark only a signed install, start or stop clears, and the command
+refuses while it stands; without it a failed start would leave the
+units enabled and down, the state the next self-start accepts, and an
+agent retrying after each give-up would start and stop a broken carrier
+in a loop (#658 full review round 2). Install, update, restart
 and stop stay as they were. The local command and the watch's exit text
 are python-dev's to build.

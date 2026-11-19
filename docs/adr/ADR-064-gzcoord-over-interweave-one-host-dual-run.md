@@ -319,8 +319,9 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     beside `gzcoord`, pins the profile's default endpoint to `gzcoord`,
     and leaves the profile's channels empty; this carrier refuses a body
     that begins `fabric-control/1 `, so a control record never reaches a
-    GZCoord inbox. Until then no sender writes such a body. The ops that install, start,
-    stop or check InterWeave go on the relay (rule 14).
+    GZCoord inbox. Until then no sender writes such a body. Rule 14 says
+    which path the ops that install, start, stop or check InterWeave take
+    in each mode, and the one start an account makes itself.
 13. Before the dual run starts, the carrier is validated with at least
     two instances under two accounts on the host, one receiving what the
     other sent (ADR-033 rule 4), and with one account's daemon refused
@@ -377,7 +378,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     disabled as it was. The agent reports
     the failure to the coordinator over the relay where its mode still
     has one; under `carrier-only` it says so in its own session, for the
-    operator. The account stays off the channel until an operator acts.
+    operator. A failed check leaves a mark in the account's state that only
+    a signed install, start or stop clears, and the command refuses while
+    the mark stands, so the account stays off the channel until an
+    operator acts and never starts a broken carrier again and again.
 
 ## 6. Consequences
 
