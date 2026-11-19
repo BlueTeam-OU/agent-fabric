@@ -164,6 +164,9 @@ LOCK_BUSY = f"another {INSTALL_OP}, {START_OP} or {STOP_OP} is running on this a
 MARKER = f"{INSTALL_OP}.json"
 LOCK = f"{INSTALL_OP}.lock"
 WORK = INSTALL_OP
+# The account's own start (agent-fabric ADR-064 rule 14) leaves this file when its check fails or it is interrupted; only
+# a signed install, start or stop removes it, so an operator has looked before the account starts a carrier again.
+SELFSTART_MARK = f"{CARRIER_NAME}-selfstart-failed.json"
 UNITS = (f"{CARRIER_NAME}-daemon@.service", f"{CARRIER_NAME}-client@.service")
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
@@ -865,6 +868,19 @@ def read_marker(state: str) -> dict | None:
     return d if isinstance(d, dict) else None
 
 
+def clear_selfstart_mark(state: str) -> str | None:
+    """Removes the self-start's failure mark; None when it is gone (or never was), else why it could not be removed.
+    A signed action calls this under the account's lock once it is past its own refusals' lock check: the operator
+    acting is what the mark waits for, whatever the action then finds."""
+    try:
+        os.unlink(os.path.join(state, SELFSTART_MARK))
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        return f"the self-start mark {SELFSTART_MARK} could not be removed ({errno.errorcode.get(e.errno or 0) or e})"
+    return None
+
+
 def _marker_programs(marker: dict | None) -> dict[str, str] | None:
     p = marker.get("programs") if marker else None
     if isinstance(p, dict) and p and all(isinstance(k, str) and NAME_RE.fullmatch(k) and isinstance(v, str) and SHA256.fullmatch(v)
@@ -928,6 +944,9 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             return _refused(LOCK_BUSY)
+        stuck = clear_selfstart_mark(state)
+        if stuck:
+            return _failed(version, stuck)
         reply = _install(version, pin["releases"][version], build, state, home, root, fetch, run, token, sleep, lease)
         return _with_client(reply, home, root)
     finally:
@@ -1274,6 +1293,9 @@ def carrier_start(request: Any, root: str | None = None, home: str | None = None
     if fd is None:
         return reply or _refused(LOCK_BUSY)
     try:
+        stuck = clear_selfstart_mark(state)
+        if stuck:
+            return _failed(None, f"{stuck}; nothing was started")
         return _start(build, profile, root, home, run, sleep, login, lease)
     finally:
         os.close(fd)
@@ -1402,12 +1424,15 @@ def carrier_stop(request: Any, root: str | None = None, home: str | None = None,
     if fd is None:
         return reply or _refused(LOCK_BUSY)
     try:
+        # A stop is never held back by a mark it cannot remove: the units come down and the reply says the mark stands.
+        stuck = clear_selfstart_mark(state)
         daemon, client = unit_names(profile)
         left = _disable_now([client, daemon], run, home)       # the client first: it talks to the daemon
         states, still = _settled([daemon, client], run, home, sleep)
+        extra = {"selfstart_mark": stuck} if stuck else {}
         if left or still:
-            return {"status": "failed", "units": states, "reason": f"the units are not both stopped ({left or still})"}
-        return {"status": "stopped", "units": states}
+            return {"status": "failed", "units": states, "reason": f"the units are not both stopped ({left or still})", **extra}
+        return {"status": "stopped", "units": states, **extra}
     finally:
         os.close(fd)
 
