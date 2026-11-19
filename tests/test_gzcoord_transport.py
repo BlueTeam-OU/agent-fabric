@@ -96,6 +96,8 @@ class FakeAdapter:
 
 
 def main() -> int:
+    # The cases are the relay-record's; a mode forced by the session's environment would reach every command they start.
+    os.environ.pop("GZCOORD_TRANSPORT_MODE", None)
     scratch = tempfile.mkdtemp(prefix="transport-")
     hosts = None
     try:
@@ -204,10 +206,18 @@ def main() -> int:
             {"id": "r1", "seq": 1, "content": text("mine")}, {"id": "r2", "seq": 2, "content": text("other", to="h/gamma")},
             {"id": "r3", "seq": 3, "content": "not gzcoord"}]})})
         cfg = {"relay_url": stub.url, "channel": "chan"}
-        mux = transport.open_transport(cfg, token="tok", me=ME, state_dir=state_dir, iso_now=lambda: NOW)
+        relay_mode = {"mode": "relay-record"}  # pinned: an unpinned open_transport reads the running account's own mode
+        mux = transport.open_transport(cfg, token="tok", me=ME, state_dir=state_dir, iso_now=lambda: NOW,
+                                       account_mode=relay_mode)
         check("the factory makes the relay primary and the carrier a mirror; with the journal off there is no mirror and no iw",
               mux.primary.name == "relay" and [m.name for m in mux.mirrors] == [CARRIER_NAME] and mux.iw is mux
-              and transport.open_transport(cfg, token="tok", me=ME, journal_off=True).iw is None)
+              and transport.open_transport(cfg, token="tok", me=ME, journal_off=True, account_mode=relay_mode).iw is None)
+        try:
+            transport.open_transport(cfg, token="tok", me=ME, journal_off=True, account_mode={"mode": "carrier-record"})
+            refused = False
+        except transport.ModeError:
+            refused = True
+        check("with the journal off, receiving is refused in carrier-record (ADR-064 rule 8): the positive control of the pin", refused)
         page = mux.fetch_page(1, threading.Event())
         mux.ack("r1")
         mux.ack("r2")
