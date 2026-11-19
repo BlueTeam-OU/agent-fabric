@@ -5,7 +5,7 @@ topic: "dead-link-lint-is-a-warning"
 description: "where an unresolved [[link]] in the memory corpus is named, and why lint cannot say \"undrained\""
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-17"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -30,7 +30,7 @@ a ratchet (fail only on new ones) is the next step if the count does not fall. A
 under a `## ` heading: `parse_slice` reads no link outside a section.
 Related: [[drain-multi-pass-procedure]].
 
-*References: drain-multi-pass-procedure, link*
+*References: drain-multi-pass-procedure*
 
 *Anchors: `tools/fabric/lint_rules/slices.py::def link_warnings`, `tools/fabric/assembler/links.py::def unresolved_links`*
 

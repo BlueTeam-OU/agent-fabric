@@ -5,7 +5,7 @@ topic: "cold-read-on-sonnet"
 description: "how a cold read is dispatched — read-only Explore on model sonnet, never opus; report a miss with its example"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -15,6 +15,7 @@ derived_from:
   - 04271d8ccbae9033
   - 855ca55c3101eb26
   - 9fcb059d519abb75
+  - d2476fb77f73a99d
 ---
 
 ## how a cold read is dispatched — read-only Explore on model sonnet, never opus; report a miss with its example
@@ -45,4 +46,13 @@ them only because it was given the page around the line (01a18bd0,
 place, after the edits. Before that, read each replacement sentence
 for its own pronouns, since a fix for one pronoun often adds another.
 
-*Observed 2026-10-31 (language-culture)*
+**When the facts are fixed, tell the reader so** (j280, 01a1cba5,
+2026-11-11): a whole public page was given with the rules but without
+"the facts are fixed; judge only how it reads". The reader made 35
+findings. I withdrew 22 of them, and most of those asked for new
+content: limits, platforms, figures, a link, a failure mode. The 13
+that I took were all wording: referents, "both", one noun per thing,
+and a rule stated as a guarantee. So when a request says "do not
+change a fact", put that sentence in the cold read's brief as well.
+
+*Observed 2026-11-11 (language-culture)*

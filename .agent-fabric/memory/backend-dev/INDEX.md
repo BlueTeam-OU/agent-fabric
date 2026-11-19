@@ -3,7 +3,7 @@ role: "backend-dev"
 class: index
 description: "What backend-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 ---
 
 # backend-dev — knowledge index
@@ -34,6 +34,8 @@ control plane checked out beside it.
 - [`memory/domains/backend-dev/domain/derived-data-stamp-covers-the-code.md`](memory/domains/backend-dev/domain/derived-data-stamp-covers-the-code.md) — Data computed at import and read later (folded names, normalised keys, precomputed spans) — stamp it with the version of EVERY input that decides it, code included, and make the reader refuse a mismatch observably
 - [`memory/domains/backend-dev/domain/dotnet-test-gotchas.md`](memory/domains/backend-dev/domain/dotnet-test-gotchas.md) — Two nullable-reference-type gotchas in test doubles/assertions against framework interfaces
 - [`memory/domains/backend-dev/domain/dst-local-time-conversion.md`](memory/domains/backend-dev/domain/dst-local-time-conversion.md) — UTC-to-local conversion for a downstream local-time-string API is only ambiguous on fall-back, and the downstream tie-break can silently schedule earlier than intended
+- [`memory/domains/backend-dev/domain/gate-order-tests-need-the-later-gate-failing.md`](memory/domains/backend-dev/domain/gate-order-tests-need-the-later-gate-failing.md) — a test that a gate refuses "first" must leave the LATER gate failing too; satisfying the later gate to test "records nothing" silently drops the order check
+- [`memory/domains/backend-dev/domain/hosted-service-dispose-before-stop.md`](memory/domains/backend-dev/domain/hosted-service-dispose-before-stop.md) — A hosted service with a retry loop must survive Dispose before or during StopAsync, and a store error during the stop
 - [`memory/domains/backend-dev/domain/importer-counts-what-it-tolerates.md`](memory/domains/backend-dev/domain/importer-counts-what-it-tolerates.md) — An importer reading a producer's file (export, feed) — store your own reading of derived values, count every disagreement/clamp/skip in the report with a warning, refuse the file only for what the producer cannot have written
 - [`memory/domains/backend-dev/domain/insert-guard-does-not-bound-commit.md`](memory/domains/backend-dev/domain/insert-guard-does-not-bound-commit.md) — A reader that serves closed time windows needs the writer bounded from stamp to COMMIT on the reader's clock; a WHERE clock_timestamp() guard only bounds statement start
 - [`memory/domains/backend-dev/domain/k-suppression-holds-across-responses.md`](memory/domains/backend-dev/domain/k-suppression-holds-across-responses.md) — Designing an aggregate read with small-cell (k) suppression — the property must hold across every response a caller can combine, not per response; serve fixed disjoint closed tiles, stable against writers and sweeps

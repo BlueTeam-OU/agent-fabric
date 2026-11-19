@@ -5,7 +5,7 @@ topic: "make-shell-arguments-cannot-hold-unbalanced-parens"
 description: "A `case … *)` (or any unbalanced `)`) inside a Makefile $(shell …) ends the call early and the rest of the text becomes the value; and a value substituted into a $(shell bash -c '…') string is shell text at parse time on every make."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-17"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -33,8 +33,5 @@ Two traps met on 2026-09-17 in gzapp's Makefile resolver (#839):
 **How to apply:** in a `$(shell …)`, no unbalanced parentheses, and
 no make-expanded value inside the shell text; the make precheck suite
 has an injection case for the GTFS version.
-
-*References:  "$w"
-   =~ ^…$ *
 
 *Observed 2026-09-17 (devex-tooling)*

@@ -3,7 +3,7 @@ role: "flutter-dev"
 class: index
 description: "What flutter-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 ---
 
 # flutter-dev — knowledge index
@@ -29,6 +29,8 @@ control plane checked out beside it.
 - [`memory/domains/flutter-dev/domain/a-green-check-is-evidence-only-once-seen-red.md`](memory/domains/flutter-dev/domain/a-green-check-is-evidence-only-once-seen-red.md) — A test or guard that passes proves nothing until it has been watched FAIL on the defect it guards — three times a green run was blind to the very change it was meant to catch.
 - [`memory/domains/flutter-dev/domain/contract-closure-unevaluatedproperties.md`](memory/domains/flutter-dev/domain/contract-closure-unevaluatedproperties.md) — To tell whether a gzapp contract closes an object, check unevaluatedProperties — additionalProperties alone is wrong wherever the schema uses $ref.
 - [`memory/domains/flutter-dev/domain/dart-gotchas.md`](memory/domains/flutter-dev/domain/dart-gotchas.md) — Dart null-aware map-entry operator binds to the value, not the key
+- [`memory/domains/flutter-dev/domain/dart-io-post-follows-only-303.md`](memory/domains/flutter-dev/domain/dart-io-post-follows-only-303.md) — A real-socket test that a POST "never follows the redirect" can only fail for 303 under dart:io; 301/302/307/308 POSTs are not followed even with followRedirects on
+- [`memory/domains/flutter-dev/domain/dio-json-transform-eats-5xx-status.md`](memory/domains/flutter-dev/domain/dio-json-transform-eats-5xx-status.md) — dio decodes a JSON-labelled body BEFORE checking the status — an undecodable 5xx becomes a status-less unknown; fetch as plain text where the status matters
 - [`memory/domains/flutter-dev/domain/display-only-control-is-not-a-button.md`](memory/domains/flutter-dev/domain/display-only-control-is-not-a-button.md) — A control that only shows something (a compass, a status) must not be exposed to the screen reader as a button, and its tooltip must not merely repeat its label.
 - [`memory/domains/flutter-dev/domain/fcm17-token-vs-fid.md`](memory/domains/flutter-dev/domain/fcm17-token-vs-fid.md) — firebase_messaging 17 deprecates getToken() for register()/onRegistered, which hand out the installation id (FID), not a registration token
 - [`memory/domains/flutter-dev/domain/flutter-attach-baseline.md`](memory/domains/flutter-dev/domain/flutter-attach-baseline.md) — flutter attach takes the CURRENT source as what the device runs: edits made before attaching never hot-reload; attach first, then edit
@@ -61,6 +63,7 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/flutter-dev/workflow/assets-for-another-agent-go-on-a-for-branch.md`](.agent-fabric/memory/flutter-dev/workflow/assets-for-another-agent-go-on-a-for-branch.md) — Delivering files (captures, images) to another agent: a commit on a <host>/<login>/for/<caller>/<what> branch in the caller's repository, never an artifact page — a private page does not reach another account
 - [`.agent-fabric/memory/flutter-dev/workflow/blocked-job-notes-outlive-the-session.md`](.agent-fabric/memory/flutter-dev/workflow/blocked-job-notes-outlive-the-session.md) — Before a job blocks across sessions, put its working notes in the job itself or a pushed branch — fabric-branches --sweep deletes an ended session's scratchpad whole
 - [`.agent-fabric/memory/flutter-dev/workflow/jobs-chore-without-artifact.md`](.agent-fabric/memory/flutter-dev/workflow/jobs-chore-without-artifact.md) — recording a chore that lands nothing (e.g. a REPLY-EXPECTED: no broadcast's disk cleanup) in fabric-jobs — drop it with the reason, never mark it done
+- [`.agent-fabric/memory/flutter-dev/workflow/merge-target-replaces-it-never-deletes.md`](.agent-fabric/memory/flutter-dev/workflow/merge-target-replaces-it-never-deletes.md) — A memory with merge_target and no body does not retire a slice section — the drain only replaces a section with the correcting text, and an unmatched target is filed as an empty topic of its own
 - [`.agent-fabric/memory/flutter-dev/workflow/passenger-apk-local-build.md`](.agent-fabric/memory/flutter-dev/workflow/passenger-apk-local-build.md) — How to build gzapp's passenger release APK on develop-qzapp despite the read-only, incomplete /opt/android-sdk; never run flutter test during the build
 - [`.agent-fabric/memory/flutter-dev/workflow/red-check-fixed-on-main-needs-push.md`](.agent-fabric/memory/flutter-dev/workflow/red-check-fixed-on-main-needs-push.md) — A PR check red for a cause already fixed on main does not go green on a re-run; fold origin/main (--no-ff) and push, then re-arm
 - [`.agent-fabric/memory/flutter-dev/workflow/red-check-outside-the-range-is-rerun.md`](.agent-fabric/memory/flutter-dev/workflow/red-check-outside-the-range-is-rerun.md) — A PR's gate is red on a test the range does not touch, byte-identical to main and green there — re-run the failed job, never push a fix onto the PR; a head-scoped arm word survives a re-run, not a push

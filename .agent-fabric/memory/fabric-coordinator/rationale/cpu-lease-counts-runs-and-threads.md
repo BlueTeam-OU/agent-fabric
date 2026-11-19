@@ -5,13 +5,14 @@ topic: "cpu-lease-counts-runs-and-threads"
 description: "Host load: a lease that counts heavy runs must also cap each run's threads; the cpu slot is exec'd into the tool with build servers off, so a KILL cannot free it under running children"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-17"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - a1816d055a3d0972
   - e53eee6350ccfcdd
 ---
 
@@ -22,6 +23,8 @@ On develop-qzapp (10 vCPU) one full agent-fabric suite alone kept load at ~22 on
 **Why exec, reversed from the first draft of item 6:** a shim that holds the slot and runs the tool as a child frees the slot when a KILL reaches the shim alone, while the build's children still burn the cores. The shim therefore `exec`s with the slot fd inherited, and the kernel frees the slot only when the last holder exits. The risk is a long-lived inheritor (MSBuild nodes, the MSBuild server, the Roslyn VBCSCompiler). It is switched off with MSBUILDDISABLENODEREUSE=1, DOTNET_CLI_USE_MSBUILD_SERVER=0 and UseSharedCompilation=false, and `fabric-lease cpu --who` marks a slot whose recorded pid is gone `(orphan: a child still runs)`. Built on python-dev-01's for/user/j412-cpu-lease (hold_and_exec in tools/fabric/lease.py).
 
 **How to apply:** for any new lease on a CPU-heavy tool, cap its threads as well. Where a KILL to the top process must not free the resource, exec with the fd inherited, turn off every server that would outlive the run, and make an orphan holder visible. A memory lease is the opposite case: it closes its fd. The dotnet variables' effect still needs a live read-back. Related: [[load-flake-briefs]].
+
+2026-11-13 (j678): `fabric-lease cpu -- python3 tests/<file>.py` is refused ("cpu is taken by the cargo and dotnet shims and by tests/run.py") and exits 0 from a `( … ; echo exit=$? )` wrapper as if it had passed. tests/run.sh has no single-file option. To rerun one suite, run `python3 tests/<file>.py` directly under `timeout`, and trust it only with a duration and the file's last line.
 
 *References: load-flake-briefs*
 

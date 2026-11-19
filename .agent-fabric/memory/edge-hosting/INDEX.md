@@ -3,7 +3,7 @@ role: "edge-hosting"
 class: index
 description: "What edge-hosting knows and where it lives."
 tier: 1
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 ---
 
 # edge-hosting — knowledge index
@@ -38,6 +38,7 @@ control plane checked out beside it.
 
 ## solution
 
+- [`.agent-fabric/memory/edge-hosting/solution/s13337-is-gzapp-prod-node.md`](.agent-fabric/memory/edge-hosting/solution/s13337-is-gzapp-prod-node.md) — s13337 is the Proxmox node running gzapp production; no agent runs on it — agent stage hosts are VMs on it (H2, AlmaLinux 10)
 - [`.agent-fabric/memory/edge-hosting/solution/solution-carried-2026-10-18.md`](.agent-fabric/memory/edge-hosting/solution/solution-carried-2026-10-18.md) — blueteam.ee unreachable from develop-qzapp but up elsewhere — 1984 Hosting firewall dropping our one egress IP
 
 ## rationale

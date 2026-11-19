@@ -5,13 +5,14 @@ topic: "index-only-regeneration"
 description: "How to regenerate a project's drifted .agent-fabric/memory/<role>/INDEX.md with no drain, and what to revert after"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-17"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 1a0d2c62c1084250
   - 6fdee17f8242a69d
 ---
 
@@ -26,6 +27,8 @@ Two more checks before you trust a lint result:
 - The commit happens in the project's own repository, so it is a job of that project and needs its own session. The one-job guard refuses a commit outside the job's working copy ([[guard-counts-session-cwd]]). j442 was filed against agent-fabric and became j482 (herdr) and j483 (gateway).
 
 Outcome (2026-10-31): fleetdeck #53 and gateway #76 merged; the lint against all three repos at origin then reported no index findings. InterWeave never needed a PR, because its drift existed only in the stale local checkout. Its 10 over-budget slices are j484.
+
+Outcome (2026-11-09, j647): the drift left after pulling the stale siblings (devex-tooling, architect-cto in InterWeave, gzapp, gateway) needed no index-only run. The 2026-11-08 drain's project halves re-indexed all three. Before you start an index-only run, check whether a drain half is merging or has merged in the meantime. The lint at origin also caught a city and a country name in an InterWeave language-culture slice (j687), because the drain half let them through (j679).
 
 *References: guard-counts-session-cwd*
 
