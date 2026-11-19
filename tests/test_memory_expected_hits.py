@@ -64,7 +64,8 @@ def main() -> int:
     # (18.51 on the 1956-section corpus), and each topic with nothing on it stays under the score floor or under the
     # coverage floor ("how do I bake a sourdough bread" with no role: 16.54, held weak by coverage 0.33). Natural-language
     # questions such as "retry backoff rule" (python-dev: 13.83 / 0.86) band weak on purpose and are not in the set: no
-    # coverage rule lifts them without lifting wrong hits (no role: 15.30 / 0.91, 15.87 / 0.86, 16.00 / 1.00).
+    # coverage rule lifts them without lifting wrong hits (no role, retry query: 17.83 / 0.86, 16.00 / 1.00, 15.87 / 0.86;
+    # the ugrep query: prompt-change-readback 15.30 / 0.91).
     right: list[float] = []
     wrong: list[tuple[float, float]] = []
     for q in queries:
