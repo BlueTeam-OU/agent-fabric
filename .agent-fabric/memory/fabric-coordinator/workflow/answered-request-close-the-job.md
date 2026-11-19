@@ -5,13 +5,14 @@ topic: "answered-request-close-the-job"
 description: "a REQUEST answered by a \"no + routes\" REPLY leaves its job active; close it the same turn"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-17"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 5e5c7bfda941df3f
   - e0722be8a0d09591
 ---
 
@@ -23,6 +24,8 @@ j426 (REQUEST 01a17c3c, a shell into interweave-deploy) was answered on 2026-10-
 
 **How to apply:** when a REPLY is the deliverable, run `fabric-jobs done <id> --no-artifact "<reply ids, what was decided>"` in the same turn. Before starting any job that came from a request, read its thread (`fabric-history --thread <id> --full`), because it may already have been answered.
 
+**Second instance, 2026-11-10 (j743).** An AUTHORIZES REPLY (01a1c4a3) to python-dev's REQUEST for #547 was the whole delivery. The job was left `blocked on pr:BlueTeam-OU/agent-fabric#547` instead of being closed. When the PR merged, the blocker cleared and the job came back as active in a fresh session with nothing to do. An AUTHORIZES REPLY is delivered once it is sent: close the job then (`fabric-jobs done <id> --no-artifact "AUTHORIZES <reply id> for #N@sha"`). Never block it on the PR, which belongs to the requester.
+
 *Anchors: `tools/fabric/jobs.py::--no-artifact`*
 
-*Observed 2026-10-30 (fabric-coordinator)*
+*Observed 2026-11-10 (fabric-coordinator)*

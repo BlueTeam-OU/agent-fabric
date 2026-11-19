@@ -7,8 +7,9 @@ given another job's, so a branch that has landed or is gone from this clone and 
 exception: a paused job asked to --repoint is taken from a landed branch to this agent's one open pull request, which may be armed
 if it is in no merge queue and the repository disarms on push); a blocked job whose recorded branch landed counts as one with no branch; only a job
 with no branch gets one: this agent's open pull request in the repository, when it is still addable; else, for a job that needs that
-pull request merged first, a block on it; else a new branch off the freshly fetched default branch. Whatever is chosen is never behind
-the default branch: an existing branch gets the default merged into it, locally and unpushed, in a worktree of its own."""
+pull request merged first, a block on it; else a new branch off the freshly fetched default branch. Whatever is chosen is not behind
+the default branch unless the merge conflicts: an existing branch gets the default merged into it, locally and unpushed, in a worktree
+of its own, and a conflicting merge is undone and handed to the fresh session (Choice.conflict, j258)."""
 from __future__ import annotations
 
 import os
@@ -29,6 +30,8 @@ class Choice(NamedTuple):
     repo: str | None = None
     note: str = ""
     repointed: bool = False    # a paused job's landed branch replaced by the open pull request's (--repoint)
+    conflict: str = ""         # origin/<default> did not merge into the branch: undone, left for the fresh session to merge by hand
+    merge_with: str = ""       # the ref that conflicted, origin/<default>: the repository's default branch is not always main
 
 
 def slug_of(job: dict) -> str:
@@ -65,9 +68,26 @@ def _checkout(wc: str, branch: str) -> str:
     return path
 
 
+class MergeConflict(Refused):
+    """origin/<default> does not merge into the branch. The merge is already undone; `path` is the branch's worktree. Not a refusal
+    of the switch: the job's copy is where the guard allows the merge (ADR-037 rule 3), and the session that ended a job stands
+    outside it, so the merge is handed to the fresh session (j258: a refusal here left only fabric-fresh --job by hand)."""
+    def __init__(self, message: str, path: str, ref: str):
+        super().__init__(message)
+        self.path = path
+        self.ref = ref
+
+
+def _up_to_date(kind: str, wc: str, branch: str, default: str, pr: int | None = None, repo: str | None = None, note: str = "") -> Choice:
+    try:
+        return Choice(kind, branch, bring_up_to_date(wc, branch, default), pr, repo, note)
+    except MergeConflict as e:
+        return Choice(kind, branch, e.path, pr, repo, note, conflict=str(e), merge_with=e.ref)
+
+
 def bring_up_to_date(wc: str, branch: str, default: str) -> str:
     """The worktree of `branch`, with origin/<default> merged into it unless it already holds it. A worktree with changes, a
-    branch that cannot fast-forward to its origin and a conflicting merge are each refused, the merge undone."""
+    branch that cannot fast-forward to its origin are refused; a conflicting merge is undone and raised as MergeConflict."""
     path = _checkout(wc, branch)
     if vcs.dirty(path):
         raise Refused(f"{path} has uncommitted changes on {branch}: commit them before the branch is brought up to date")
@@ -78,9 +98,11 @@ def bring_up_to_date(wc: str, branch: str, default: str) -> str:
         r = vcs.run(path, "merge", "--no-edit", f"origin/{default}", check=False, timeout=120)
         if r.returncode != 0:
             undone = vcs.run(path, "merge", "--abort", check=False).returncode == 0
-            raise Refused(f"origin/{default} does not merge into {branch} cleanly in {path} "
-                          f"({'merge undone' if undone else 'the merge could NOT be undone: run git merge --abort there'}): "
-                          "merge it by hand, then switch again")
+            if not undone:
+                # Half-merged is never handed on: the fresh session would start in a conflicted tree.
+                raise Refused(f"origin/{default} does not merge into {branch} cleanly in {path} and the merge could NOT be undone: "
+                              "run git merge --abort there, then switch again")
+            raise MergeConflict(f"origin/{default} does not merge into {branch} cleanly in {path} (merge undone)", path, f"origin/{default}")
     return path
 
 
@@ -165,8 +187,8 @@ def _repoint(wc: str, repo: str, job: dict, landed: str, default: str) -> Choice
             raise Refused(f"{job['id']} records branch {landed}, which a pull request has landed, and the one open pull request #{number} is armed "
                           f"and {repo} is not known to disarm it on push: {unsafe}; unarm it, or close {job['id']} (fabric-jobs done or drop)")
     armed = "; it is armed (held, in no merge queue): the first push disarms it" if row.get("armed") == "armed" else ""
-    return Choice("open-pr", head, bring_up_to_date(wc, head, default), number, repo,
-                  f"re-pointed from {landed}, which a pull request landed, to your open pull request #{number}{armed}", repointed=True)
+    return _up_to_date("open-pr", wc, head, default, number, repo,
+                       f"re-pointed from {landed}, which a pull request landed, to your open pull request #{number}{armed}")._replace(repointed=True)
 
 
 def _repoint_offer(job: dict, repo: str) -> str:
@@ -228,7 +250,7 @@ def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choic
     if not (vcs.local_branch_exists(wc, own) or vcs.remote_tip(wc, own)):
         raise Refused(f"{job['id']} records branch {own}, which is on neither this clone nor origin: it is not replaced; restore the branch, "
                       f"or drop {job['id']} and add its work again")
-    return Choice("own", own, bring_up_to_date(wc, own, default), note="the job's own branch, work already begun")
+    return _up_to_date("own", wc, own, default, note="the job's own branch, work already begun")
 
 
 def _checkout_of(job: dict) -> str:
@@ -247,7 +269,8 @@ def _checkout_of(job: dict) -> str:
 
 
 def choose(job: dict, *, kind: str, needs_merged: bool, repoint: bool = False) -> Choice:
-    """The branch for `job`, prepared: fetched, checked out in a worktree and up to date. Refused when it cannot be one."""
+    """The branch for `job`, prepared: fetched, checked out in a worktree and up to date, or with the default's conflicting merge left
+    undone and named in Choice.conflict. Refused when it cannot be one."""
     wc = _checkout_of(job)
     try:
         vcs.fetch(wc)
@@ -258,7 +281,7 @@ def choose(job: dict, *, kind: str, needs_merged: bool, repoint: bool = False) -
         # A job that began on another branch keeps it: the name may have been recorded after its work started.
         if supply and (not own or own == supply) and not _landed(wc, repo, supply):
             if vcs.local_branch_exists(wc, supply) or vcs.remote_tip(wc, supply):
-                return Choice("own", supply, bring_up_to_date(wc, supply, default), note="the for/ branch the request names, the job's to deliver on")
+                return _up_to_date("own", wc, supply, default, note="the for/ branch the request names, the job's to deliver on")
             path = _worktree_path(wc, supply)
             if os.path.exists(path):
                 raise Refused(f"{path} exists but does not have {supply} checked out: move it away, or check the branch out there")
@@ -280,7 +303,7 @@ def choose(job: dict, *, kind: str, needs_merged: bool, repoint: bool = False) -
             number, head = int(mine[0]["number"]), str(mine[0]["headRefName"])
             why = _addable(repo, number)
             if why is None:
-                return Choice("open-pr", head, bring_up_to_date(wc, head, default), number, repo, f"your open pull request #{number}")
+                return _up_to_date("open-pr", wc, head, default, number, repo, f"your open pull request #{number}")
             if needs_merged:
                 return Choice("blocked", None, None, number, repo, f"{why}; the job needs it merged")
         # A branch of the generated name may exist: one a pull request landed that no job records, or one a refused

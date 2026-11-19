@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
-from control import agentd, carrier_install as iw, ctl, ops  # noqa: E402
+from control import agentd, carrier_install as iw, carrier_selfstart as selfstart_mod, ctl, ops  # noqa: E402
 from control.sign import ACTION_OPS  # noqa: E402
 
 VERSION = "0.1.0"
@@ -1773,9 +1773,37 @@ class UnitSystemd(Systemd):
         self.stuck: set[str] = set()            # units that stay active after a disable
         self.on_enable = None
         self.restarted: list[str] = []
+        self.enabled_word: dict[str, str] = {}   # unit -> what is-enabled prints (default enabled)
+        self.started: list[str] = []
+        self.stopped: list[str] = []
+        self.start_rc: dict[str, int] = {}
+        self.after_start: dict[str, str] = {}    # unit -> the state it reaches under `start` (default active)
+        self.on_start = None
 
     def __call__(self, argv, **kw):
         name = os.path.basename(argv[0])
+        if name == "systemctl" and argv[2] == "is-enabled":
+            self.calls.append(list(argv))
+            if self.hang == "is-enabled":
+                raise subprocess.TimeoutExpired(argv, kw["timeout"])
+            word = self.enabled_word.get(argv[3], "enabled")
+            return subprocess.CompletedProcess(argv, 0 if word == "enabled" else 1, f"{word}\n" if word else "", "")
+        if name == "systemctl" and argv[2] == "start":
+            self.calls.append(list(argv))
+            unit = argv[3]
+            self.started.append(unit)
+            if self.on_start:
+                self.on_start(unit)
+            if self.start_rc.get(unit):
+                return subprocess.CompletedProcess(argv, self.start_rc[unit], "", "Job failed\n")
+            self.states[unit] = self.after_start.get(unit, "active")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if name == "systemctl" and argv[2] == "stop":
+            self.calls.append(list(argv))
+            self.stopped.append(argv[3])
+            if argv[3] not in self.stuck:
+                self.states[argv[3]] = "inactive"
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if name == "loginctl":
             self.calls.append(list(argv))
             if self.linger is None:
@@ -1804,6 +1832,7 @@ class UnitSystemd(Systemd):
             self.calls.append(list(argv))
             unit = argv[-1]
             assert argv[3] == "--now", argv
+            self.enabled_word[unit] = "enabled" if argv[2] == "enable" else "disabled"
             if argv[2] == "enable":
                 self.enabled.append(unit)
                 if self.on_enable:
@@ -1821,7 +1850,7 @@ class UnitSystemd(Systemd):
         return super().__call__(argv, **kw)
 
 
-class StartStop(Case):
+class StartStopHarness(Case):
     def setUp(self):
         super().setUp()
         self.systemd = UnitSystemd()
@@ -1862,6 +1891,9 @@ class StartStop(Case):
         self.assertEqual(self.systemd.disabled, [], why)
         self.assertFalse(os.path.exists(self.config()), why)
 
+
+
+class StartStop(StartStopHarness):
     def test_a_daemon_that_stays_activating_is_named_by_its_substate_exit_and_journal(self):
         self.systemd.after_enable[DAEMON_UNIT] = "activating"
         r = self.start()
@@ -2419,6 +2451,296 @@ class StartStopWiring(Case):
         self.assertNotIn("already running", t[5])
         s = ctl.table("interweave-stop", [{"account": "a", "status": "ok", "interweaveStop": {"status": "stopped", "units": {DAEMON_UNIT: "inactive"}}}]).split("\n")
         self.assertRegex(s[1], r"^a +stopped +daemon inactive")
+
+
+class SelfStart(StartStopHarness):
+    """ADR-064 rule 14's one start an account makes itself (control/carrier_selfstart.py)."""
+
+    def setUp(self):
+        super().setUp()
+        os.makedirs(os.path.dirname(self.config()), exist_ok=True)
+        with open(self.config(), "w") as fh:
+            fh.write("config\n")
+        self.mark = os.path.join(self.state, iw.SELFSTART_MARK)
+
+    def selfstart(self, **kw):
+        opts = dict(root=self.root, home=self.home, state=self.state, machine="x86_64", run=self.systemd, sleep=lambda s: None)
+        opts.update(kw)
+        return selfstart_mod.carrier_selfstart(**opts)
+
+    def untouched(self, why=""):
+        self.assertEqual((self.systemd.started, self.systemd.stopped, self.systemd.enabled, self.systemd.disabled, self.systemd.restarted,
+                          self.systemd.rendered), ([], [], [], [], [], []), why)
+        self.assertFalse(os.path.lexists(self.mark), why)
+        with open(self.config()) as fh:
+            self.assertEqual(fh.read(), "config\n", why)
+
+    def refused(self, said, why=""):
+        r = self.selfstart()
+        self.assertEqual(r["status"], "refused", (why, r))
+        self.assertIn(said, r["reason"], why)
+        self.assertIn("nothing was started", r["reason"])
+        self.untouched(why)
+
+    def test_both_enabled_and_down_it_starts_the_daemon_then_the_client_and_enables_nothing(self):
+        r = self.selfstart()
+        self.assertEqual(r, {"status": "started", "units": {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}, "check": "passed"})
+        self.assertEqual(self.systemd.started, [DAEMON_UNIT, CLIENT_UNIT])
+        self.assertEqual((self.systemd.enabled, self.systemd.disabled, self.systemd.rendered), ([], [], []), "no enable, no disable, no render")
+        self.assertFalse(os.path.lexists(self.mark), "a passed check leaves no mark")
+        self.assertGreater(self.systemd.status_calls, 0, "the signed start's check ran")
+
+    def test_a_failed_unit_counts_as_down(self):
+        self.systemd.states = {DAEMON_UNIT: "failed", CLIENT_UNIT: "failed"}
+        self.assertEqual(self.selfstart()["status"], "started")
+
+    def test_a_unit_that_runs_or_is_on_its_way_up_or_down_is_refused_whichever_it_is(self):
+        for unit, other in ((DAEMON_UNIT, CLIENT_UNIT), (CLIENT_UNIT, DAEMON_UNIT)):
+            for st in ("active", "activating", "reloading", "deactivating", "maintenance"):
+                self.systemd.states = {unit: st}
+                self.refused(f"{unit} is {st}", f"{unit} {st}")
+        self.systemd.states = {}
+        self.assertEqual(self.selfstart()["status"], "started", "positive control: both down")
+
+    def test_a_unit_that_is_not_enabled_is_refused_on_either_unit_and_whatever_the_word(self):
+        for unit in (DAEMON_UNIT, CLIENT_UNIT):
+            for word in ("disabled", "enabled-runtime", "linked", "linked-runtime", "masked", "masked-runtime", "static", "indirect",
+                         "alias", "generated", "transient", "not-found", "bad", "ENABLED", ""):
+                self.systemd.enabled_word = {unit: word}
+                self.refused(unit, f"{unit} {word!r}")
+        self.systemd.enabled_word = {}
+        self.assertEqual(self.selfstart()["status"], "started", "positive control: enabled prints enabled")
+
+    def test_the_manager_not_answering_is_a_refusal_never_a_start(self):
+        for hang in ("show", "is-enabled"):
+            self.systemd.hang = hang
+            self.refused("not known", hang)
+        self.systemd.hang = None
+        self.systemd.manager = False
+        self.refused("does not answer", "no manager")
+
+    def test_programs_that_are_not_the_pins_are_refused(self):
+        exe = os.path.join(self.home, ".local", "bin", "transportctl")
+        with open(exe, "w") as fh:
+            fh.write("#!/bin/sh\nprintf '%s\\n' 'transportctl 9.9.9'\n")
+        self.refused("the installed programs are not the pin's")
+        self.assertEqual(self.install()["status"], "installed", "an operator's install puts the pin's back")
+        self.systemd.calls.clear()
+        self.assertEqual(self.selfstart()["status"], "started", "positive control")
+
+    def test_a_missing_config_is_refused_because_nothing_is_rendered(self):
+        os.unlink(self.config())
+        r = self.selfstart()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("renders none", r["reason"])
+        self.assertEqual((self.systemd.started, self.systemd.rendered), ([], []))
+        self.assertFalse(os.path.lexists(self.mark))
+
+    def test_a_signed_action_holding_the_lock_is_refused_by_it_and_nothing_is_touched(self):
+        os.makedirs(self.state, exist_ok=True)
+        fd = os.open(os.path.join(self.state, iw.LOCK), os.O_WRONLY | os.O_CREAT)
+        self.addCleanup(lambda: os.close(fd))
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        r = self.selfstart()
+        self.assertEqual((r["status"], r["reason"]), ("refused", iw.LOCK_BUSY))
+        self.untouched()
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        self.assertEqual(self.selfstart()["status"], "started", "positive control: the lock free")
+
+    def test_a_pin_that_cannot_be_read_is_a_refusal_before_anything_is_touched(self):
+        os.unlink(os.path.join(self.root, iw.PIN_REL))
+        r = self.selfstart()
+        self.assertEqual(r["status"], "refused")
+        self.untouched()
+
+    def failing(self):
+        self.systemd.after_start[DAEMON_UNIT] = "activating"       # systemd's auto-restart: never active
+
+    def test_a_failed_check_stops_what_it_started_keeps_the_enable_state_and_writes_the_mark(self):
+        self.failing()
+        self.systemd.enabled_word = {}       # both enabled
+        r = self.selfstart()
+        self.assertEqual(r["status"], "failed", r)
+        self.assertTrue(r["stopped"])
+        self.assertEqual(self.systemd.started, [DAEMON_UNIT, CLIENT_UNIT])
+        self.assertEqual(self.systemd.stopped, [CLIENT_UNIT, DAEMON_UNIT], "the client first")
+        self.assertEqual((self.systemd.enabled, self.systemd.disabled), ([], []), "enable and disable are never run")
+        self.assertEqual(self.systemd.enabled_word, {}, "each unit enabled as it was")
+        self.assertEqual({u: self.systemd.states[u] for u in (DAEMON_UNIT, CLIENT_UNIT)}, {DAEMON_UNIT: "inactive", CLIENT_UNIT: "inactive"})
+        self.assertEqual(r["mark"], self.mark)
+        with open(self.mark) as fh:
+            body = json.load(fh)
+        self.assertEqual(body["state"], "failed")
+        self.assertIn("did not come up", body["reason"])
+        self.assertIn("stands until an operator", r["reason"])
+
+    def test_a_standing_mark_refuses_the_next_self_start_and_touches_nothing(self):
+        self.failing()
+        self.assertEqual(self.selfstart()["status"], "failed")
+        self.systemd.after_start.clear()
+        for k in ("started", "stopped"):
+            getattr(self.systemd, k).clear()
+        with open(self.mark) as fh:
+            before = fh.read()
+        r = self.selfstart()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("earlier self-start", r["reason"])
+        self.assertEqual((self.systemd.started, self.systemd.stopped), ([], []))
+        with open(self.mark) as fh:
+            self.assertEqual(fh.read(), before, "the mark is left as it was")
+
+    def test_a_signed_install_start_or_stop_clears_the_mark(self):
+        for name, act in (("install", lambda: self.install()), ("start", lambda: self.start()), ("stop", lambda: self.stop())):
+            self.failing()
+            self.assertEqual(self.selfstart()["status"], "failed", name)
+            self.assertTrue(os.path.lexists(self.mark), name)
+            self.systemd.after_start.clear()
+            self.systemd.states = {}
+            act()
+            self.assertFalse(os.path.lexists(self.mark), f"a signed {name} clears the mark")
+            self.systemd.states = {}
+            if name == "stop":
+                r = self.selfstart()
+                self.assertIn("must be enabled", r["reason"], "the stop left both disabled: the mark is gone, the rule for an operator's stop is not")
+                self.systemd.enabled_word = {}
+            self.assertEqual(self.selfstart()["status"], "started", f"after the signed {name} the self-start is allowed again")
+            self.systemd.states = {}
+
+    def test_a_signed_action_the_lock_refuses_does_not_clear_the_mark(self):
+        self.failing()
+        self.selfstart()
+        fd = os.open(os.path.join(self.state, iw.LOCK), os.O_WRONLY | os.O_CREAT)
+        self.addCleanup(lambda: os.close(fd))
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        for act in (self.install, self.start, self.stop):
+            self.assertEqual(act()["status"], "refused")
+            self.assertTrue(os.path.lexists(self.mark), act.__name__)
+
+    def test_a_start_the_manager_refuses_is_a_failure_that_stops_and_marks(self):
+        self.systemd.start_rc[CLIENT_UNIT] = 1
+        r = self.selfstart()
+        self.assertEqual(r["status"], "failed", r)
+        self.assertIn("exited 1", r["reason"])
+        self.assertEqual(self.systemd.stopped, [CLIENT_UNIT, DAEMON_UNIT])
+        self.assertTrue(os.path.lexists(self.mark))
+
+    def test_a_carrier_that_does_not_answer_is_a_failed_check(self):
+        self.systemd.status_rcs = [3]
+        r = self.selfstart()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("the carrier does not answer", r["reason"])
+        self.assertTrue(os.path.lexists(self.mark))
+
+    def test_a_stop_that_does_not_take_is_said_and_the_mark_stands(self):
+        self.failing()
+        self.systemd.stuck = {DAEMON_UNIT}
+        r = self.selfstart()
+        self.assertEqual(r["status"], "failed")
+        self.assertFalse(r["stopped"])
+        self.assertIn("may still run", r["reason"])
+        self.assertTrue(os.path.lexists(self.mark))
+
+    def test_an_interrupted_self_start_leaves_the_mark_written_before_the_start(self):
+        def die(unit):
+            raise KeyboardInterrupt
+        self.systemd.on_start = die
+        with self.assertRaises(KeyboardInterrupt):
+            self.selfstart()
+        with open(self.mark) as fh:
+            self.assertEqual(json.load(fh)["state"], "started")
+        self.systemd.on_start = None
+        self.assertEqual(self.selfstart()["status"], "refused", "the next one waits for an operator")
+
+    def test_a_mark_that_cannot_be_written_starts_nothing(self):
+        with unittest.mock.patch.object(selfstart_mod, "_write_mark", side_effect=PermissionError(13, "denied")):
+            r = self.selfstart()
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("failure mark cannot be written", r["reason"])
+        self.assertEqual((self.systemd.started, self.systemd.stopped), ([], []))
+
+    def unlink_refused(self):
+        real = os.unlink
+
+        def unlink(path, *a, **k):
+            if os.path.basename(str(path)) == iw.SELFSTART_MARK:
+                raise PermissionError(13, "denied")
+            return real(path, *a, **k)
+        return unittest.mock.patch("os.unlink", unlink)
+
+    def test_a_signed_action_that_cannot_remove_the_mark_install_and_start_fail_and_stop_says_it(self):
+        self.failing()
+        self.assertEqual(self.selfstart()["status"], "failed")
+        self.systemd.after_start.clear()
+        self.systemd.states = {}
+        self.systemd.calls.clear()
+        with self.unlink_refused():
+            r = self.install()
+            self.assertEqual(r["status"], "failed", r)
+            self.assertIn("could not be removed", r["reason"])
+            self.assertNotIn("fetch", self.events, "nothing was installed")
+            r = self.start()
+            self.assertEqual(r["status"], "failed", r)
+            self.assertIn("could not be removed", r["reason"])
+            self.assertEqual((self.systemd.enabled, self.systemd.rendered), ([], []), "nothing was started")
+            r = self.stop()
+            self.assertEqual(r["status"], "stopped", "a stop is never held back")
+            self.assertIn("could not be removed", r["selfstart_mark"])
+        self.assertTrue(os.path.lexists(self.mark))
+        rows = [{"account": "a", "status": "ok", "interweaveStop": r}]
+        self.assertIn("could not be removed", ctl.table("interweave-stop", rows), "the operator's table says the mark stands")
+
+    def test_a_check_that_passes_but_a_mark_that_cannot_be_removed_is_a_failure_with_the_units_running(self):
+        with self.unlink_refused():
+            r = self.selfstart()
+        self.assertEqual(r["status"], "failed", r)
+        self.assertIn("could not be removed", r["reason"])
+        self.assertEqual(self.systemd.stopped, [], "the units run and are left running")
+        self.assertTrue(os.path.lexists(self.mark))
+
+    def test_a_state_directory_that_cannot_be_opened_is_a_refusal_not_a_failure(self):
+        blocker = os.path.join(self._tmp.name, "blocker")
+        with open(blocker, "w") as fh:
+            fh.write("x")
+        r = self.selfstart(state=os.path.join(blocker, "state"))
+        self.assertEqual(r["status"], "refused", r)
+        self.assertIn("state directory cannot be prepared", r["reason"])
+        self.assertEqual((self.systemd.started, self.systemd.stopped), ([], []))
+
+    def test_an_is_enabled_that_hangs_names_the_question_that_went_unanswered(self):
+        self.systemd.hang = "is-enabled"
+        r = self.selfstart()
+        self.assertIn("whether the units are enabled is not known", r["reason"])
+        self.systemd.hang = "show"
+        self.assertIn("whether the units are down is not known", self.selfstart()["reason"])
+
+
+class SelfStartCommand(unittest.TestCase):
+    """The subcommand: reply on stdout as JSON, the reason on stderr, the exit status by kind."""
+
+    def run_main(self, reply):
+        sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+        from gzcoord.carrier import main as carrier_main
+        out, err = io.StringIO(), io.StringIO()
+        with unittest.mock.patch.object(selfstart_mod, "carrier_selfstart", return_value=reply), \
+                unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", err):
+            rc = carrier_main.main(["self-start"])
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_exit_status_and_streams_by_kind(self):
+        rc, out, err = self.run_main({"status": "started", "units": {}, "check": "passed"})
+        self.assertEqual((rc, json.loads(out)["status"], err), (0, "started", ""))
+        rc, out, err = self.run_main({"status": "refused", "reason": "x; nothing was started"})
+        self.assertEqual((rc, json.loads(out)["status"]), (2, "refused"))
+        self.assertIn("gzcoord-carrier: self-start refused: x; nothing was started", err)
+        rc, out, err = self.run_main({"status": "failed", "reason": "y"})
+        self.assertEqual((rc, json.loads(out)["status"]), (5, "failed"))
+        self.assertIn("self-start failed: y", err)
+
+    def test_an_argument_is_a_usage_error(self):
+        sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+        from gzcoord.carrier import main as carrier_main
+        with unittest.mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(carrier_main.main(["self-start", "now"]), 1)
 
 
 if __name__ == "__main__":

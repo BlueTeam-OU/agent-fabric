@@ -96,7 +96,7 @@ class FakeAdapter:
 
 
 def main() -> int:
-    # The cases are the relay-record's; a mode forced by the session's environment would reach every command they start.
+    # The cases are the relay-record's; a mode forced by the runner's environment would reach every command they start.
     os.environ.pop("GZCOORD_TRANSPORT_MODE", None)
     scratch = tempfile.mkdtemp(prefix="transport-")
     hosts = None

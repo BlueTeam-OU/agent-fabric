@@ -106,7 +106,11 @@ class Section:
 # in tests/test_memory_mcp.py EXPECTED_HITS and these: a right slice scored 15.6-30.5 at coverage 0.58-1.0; an
 # off-topic query ("how do I bake a sourdough bread", "css grid layout") scored 5.3-10.2 at coverage 0.18-0.33; a
 # query whose words are all present but scattered ("queued branch refuses a push") scored 9.2 at coverage 1.0.
-STRONG_SCORE, STRONG_COVERAGE = 12.0, 0.55
+# Re-measured on the 1956-section corpus after the 2026-11-17 drain: the set's right slices score 16.6-48.3, while a slice
+# that only shares the query's common words ("lease held by another process fabric-lease" against a section on process
+# lifetime, 'process' twenty times) scored 12.9 at coverage 0.83 and banded strong under the old 12.0. A bigger corpus
+# lifts the off-topic ceiling, so the floor follows the lowest right slice measured (15.6), not the old ceiling.
+STRONG_SCORE, STRONG_COVERAGE = 15.0, 0.55
 WEAK_COVERAGE = 0.30
 # A dead heat (margin under 1%) on a partial match is a guess between two slices, not a finding.
 TIE_MARGIN, TIE_COVERAGE = 1.01, 0.75

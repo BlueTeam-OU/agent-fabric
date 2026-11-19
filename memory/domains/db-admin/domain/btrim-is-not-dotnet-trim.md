@@ -5,7 +5,7 @@ topic: "btrim-is-not-dotnet-trim"
 description: "A blank or leading-digit test written in SQL and again in .NET disagrees on whitespace: btrim's default strips U+0020 only, Trim()/IsNullOrWhiteSpace strip 25 code points, [[:space:]] depends on the ctype."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-17"
 origin:
   - agent: "db-admin"
     host: "develop-qzapp"
@@ -50,6 +50,6 @@ argument or leave the rule to one side only. Test it with NBSP, a tab and
 U+3000, not just a space. When the two sides must agree, test them on the
 same inputs in a container ([[verify-the-mutation-fired]]).
 
-*References: :space:, verify-the-mutation-fired*
+*References: verify-the-mutation-fired*
 
 *Observed 2026-10-15 (db-admin)*

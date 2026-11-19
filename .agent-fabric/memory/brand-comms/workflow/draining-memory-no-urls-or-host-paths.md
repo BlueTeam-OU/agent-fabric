@@ -5,7 +5,7 @@ topic: "draining-memory-no-urls-or-host-paths"
 description: "Writing a memory that carries a roles_class — no claude.ai share URL, no host path, no [[link]] to a memory that does not drain"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"
@@ -37,8 +37,6 @@ linking gzapp.decks memories (OBSERVATION 01a19d23-d821, 2026-11-02).
 `claude.ai/`, `~/`, `/home/` and every `[[…]]` target's `roles_class`.
 A tool that lives only at a host path is described by what it does and
 who keeps it, not where it sits.
-
-*References: name, …*
 
 *Anchors: `agent-fabric:memory/README.md::roles_class`*
 
