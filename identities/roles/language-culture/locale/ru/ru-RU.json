@@ -84,6 +84,7 @@
   "send.id-reused": "send: не отправлено — MESSAGE-ID {id} уже отправлен с другим текстом (seq {seq}); новому сообщению нужен новый id: удалите строку MESSAGE-ID и отправьте снова",
   "send.ledger-not-written": "send: отправлено, но id не удалось записать в журнал отправленных этого логина ({detail}) — если этот id снова уйдёт с другим текстом, это не будет замечено",
   "send.would-post": "send: пробный прогон — ушло бы {type} {id} от {address} в канал {channel} на {relay_url}",
+  "send.would-post-carrier": "send: пробный прогон — ушло бы {type} {id} от {address} в канал {channel} через службу {carrier}",
   "send.no-token": "send: нет CLAUDE_BRIDGE_AUTH_TOKEN ни в окружении, ни в рабочей копии — не отправлено",
   "send.token-refused": "send: релей отверг этот токен (HTTP {status}): токен сменили; выполните fabric-secrets sync — не отправлено",
   "send.relay-unreachable": "send: релей недоступен по адресу {relay_url} ({detail}) — не отправлено",
