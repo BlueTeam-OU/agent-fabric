@@ -7,8 +7,8 @@ Gate 2's first item in the cutover plan
 fabric-coordinator for job j947.
 
 **Result.** The soak held on every measure the plan's step-back list
-names, and turned up one send that does not fit step 2's premise
-(below, "Open"). Over the window 2026-11-18T13:18:00Z to
+names, and turned up one send the carrier did not accept
+(below, "Traced"). Over the window 2026-11-18T13:18:00Z to
 2026-11-19T13:17:00Z the fleet carried 441 pairs (MESSAGE-ID,
 addressee), 9 of them to a `TO-ROLE` recipient. InterWeave delivered
 436 of them, plus 3 sender-own copies that the tool counts separately, and missed 2. All 1,076
@@ -93,21 +93,40 @@ arrival in the whole collection; language-culture-en's last watch ended
   from the relay alone. The other 8 `TO-ROLE` pairs in the window
   went by InterWeave.
 
-## Open
+## Traced: 01a1f03b
 
-`01a1f03b` contradicts plan §6 step 2: "from here no send succeeds
-without the carrier". It trips none of the four step-back triggers, and
-the message was delivered. But a path that makes the relay the primary
-in `carrier-record` would, in `carrier-only`, post where no reader
-looks. Tracing it is `send.py`'s lane. It went to python-dev-01 as REQUEST
-`01a1f430-a465` on 2026-11-19. Gate 2's `carrier-only` rung should not
-move before that answer.
+python-dev-01 traced it (REPLY `01a1f431-e266`, 2026-11-19), and the
+lines it cites were read on main at 45628272. It is a send in
+`carrier-record` that the carrier did not accept. It is not a path
+that makes the relay the primary. In `carrier-record`, `open_transport`
+(`gzcoord/transport/__init__.py`) builds the carrier as primary and the
+relay as its mirror. When the primary raises, `send.py` still runs the
+mirrors. The relay took a copy, and the journal row records that
+acceptance under the relay's name. `carrier_not_accepted` then exits 3,
+"not sent", and says "the relay took a copy of it as well".
+`tests/test_gzcoord_carrier_send.py` pins this case. So plan §6 step 2
+holds for the exit status, and the message reached its reader through
+the mirror. Under `carrier-only`, `open_transport` builds no relay, and
+the same failure posts nothing anywhere.
+
+Still not known: why rust-services-dev-01's carrier did not accept at
+2026-11-18T19:56Z (absent, failing, or its answer lost), and whether
+the sender saw exit 3. It did not resend through the carrier, since no
+account holds an InterWeave delivery record for the id. That sender's
+own carrier log would answer both, and this read does not reach it.
+
+**The gap this leaves in the evidence.** A failure of the primary
+carrier leaves no durable line. `send.py` writes `gzcoord-mirror.jsonl`
+only for a mirror's refusal. So parity cannot tell "the carrier refused
+and the relay took a copy" from "the relay was the primary", and under
+`carrier-only` a refused send would leave nothing for a soak to count.
 
 ## What this decides
 
 Gate 2's first item, the one-day soak with no stranded delivery, is
-met. Two caveats are named above: roster verification read only
-indirectly, and `01a1f03b` open. The gate's other items have no record
+met. Two caveats are named above: roster verification was read only
+indirectly, and one send the carrier did not accept, with its cause
+unread and no durable line for that kind of failure. The gate's other items have no record
 yet: the 30-minute carrier-outage drill on one account, two accounts
 in `carrier-only` through an hour's relay stop with every GZCoord
 function exercised, and W12's read-back with the relay stopped.

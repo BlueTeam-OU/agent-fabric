@@ -442,5 +442,7 @@ in this order (gate 1's word was given on 2026-11-18, on items 1 to 4 of §4):
    account, the coordinator's last (D8 as the owner shortened it on 2026-11-18).
    Every account was in `carrier-record` by 2026-11-18T13:17Z. The day's soak is read in
    [`docs/live-checks/2026-11-19-carrier-record-soak.md`](../live-checks/2026-11-19-carrier-record-soak.md):
-   nothing stranded or blocked. One `TO-ROLE` send went to the relay alone, and its trace
-   (REQUEST 01a1f430-a465 to python-dev) comes before the `carrier-only` rung.
+   nothing stranded or blocked. In one send the carrier did not accept and the relay mirror took a
+   copy (exit 3, by design). That kind of failure leaves no durable line, so a `carrier-only` soak
+   could not count it. A line for the primary's failure, which parity reads, comes before that
+   rung (python-dev, REPLY 01a1f431-e266).
