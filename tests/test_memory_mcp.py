@@ -256,7 +256,10 @@ def main() -> int:
         stray = tools.find(corpus, sess, {"query": "launcher zzzaaa yyybbb xxxccc wwwddd"})[0].splitlines()
         check("a hit that covers little of the query is none", stray[0] == tools.WEAK_NOTICE and " none" in stray[1], "\n".join(stray))
         B = memory_index
-        check("band: strong needs the score and the coverage", B.band(30, 0.9, 2.0) == "strong" and B.band(11.9, 0.9, 2.0) == "weak"
+        check("band: strong needs the score and the coverage", B.band(30, 0.9, 2.0) == "strong" and B.band(14.9, 0.9, 2.0) == "weak"
+              and B.band(15.0, 0.9, 2.0) == "strong"
+              # The measured hit of "lease held by another process fabric-lease" after the 2026-11-17 drain: common words only.
+              and B.band(12.9, 0.83, 1.107) == "weak"
               and B.band(30, 0.54, 2.0) == "weak" and B.band(30, 0.29, 2.0) == "none")
         check("band: a dead heat on a partial match is not strong; on a near-full match it is",
               B.band(30, 0.6, 1.0) == "weak" and B.band(30, 0.8, 1.0) == "strong")

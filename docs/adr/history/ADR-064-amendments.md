@@ -505,3 +505,44 @@ that path, and the row names which path answered. Before #656 the
 carrier computed the read and dropped it at all four of its refusal
 sites; it now answers it only when agentd runs on InterWeave alone.
 Under `relay` and `dual` nothing changes.
+
+### Amendment 2026-11-18 — An account starts its own carrier
+
+On 2026-11-18 the coordinator's two fleet upgrades (for #656 and #659)
+restarted every account's carrier. The inbox watches of legal-expert-ge
+and rust-services-dev-01 gave up after 15 minutes of silence (exit 5).
+The text they gave up with named `fabric-ctl <login> interweave` and
+`interweave-start`, and both refused those logins: neither is a host
+operator in `runtime/hosts/registry.json`. Both agents stopped and
+reported to the coordinator, although their carriers were by then
+running again. Rule 14 made every start a control-plane action because
+an install or update takes the channel down and can fail unseen.
+Starting units that are both down, from the programs the pin names,
+cannot make an account less reachable than it already is, so that start
+moves to the account's own login. A restart does not: `interweave-start`
+restarts running units, and a failed check then stops both, so a
+restart or a start over a live unit would be an unsigned stop. The
+command therefore refuses unless both units are inactive or failed (a
+unit in auto-restart reads activating and counts as running), and when
+the installed programs are not the pin's (#658 review rounds 1 and 2,
+F1). Its failed check stops what it started and, unlike the signed
+start, which disables both, leaves each unit enabled or disabled as it
+was; it renders no configuration (rounds 2 and 3, F6 and F8). Units that
+are down because an operator stopped them must stay down: a signed stop,
+a drill's window and a failed signed start all leave both units
+disabled, while a crash or an upgrade's restart leaves them enabled. So
+the command also refuses unless both are enabled, and it takes the
+account's install/start/stop lock (ADR-029 rule 12), so it never runs
+beside a signed action (#658 full review, F9). A failed check leaves a
+mark only a signed install, start or stop clears, and the command
+refuses while it stands; without it a failed start would leave the
+units enabled and down, the state the next self-start accepts, and an
+agent retrying after each give-up would start and stop a broken carrier
+in a loop (#658 full review round 2). The command writes the mark under
+the lock before it starts anything and clears it only on a passing check,
+so an interrupted self-start leaves the mark too; the row and the DIGEST
+list the mark among the conditions (round 3, F13). Rule 14 now cites
+ADR-029 rule 18 alone for keeping install and update on the relay, since
+rule 12 points to rule 14 (round 3, F12). Install, update, restart
+and stop stay as they were. The local command and the watch's exit text
+are python-dev's to build.

@@ -17,11 +17,21 @@ LEAKS = [
     "Reach it at 10.137.0.2 over the bridge.", "10.0.0.1", "(10.255.255.255)", "The LAN is 192.168.100.x here.",
     "Run 192.168.1.10.", "192.168.0.0 and", "Host 172.16.4.9 and 172.31.255.1.", "172.20.0.5,",
     "It lives in /home/alice/projects/x.", "cd /home/python-dev-03/.cache/", "at /home/_svc/x",
+    # A bare home and a dashed address (#658 review round 1, F2): both reached a slice past the older patterns.
+    "(cwd /home/user), not", 'started in /home/user". The', "[[proxmox-host-192-168-1-2]]",
+    # The dashed form covers all three ranges, as the dotted ones do (#658 full review, F10).
+    "[[qubes-vm-10-137-0-2]]", "[[nas-172-16-4-9]]", "ip-10-0-0-1.ec2.internal",
 ]
 FINE = [
     "Version 1.10.0.1 and 2.10.0.0.5 shipped.", "Public 8.8.8.8, 1.1.1.1 and 172.15.0.1 and 172.32.0.1 and 192.169.0.1.",
     "Address 110.1.2.3 and 1.10.2.3 and 10.1.2.3.4.", "192.168.1 is not an address, nor 10.1.2.", "Release 3.10.100.256.",
     "Path /home/<login>/x and ~/projects and /srv/home/alice/x and ./home/alice/x.", "a /home directory and /home/ alone",
+    "/home/$USER/x", "192-168-1-256 and v192-168-1-2000 and 1192-168-1-2",
+    # A home under another root or a relative one is no login's home: the bare pattern's lookbehind keeps them (#658 round 3, F7).
+    "/srv/home/alice", "./home/alice", "docs/home/index",
+    "10-1-2-3-4-5 and v10-0-0-1000 and 172-15-0-1 and 172-32-0-1",
+    # A dashed date-time is no address: the digit-dash lookbehind keeps its 10-12-30-45 (#658 full review round 2, F11).
+    "2026-11-10-12-30-45 and build-2026-11-10-1-2-3",
     # A section number is no address (a gzapp slice cited §10.2.1.4, 2026-10-14).
     "fix the §10.2.1.4 sites, see §192.168.1.1 and §172.16.0.1",
 ]
@@ -38,8 +48,8 @@ def main() -> int:
     with open(os.path.join(ROOT, "policies", "hygiene.json"), encoding="utf-8") as fh:
         entries = json.load(fh)["patterns"]
     fabric = [(re.compile(e["pattern"]), e["label"], e.get("refer_as")) for e in entries
-              if e["label"].startswith(("private-network", "a /home/"))]
-    check("four patterns, each with a label and a refer_as", len(fabric) == 4 and all(t[1] and t[2] for t in fabric))
+              if e["label"].startswith(("private-network", "a private-network", "a /home/", "a bare /home/"))]
+    check("six patterns, each with a label and a refer_as", len(fabric) == 6 and all(t[1] and t[2] for t in fabric))
     for text in LEAKS:
         check(f"matched: {text!r}", any(t[0].search(text) for t in fabric))
     for text in FINE:

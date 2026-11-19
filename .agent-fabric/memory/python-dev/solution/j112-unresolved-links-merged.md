@@ -5,7 +5,7 @@ topic: "j112-unresolved-links-merged"
 description: "j112 assembler unresolved_links report merged as #473; lint traps (clone-only project-name rule, roots seam), review traps, arm F2 deferral"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"
@@ -27,8 +27,6 @@ tools/fabric/assembler/links.py + report.py wiring: `unresolved_links` in last-d
 - `fabric-review next --pr` needs the round saved first (`fabric-review save <pr> <n> < report`), and the request's `range:` must be pinned commit ids ending at the previous reviewed head.
 - Arm refused on a P3 that a later round never restated a Judgement for: `--defer "<head8>:F<n>" "<why>"`.
 - `tests/run.sh` waits on a host-wide full-suite lease; CI's guards-and-suites also runs it.
-
-*References: x*
 
 *Anchors: `tools/fabric/assembler/links.py::unresolved_links`, `tools/fabric/assembler/links.py::without_code`*
 

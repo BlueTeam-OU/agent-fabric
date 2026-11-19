@@ -5,13 +5,14 @@ topic: "deaf-after-relay-drill"
 description: "An agent idle on a queued REQUEST after a relay outage may have declined to re-arm its watch, waiting to be told; a message cannot reach it — fabric-ctl <login> restart does"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - f41fd3443b6f8e34
   - ffea30f7d09f2d94
 ---
 
@@ -36,7 +37,14 @@ announcement must say "re-arm at <time>", never "wait to be told". Detection, no
 `fabric-ctl all presence` running logins vs `ps -eo user,args` owners of a `gzcoord-inbox`
 process (comm -23); a pane read tells deaf from between-deliveries.
 
-*References: stuck-agent-read-its-pane*
+2026-11-17 (owner: "check inbox watcher for all agents"): 14 of 30 sessions had no watch, all `idle` in fleetdeck
+(`agent-fabric-fleetdeck pane list`, harness pane, tokens.account → agent_status). Cause: the 07:43Z memory-pressure
+event ([[session-death-oom-2026-11-17]]) took the watches; sessions working then re-armed by ~07:47, idle ones never end
+another turn, so watch-on-stop never asks them. `fabric-ctl <login> restart` on each (owner's yes) re-armed 13 at once.
+After any OOM / memory-pressure event, run the presence-vs-ps sweep. Other accounts' gzcoord-watch.jsonl: auto mode
+refuses the read (Unauthorized Access); ps and pane list are enough.
+
+*References: session-death-oom-2026-11-17, stuck-agent-read-its-pane*
 
 *Anchors: `runtime/claude-code/hooks/watch-on-stop.py::relay`, `tools/fabric/control/restart.py::restart`*
 

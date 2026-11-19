@@ -5,7 +5,7 @@ topic: "tests-in-one-binary-share-process-state"
 description: "cargo test runs a binary's tests as parallel threads of ONE process, so a test asserting on process-global state (a captured log, a static gate, a per-process port registry) races its siblings; nextest runs one process per test, which…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-17"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
@@ -48,6 +48,6 @@ suspected flake both ways: the whole binary in parallel, and the runner CI
 uses. Running it alone proves nothing. When one instance is fixed, grep
 for siblings of the same shape in the same PR.
 
-*References: a-blocking-lookup-in-a-fail-closed-check-is-fail-stuck, a-forked-sibling-holds-a-dropped-flock, test*
+*References: a-blocking-lookup-in-a-fail-closed-check-is-fail-stuck, a-forked-sibling-holds-a-dropped-flock*
 
 *Observed 2026-10-25 (p2p-network-dev)*

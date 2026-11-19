@@ -5,7 +5,7 @@ topic: "claude-code-compacts-before-prompt-too-long"
 description: "A channel event at the bridge bound in a long Claude Code conversation is not refused: the host auto-compacts first (2.1.311); DISABLE_COMPACT=1 to measure the refusal"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: InterWeave
 derived_from:
   - 0877b8c39c3a6b68
+  - dac09e9884cb03f5
 ---
 
 ## A channel event at the bridge bound in a long Claude Code conversation is not refused: the host auto-compacts first (2.1.311); DISABLE_COMPACT=1 to measure the refusal
@@ -26,6 +27,8 @@ Measured in SPIKE-001 S30 (PR #580, 2026-11-06, Claude Code 2.1.311, facts 76-77
 - `DISABLE_COMPACT=1` turns this off (the switch was read from the binary, not documented). With it set, the 4th event is refused.
 
 **Why:** "Prompt is too long" in a multi-event conversation is the wrong thing to wait for. Compaction is the host's behaviour, and it silently replaces earlier events with a summary.
+
+S31 (fact 83) found that a summary keeps each event's number, word and nonce, and none of its body.
 
 **How to apply:** record `result.usage`/`modelUsage`, the compact boundaries and the compaction summary's own text (S30 kept only the markers, and the raw was deleted after merge, so "what compaction keeps" needed a new run) in any context-size measurement. Set `DISABLE_COMPACT` only for a case that must reach the refusal, and say that the switch was read from the binary. Related: [[spike-facts-cite-committed-runs]].
 

@@ -5,13 +5,14 @@ topic: "jobs-branch-evidence-258"
 description: "un-folded branch artifact is excused only by a merged PR whose headRefOid is that branch's tip (PR 475, 2026-11-04); other landed evidence no longer settles it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - a24733e853be9905
   - bba80905331c3a69
   - e0095287c8537d63
   - f59f644b17a1d050
@@ -23,6 +24,8 @@ The #258 line "any landed evidence outweighs an un-folded branch (squash merges)
 
 **Why:** the external review (F03) showed a delivered job naming one merged and one never-merged branch was swept to done.
 **How to apply:** a fake gh for job tests must answer `headRefOid` beside `state` (tests/test_jobs_switch.py `heads=`, `head_fails=`); anchors `tools/fabric/jobsparts/settle.py::_landed`.
+
+Still true from #258, which this correction replaces: a job artifact that is a ref name is evidence (done: its origin head is an ancestor of the default branch; delivered: the remote still has it); the default branch and HEAD are excluded by name; `deliver <id> <artifact>` on a done job appends evidence, stamps `updated`, never reopens, and a dropped job takes none. Run `deliver` BEFORE `done`: a done job with no evidence blocks `switch`. Work that leaves no artifact is closed with `done <id> --no-artifact "<what was done>"`; settle takes the reason only for a job that names no artifact at all, never over a problem the artifacts raise. A path-like word in an artifact triggers a fetch (origin unreachable = unknown = refused). Tests: tests/test_jobs_switch.py, mutations on settle.py's conditions.
 
 *Anchors: `tools/fabric/jobsparts/settle.py::_landed`, `tools/fabric/jobsparts/sweep.py::PrStates`*
 

@@ -3,7 +3,7 @@ role: "brand-comms"
 class: index
 description: "What brand-comms knows and where it lives."
 tier: 1
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 ---
 
 # brand-comms — knowledge index
@@ -48,6 +48,7 @@ control plane checked out beside it.
 
 ## workflow
 
+- [`.agent-fabric/memory/brand-comms/workflow/agent-fabric-docs-not-brand-comms-writable.md`](.agent-fabric/memory/brand-comms/workflow/agent-fabric-docs-not-brand-comms-writable.md) — brand-comms cannot commit to agent-fabric, not even docs/ on a for/ branch; deliver copy as text to the coordinator
 - [`.agent-fabric/memory/brand-comms/workflow/agent-store-written-only-by-its-tool.md`](.agent-fabric/memory/brand-comms/workflow/agent-store-written-only-by-its-tool.md) — An agent's fabric-agent-<id> repository is its secrets store — never clone, commit or push to it by hand, even for persona files
 - [`.agent-fabric/memory/brand-comms/workflow/avatar-appearance-follows-surname-culture.md`](.agent-fabric/memory/brand-comms/workflow/avatar-appearance-follows-surname-culture.md) — ADR-056 avatars — the face is drawn from the surname's culture (the surnames.json `from`), not cast freely; the owner's ruling
 - [`.agent-fabric/memory/brand-comms/workflow/blueteam-owner-wants-imagery-flag-curves.md`](.agent-fabric/memory/brand-comms/workflow/blueteam-owner-wants-imagery-flag-curves.md) — What the owner rejects and wants in blueteam.ee's look — never a text-only page; the flag's blue/black/white sections with curves; woven imagery
@@ -61,6 +62,7 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/brand-comms/workflow/pr-paths-is-route-not-owner.md`](.agent-fabric/memory/brand-comms/workflow/pr-paths-is-route-not-owner.md) — arm.json pr_paths says a file reaches main by PR instead of direct, not which role owns it
 - [`.agent-fabric/memory/brand-comms/workflow/publish-request-after-merges-settle.md`](.agent-fabric/memory/brand-comms/workflow/publish-request-after-merges-settle.md) — When asking edge-hosting to publish a site, wait until the owner's run of merges settles; if main moves after the request, send an update naming the new commit and its delta.
 - [`.agent-fabric/memory/brand-comms/workflow/request-job-lands-in-senders-clone.md`](.agent-fabric/memory/brand-comms/workflow/request-job-lands-in-senders-clone.md) — Before starting a job queued from a REQUEST, check which project and working copy fabric-jobs filed it under: it follows the message's PROJECT, which names the sender's clone, not necessarily where the work is
+- [`.agent-fabric/memory/brand-comms/workflow/request-job-project-is-the-senders.md`](.agent-fabric/memory/brand-comms/workflow/request-job-project-is-the-senders.md) — A REQUEST's intake job is filed under the sender's REPOSITORY, not where the work lands; re-point it before starting
 - [`.agent-fabric/memory/brand-comms/workflow/third-party-names-from-their-own-pages.md`](.agent-fabric/memory/brand-comms/workflow/third-party-names-from-their-own-pages.md) — A partner's or venue's name on a brand surface — check it against the institution's own pages in each language; a name from memory can belong to a different site of the same institution
 
 ## recall

@@ -5,7 +5,7 @@ topic: "job-hook-commit-in-main-checkout-works"
 description: "a for/ branch checked out in a sibling worktree cannot be committed there; remove the worktree, switch the job's own checkout to the branch, commit, push, switch back"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-17"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
@@ -25,4 +25,4 @@ j167 (2026-10-25): the hook refused commit/push in ~/projects/agent-fabric-j385;
 
 *References: job-hook-blocks-commit-in-other-worktree, live-run-finds-what-fakes-miss-j132*
 
-*Observed 2026-10-25 (python-dev)*
+*Observed 2026-11-08 (python-dev)*

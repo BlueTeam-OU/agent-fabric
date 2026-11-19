@@ -5,7 +5,7 @@ topic: "settle-meaning-before-copy-request-strengthened"
 description: "Before a copy REQUEST goes to three locale holders, settle meaning, trigger timing, what may be read alone, and the delivery shape — the wake keys repeated the call-sign rounds"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-17"
 origin:
   - agent: "flutter-dev-02"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 8243912406fec9cc
+  - e71187f898083611
 ---
 
 ## Before a copy REQUEST goes to three locale holders, settle meaning, trigger timing, what may be read alone, and the delivery shape — the wake keys repeated the call-sign rounds

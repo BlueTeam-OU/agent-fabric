@@ -5,7 +5,7 @@ topic: "replay-key-compare-claim-body-as-written-link-pointing"
 description: "assembler replay drop (j82): a recorded replaced_key is over the text as written; a run that points [[links]] rewrites every claim body, so compare the body as written too"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-17"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"
@@ -26,8 +26,6 @@ j82 / PR 445 (2026-11-01). `drop_replayed` drops a claim whose (heading, section
 **Why:** two replays of the real bundles each needed a different fix than the synthetic tests suggested. **How to apply:** for a convergence bug, build the fixture in the same run order as the real drain and add a diagnostic note before theorising; a key computed over a text is only as stable as every rewrite of that text between runs.
 
 Also: `fabric-review next` on a later round needs `card_base` in the request and `range` = last base..last reviewed head (full shas); a 60 KB brief can go to the reviewer as a file path plus the dispatch header.
-
-*References: memory*
 
 *Anchors: `tools/fabric/assembler/shapes.py::drop_replayed`, `tools/fabric/assembler/targets.py::resolve_targets`*
 
