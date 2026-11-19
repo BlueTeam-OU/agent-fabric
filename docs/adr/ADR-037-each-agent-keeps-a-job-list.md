@@ -256,7 +256,13 @@ Why these choices:
        branch, and the landed name is replaced in its record
        (A 2026-11-10). A paused or active job's landed branch is still
        refused, since that branch is work in hand.
-       No job starts on a branch behind the default branch.
+       No job starts on a branch behind the default branch, save one:
+       a default branch that does not merge cleanly into the job's
+       existing branch is undone, never left half-merged, and the job
+       starts with that merge as its first step, always in a fresh
+       session, whose prompt names it (A 2026-11-19). The session that
+       ended a job may not make the merge (rule 3); a merge that cannot
+       be undone is still refused.
     Each switch appends one line to both jobs' logs: the outcome and
     the evidence checked, and the branch chosen. `fabric-jobs switch`
     is built (#255); `next` is its alias.
@@ -420,3 +426,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-11-10 | A landed branch, and a merge before deliver | §5 rule 10 step 3: a blocked job whose recorded branch a pull request landed counts as a job with no branch and gets the open pull request or a new branch; step 1 and rule 14's `done` row: `fabric-jobs done <id> <artifact>...` records the named artifacts, each of which must have landed; built in #541 |
 | 2026-11-11 | No copy for a job with no branch, a pause the push fence leaves unpushed, a request this login cannot read | §5 rule 14: `start` needs no working copy for a job with no branch; `pause`, when the push fence refuses the session's pushes, records the unpushed branch and head, which `start` and `switch` say to push; rule 8: a non-REQUEST's answer clears its `request:` blocker without a board, and `block` refuses a `request:` id the journal does not hold; built in #556 |
 | 2026-11-17 | start and switch decide on a fresh blocker check | §5 rule 8: the ten-minute re-check bound is `list`'s, `next`'s and `block`'s; `start` and `switch <id>` decide on a fresh check; built in #537 |
+| 2026-11-19 | A conflicting merge goes to the fresh session | §5 rule 10 step 3: a default branch that conflicts with the job's existing branch is undone and handed to the job's fresh session, which merges it first; `switch` no longer refuses it; built in #662 |

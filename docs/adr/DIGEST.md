@@ -931,6 +931,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-10 — blocked job's landed branch: new branch; done names artifacts (r10).
 - A 2026-11-11 — start without a copy when no branch; fenced pause records its unpushed head; non-REQUEST answer clears; block refuses an unreadable request (r8/r14).
 - A 2026-11-17 — start and switch decide on a fresh blocker check (r8).
+- A 2026-11-19 — a conflicting default-branch merge is undone and handed to the fresh session, never refused (r10).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker, job-state.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
