@@ -3734,7 +3734,7 @@ def test_a_malformed_hygiene_list_stops_the_drain_in_one_line(tmp: str) -> None:
         ("{not json", "does not parse"),
         (json.dumps({"patterns": [{"pattern": "x", "scop": "others"}]}), "keys this does not read: scop"),
         (json.dumps({"patterns": [{"pattern": "(unclosed"}]}), "does not compile"),
-        (json.dumps({"patterns": [{"pattern": "x", "scope": "mine"}]}), "the one scope is"),
+        (json.dumps({"patterns": [{"pattern": "x", "scope": "mine"}]}), "the scopes are"),
         (json.dumps({"patterns": [{"label": "no pattern"}]}), "has no pattern"),
         (json.dumps({"patterns": [{"pattern": "x", "flags": "I"}]}), "the one flag is"),
         (json.dumps(["not", "an", "object"]), "\"patterns\" list"),
@@ -3780,6 +3780,58 @@ def test_a_name_scoped_others_stays_in_its_own_projects_slices_only(tmp: str) ->
         assert "city name" in labels(), "with no project named, every pattern applies"
         assert "city name" in labels(for_project="another"), "another project's slices must withhold it"
         assert "city name" not in labels(for_project=PROJECT), "its own project's slices may name it"
+    finally:
+        layout.FABRIC_ROOT = saved[0]
+        layout._WORKING_COPIES.clear()
+        layout._WORKING_COPIES.update(saved[1])
+
+
+def test_a_name_scoped_own_is_withheld_in_its_own_projects_slices_only(tmp: str) -> None:
+    """"scope": "own" (the owner, 2026-11-19: gzapp's corpus never names the city): the listing project's slice has the
+    name substituted, another project's and agent-fabric's keep it, a fabric domain slice (no project: the strictest
+    set) still has it withheld, a no-scope entry is substituted everywhere (the positive control), "own" in
+    policies/hygiene.json raises, and an unknown scope still raises. Patterns: springfield (own), shelbyville (none).
+    Kills: dropping the "own" branch of layout.load_hygiene_patterns (the other project's labels then include it)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "solution", "topic": "where", "title": "Where it runs", "body": "Runs in Springfield and Shelbyville.",
+         "evidence": ["h1"]},
+        {"class": "domain", "topic": "cities", "title": "Cities", "body": "Springfield and Shelbyville have grid plans.",
+         "evidence": ["h2"]},
+    ])})
+    hyg = os.path.join(working_copy(out), ".agent-fabric", "hygiene.json")
+    os.makedirs(os.path.dirname(hyg), exist_ok=True)
+    with open(hyg, "w", encoding="utf-8") as fh:
+        json.dump({"patterns": [{"pattern": "\\bspringfield\\b", "flags": "i", "label": "city name", "scope": "own"},
+                                {"pattern": "\\bshelbyville\\b", "flags": "i", "label": "control name"}]}, fh)
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "Runs in [redacted] and [redacted]." in read(proj(out, "alpha", "solution.md")), read(proj(out, "alpha", "solution.md"))
+    assert "[redacted] and [redacted] have grid plans." in read(dom(out, "alpha", "domain.md"))
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import importlib
+    layout = importlib.import_module("layout")
+    saved = (layout.FABRIC_ROOT, dict(layout._WORKING_COPIES))
+    try:
+        layout.FABRIC_ROOT = out
+        layout.set_working_copy(PROJECT, working_copy(out))
+        labels = lambda **kw: [label for _p, label, _r in layout.load_hygiene_patterns([PROJECT], **kw)]
+        assert "city name" in labels(), "with no project named, every entry applies"
+        assert "city name" in labels(for_project=PROJECT), "its own project's slices must withhold it"
+        assert "city name" not in labels(for_project="another"), "another project's slices may name it"
+        assert "city name" not in labels(for_project="agent-fabric"), "the fabric's project slices may name it"
+        assert "control name" in labels(for_project="another"), "the control: a no-scope entry holds everywhere"
+        for doc, said in (({"patterns": [{"pattern": "x", "scope": "own"}]}, "not the fabric's"),
+                          ({"patterns": [{"pattern": "x", "scope": "mine"}]}, "the scopes are")):
+            policy = os.path.join(out, "policies", "hygiene.json")
+            os.makedirs(os.path.dirname(policy), exist_ok=True)
+            with open(policy, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+            try:
+                layout.load_hygiene_patterns([])
+            except layout.HygieneError as exc:
+                assert said in str(exc), exc
+            else:
+                raise AssertionError(f"{doc} in policies/hygiene.json was accepted")
     finally:
         layout.FABRIC_ROOT = saved[0]
         layout._WORKING_COPIES.clear()
@@ -4472,6 +4524,7 @@ def main() -> int:
         test_a_bundle_that_cannot_be_read_is_refused_in_one_line,
         test_a_malformed_hygiene_list_stops_the_drain_in_one_line,
         test_a_name_scoped_others_stays_in_its_own_projects_slices_only,
+        test_a_name_scoped_own_is_withheld_in_its_own_projects_slices_only,
         test_the_memories_skipped_for_no_roles_class_are_named_in_the_committed_report,
         test_a_held_slice_takes_its_retitles_out_of_the_report,
         test_a_held_back_slice_is_neither_written_nor_reported_as_the_drains,
