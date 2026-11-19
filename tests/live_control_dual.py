@@ -114,8 +114,6 @@ def phase_check() -> int:
         if run.returncode or run.stdout.strip() != want:
             return die(f"{path} --version printed {run.stdout.strip()!r}, the pin says {want!r}")
         say(f"check: {prog} is the pinned program: {want}")
-    human = subprocess.run([os.path.join(BIN, "interweave-human"), "--version"], capture_output=True, text=True, timeout=30)
-    say(f"check: interweave-human prints {human.stdout.strip()!r} (its digest is not in release.json: not checked)")
     from gzcoord.carrier import main as carrier_main
     _, good = carrier_main.verified_roster()
     logins = {row["login"] for row in good}

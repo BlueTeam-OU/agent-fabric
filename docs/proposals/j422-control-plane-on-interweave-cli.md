@@ -29,8 +29,8 @@ InterWeave v0.2.0 (32ade966).
   carrier's lease on `gzcoord` coexist in one profile, and InterWeave's one-profile case holds
   both, run from the v0.2.0 binaries.
 - **Q6 is answered** (§6, §10): break-glass SSH now, an InterWeave peer on a public address next.
-- **The fabric's gaps.** F2 merged (#401), F4 merged (#400, wildcard listen per R7). F1 and F3 are
-  open.
+- **The fabric's gaps.** F2 merged (#401), F4 merged (#400, wildcard listen per R7). F3 merged
+  (#418); F1 done 2026-11-18 on the 0.3.0 pin.
 - **What this PR lands** (§8): the on-host records, i.e. ADR-029 rule 18, ADR-064 rule 12 and §3,
   and ADR-033 §7. They let P1 start. The second-host amendment stays drafted here until the owner
   answers Q1-Q5, since it has to name the host.
@@ -453,7 +453,7 @@ State records (rule 16) go as direct sends to each host operator's address, on c
 
 | phase | what | done when | lane |
 |---|---|---|---|
-| P0 | CLI gaps G1-G4 and G6 merged, plus X1 and X2 ruled; a tagged release; `release.json` bumped (F1) | the pin points at a tag: **done 2026-10-28 (v0.2.0) except F1** | InterWeave holders via architect-cto; tagging is the owner's; the pin is the coordinator's |
+| P0 | CLI gaps G1-G4 and G6 merged, plus X1 and X2 ruled; a tagged release; `release.json` bumped (F1) | the pin points at a tag: **done 2026-10-28 (v0.2.0); F1 2026-11-18 (0.3.0)** | InterWeave holders via architect-cto; tagging is the owner's; the pin is the coordinator's |
 | P1 | `carrier_cli.py`, the control socket, the per-carrier part sizes and the control parity computation, behind `control_carrier: relay\|dual` (off by default); a two-account check like rule 13; then a dual run on every develop-qzapp account | the parity report is in `docs/live-checks/` and the owner has given the word | python-dev contributors (`tools/`, `runtime/control/`, `runtime/interweave/` are theirs in `policies/authority.json`); the ADR amendments are the coordinator's |
 | P2 | H2 registered (§3.2); the overlay up; the roster's `host` field and the render; a throwaway login on H2 doing ping and identity both ways plus one GZCoord message each way; F3 | the live check, and the GZCoord parity covers the off-host pair | coordinator (registry, roster, provisioning, ADR-048 amendment); H2's operator; python-dev for the render and F3 |
 | P3 | edge-hosting moves (§3.5) | `ping`, `identity`, `tools` and `status` answered from H2 over a week; no lost message in the arrival logs | coordinator; edge-hosting for step 1; the owner for retiring the old account |
@@ -588,10 +588,10 @@ A 2026-10-27 (iii) in InterWeave #500, waiting for the owner's word.
 
 **The fabric's own:**
 
-- **F1** (open, coordinator) — `interweave-human` in `release.json` `reports` and
+- **F1** (done 2026-11-18, on the 0.3.0 pin) — `interweave-human` in `release.json` `reports` and
   `program_sha256`, so `interweave-install` checks the program agentd will run.
 - **F2** (merged, #401) — `fabric-jobs export|import`.
-- **F3** (open, python-dev) — `bin/fabric-op`, the local signed-op runner.
+- **F3** (merged, #418) — `bin/fabric-op`, the local signed-op runner.
 - **F4** (merged, #400) — the roster schema's `host` field, and `interweave_address` in the
   registry schema.
 
