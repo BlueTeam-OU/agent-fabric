@@ -330,8 +330,9 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
 14. Installing or updating the InterWeave programs takes the account's
     InterWeave channel down, and a failure there leaves the agent
     unreachable on it without anyone being told (A 2026-10-25). So an
-    install or update is a control-plane action (ADR-029), which rule 12
-    and ADR-029 rule 18 keep on the relay, so it reaches the account
+    install or update is a control-plane action (ADR-029), which ADR-029
+    rule 18 keeps on the relay where the account's `control_carrier` has
+    one, so it reaches the account
     while that channel is down. With `control_carrier` naming InterWeave
     alone there is no relay to keep it on (A 2026-11-18): install, start
     and stop reach the account only through ADR-029 rule 19's
@@ -372,16 +373,19 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     stay control-plane actions, and no login touches another account's
     units. Starting units that are both down cannot leave the account
     less reachable than it already is, which is why it needs no
-    signature. It renders no configuration and runs the same check as
-    above. A failed check stops what the command started and changes
-    nothing else: unlike the signed start, it leaves each unit enabled or
-    disabled as it was. The agent reports
-    the failure to the coordinator over the relay where its mode still
-    has one; under `carrier-only` it says so in its own session, for the
-    operator. A failed check leaves a mark in the account's state that only
-    a signed install, start or stop clears, and the command refuses while
-    the mark stands, so the account stays off the channel until an
-    operator acts and never starts a broken carrier again and again.
+    signature. It also refuses while a mark of an earlier self-start
+    stands in the account's state. Under the lock, before it starts
+    anything, it writes that mark; it renders no configuration, runs the
+    same check as above, and clears the mark only when the check passes.
+    A failed or interrupted self-start therefore leaves the mark, and
+    only a signed install, start or stop clears it, so the account stays
+    off the channel until an operator acts and never starts a broken
+    carrier again and again. A failed check stops what the command
+    started and changes nothing else about the units: unlike the signed
+    start, it leaves each unit enabled or disabled as it was. The agent
+    reports the failure to the coordinator over the relay where its mode
+    still has one; under `carrier-only` it says so in its own session,
+    for the operator.
 
 ## 6. Consequences
 
@@ -478,4 +482,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-16 | journal off, a carrier mode sends through the carrier and refuses a receive | §5 rule 8: the route is the mode's primary with no mirror; a receive is refused in `carrier-record` and `carrier-only` (D7, #623) |
 | 2026-11-18 | The data plane's first gate: the record is the account's mode's | §2 dual run; §5 rule 7: in `carrier-record` the carrier's acceptance sets the row, the exit status the primary's alone; §5 rule 11: InterWeave is the record in `carrier-record` (gate 1, ADR-033) |
 | 2026-11-18 | The carrier's own ops when control rides InterWeave alone | rule 14: install, start and stop by the break-glass path; the read over InterWeave, read again by that path after 30 s (#656) |
-| 2026-11-18 | An account starts its own carrier | rule 14: its login starts its own carrier and daemon units when both are down but enabled and the pinned programs are installed, unsigned, under the account's install/start/stop lock, with the same check; install, update, restart and stop stay control-plane actions |
+| 2026-11-18 | An account starts its own carrier | rule 14: its login starts its own carrier and daemon units when both are down but enabled and the pinned programs are installed, unsigned, under the account's install/start/stop lock, and only while no mark of a failed or interrupted self-start stands, with the same check; install, update, restart and stop stay control-plane actions |

@@ -538,6 +538,11 @@ mark only a signed install, start or stop clears, and the command
 refuses while it stands; without it a failed start would leave the
 units enabled and down, the state the next self-start accepts, and an
 agent retrying after each give-up would start and stop a broken carrier
-in a loop (#658 full review round 2). Install, update, restart
+in a loop (#658 full review round 2). The command writes the mark under
+the lock before it starts anything and clears it only on a passing check,
+so an interrupted self-start leaves the mark too; the row and the DIGEST
+list the mark among the conditions (round 3, F13). Rule 14 now cites
+ADR-029 rule 18 alone for keeping install and update on the relay, since
+rule 12 points to rule 14 (round 3, F12). Install, update, restart
 and stop stay as they were. The local command and the watch's exit text
 are python-dev's to build.
