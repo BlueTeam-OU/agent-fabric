@@ -14,6 +14,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -295,6 +296,22 @@ def main() -> int:
         check("each read-back's lines prefixed; the ping's first line dropped",
               "   control plane: pong\n" in said and "header" not in said and "   demo ssh to origin: ok\n" in said
               and "   gh: Logged in to github.com\n" in said, said)
+        # A project id holding shell metacharacters reaches the read-back lines as one literal word: run the lines the
+        # verification asks for, in bash as run_many does, and no command in an id may have run.
+        hostile = ["a'; touch \"$H/canary-quote\"; echo '", "b$(touch \"$H/canary-subst\")", "c;touch \"$H/canary-semi\""]
+        inj_home = f"{tmp}/inj"
+        os.makedirs(inj_home)
+        for hid in hostile:
+            hid = hid.replace("$H", inj_home)
+            _, _, inj_lines = verify_with({}, [hid])
+            for ln in inj_lines:
+                subprocess.run(["bash", "-c", ln], env={"HOME": inj_home, "PATH": "/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60, check=False)
+        check("a project id with shell metacharacters stays a literal word in every read-back line (no command of it ran)",
+              not [f for f in os.listdir(inj_home) if f.startswith("canary")], os.listdir(inj_home))
+        _, _, inj_lines = verify_with({}, ["it's"])
+        check("…and a quote in the id reaches git as that literal path (positive control: the id is in the line)",
+              any("ls-remote" in x and shlex.quote("it's") in x for x in inj_lines), inj_lines)
         check("…the signing key's secret asked for by the key git signs with: present",
               "GPG secret key: the signing key's, present" in text
               and any("user.signingkey" in x and 'gpg --list-secret-keys --with-colons -- "$k"' in x for x in asked), asked)
