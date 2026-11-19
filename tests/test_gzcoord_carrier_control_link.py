@@ -8,8 +8,10 @@ explicit, and every temporary directory is removed however a case ends.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import platform
 import shutil
 import socket
 import stat
@@ -289,6 +291,128 @@ class ChildCases(Net):
         proc = n.child._proc
         n.close()
         self.assertTrue(until(lambda: proc.poll() is not None))
+
+
+class PinnedDigest(Scratch):
+    """Child's check on the real program_check: the installed interweave-human is hashed against release.json at each spawn."""
+
+    BODY = b"the pinned program"
+
+    def setUp(self) -> None:
+        d = self.scratch()
+        os.makedirs(os.path.join(d, ".local", "bin"))
+        self.program = os.path.join(d, ".local", "bin", cc.PROGRAM_NAME)
+        self.release = os.path.join(d, "release.json")
+        self.env = {"HOME": d, "GZCOORD_CARRIER_RELEASE": self.release, "PATH": os.environ["PATH"]}
+        self.pin()
+        self.spawns, self.logs = [], []
+
+    def pin(self, digest: str | None = None, key: str = cc.PROGRAM_NAME) -> None:
+        digest = hashlib.sha256(self.BODY).hexdigest() if digest is None else digest
+        entry = {"program_sha256": {key: digest}}
+        with open(self.release, "w") as fh:
+            json.dump({"current": "9.9.9", "releases": {"9.9.9": {platform.machine(): entry}}}, fh)
+
+    def install(self, body: bytes) -> None:
+        with open(self.program, "wb") as fh:
+            fh.write(body)
+        os.chmod(self.program, 0o755)
+
+    def popen(self, *a, **k):
+        self.spawns.append(a)
+        raise OSError("fake: no process")
+
+    def child(self) -> "cc.Child":
+        c = cc.Child([self.program, *cc.LISTEN_ARGS], {}, lambda ev: None, log=self.logs.append, popen=self.popen,
+                     backoff=(0.02,), check=cc.program_check(self.env))
+        self.addCleanup(c.stop)
+        return c
+
+    def refused(self, c, text: str) -> None:
+        c.start()
+        self.assertTrue(until(lambda: c.restarts >= 2), self.logs)
+        self.assertEqual(self.spawns, [])
+        self.assertEqual(c.state, "off")
+        lines = [l for l in self.logs if l.startswith("not starting")]
+        self.assertTrue(lines and all(text in l for l in lines), self.logs)
+
+    def test_a_matching_digest_spawns(self):
+        self.install(self.BODY)
+        c = self.child()
+        c.start()
+        self.assertTrue(until(lambda: self.spawns), self.logs)
+        self.assertFalse([l for l in self.logs if l.startswith("not starting")])
+
+    def test_a_different_digest_is_refused(self):
+        self.install(b"a lookalike")
+        self.refused(self.child(), "is not the pinned release's interweave-human")
+
+    def test_a_missing_file_is_refused(self):
+        self.refused(self.child(), "cannot be read")
+
+    def test_a_pin_without_the_key_is_refused(self):
+        self.install(self.BODY)
+        self.pin(key="transportctl")
+        self.refused(self.child(), "pins no program_sha256 for interweave-human")
+
+    def test_a_malformed_digest_is_refused(self):
+        self.install(self.BODY)
+        self.pin(digest="ABC")
+        self.refused(self.child(), "not lowercase hex SHA-256")
+
+    def test_a_corrected_install_spawns_on_the_next_restart(self):
+        self.install(b"a lookalike")
+        c = self.child()
+        c.start()
+        self.assertTrue(until(lambda: c.restarts >= 1), self.logs)
+        self.assertEqual(self.spawns, [])
+        self.install(self.BODY)
+        self.assertTrue(until(lambda: self.spawns), self.logs)
+
+    def test_a_check_that_raises_refuses_and_the_supervisor_lives(self):
+        def broken():
+            raise RuntimeError("boom")
+        c = cc.Child([self.program], {}, lambda ev: None, log=self.logs.append, popen=self.popen, backoff=(0.02,), check=broken)
+        self.addCleanup(c.stop)
+        self.refused(c, "the digest check failed (RuntimeError: boom)")
+
+    def agentd_start(self, digest_of_body: bytes) -> tuple[list, str]:
+        """start_for_agentd as agentd calls it (no argv): the program writes a marker if it is ever run."""
+        marker = os.path.join(self.env["HOME"], "ran")
+        self.install(f"#!/bin/sh\n: > {marker}\n".encode())
+        self.pin(digest=hashlib.sha256(digest_of_body).hexdigest())
+        logs = []
+        env = {**self.env, "AGENT_FABRIC_STATE_DIR": self.scratch()}
+        with mock.patch.dict(os.environ, {"AGENT_FABRIC_STATE_DIR": env["AGENT_FABRIC_STATE_DIR"]}):
+            running = cc.start_for_agentd(me="h/alice", on_request=lambda r, s: None, placed=lambda: PLACED, env=env, log=logs.append,
+                                          directory=cc.Directory(lambda: ROWS, "h", lambda: PLACED, log=logs.append))
+        self.addCleanup(running.stop)
+        return logs, marker
+
+    def test_agentd_start_refuses_a_program_the_release_does_not_pin(self):
+        logs, marker = self.agentd_start(b"something else")
+        self.assertTrue(until(lambda: any(l.startswith("not starting") for l in logs)), logs)
+        time.sleep(0.3)
+        self.assertFalse(os.path.exists(marker), "the unpinned program ran")
+
+    def test_agentd_start_runs_the_pinned_program(self):
+        # The positive control of the refusal above: same wiring, the file the release pins.
+        marker = os.path.join(self.env["HOME"], "ran")
+        body = f"#!/bin/sh\n: > {marker}\n".encode()
+        logs, _ = self.agentd_start(body)
+        self.assertTrue(until(lambda: os.path.exists(marker)), logs)
+
+    def test_an_injected_argv_is_not_checked(self):
+        logs = []
+        argv = [sys.executable, FAKE, *cc.LISTEN_ARGS]
+        with mock.patch.dict(os.environ, {"GZCOORD_CARRIER_RELEASE": self.release}):
+            running = cc.start_for_agentd(me="h/alice", on_request=lambda r, s: None, placed=lambda: PLACED,
+                                          env=self.env, log=logs.append, argv=argv,
+                                          directory=cc.Directory(lambda: ROWS, "h", lambda: PLACED, log=logs.append))
+        self.addCleanup(running.stop)
+        # The fake exits 1 without FAKE_NET, which child_env withholds: that it ran at all is the point.
+        self.assertTrue(until(lambda: any("the child exited" in l for l in logs)), logs)
+        self.assertFalse([l for l in logs if l.startswith("not starting")], logs)
 
 
 class Inbound(Net):

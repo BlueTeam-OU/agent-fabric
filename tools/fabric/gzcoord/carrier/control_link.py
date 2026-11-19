@@ -57,8 +57,14 @@ WHAT THE CHILD DOES NOT TELL US, said so a reader does not look for it:
 the `outbound` event is printed twice per send (same ref, id and status), and
 `accepted` is the daemon taking the message, not the peer receiving it: the
 reply is the receipt (ADR-029 rule 18's source, docs/proposals/j422 §4.3).
-interweave-human is not in release.json `reports` or `program_sha256` yet
-(j422 F1), so its digest is not checked here; its `--version` is logged.
+interweave-human is in release.json `reports` and `program_sha256` from
+0.3.0 (j422 F1). The install checks its `--version`; agentd checks its
+SHA-256 against the current release's before EVERY spawn (Child's `check`,
+carrier.pin.verify_program, the reader admit.py shares). A digest that
+differs, a file that cannot be read and a pin without the key each refuse the
+spawn with their own log line and leave the channel `off`; under dual the relay
+still carries control, and the supervisor's restart re-reads both, so a
+corrected install recovers without agentd restarting.
 """
 from __future__ import annotations
 
@@ -76,7 +82,7 @@ from typing import Any, Callable, Iterable
 
 from control import js
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP
-from gzcoord.carrier import framing, roster as roster_mod
+from gzcoord.carrier import framing, pin, roster as roster_mod
 
 PREFIX = framing.CONTROL_PREFIX
 ENDPOINT = roster_mod.CONTROL_ENDPOINT
@@ -350,12 +356,15 @@ class Inbox:
 class Child:
     """`interweave-human … listen --json --input --consume --endpoint fabric-control`, supervised: restarted with
     backoff 1, 2, 4 … 60 s however it ends (the exit code only says what the log line and `state` say), its
-    stderr read into the log so it never blocks, its stdout read line by line. State is `off` (no daemon, or the
-    store cannot be used), `restarting`, or `ok` (a `session ready` was read)."""
+    stderr read into the log so it never blocks, its stdout read line by line. State is `off` (no daemon, the
+    store cannot be used, or the digest check refused the program), `restarting`, or `ok` (a `session ready` was read)."""
 
     def __init__(self, argv: list[str], env: dict[str, str], on_message: Callable[[dict], None], *,
                  log: Callable[[str], None] = say, popen: Callable[..., Any] = subprocess.Popen,
-                 backoff: tuple[float, ...] = BACKOFF_S, wait_stop: Callable[[float], bool] | None = None) -> None:
+                 backoff: tuple[float, ...] = BACKOFF_S, wait_stop: Callable[[float], bool] | None = None,
+                 check: Callable[[], str | None] | None = None) -> None:
+        # `check` runs before every spawn and answers why the program must not run, or None.
+        self._check = check
         self.argv, self.env, self._on_message, self._log, self._popen, self._backoff = argv, env, on_message, log, popen, backoff
         self.stopped = threading.Event()
         self._wait = wait_stop or self.stopped.wait
@@ -395,13 +404,23 @@ class Child:
         failures = 0
         while not self.stopped.is_set():
             ready = False
+            # A refusal is no spawn failure: the program is there and a check says it must not run. The next
+            # backoff asks again, so a corrected install recovers without agentd restarting.
             try:
-                proc = self._popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env)
-            except OSError as e:
+                refusal = self._check() if self._check is not None else None
+            except Exception as e:   # noqa: BLE001 — an unforeseen failure of the check must not end the supervisor thread unseen
+                refusal = f"the digest check failed ({type(e).__name__}: {js.slice(str(e), 200)})"
+            proc: Any = None
+            if refusal is not None:
                 self.state = "off"
-                self._log(f"cannot start {self.argv[0]} ({e}); channel off")
-                rc = None
+                self._log(f"not starting {self.argv[0]}: {refusal}; channel off")
             else:
+                try:
+                    proc = self._popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env)
+                except OSError as e:
+                    self.state = "off"
+                    self._log(f"cannot start {self.argv[0]} ({e}); channel off")
+            if proc is not None:
                 os.set_blocking(proc.stdin.fileno(), False)   # a write that cannot finish is bounded, see _write
                 with self._lock:
                     self._proc = proc
@@ -1113,6 +1132,18 @@ def program_path(env: dict[str, str] | None = None) -> str:
     return os.path.join(env.get("HOME") or os.path.expanduser("~"), ".local", "bin", PROGRAM_NAME)
 
 
+def release_path(env: dict[str, str] | None = None) -> str:
+    """The pin of the checkout agentd runs from (read afresh at each spawn, so an upgrade's new pin counts)."""
+    env = os.environ if env is None else env
+    from gzcoord import paths
+    return env.get("GZCOORD_CARRIER_RELEASE") or os.path.join(paths.CHECKOUT, "runtime", "interweave", "release.json")
+
+
+def program_check(env: dict[str, str] | None = None) -> Callable[[], str | None]:
+    """Child's `check`: the installed interweave-human must be the current release's, read at each call."""
+    return lambda: pin.verify_program(program_path(env), release_path(env), PROGRAM_NAME)
+
+
 class Running:
     """What agentd holds while it carries on InterWeave: the router, fabric-ctl's socket, and the way out."""
 
@@ -1158,7 +1189,9 @@ def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed
     from control.upgrade import state_dir
     host = me.partition("/")[0]
     carrier = Carrier(directory=directory or default_directory(host, placed, log),
-                      child=Child(argv or [program_path(env), *LISTEN_ARGS], child_env(env), lambda ev: None, log=log),
+                      child=Child(argv or [program_path(env), *LISTEN_ARGS], child_env(env), lambda ev: None, log=log,
+                                  # An injected argv is a test's fake program, which no release pins.
+                                  check=program_check(env) if argv is None else None),
                       me=me, on_request=on_request, arrivals=ArrivalLog(os.path.join(state_dir(), "control-arrivals.jsonl"), "agentd", log=log), log=log,
                       relay_off=relay_off)
     server: Server | None = None
