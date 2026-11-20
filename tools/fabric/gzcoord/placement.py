@@ -76,11 +76,15 @@ def is_operator(address: str, path: str | None = None) -> bool:
     hosts = doc.get("hosts") if isinstance(doc, dict) else None
     if not isinstance(hosts, dict):
         return False
+    named = []
     for host, entry in hosts.items():
+        if entry is None:
+            # agentd.operator_list: a null host entry throws in the daemon's own read, so it answers no operator at all,
+            # and fabric-ctl then refuses every login. The same registry must not promise a command that is refused.
+            return False
         operator = entry.get("operator") if isinstance(entry, dict) else None
-        if address == f"{host}/{js.string(operator) if operator is not None else 'user'}":
-            return True
-    return False
+        named.append(f"{host}/{js.string(operator) if operator is not None else 'user'}")
+    return address in named
 
 
 def judge(to: str, placed: Iterable[str], roles: Iterable[str]) -> dict[str, Any] | None:

@@ -63,7 +63,7 @@ class CarrierPrimary(CarrierTransport):
                  journal_newest: Callable[[int], list[dict]] | None = None,
                  clock: Callable[[], float] = time.monotonic) -> None:
         super().__init__(ask)
-        self._address, self._login = address, address.rpartition("/")[2]
+        self._address = address
         self._journal_newest, self._clock = journal_newest, clock
         self._last_ids: tuple[str, ...] = ()
         self._last_at = 0.0
@@ -99,7 +99,7 @@ class CarrierPrimary(CarrierTransport):
     def explain(self, error: BaseException, t: i18n.Printer | None = None) -> dict:
         """The one line for a failure of the carrier. Code 0: the carrier being down is not a refusal no retry cures."""
         t = t or en()
-        fix = fix_line(t, getattr(self, "_address", ""))
+        fix = fix_line(t, self._address)
         if isinstance(error, adapter.CarrierError) and error.absent:
             return {"line": t("transport.carrier-absent", {"carrier": CARRIER_LABEL, "fix": fix}), "code": 0}
         return {"line": t("transport.carrier-failed", {"carrier": CARRIER_LABEL, "detail": str(error), "fix": fix}), "code": 0}
