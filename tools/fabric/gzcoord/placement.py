@@ -47,11 +47,25 @@ def registry_path() -> str:
     return paths.roots.hosts_registry(engine=paths.fabric_root(), empty_is_set=True)
 
 
+def _no_constant(name: str):
+    raise ValueError(f"{name} is not JSON")
+
+
+def _read(path: str) -> Any:
+    """The registry as the daemon reads it (control/js.py json_parse): NaN and Infinity are not JSON and a nesting too deep
+    for the parser is unreadable, never a RecursionError out of a line that tells a person what to do. A registry the daemon
+    refuses must not be read here as naming an operator or a placed account."""
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        try:
+            return json.load(fh, parse_constant=_no_constant)
+        except RecursionError:
+            raise ValueError("nested too deep to read") from None
+
+
 def placed_addresses(path: str | None = None) -> set[str]:
     path = registry_path() if path is None else path
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            doc = json.load(fh)
+        doc = _read(path)
     except (OSError, ValueError) as e:
         raise Unreadable(f"the hosts registry could not be read ({e.__class__.__name__})") from None
     placement = doc.get("placement") if isinstance(doc, dict) else None
@@ -69,14 +83,13 @@ def is_operator(address: str, path: str | None = None) -> bool:
     """Whether an address is a host's operator, the only login fabric-ctl's carrier ops answer (ctl.py). A registry that
     cannot be read is False, not Unreadable: the caller then tells the reader what any login can do, and nothing it cannot."""
     try:
-        with open(registry_path() if path is None else path, encoding="utf-8", errors="replace") as fh:
-            doc = json.load(fh)
+        doc = _read(registry_path() if path is None else path)
     except (OSError, ValueError):
         return False
     hosts = doc.get("hosts") if isinstance(doc, dict) else None
     if not isinstance(hosts, dict):
         return False
-    named = []
+    named = []      # the scan finishes before it answers: a null entry LATER in the table voids every operator
     for host, entry in hosts.items():
         if entry is None:
             # agentd.operator_list: a null host entry throws in the daemon's own read, so it answers no operator at all,

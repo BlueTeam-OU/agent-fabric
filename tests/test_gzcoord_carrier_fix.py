@@ -48,7 +48,10 @@ class FixByReader(unittest.TestCase):
 
     def test_unreadable_registry_is_told_what_anyone_can_do(self):
         # A null host entry: the daemon's own read answers no operator at all (agentd.operator_list), so h2/boss is refused.
-        for body in ("", "{", "[]", '{"hosts": 3}', '{"hosts": {"h1": null, "h2": {"operator": "boss"}}}'):
+        for body in ("", "{", "[]", '{"hosts": 3}', '{"hosts": {"h1": null, "h2": {"operator": "boss"}}}',
+                     '{"hosts": {"h2": {"operator": "boss"}, "h1": null}}',     # the null entry after the operator's
+                     '{"hosts": {"h2": {"operator": "boss"}}, "x": NaN}',        # the daemon's parser refuses NaN
+                     "[" * 100000 + "]" * 100000):                                # and nesting too deep for the parser
             with open(self.reg, "w") as fh:
                 fh.write(body)
             self.assertIn("OBSERVATION", carrier.fix_line(self.t, "h2/boss"), body)
