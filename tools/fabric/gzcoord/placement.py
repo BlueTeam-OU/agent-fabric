@@ -30,11 +30,11 @@ is looked at first.
 """
 from __future__ import annotations
 
-import json
 from typing import Any, Iterable
 
 from . import paths
 from . import jsvalues as js
+from control import js as js_parse
 from .gzmsg import js_trim
 
 
@@ -47,19 +47,12 @@ def registry_path() -> str:
     return paths.roots.hosts_registry(engine=paths.fabric_root(), empty_is_set=True)
 
 
-def _no_constant(name: str):
-    raise ValueError(f"{name} is not JSON")
-
-
 def _read(path: str) -> Any:
-    """The registry as the daemon reads it (control/js.py json_parse): NaN and Infinity are not JSON and a nesting too deep
-    for the parser is unreadable, never a RecursionError out of a line that tells a person what to do. A registry the daemon
-    refuses must not be read here as naming an operator or a placed account."""
+    """The registry as the daemon reads it, by the daemon's own parser (control/js.py): NaN, Infinity, a number past 2**53
+    rounded as JavaScript does, and a nesting too deep to read refused as ValueError. A registry the daemon takes for
+    unreadable, or names another login in, must not be read here as naming an operator or a placed account."""
     with open(path, encoding="utf-8", errors="replace") as fh:
-        try:
-            return json.load(fh, parse_constant=_no_constant)
-        except RecursionError:
-            raise ValueError("nested too deep to read") from None
+        return js_parse.json_parse(fh.read())
 
 
 def placed_addresses(path: str | None = None) -> set[str]:

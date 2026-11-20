@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
@@ -51,12 +52,19 @@ class FixByReader(unittest.TestCase):
         for body in ("", "{", "[]", '{"hosts": 3}', '{"hosts": {"h1": null, "h2": {"operator": "boss"}}}',
                      '{"hosts": {"h2": {"operator": "boss"}, "h1": null}}',     # the null entry after the operator's
                      '{"hosts": {"h2": {"operator": "boss"}}, "x": NaN}',        # the daemon's parser refuses NaN
-                     "[" * 100000 + "]" * 100000):                                # and nesting too deep for the parser
+                     '{"hosts": {"h": {"operator": 12345678901234567890}}}'):   # a number the daemon rounds: h/12345678901234567000
             with open(self.reg, "w") as fh:
                 fh.write(body)
             self.assertIn("OBSERVATION", carrier.fix_line(self.t, "h2/boss"), body)
+            self.assertIn("OBSERVATION", carrier.fix_line(self.t, "h/12345678901234567890"), body)
         os.remove(self.reg)
         self.assertIn("OBSERVATION", carrier.fix_line(self.t, "h1/boss"))
+
+    def test_a_nesting_too_deep_for_the_parser_is_unreadable(self):
+        # Mocked: whether a real 100,000-deep body overflows depends on the interpreter's stack (3.14 may never stop), and a
+        # test that passes whether or not the catch exists proves nothing.
+        with mock.patch.object(json, "loads", side_effect=RecursionError):
+            self.assertIn("OBSERVATION", carrier.fix_line(self.t, "h1/boss"))
 
     def test_the_gave_up_line_carries_it(self):
         gave = self.t("watch.carrier-gave-up", {"carrier": "InterWeave", "minutes": "10", "fix": carrier.fix_line(self.t, "h1/agent-a")})
