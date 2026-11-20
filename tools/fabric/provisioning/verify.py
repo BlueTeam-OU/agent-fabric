@@ -299,4 +299,4 @@ def closing(login: str, signing: str, creds: str, first: str, *, account: str = 
             f"   {gpg}\n"
             f"   {claude}\n"
             "   - first launch (bootstrap has trusted its folders in Claude Code; no trust question):\n"
-            f"       moveto {login}{' ' + first if first else ''}   then   runtime/openrouter/launch\n")
+            f"       moveto {login}{' ' + shlex.quote(first) if first else ''}   then   runtime/openrouter/launch\n")

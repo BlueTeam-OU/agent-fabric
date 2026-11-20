@@ -301,14 +301,21 @@ def main() -> int:
         hostile = ["a'; touch \"$H/canary-quote\"; echo '", "b$(touch \"$H/canary-subst\")", "c;touch \"$H/canary-semi\""]
         inj_home = f"{tmp}/inj"
         os.makedirs(inj_home)
+        hung = []
         for hid in hostile:
             hid = hid.replace("$H", inj_home)
-            _, _, inj_lines = verify_with({}, [hid])
+            inj_text, _, inj_lines = verify_with({}, [hid])
+            check("…and the closing's moveto line, which a person pastes, carries the id as one literal word",
+                  f"moveto acct {shlex.quote(hid)}   then" in inj_text, inj_text[-300:])
             for ln in inj_lines:
-                subprocess.run(["bash", "-c", ln], env={"HOME": inj_home, "PATH": "/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60, check=False)
+                try:
+                    subprocess.run(["bash", "-c", ln], env={"HOME": inj_home, "PATH": "/usr/bin:/bin"}, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60, check=False)
+                except subprocess.TimeoutExpired:
+                    # A host tool that blocks is a failed case, not a traceback that ends the suite.
+                    hung.append(ln)
         check("a project id with shell metacharacters stays a literal word in every read-back line (no command of it ran)",
-              not [f for f in os.listdir(inj_home) if f.startswith("canary")], os.listdir(inj_home))
+              not [f for f in os.listdir(inj_home) if f.startswith("canary")] and not hung, (os.listdir(inj_home), hung))
         _, _, inj_lines = verify_with({}, ["it's"])
         check("…and a quote in the id reaches git as that literal path (positive control: the id is in the line)",
               any("ls-remote" in x and shlex.quote("it's") in x for x in inj_lines), inj_lines)
