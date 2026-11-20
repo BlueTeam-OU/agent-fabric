@@ -14,7 +14,10 @@ loses the section's knowledge with no collision to ask about:
 The first three are judged before anything is written and stop the drain like a collision does; none of them is a question
 the owner can answer with a decision, because the fix is the memory's text. The last is read from the files written, since
 only the writer knows what it left; it names the files already written, and the drain is discarded, as for a hygiene
-failure."""
+failure.
+
+A claim that is an earlier committed text of its section is dropped, with a report line, by drop_undoing_curation (below),
+from the tree's own git history; only a history git cannot read refuses the run."""
 from __future__ import annotations
 
 import glob
@@ -278,10 +281,56 @@ class HistoryUnreadable(Exception):
 
 
 def _git(directory: str, *argv: str) -> subprocess.CompletedProcess[bytes]:
+    # The C locale: "not a repository" and "no commits yet" are told from a failure by git's own words, which a translated
+    # catalog changes. The repository variables a hook or a rebase exports would point git at another repository, and a
+    # configured signature check would add lines to the log this reads as hashes.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k not in ("LANGUAGE", "LC_ALL")}
+    env["LC_ALL"] = "C"
     try:
-        return subprocess.run(["git", "-C", directory, *argv], capture_output=True, timeout=GIT_TIMEOUT_S, check=False)
+        return subprocess.run(["git", "-c", "log.showSignature=false", "-C", directory, *argv], capture_output=True,
+                              timeout=GIT_TIMEOUT_S, check=False, env=env)
     except (OSError, subprocess.SubprocessError) as exc:
         raise HistoryUnreadable(f"git {' '.join(argv)} in {directory}: {exc}") from exc
+
+
+def _one_line(raw: bytes) -> str:
+    return " ".join(raw.decode("utf-8", "replace").split())
+
+
+def _nearest_directory(directory: str) -> str:
+    """The directory itself or its nearest ancestor that exists: a commit that deleted a class's last slice took its
+    directory with it, and git still answers for the path from above."""
+    while not os.path.isdir(directory):
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    return directory
+
+
+def history_paths(path: str, with_parts: bool = False) -> list[str]:
+    """`path`, and with `with_parts` the budget parts `<stem>-<n>.md` the history of its directory ever held, deleted ones
+    too (slice_candidates sees only those that exist)."""
+    if not with_parts:
+        return [path]
+    directory, name = os.path.split(path)
+    base = _nearest_directory(directory)
+    rel = os.path.relpath(directory, base)
+    log = _git(base, "log", "--format=", "--name-only", "--relative", "--", rel)
+    if log.returncode:
+        return [path] if _no_history(log) else _unreadable(f"git log of {directory}", log)
+    pattern = re.compile(re.escape(name[:-3]) + r"-\d+\.md")
+    found = {os.path.join(base, f) for f in log.stdout.decode("utf-8", "replace").split("\n") if f and pattern.fullmatch(os.path.basename(f))}
+    return [path, *sorted(found)]
+
+
+def _no_history(done: subprocess.CompletedProcess[bytes]) -> bool:
+    err = done.stderr.decode("utf-8", "replace")
+    return "not a git repository" in err or "does not have any commits yet" in err
+
+
+def _unreadable(what: str, done: subprocess.CompletedProcess[bytes]) -> Any:
+    raise HistoryUnreadable(f"{what} failed: {_one_line(done.stderr)}")
 
 
 def committed_versions(path: str) -> list[tuple[dict[str, Any], dict[str, str]]]:
@@ -289,20 +338,18 @@ def committed_versions(path: str) -> list[tuple[dict[str, Any], dict[str, str]]]
     in no repository, or in one with no commit yet, has none; any other git failure is HistoryUnreadable, since an
     unreadable history must not be read as an empty one."""
     directory, name = os.path.split(path)
-    if not os.path.isdir(directory):
-        return []
-    log = _git(directory, "log", "--format=%H", "--diff-filter=AMR", "--", name)
+    base = _nearest_directory(directory)
+    rel = os.path.relpath(path, base)
+    log = _git(base, "log", "--format=%H", "--diff-filter=AMR", "--", rel)
     if log.returncode:
-        err = log.stderr.decode("utf-8", "replace")
-        if "not a git repository" in err or "does not have any commits yet" in err:
-            return []
-        raise HistoryUnreadable(f"git log of {path} failed: {err.strip()}")
+        return [] if _no_history(log) else _unreadable(f"git log of {path}", log)
     versions = []
     for sha in log.stdout.decode().split():
-        shown = _git(directory, "show", f"{sha}:./{name}")
+        shown = _git(base, "show", f"{sha}:./{rel}")
         if shown.returncode:
-            raise HistoryUnreadable(f"git show {sha}:{name} in {directory} failed: {shown.stderr.decode('utf-8', 'replace').strip()}")
-        versions.append(parse_slice(shown.stdout.decode("utf-8")))
+            _unreadable(f"git show {sha}:{rel} in {base}", shown)
+        # A version that is not UTF-8 reads as replacement characters, which no claim's text equals.
+        versions.append(parse_slice(shown.stdout.decode("utf-8", "replace")))
     return versions
 
 
@@ -323,7 +370,7 @@ def drop_undoing_curation(run: Run) -> int | None:
             # The topic file itself even when a curation deleted it: a removed slice has no candidate left to read.
             # A role's flat class file too, which holds a lone topic.
             flat = [] if role is None else [os.path.join(layout.class_home(klass, role, run.project), f"{CLASS_FILES[klass]}.md")]
-            paths = list(dict.fromkeys([*candidates, stem + ".md", *flat]))
+            paths = list(dict.fromkeys([*candidates, *history_paths(stem + ".md", with_parts=True), *flat]))
             present = existing_sections(candidates)
             for claim in list(group):
                 if is_retire(claim) or (claim.get("merge_target") or "").strip():
