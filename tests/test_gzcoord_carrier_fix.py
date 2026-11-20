@@ -13,7 +13,6 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
-from gzcoord import placement  # noqa: E402
 from gzcoord.transport import carrier  # noqa: E402
 
 ENV = "AGENT_FABRIC_HOSTS_REGISTRY"
