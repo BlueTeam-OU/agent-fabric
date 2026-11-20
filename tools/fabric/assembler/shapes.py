@@ -287,7 +287,7 @@ def _git(directory: str, *argv: str) -> subprocess.CompletedProcess[bytes]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k not in ("LANGUAGE", "LC_ALL")}
     env["LC_ALL"] = "C"
     try:
-        return subprocess.run(["git", "-c", "log.showSignature=false", "-C", directory, *argv], capture_output=True,
+        return subprocess.run(["git", "-c", "log.showSignature=false", "-c", "core.quotePath=false", "-C", directory, *argv], capture_output=True,
                               timeout=GIT_TIMEOUT_S, check=False, env=env)
     except (OSError, subprocess.SubprocessError) as exc:
         raise HistoryUnreadable(f"git {' '.join(argv)} in {directory}: {exc}") from exc
@@ -385,7 +385,10 @@ def drop_undoing_curation(run: Run) -> int | None:
                 for path in paths:
                     if path not in versions:
                         versions[path] = committed_versions(path)
-                if any(section_key(old[heading]) in keys for path in paths for _meta, old in versions[path] if heading in old):
+                if any(section_key(old[heading]) in keys for path in paths for meta, old in versions[path] if heading in old
+                       # A file named `<topic>-<n>.md` may be another topic's own (a memory called `release-2`): the topic
+                       # it records decides, as is_budget_part does for the files that exist.
+                       and meta.get("topic") in (None, topic)):
                     group.remove(claim)
                     run.superseded_harvests.append(
                         f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r} is a text of this section an earlier "

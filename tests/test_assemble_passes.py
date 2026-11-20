@@ -454,20 +454,49 @@ def test_unreadable_history_stops_the_run_with_one_line_and_writes_nothing(tmp: 
     assert ta.read(path) == curated, "a slice was written"
 
 
-def test_a_tree_that_is_not_a_repository_runs_under_a_translated_git_locale(tmp: str) -> None:
+def test_git_runs_in_the_c_locale_with_no_repository_variables(tmp: str) -> None:
+    """The environment git is given, captured: a translated catalog or an exported GIT_DIR would change what it says or reads.
+    Observed here and not through a German message, because the locale is not generated on every host."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "fabric"))
+    from assembler import shapes
+    seen: list[dict] = []
+    real = subprocess.run
+
+    def spy(argv, **kw):
+        seen.append(kw.get("env"))
+        return real(argv, **kw)
+    saved = dict(os.environ)
+    os.environ.update({"LANGUAGE": "de", "LC_ALL": "de_DE.UTF-8", "GIT_DIR": "/nonexistent", "GIT_WORK_TREE": "/nonexistent"})
+    shapes.subprocess.run = spy
+    try:
+        shapes._git(tmp, "--version")
+    finally:
+        shapes.subprocess.run = real
+        os.environ.clear()
+        os.environ.update(saved)
+    (env,) = seen
+    assert env["LC_ALL"] == "C" and "LANGUAGE" not in env and not [k for k in env if k.startswith("GIT_")], env
+
+
+def test_a_sibling_topic_named_like_a_budget_part_is_not_read_as_one(tmp: str) -> None:
+    """`t-2` is a topic of its own, not part two of `t`: its history is not `t`'s, and a new memory of `t` with its text is written."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "fabric"))
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
     ta.with_agents(drain, AGENTS)
-    ta.set_claims(claims_dir, "alpha", [ORIGINAL])
+    other = claim("t-2", "Rollout notes", "Shared words of a rollout.", "h2")
+    ta.set_claims(claims_dir, "alpha", [claim("t", "Another heading", "Other.", "h1"), other])
     assert ta.run_assemble(drain, claims_dir, out).returncode == 0
-    ta.set_claims(claims_dir, "alpha", [claim("t", "Status v1 of the thing", "The author rewrote it.", "h4")])
-    saved = {k: os.environ.get(k) for k in ("LANGUAGE", "LC_ALL")}
-    os.environ.update({"LANGUAGE": "de", "LC_ALL": "de_DE.UTF-8"})
-    try:
-        proc = ta.run_assemble(drain, claims_dir, out)
-    finally:
-        for k, v in saved.items():
-            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    wc = ta.working_copy(out)
+    git(wc, "init", "-q")
+    git(wc, "add", "-A")
+    git(wc, "commit", "-q", "--no-verify", "-m", "drain")
+    ta.set_claims(claims_dir, "alpha", [claim("t", "Another heading", "Other.", "h1"), other,
+                                        claim("t", "Rollout notes", "Shared words of a rollout.", "h4")])
+    proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0, proc.stderr
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert not any("memory 't'" in n for n in listed), listed
+    assert ta.read(os.path.join(wc, ".agent-fabric", "memory", "alpha", "solution", "t.md")).count("## Rollout notes") == 1
 
 
 def test_the_history_reader_refuses_on_a_git_failure_and_says_it_on_one_line(tmp: str) -> None:
@@ -511,7 +540,8 @@ def main() -> int:
         test_a_budget_part_a_later_commit_deleted_is_found_by_the_history_of_its_topic,
         test_a_claim_with_merge_target_is_not_judged_by_the_history_pass,
         test_unreadable_history_stops_the_run_with_one_line_and_writes_nothing,
-        test_a_tree_that_is_not_a_repository_runs_under_a_translated_git_locale,
+        test_git_runs_in_the_c_locale_with_no_repository_variables,
+        test_a_sibling_topic_named_like_a_budget_part_is_not_read_as_one,
         test_the_history_reader_refuses_on_a_git_failure_and_says_it_on_one_line,
     ]
     # A case written and not listed passes silently and forever (test_assemble_seams.py's registry guard).
