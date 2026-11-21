@@ -169,7 +169,14 @@ not on a pipe's exit status.
    alike (A 2026-10-19). An `AUTHORIZES` message named beside the owner's
    word is that word as relayed: read and checked as any authorization,
    but for the role, it can only refuse, and the arming comment records
-   who relayed it (A 2026-11-03). `commits.advice_over` is the size a batch is opened at; a PR
+   who relayed it (A 2026-11-03). A settings repository and the
+   operator repository name no arming authority, since a PR there
+   changes the rules every PR is armed under; the engine's repository,
+   which holds some of those rules until ADR-045's split moves them to
+   the operator, keeps its authority meanwhile; and the owner's no-CI word (a PR-mode repository with no CI
+   at all) is the owner's alone, never an authority's: a repository
+   without CI is given direct mode or CI in its policy rather than an
+   authority's word per PR (A 2026-11-21). `commits.advice_over` is the size a batch is opened at; a PR
    over that size is armed on the gate all the same, and the count is advice for the
    next batch.
 5. The gate is `fabric-pr gate`'s verdict for the PR, read
@@ -306,3 +313,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-11-10 | An arming is withdrawn on the record | §5 rule 5: `fabric-pr disarm` takes off `fabric/armed`, the queue entry and auto-merge and posts its basis; who may disarm is who may arm, never on `--any-owner` alone; the gate ignores `fabric/armed` as a check |
 | 2026-11-12 | the record names no organisation's projects, counts or accounts | §5 rules 1, 4, 6, §6 access row, title: the direct projects and the counts are `policies/arming.json`'s; the merging account is the operator's; access is the repository's administrators |
 | 2026-11-14 | under the minimum, bundle first | §2, §5 rule 4: an agent's queued jobs ride its open PR, whatever their topic, until it reaches the minimum; a word below it is for work that cannot wait |
+| 2026-11-21 | the settings repositories and the no-CI word stay the owner's | §5 rule 4: a settings or operator repository names no arming authority; the no-CI word is never an authority's, a repository without CI gets direct mode or CI in its policy |
