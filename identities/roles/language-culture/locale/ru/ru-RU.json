@@ -115,6 +115,7 @@
   "watch.relay-gave-up": "gzcoord watch: релей недоступен по адресу {relay_url} уже 15 минут — наблюдение остановлено; когда релей снова станет доступен, запустите наблюдение заново",
   "watch.relay-back": "gzcoord watch: релей снова доступен; наблюдение возобновлено",
   "carrier.fix": "причину покажет команда fabric-ctl {login} {name}, запустить службу можно командой fabric-ctl {login} {name}-start",
+  "carrier.fix-agent": "перезапуск службы занимает около 30 с: попробуйте снова через несколько минут, а если служба так и не ответит, отправьте роли fabric-coordinator сообщение OBSERVATION",
   "watch.carrier-down": "gzcoord watch: служба {carrier} не отвечает — жду, пока ответит ({fix}; эта строка печатается один раз)",
   "watch.carrier-gave-up": "gzcoord watch: служба {carrier} не отвечает уже {minutes} мин — наблюдение остановлено; когда служба снова ответит, запустите наблюдение заново ({fix})",
   "watch.carrier-back": "gzcoord watch: служба {carrier} снова отвечает; наблюдение возобновлено",

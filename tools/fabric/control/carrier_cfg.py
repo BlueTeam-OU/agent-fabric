@@ -6,7 +6,8 @@ and is the relay used. One place, so a fourth caller cannot read "dual" as the o
   dual         the relay (the record) and the second carrier beside it; either may answer
   <SECOND_ONLY> the second carrier alone (the carrier package's own name, which a generic file does not spell): control neither polls nor posts to the relay's control channel, and an op that
                cannot ride it goes through hostexec: an action (control_link.CARRIER_ACTION_OPS) always, the carrier's own read
-               (the rest of control_link.RELAY_ONLY_OPS) only for an account the carrier did not answer (ADR-064 rule 14)
+               (the rest of control_link.RELAY_ONLY_OPS) only for an account the send never reached or the carrier did not answer
+               in time (ADR-064 rule 14)
 """
 from __future__ import annotations
 

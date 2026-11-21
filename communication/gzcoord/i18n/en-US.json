@@ -115,6 +115,7 @@
   "watch.relay-gave-up": "gzcoord watch: relay unreachable at {relay_url} for 15 minutes — the watch ended; run it again when the relay is back",
   "watch.relay-back": "gzcoord watch: relay is back; watching again",
   "carrier.fix": "fabric-ctl {login} {name} says why, and fabric-ctl {login} {name}-start starts it",
+  "carrier.fix-agent": "try again in a few minutes, a restart takes about 30 s, and if it is still silent send an OBSERVATION to fabric-coordinator",
   "watch.carrier-down": "gzcoord watch: the {carrier} carrier is not answering — waiting for it ({fix}; this line prints once)",
   "watch.carrier-gave-up": "gzcoord watch: the {carrier} carrier did not answer for {minutes} minutes — the watch ended; run it again when the carrier is back ({fix})",
   "watch.carrier-back": "gzcoord watch: the {carrier} carrier answers again; watching again",

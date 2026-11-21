@@ -30,11 +30,11 @@ is looked at first.
 """
 from __future__ import annotations
 
-import json
 from typing import Any, Iterable
 
 from . import paths
 from . import jsvalues as js
+from control import js as js_parse
 from .gzmsg import js_trim
 
 
@@ -47,11 +47,18 @@ def registry_path() -> str:
     return paths.roots.hosts_registry(engine=paths.fabric_root(), empty_is_set=True)
 
 
+def _read(path: str) -> Any:
+    """The registry as the daemon reads it, by the daemon's own parser (control/js.py): NaN, Infinity, a number past 2**53
+    rounded as JavaScript does, and a nesting too deep to read refused as ValueError. A registry the daemon takes for
+    unreadable, or names another login in, must not be read here as naming an operator or a placed account."""
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return js_parse.json_parse(fh.read())
+
+
 def placed_addresses(path: str | None = None) -> set[str]:
     path = registry_path() if path is None else path
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            doc = json.load(fh)
+        doc = _read(path)
     except (OSError, ValueError) as e:
         raise Unreadable(f"the hosts registry could not be read ({e.__class__.__name__})") from None
     placement = doc.get("placement") if isinstance(doc, dict) else None
@@ -63,6 +70,27 @@ def placed_addresses(path: str | None = None) -> set[str]:
         operator = entry.get("operator") if isinstance(entry, dict) else None
         out.add(f"{host}/{js.string(operator) if operator is not None else 'user'}")
     return out
+
+
+def is_operator(address: str, path: str | None = None) -> bool:
+    """Whether an address is a host's operator, the only login fabric-ctl's carrier ops answer (ctl.py). A registry that
+    cannot be read is False, not Unreadable: the caller then tells the reader what any login can do, and nothing it cannot."""
+    try:
+        doc = _read(registry_path() if path is None else path)
+    except (OSError, ValueError):
+        return False
+    hosts = doc.get("hosts") if isinstance(doc, dict) else None
+    if not isinstance(hosts, dict):
+        return False
+    named = []      # the scan finishes before it answers: a null entry LATER in the table voids every operator
+    for host, entry in hosts.items():
+        if entry is None:
+            # agentd.operator_list: a null host entry throws in the daemon's own read, so it answers no operator at all,
+            # and fabric-ctl then refuses every login. The same registry must not promise a command that is refused.
+            return False
+        operator = entry.get("operator") if isinstance(entry, dict) else None
+        named.append(f"{host}/{js.string(operator) if operator is not None else 'user'}")
+    return address in named
 
 
 def judge(to: str, placed: Iterable[str], roles: Iterable[str]) -> dict[str, Any] | None:

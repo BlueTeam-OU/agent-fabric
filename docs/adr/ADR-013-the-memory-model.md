@@ -101,8 +101,12 @@ a secret of any shape is never knowledge. The assembler
 the credential shapes in `layout.py` or a project's own
 `.agent-fabric/hygiene.json` becomes the entry's `refer_as` or
 `[redacted]`, in title, description, body and file name, and is named in
-the report. A language or script name is not a place name, and a path
-is not matched.
+the report. A project's entry may be scoped: `"scope": "others"` is a
+name the project may say in its own slices and nobody else may;
+`"scope": "own"` is a name withheld in the project's own slices only,
+which every other project's corpus may say. Neither scope lifts an entry
+from the fabric's domain slices, read in every project. A language or
+script name is not a place name, and a path is not matched.
 
 ## 3. Alternatives Considered
 
@@ -194,7 +198,10 @@ arrive, and each can be traced to who learnt it, where and when.
     `[redacted]` in title, description, body and topic, and is named in
     the report; a claim whose body still reads as non-English is rejected
     and named. Lint refuses a committed slice or payload file that still
-    carries a hit.
+    carries a hit. A project slice is held to its project's view: an
+    entry of another project's list scoped `"others"` holds there, one
+    scoped `"own"` does not; a domain slice is held to every entry. A
+    scope in `policies/hygiene.json` is refused.
 11. The drain report merges every run of one stamp (one per bundle):
     each bundle's harvest under `harvest_sources`, telemetry per
     agent@host, `files` as the tree holds them after the last run.
@@ -297,3 +304,4 @@ The body above reads current; each change's full note is in [history/ADR-013-ame
 | 2026-09-28 | A correction replaces a section only at its source or with merge_target | §5 rule 12: the two ways, per ADR-014 rule 7 |
 | 2026-09-28 | A memory is judged when it is written | §5 rule 14: the write-time check, at user scope |
 | 2026-10-10 | Truth is judged where it lives: anchors, flags, horizons | §5 rules 11, 12, 14 and 15: the drain report lists flags, marks, applied corrections, retitles and horizons; a shared correction names `shared_with` and its author retires what it replaces; the write-time check asks for anchors and warns on events; rule 15 added, truth judged by the role's holder; each unbuilt behaviour is marked decided, not yet built (agent-fabric ADR-050) |
+| 2026-11-21 | A hygiene entry may hold in its own project only | §2 Hygiene and §5 rule 10: `"scope": "own"` beside `"others"`; a domain slice is held to every entry (owner, 2026-11-19) |

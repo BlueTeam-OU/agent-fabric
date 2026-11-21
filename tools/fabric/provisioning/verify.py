@@ -88,12 +88,14 @@ def verify(root: str, login: str, home: str, sudo: str, projects: list[str], *, 
     the account."""
     a = Account(login, home, sudo)
     first = projects[0] if projects else ""
-    where = f"~/projects{'/' + first if first else ''}"
+    # A project id is data, and these lines are shell text for `bash -c`: quoted, with the tilde outside the quotes so it
+    # still expands.
+    where = f"~/projects{'/' + shlex.quote(first) if first else ''}"
     # One login shell for all of them (run_many), asked before any line's answer is shown; the answers are shown in the
     # order the lines were once run in.
     lines = ["~/projects/agent-fabric/bin/fabric-secrets status 2>&1 | grep -E 'missing|OK|NOT OK'",
              "gh auth status 2>&1 | grep -o 'Logged in.*' | head -1",
-             *(f"timeout 20 git -C ~/projects/'{pid}' ls-remote --heads origin >/dev/null 2>&1 "
+             *(f"timeout 20 git -C ~/projects/{shlex.quote(pid)} ls-remote --heads origin >/dev/null 2>&1 "
                "&& echo 'ssh to origin: ok' || echo 'ssh to origin: FAILED'" for pid in projects),
              "printf 'git: %s <%s> signingkey=%s gpgsign=%s\\n' \"$(git config --global user.name)\" "
              "\"$(git config --global user.email)\" \"$(git config --global user.signingkey | cut -c1-12)\" "
@@ -297,4 +299,4 @@ def closing(login: str, signing: str, creds: str, first: str, *, account: str = 
             f"   {gpg}\n"
             f"   {claude}\n"
             "   - first launch (bootstrap has trusted its folders in Claude Code; no trust question):\n"
-            f"       moveto {login}{' ' + first if first else ''}   then   runtime/openrouter/launch\n")
+            f"       moveto {login}{' ' + shlex.quote(first) if first else ''}   then   runtime/openrouter/launch\n")

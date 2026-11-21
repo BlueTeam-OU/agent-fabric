@@ -367,9 +367,12 @@ its record disagree, the record wins. Look it up, never read it whole:
   user-scope hook (rule 14).
 - A 2026-10-10 — the role's holder judges truth: ADR-050 (rules 11, 12, 14,
   15), built (rule 11's report half too, #252).
+- A 2026-11-21 — hygiene `"scope": "own"` holds an entry in its own
+  project's slices only; other projects may say the name; domain slices
+  keep every entry (§2, rule 10).
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
-  watermark, bundle, hygiene, redacted, tier.
+  watermark, bundle, hygiene, redacted, tier, hygiene scope, scope own.
 
 ### ADR-014 — The memory assembler's rules: contested claims, same-agent retitle, corrections (Accepted)
 
@@ -496,6 +499,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-10 — `fabric-pr disarm`: withdrawn with a basis; another's PR on a word (rule 5).
 - A 2026-11-12 — organisation's names and counts out: direct projects, counts, account, access are policy data (rules 1, 4, 6, §6).
 - A 2026-11-14 — under the minimum, bundle queued jobs of any topic first; a word only for what cannot wait (rule 4).
+- A 2026-11-21 — settings and operator repositories name no arming authority; the no-CI word stays the owner's, never an authority's (rule 4).
 - Keywords: Answers, armed_status, disarm.
 
 ### ADR-020 — The review class is the review (Accepted)
