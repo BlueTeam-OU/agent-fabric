@@ -317,7 +317,8 @@ def carry_obsolete(earlier: Any, run: Run) -> list[dict[str, str]]:
     A report holds only its last drain, and the harvest reads a memory again only when the author wrote it since the
     store's watermark, so a memory nobody touches is never named by a later drain. Dropping its row then would end the
     notice while the file still sits in the author's home (and a full harvest brings its text back as a collision). A carried
-    row ends when this run read that memory (agent, host, name) under another content hash: the author has updated it. Read
+    row ends when this run read that memory (agent, host, name) under another content hash (the author has updated it) or
+    under another merge_target (the author restored its text; the hash covers name and body only). Read
     again unchanged it stays, flagged again or not (the ledger that replaced its text may have been pruned since). The drain cannot see a
     deleted file, so such a row stays until fabric-status finds no file to match; it is a few lines, not a leak.
     Rows that are not the record's shape (an older report has none; a hand edit) are dropped, never guessed at."""
