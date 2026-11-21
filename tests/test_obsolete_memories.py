@@ -121,6 +121,17 @@ def test_a_held_slice_keeps_no_obsolete_record(tmp: str) -> None:
     assert json.loads(ta.read(ta.report_path(out)))["obsolete_memories"] == []
 
 
+def test_a_hold_under_a_later_stamp_keeps_the_carried_row(tmp: str) -> None:
+    drain, claims_dir, out, first = replayed(tmp)
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/solution:t"], fh)
+    ta.set_claims(claims_dir, "alpha", [dict(OTHER, topic="t", title="A newer claim to the slice")])   # a hold names a slice the drain has
+    proc = ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02", "--hold", hold)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(ta.read(ta.report_path(out)))["obsolete_memories"] == first["obsolete_memories"]
+
+
 def test_a_row_is_renewed_when_the_memory_is_read_again_unchanged(tmp: str) -> None:
     drain, claims_dir, out, first = replayed(tmp)
     later = pass_of(drain, claims_dir, out, [ORIGINAL], stamp="2026-01-02")

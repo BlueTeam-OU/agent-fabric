@@ -908,6 +908,8 @@ def render(report, base):
         p(f"memory       {undrained['drainable']} drainable (roles_class set) and {undrained['no_roles_class']} private "
           f"(none) written since {undrained['since']}"
           f"{oldest_note(undrained)} — {undrained['dir']}")
+    if report.get("obsolete_memories") is None and report.get("working_copy") and report.get("project"):
+        p("obsolete     unknown (a drain report could not be read)")
     for row in report.get("obsolete_memories") or []:
         p(f"obsolete     {row['file']}: the text of {row['slice']}#{row['heading']}, which a correction replaced and the drain "
           f"did not write — {row['action']}")

@@ -310,8 +310,8 @@ def carry_obsolete(earlier: Any, run: Run) -> list[dict[str, str]]:
     A report holds only its last drain, and the harvest reads a memory again only when the author wrote it since the
     store's watermark, so a memory nobody touches is never named by a later drain. Dropping its row then would end the
     notice while the file still sits in the author's home (and a full harvest brings its text back as a collision). A carried
-    row ends when this run read that memory (agent, host, name) at all: read again and still obsolete it is in this run's rows
-    below; read and not flagged, or read under another content hash, the author has updated it. The drain cannot see a
+    row ends when this run read that memory (agent, host, name) under another content hash: the author has updated it. Read
+    again unchanged it stays, flagged again or not (the ledger that replaced its text may have been pruned since). The drain cannot see a
     deleted file, so such a row stays until fabric-status finds no file to match; it is a few lines, not a leak.
     Rows that are not the record's shape (an older report has none; a hand edit) are dropped, never guessed at."""
     kept: dict[tuple[str, str, str], dict[str, str]] = {}
@@ -462,6 +462,10 @@ def report(run: Run) -> int:
     report["memory_helpful"] = helpful_counts(report.get("memory_marks") or {})
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
+        # Not in REPORT_LISTS: drop_held ends what an earlier run of this stamp said of a held slice, but this list is the one
+        # that carries rows across stamps, and a row of an earlier drain is still true while its memory is unchanged.
+        if previous.get("stamp") == run.args.stamp:
+            report["obsolete_memories"] = [r for r in report["obsolete_memories"] if r["slice"] not in run.held_back]
     # After drop_held: a held slice's claim is not this drain's to report.
     report["oversized_by_origin"] = oversized_by_origin(report.get("oversized_claim_details") or [])
     # A correction stays listed only while its slice still holds the text it applied: a later correction, a revert or a hand

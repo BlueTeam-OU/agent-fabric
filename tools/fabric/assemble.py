@@ -97,7 +97,7 @@ before. A history git cannot read refuses the run before the slices are written,
 
 Each `superseded_harvests` row names the memory with its owner, `'name' (agent@host)`, and the report records the same
 claims in `obsolete_memories`: {memory, agent, host, content_hash, slice, heading}, one per owner and memory text. The next drain carries
-a row until it reads that memory again (an updated memory has another content_hash), so fabric-status can show an agent its
+a row until it reads that memory under another content_hash (an updated memory), so fabric-status can show an agent its
 own obsolete memories after the drain that named them. The drain never edits or deletes a file in an agent's home.
 <<< help
 """
