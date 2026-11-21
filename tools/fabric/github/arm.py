@@ -615,8 +615,9 @@ def lift_hint(authority: str | None, key: str, repo: str, num: str, head: str, s
               *, another_holder: bool = False) -> str:
     """Whom to ask for the word a count gate wants: the policy's authority role with the holders running now, the
     line to ask for and the basis a holder arms on; the owner only where the policy names no authority, or one that is
-    not a role. another_holder: the session asking holds the role and was refused as the PR's author, so the arming
-    route is offered to another holder only — offered to this session, it would be the refusal again."""
+    not a role. another_holder: the session asking is the PR's author, refused under authority_own_prs false before
+    its role is read, so the arming route is offered to another holder only — offered to this session, it would be
+    the refusal again."""
     if not authority:
         return OWNER_WORD
     if not authority_known(authority):

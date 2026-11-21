@@ -126,8 +126,8 @@ def doc_path_findings(root: str | None = None) -> list[str]:
 
 
 def harness_source_findings(root: str | None = None) -> list[str]:
-    """The capture's shape: frontmatter with its class, the build it was
-    captured from, the date, and the live check it came from (which must
+    """The capture's shape: frontmatter with its class, the build and model
+    it was captured on, the date, and the live check it came from (which must
     exist — the capture is a claim about a build, and the live check is
     its evidence); the memory-directory placeholder exactly once; hygiene."""
     root = root or layout.FABRIC_ROOT   # at call time: --fabric may have moved it
