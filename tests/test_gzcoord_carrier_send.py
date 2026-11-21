@@ -242,8 +242,8 @@ def journal_off_cases() -> None:
 
 
 def mirror_log_cases() -> None:
-    """ADR-064 rule 11, the sender's durable line: a mirror send the carrier did not accept leaves {mid, t, outcome, reason} in
-    gzcoord-mirror.jsonl beside gzcoord-sent.jsonl, one outcome each; an accepted send leaves none (the positive control).
+    """ADR-064 rule 11, the sender's durable line: a send the carrier did not accept, as mirror or as primary,
+    leaves {mid, t, outcome, reason, as} in gzcoord-mirror.jsonl beside gzcoord-sent.jsonl, one outcome each; an accepted send leaves none (the positive control).
     The parity report reads it (test_gzcoord_carrier_parity.py); the mutation that drops the write fails each case here."""
     def logged(run: str, relay_status: int = 200, seed: bytes = b"", mode_name: str = "", **env: str) -> tuple:
         relay = P.Relay(status=relay_status)
@@ -323,6 +323,14 @@ def mirror_log_cases() -> None:
         f = Fake({"ok": False, "error": "disk", "carried": 3, "queued": 0})
         r, lines = logged(f.run, mode_name=m)
         one(f"primary {m}, the carrier recorded nothing (failed)", r, lines, "failed", "disk", "primary", 3)
+        f.close()
+        f = Fake({"ok": False, "error": "disk", "carried": 3, "queued": 1})
+        r, lines = logged(f.run, mode_name=m)
+        one(f"primary {m}, the carrier answered and recorded some recipients (failed, never no-answer)", r, lines, "failed", "disk, 1 recipient(s) recorded", "primary", 3)
+        f.close()
+        f = Fake({"ok": True, "carried": 3, "queued": 1, "posted": 0})
+        r, lines = logged(f.run, mode_name=m)
+        one(f"primary {m}, not every recipient recorded (failed)", r, lines, "failed", "not every recipient", "primary", 3)
         f.close()
         f = Fake({"ok": True, "carried": 0, "queued": 0, "posted": 0})
         r, lines = logged(f.run, mode_name=m)

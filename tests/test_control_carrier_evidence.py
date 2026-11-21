@@ -705,6 +705,12 @@ class Parity(unittest.TestCase):
         rc, _, err = self.report(out_dir)
         self.assertEqual(rc, 2)
         self.assertIn("alpha: a mirror log row is not", err)
+        for bad in ("bystander", None):       # a role the writer does not write: refused, with the field named
+            with open(os.path.join(out_dir, "alpha", "mirror.jsonl"), "w") as fh:
+                fh.write(json.dumps({**mrow(30), "as": bad}) + "\n")
+            rc, _, err = self.report(out_dir)
+            self.assertEqual(rc, 2, bad)
+            self.assertIn("as: primary|mirror", err)
 
     def test_an_incomplete_account_refuses_the_whole_report(self):
         for make in (self.filed, self.jsonl):

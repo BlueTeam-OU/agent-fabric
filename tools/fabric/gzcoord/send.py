@@ -725,8 +725,12 @@ def main(argv: list[str]) -> int:
                     sys.stderr.write(done["stderr"])
         if tp.primary.name == CARRIER_NAME:
             # Before the mirrors are asked: a mirror's trouble must not come between the failure and its line. The outcomes are the
-            # mirror's: absent, failed (provably recorded nothing), no-answer (it may have recorded: the "outcome unknown" exit).
-            refused_log(mid, "absent" if getattr(e, "absent", False) else "failed" if never else "no-answer", str(e), "primary")
+            # mirror's, with their meaning: absent, failed (the carrier answered and refused, or recorded only some), no-answer
+            # (silent). A primary is never "not-carried" (that is a refusal, "failed"). An error that is no carrier's answer is
+            # no-answer unless it provably recorded nothing.
+            state = getattr(e, "state", "")
+            refused_log(mid, "absent" if getattr(e, "absent", False) else "failed" if state in ("failed", "not-carried") or (never and not state)
+                        else "no-answer", str(e), "primary")
         carried = bool(via_mirrors())
         if tp.primary.name == CARRIER_NAME:
             return carrier_not_accepted(e, never, carried, me["address"], file, mid, t)

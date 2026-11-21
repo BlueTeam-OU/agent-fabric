@@ -309,7 +309,7 @@ def _mirror(login: str, meta: dict, rows: list | None) -> list[dict] | None:
         if not (isinstance(r, dict) and set(r) in (set(MIRROR_ROW_KEYS), {*MIRROR_ROW_KEYS, "as"})
                 and all(isinstance(v, str) for v in r.values()) and r["mid"] and r["outcome"] in MIRROR_OUTCOMES
                 and r.get("as", "mirror") in MIRROR_ROLES):
-            raise CollectedError(f"{login}: a mirror log row is not {{{', '.join(MIRROR_ROW_KEYS)}}}")
+            raise CollectedError(f"{login}: a mirror log row is not {{{', '.join(MIRROR_ROW_KEYS)}[, as: {'|'.join(MIRROR_ROLES)}]}}")
         try:
             parse_t(r["t"])
         except ValueError as e:
