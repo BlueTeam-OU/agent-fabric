@@ -19,24 +19,26 @@ Usage:
               filed under whatever project the working directory happens to be.
   --dry-run   says what it would add and adds nothing.
 
-One read: the workflow's runs with event=schedule and status=completed on
-the branch, newest first, through gh.api, so the gh ledger counts it.
+Reads, all through gh.api so the gh ledger counts them: the workflow's runs with event=schedule and
+status=completed on the branch, newest first; for a red or cancelled newest run, its jobs; and for each
+cancelled job, its check-run annotations.
 
   success, skipped              one line, exit 0, nothing added
   cancelled                     read the run's jobs: a job that hit timeout-minutes is cancelled, not
                                 failed, so a cancelled job carrying GitHub's "exceeded the maximum
                                 execution time" annotation makes the run red; otherwise green as before
   failure, timed_out            exit 0 with one line: the job added, or the
-                                open job whose title carries every marker of the failed jobs
+                                open job whose title carries every marker of the failed jobs (or the
+                                workflow-wide marker of an earlier version)
                                 (any state but done or dropped) and nothing added
+  any other conclusion          of the NEWEST run: unreadable (exit 3), never green; an older
+                                run this cannot read only ends the red-since count
 
 A red run's failed jobs come from the run's jobs API; each gets a marker
 [scheduled-red:<org/repo>/<file.yml>#<job>], and the filed job's title names them and ends in them.
 An open job for one failed job never hides another's: only the failed jobs with no open marked job
 are filed. A red run whose jobs name none failed is filed under the workflow-wide marker
 [scheduled-red:<org/repo>/<file.yml>], saying so.
-  any other conclusion          of the NEWEST run: unreadable (exit 3), never green; an older
-                                run this cannot read only ends the red-since count
 
 Exit codes:
   0  read; the line says whether a job was added
@@ -233,6 +235,9 @@ def file_job(repository: str, workflow: str, project: str, run: Run, since: str,
         if not failed:
             listed = open_marked(doc, marker(repository, workflow), jobs.OPEN)
             return ([] if listed else failed), listed
+        legacy = open_marked(doc, marker(repository, workflow), jobs.OPEN)
+        if legacy:  # filed before markers named a job: it covers whichever job failed, as it always did
+            return [], legacy
         missing = [j for j in failed if not open_marked(doc, marker(repository, workflow, j), jobs.OPEN)]
         return missing, (None if missing else open_marked(doc, marker(repository, workflow, failed[0]), jobs.OPEN))
 
@@ -290,12 +295,14 @@ def main(argv: list[str] | None = None) -> int:
         if newest.conclusion in RED or newest.conclusion == "cancelled":
             failed, timed_out = read_failed_jobs(args.repository, newest)
         if newest.conclusion == "cancelled":
-            failed = timed_out  # a plain cancel is not a red: only a timed-out job makes it one
-            if failed:  # red_since counts the streak from the newest run, so it must read as red
-                runs[0] = dataclasses.replace(newest, conclusion="timed_out")
-        if newest.conclusion in GREEN and not failed:
+            if not timed_out:  # a plain cancel is not a red: only a timed-out job makes it one
+                print(f"ok: {args.workflow} run {newest.id} of {newest.date} concluded cancelled; nothing added")
+                return 0
+            runs[0] = dataclasses.replace(newest, conclusion="timed_out")  # red_since counts the streak from it
+        elif newest.conclusion in GREEN:
             print(f"ok: {args.workflow} run {newest.id} of {newest.date} concluded {newest.conclusion}; nothing added")
             return 0
+        failed = failed + [j for j in timed_out if j not in failed]
         print(file_job(args.repository, args.workflow, project, newest, red_since(runs), args.dry_run, failed, frozenset(timed_out)))
         return 0
     except Unreadable as e:

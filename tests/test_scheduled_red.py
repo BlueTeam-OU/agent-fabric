@@ -233,6 +233,47 @@ def main() -> int:
         feed(RED)
         feed_jobs(jobs_doc(job("stripped", "failure")))
 
+        print("mixed jobs: a timed-out job is filed with the failed ones, whatever the run concluded")
+        for j in jobs():
+            set_state(j["id"], "done")
+        n = len(jobs())
+        feed(RED)
+        feed_jobs(jobs_doc(job("unit", "failure"), job("integration", "cancelled", 12)), [note])
+        p = tool()
+        t_ = jobs()[-1]["title"] if len(jobs()) > n else ""
+        check("a failure run with a failed and a timed-out job: both named, both marked",
+              p.returncode == 0 and len(jobs()) == n + 1 and "integration (timed out)" in t_ and "#integration]" in t_ and "#unit]" in t_, (p, t_))
+        for j in jobs():
+            set_state(j["id"], "done")
+        n = len(jobs())
+        feed(cancelled_run)
+        feed_jobs(jobs_doc(job("unit", "failure"), job("integration", "cancelled", 12)), [note])
+        p = tool()
+        t_ = jobs()[-1]["title"] if len(jobs()) > n else ""
+        check("a cancelled run with a failed and a timed-out job: the failed one is not dropped",
+              p.returncode == 0 and len(jobs()) == n + 1 and "#integration]" in t_ and "#unit]" in t_, (p, t_))
+        feed(RED)
+        feed_jobs(jobs_doc(job("unit", "success"), job("integration", "cancelled", 12)), [note])
+        for j in jobs():
+            set_state(j["id"], "done")
+        n = len(jobs())
+        tool()
+        check("a failure run whose only red job timed out: named, not the workflow-wide marker",
+              len(jobs()) == n + 1 and "#integration]" in jobs()[-1]["title"] and "no failed job named" not in jobs()[-1]["title"], jobs()[-1:])
+
+        print("an open job filed before markers named a job")
+        for j in jobs():
+            set_state(j["id"], "done")
+        legacy = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "jobs.py"), "add", f"old red {MARK.replace('#stripped', '')}"],
+                                env=env, cwd=tmp, capture_output=True, text=True, timeout=60)
+        n = len(jobs())
+        feed_jobs(jobs_doc(job("stripped", "failure")))
+        p = tool()
+        check("it covers a red job as it always did: nothing added", legacy.returncode == 0 and p.returncode == 0 and len(jobs()) == n and "not added" in p.stdout, (legacy, p, jobs()[-1:]))
+        for j in jobs():
+            set_state(j["id"], "done")
+        feed(RED)
+
         print("the project defaults to the repository's registry id")
         set_state("j2", "done")
         set_state("j3", "done")
