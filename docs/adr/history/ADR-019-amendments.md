@@ -261,3 +261,26 @@ the fleet's 8 in its settings repository (`repos/agent-fabric.json`,
 `commits.min`), with `commits.below_min_authority` fabric-coordinator.
 Applied to PRs opened after the settings change; those open before it keep
 the word they were given. j885.
+
+### Amendment 2026-11-21 — the settings repositories and the no-CI word stay the owner's
+
+What changed: §5 rule 4 says two limits of the arming authority. A
+settings repository (an organisation's `agent-fabric-settings`) names
+no `commits.below_min_authority` or `commits.boundary_authority`, so a
+PR there below its minimum or on its boundary arms only on the owner's
+word. And the owner's no-CI word, which `fabric-pr arm` reads only on a
+PR-mode repository with no CI at all, is never given by an authority:
+a repository without CI is given direct mode (where a head with no
+check merges on its review alone) or CI in its policy.
+
+Why: the owner's rule of 2026-11-09, that no agent waits on the owner
+to arm, found repositories with no authority to ask (j722, from
+devex-tooling's REPLY 01a1c220 on gzapp.decks). The owner, 2026-11-21,
+answering j722's sweep of every `repos/<repo>.json`: the brand, deck
+and transit repositories take architect-cto as both authorities with
+`authority_own_prs` false, radicle-spike fabric-coordinator; the
+settings repositories stay the owner's, since a settings PR loosens the
+fence the agents are armed under; the no-CI word is not delegated,
+since only an empty repository would read it today. Which repository
+names which role is its settings file's, not this
+record's (A 2026-11-12); `policies/auto-mode.json` lists them for the classifier.
