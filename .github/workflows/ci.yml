@@ -128,9 +128,14 @@ jobs:
         run: python3 -m pip install --quiet --disable-pip-version-check jsonschema
       # A host tool the fabric requires (platform/detect.sh FABRIC_HOST_TOOLS):
       # the store's suite makes a real recovery copy with it, and fails
-      # where it is missing rather than skip the case.
+      # where it is missing rather than skip the case. The image's package
+      # index ages and the archive's name sometimes does not resolve (j772,
+      # 2026-11-11): each fetch retries, and a failed install refreshes the
+      # index once before its second try.
       - name: paperkey, for the recovery copy the store's suite makes
-        run: sudo apt-get install -y --no-install-recommends paperkey
+        run: |
+          apt_get() { sudo apt-get -o Acquire::Retries=5 "$@"; }
+          apt_get install -y --no-install-recommends paperkey || { apt_get update && apt_get install -y --no-install-recommends paperkey; }
       - name: no machine attribution in commits or the PR description
         run: python3 tools/fabric/guards/ban_generated_by_attribution.py
       # agent-fabric ADR-057 §5 rule 5: a commit's timestamp proof is a note,
