@@ -61,7 +61,9 @@ replaced by a correction and not written; "update or delete" each, and it leaves
 base_url_host, session_model, launch_profile, pins, credentials,
 claude_sign_in}), capabilities ({class: line}), engines ({"<provider> <class>":
 line}, the engine providers' classes), routing_check ("clean" or
-a list), host_tools ({moveto, python, journal, agentd, claude, inbox, carrier_journal, account_switch, managed}; carrier_journal's status
+a list), agent_file_routing (present only when there is something to say: a
+list of lines, one per class whose pin or effort the guard's snapshot routes
+otherwise than this checkout), host_tools ({moveto, python, journal, agentd, claude, inbox, carrier_journal, account_switch, managed}; carrier_journal's status
 none, ok, journal-refused or unknown, printed only for the last two; agentd's status
 python, refused, drift, none or unknown), control_plane.
 """
@@ -592,6 +594,7 @@ def build_report(root, environ=None, cred_environ=None):
 
     jobs = jobs_summary(identity, ctx["agent"])
 
+    file_routing = agent_file_routing_drift(root, provider)
     report = {
         "agent": ctx["agent"], "host": ctx["host"], "placement": placement,
         "role": binding.role, "project": ctx["project"], "working_copy": ctx["working_copy"],
@@ -614,11 +617,47 @@ def build_report(root, environ=None, cred_environ=None):
         "capabilities": classes,
         "engines": engines,
         "routing_check": "clean" if not checks else checks,
+        **({"agent_file_routing": file_routing} if file_routing else {}),
         "host_tools": {"moveto": moveto, "python": python, "journal": journal, "agentd": agentd, "claude": claude, "inbox": inbox,
                        "carrier_journal": carrier_refusals, "account_switch": switch, "managed": managed},
         "control_plane": root,
     }
     return report, base
+
+
+def agent_file_routing_drift(root, provider, etc=None):
+    """Lines, one per class whose routed pin or effort differs between this
+    checkout and the tree the dispatch guard reads (ADR-043 §5 rule 10): the
+    agent files carry the snapshot's, so the checkout's merge reaches a
+    dispatch only at the operator's reinstall. [] when no managed file is in
+    force or the two agree; a line saying so when either answer cannot be had,
+    never a silent agree."""
+    install = load("fabric_install_agent_files", os.path.join(root, "tools", "fabric", "install_agent_files.py"))
+    tree = install.dispatch_guard_tree(etc)
+    if tree is None or os.path.realpath(tree) == os.path.realpath(root):
+        return []
+    answers = {}
+    for where, name in ((None, "checkout"), (tree, "snapshot")):
+        for sub, parse in (("pins", install.parse_pins), ("efforts", install.parse_efforts)):
+            try:
+                r = install.routing_run(sub, provider, root, where)
+            except OSError:
+                r = None
+            if r is None or r.returncode != 0:
+                return [f"agent files  cannot compare the {name}'s {sub} with the managed snapshot {tree}: "
+                        "routing.py failed there"]
+            answers[(name, sub)] = parse(r.stdout)
+    lines = []
+    for klass in sorted({k for v in answers.values() for k in v}):
+        parts = []
+        for sub, label in (("pins", "pin"), ("efforts", "effort")):
+            here, there = answers[("checkout", sub)].get(klass), answers[("snapshot", sub)].get(klass)
+            if here != there:
+                parts.append(f"{label} {here or '-'} (checkout) vs {there or '-'} (snapshot)")
+        if parts:
+            lines.append(f"agent files  {klass}: {'; '.join(parts)} — written from the snapshot {tree}, "
+                         "so the checkout's routing reaches a dispatch at the operator's reinstall")
+    return lines
 
 
 def pinned_python(root):
@@ -905,6 +944,8 @@ def render(report, base):
         p(f"review engine {k} {v}  (fabric-review --engine codex)")
     checks = report["routing_check"]
     p(f"routing      {checks if isinstance(checks, str) else str(len(checks)) + ' finding(s): ' + '; '.join(checks)}")
+    for line in report.get("agent_file_routing") or []:
+        p(line)
     if undrained:
         p(f"memory       {undrained['drainable']} drainable (roles_class set) and {undrained['no_roles_class']} private "
           f"(none) written since {undrained['since']}"

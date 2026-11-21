@@ -64,6 +64,11 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
                <claude.json> set|remove, <settings.json>
                deny-websearch|allow-websearch; fabric-memory/install.py and
                fabric-review/install.py <claude.json> set
+               The two routing calls run from the tree the dispatch guard
+               reads (dispatch_guard_tree: the installed managed settings'
+               agent-dispatch-guard hook, ADR-043 §5 rule 10) as
+               `-E -s <tree>/tools/fabric/routing.py --fabric <tree> ...`;
+               with no managed file in force, from this checkout.
   relied on    launcher (tools/fabric/launch.py): exit status only, stdout
                discarded; bootstrap.sh: plain and --dry-run, stdout shown;
                bin/fabric-model (tools/fabric/model_profile.py): stdout
@@ -101,11 +106,73 @@ FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import fabric_writes  # noqa: E402
 import launch_locale  # noqa: E402
+import managed_settings  # noqa: E402
 import roots  # noqa: E402
 
 CLASS_FILES = ("code-low.md", "code-medium.md", "code-high.md", "code-plan.md", "code-review.md")
 MARKER = b"agent-fabric"
 MODEL_LINE = re.compile(rb"^model: .*", re.M)
+
+
+def dispatch_guard_tree(etc: str | None = None) -> str | None:
+    """The tree the dispatch guard runs from, read from the installed managed
+    settings (ADR-043 §5 rule 10): the agent-dispatch-guard hook's
+    hook_entry.py path minus that file's place in the tree, resolved (the
+    `current` link is the snapshot the operator last installed). None when
+    the file is absent, unreadable, not an object or names no such hook: no
+    managed file is in force, and the checkout is the only tree there is.
+    `etc` is where the file lives (managed_settings.ETC: /etc/claude-code,
+    overridable for a non-root test, never for root)."""
+    path = os.path.join(managed_settings.ETC if etc is None else etc, "managed-settings.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            settings = json.load(f)
+    except (OSError, ValueError):
+        return None
+    hooks = settings.get("hooks") if isinstance(settings, dict) else None
+    if not isinstance(hooks, dict):
+        return None
+    for groups in hooks.values():
+        for group in groups if isinstance(groups, list) else []:
+            for hook in group.get("hooks", []) if isinstance(group, dict) else []:
+                args = hook.get("args") if isinstance(hook, dict) else None
+                if not isinstance(args, list) or not args or args[-1] != "agent-dispatch-guard":
+                    continue
+                for arg in args:
+                    if isinstance(arg, str) and arg.endswith("/" + managed_settings.ENTRY):
+                        return os.path.realpath(arg[:-len(managed_settings.ENTRY)])
+    return None
+
+
+def routing_run(sub: str, provider: str, root: str, tree: str | None) -> subprocess.CompletedProcess:
+    """`routing.py <sub> --me --provider P`, from the guard's tree where there
+    is one, as dispatch_guard.routing_map runs it (--fabric <tree>, -E -s: no
+    PYTHON* variable or user site reaches the answer the guard compares to),
+    else from the checkout as before."""
+    where = tree or root
+    cmd = [sys.executable, os.path.join(where, "tools", "fabric", "routing.py"), sub, "--me", "--provider", provider]
+    if tree:
+        cmd = [sys.executable, "-E", "-s", cmd[1], "--fabric", tree, *cmd[2:]]
+    return subprocess.run(cmd, stdout=subprocess.PIPE, text=True, env={**os.environ, "AGENT_FABRIC_ROOT": where},
+                          check=False)
+
+
+def parse_pins(text: str) -> dict[str, str]:
+    pins: dict[str, str] = {}
+    for line in text.splitlines():
+        parts = line.split(None, 2)
+        if parts:
+            pins[parts[0]] = parts[2] if len(parts) > 2 else ""
+    return pins
+
+
+def parse_efforts(text: str) -> dict[str, str]:
+    efforts: dict[str, str] = {}
+    for line in text.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) >= 2 and parts[1] != "-":
+            efforts[parts[0]] = parts[1]
+    return efforts
 
 
 def say(line: str) -> None:
@@ -138,8 +205,13 @@ def login() -> str:
 
 
 class Installer:
-    def __init__(self, provider: str, dry_run: bool, root: str = FABRIC_ROOT, locale: str | None = None) -> None:
+    def __init__(self, provider: str, dry_run: bool, root: str = FABRIC_ROOT, locale: str | None = None,
+                 etc: str | None = None) -> None:
         self.provider, self.dry_run, self.root = provider, dry_run, root
+        # Where routing is read from: the tree the dispatch guard holds these
+        # files to, or None (the checkout). Read once, so the pins and the
+        # efforts of one run cannot come from two snapshots.
+        self.tree = dispatch_guard_tree(etc)
         # The holder's locale as the launcher resolved it (holder.json,
         # agent-fabric ADR-060 §5 rule 8), passed as --locale. Bootstrap runs
         # outside a launch and passes none: it reads the locale the last
@@ -200,9 +272,7 @@ class Installer:
             self.changed += 1
 
     def route(self, sub: str) -> str:
-        r = subprocess.run([sys.executable, os.path.join(self.root, "tools", "fabric", "routing.py"), sub, "--me",
-                            "--provider", self.provider], stdout=subprocess.PIPE, text=True,
-                           env={**os.environ, "AGENT_FABRIC_ROOT": self.root}, check=False)
+        r = routing_run(sub, self.provider, self.root, self.tree)
         # Captured whole and its status checked, NOT streamed through a
         # reader: a routing.py that raised once left the map empty, every
         # class lost its pin or its level, and the script still printed
@@ -218,11 +288,7 @@ class Installer:
         return r.stdout
 
     def run(self) -> int:
-        pins: dict[str, str] = {}
-        for line in self.route("pins").splitlines():
-            parts = line.split(None, 2)
-            if parts:
-                pins[parts[0]] = parts[2] if len(parts) > 2 else ""
+        pins = parse_pins(self.route("pins"))
         # ONE LAUNCH OF AN ACCOUNT AT A TIME, now for every class. Before effort,
         # only code-review.md differed between providers, and agent-dispatch-guard.sh
         # catches that one by comparing its `model:` with the launch's resolution.
@@ -243,11 +309,7 @@ class Installer:
         # its frontmatter here, exactly as the review class's model is.
         # A class whose model expresses no effort gets NO line — absent is not the
         # same as a default, and writing one would claim a decision nobody made.
-        efforts: dict[str, str] = {}
-        for line in self.route("efforts").splitlines():
-            parts = line.split(None, 2)
-            if len(parts) >= 2 and parts[1] != "-":
-                efforts[parts[0]] = parts[1]
+        efforts = parse_efforts(self.route("efforts"))
         claude_home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home(), ".claude")
         for f in CLASS_FILES:
             klass = f[:-3]
