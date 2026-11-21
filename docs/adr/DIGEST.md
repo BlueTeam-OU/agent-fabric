@@ -532,6 +532,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-02 — under a launch no model passes (rule 2).
 - A 2026-11-03 — Dependabot PRs: push account posts (rule 7).
 - A 2026-11-05 — record PR arms unreviewed (rule 1).
+- A 2026-11-21 — a finding on a supplied hunk is the caller's to fix, never sent back (rule 11).
 - Keywords: blind review, fabric-review, pr-review-status, coverage,
   review card, run_in_background.
 
