@@ -140,6 +140,13 @@ def is_budget_part(run: Run, role: str | None, klass: str, path: str, topic: str
     return role is None or f"{klass}:{own}" not in crossref_slice_ids(run, role)
 
 
+def topic_stem(run: Run, role: str | None, klass: str, topic: str) -> str:
+    """The topic's file without its extension, whether or not it exists: the budget parts are `<stem>-<n>.md`."""
+    if role is None:
+        return os.path.join(layout.shared_home(klass, run.project), f"{klass}-{topic}")
+    return os.path.join(layout.class_home(klass, role, run.project), CLASS_FILES[klass], topic)
+
+
 def slice_candidates(run: Run, role: str | None, klass: str, topic: str) -> list[str]:
     """Every file the topic's sections may sit in — the pre-pass reads
     exactly what the write phase will write into. The topic file and
@@ -151,16 +158,12 @@ def slice_candidates(run: Run, role: str | None, klass: str, topic: str) -> list
     coinciding heading was refused as a collision the write phase
     never has; excluded whenever the crossref named two topics, a
     real collision inside a two-topic flat file went unstopped."""
-    if role is None:
-        base = layout.shared_home(klass, run.project)
-        stem = os.path.join(base, f"{klass}-{topic}")
-        flat: list[str] = []
-    else:
-        base = layout.class_home(klass, role, run.project)
-        stem = os.path.join(base, CLASS_FILES[klass], topic)
-        flat_file = os.path.join(base, f"{CLASS_FILES[klass]}.md")
+    stem = topic_stem(run, role, klass, topic)
+    flat: list[str] = []
+    if role is not None:
         plan = run.class_plan.get((role, klass)) or {}
-        flat = [flat_file] if plan.get("flat_topic") == topic else []
+        if plan.get("flat_topic") == topic:
+            flat = [os.path.join(layout.class_home(klass, role, run.project), f"{CLASS_FILES[klass]}.md")]
     parts = [f"{stem}.md"] + sorted(p for p in glob.glob(f"{stem}-*.md") if is_budget_part(run, role, klass, p, topic))
     return [p for p in flat + parts if os.path.exists(p)]
 

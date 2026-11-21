@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 
@@ -286,6 +287,236 @@ def test_a_correction_that_fell_in_another_budget_part_than_its_memory_is_not_wr
     assert_converged(first, second)
 
 
+GIT_ENV = {"PATH": os.environ["PATH"], "HOME": "/nonexistent", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+
+
+def git(wc: str, *argv: str) -> None:
+    subprocess.run(["git", "-C", wc, *argv], env=GIT_ENV, check=True, capture_output=True, timeout=60)
+
+
+def slice_files(wc: str) -> list[str]:
+    return sorted(os.path.join(d, f) for d, _s, fs in os.walk(os.path.join(wc, ".agent-fabric", "memory")) for f in fs
+                  if "/solution" in os.path.join(d, f) and f.endswith(".md") and "INDEX" not in f)
+
+
+def curated_tree(tmp: str, curate) -> tuple[str, str, str, str, str]:
+    """A drain that wrote the claim, committed in the project's repository, then `curate(path)` edited its slice by hand and
+    committed it. (drain, claims_dir, out, slice path, the text the slice holds after the curation)"""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    ta.with_agents(drain, AGENTS)
+    ta.set_claims(claims_dir, "alpha", [ORIGINAL])
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    wc = ta.working_copy(out)
+    git(wc, "init", "-q")
+    git(wc, "add", "-A")
+    git(wc, "commit", "-q", "--no-verify", "-m", "drain")
+    (path,) = slice_files(wc)
+    curate(path)
+    git(wc, "add", "-A")
+    git(wc, "commit", "-q", "--no-verify", "-m", "review answer")
+    return drain, claims_dir, out, path, ta.read(path) if os.path.exists(path) else ""
+
+
+def test_an_unchanged_harvest_does_not_undo_a_section_edited_by_a_later_commit(tmp: str) -> None:
+    def edit(path: str) -> None:
+        text = ta.read(path).replace("Original text of the finding.", "Original text, closed by hand.")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    drain, claims_dir, out, path, curated = curated_tree(tmp, edit)
+    assert "closed by hand" in curated
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert ta.read(path) == curated, "the curated slice was rewritten"
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert any("memory 't'" in n and "not written" in n for n in listed), listed
+
+
+def test_a_section_a_later_commit_removed_is_not_written_back_by_an_unchanged_harvest(tmp: str) -> None:
+    def remove(path: str) -> None:
+        os.remove(path)
+    drain, claims_dir, out, path, _curated = curated_tree(tmp, remove)
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert not slice_files(ta.working_copy(out)), "the removed slice came back"
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert any("memory 't'" in n and "section is gone" in n for n in listed), listed
+
+
+def test_a_changed_memory_is_written_over_a_curated_section(tmp: str) -> None:
+    """The control: the claim matches no committed version, so it is the author's newer text."""
+    def edit(path: str) -> None:
+        text = ta.read(path).replace("Original text of the finding.", "Original text, closed by hand.")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    drain, claims_dir, out, path, _curated = curated_tree(tmp, edit)
+    ta.set_claims(claims_dir, "alpha", [claim("t", "Status v1 of the thing", "The author rewrote the finding.", "h4")])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(path)
+    assert "The author rewrote the finding." in text and "closed by hand" not in text, text
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert not any("memory 't'" in n for n in listed), listed
+
+
+def test_an_unchanged_harvest_over_an_uncurated_tree_is_a_no_op_and_unnamed(tmp: str) -> None:
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    ta.with_agents(drain, AGENTS)
+    ta.set_claims(claims_dir, "alpha", [ORIGINAL])
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    wc = ta.working_copy(out)
+    git(wc, "init", "-q")
+    git(wc, "add", "-A")
+    git(wc, "commit", "-q", "--no-verify", "-m", "drain")
+    (path,) = slice_files(wc)
+    before = ta.read(path)
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    assert ta.read(path) == before
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert not listed, listed
+
+
+def sandbox_repo(tmp: str) -> str:
+    repo = os.path.join(tmp, "repo")
+    os.makedirs(repo)
+    git(repo, "init", "-q")
+    return repo
+
+
+def commit_file(repo: str, rel: str, text: str) -> None:
+    path = os.path.join(repo, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "--no-verify", "-m", rel)
+
+
+def test_history_of_a_file_whose_directory_a_later_commit_removed_is_still_read(tmp: str) -> None:
+    """The last slice of a class directory deleted: the directory is gone from the tree, the history is not."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "fabric"))
+    from assembler import shapes
+    repo = sandbox_repo(tmp)
+    commit_file(repo, "solution/a.md", "---\ntopic: a\n---\n\n## T\n\nOriginal text.\n")
+    git(repo, "rm", "-q", "solution/a.md")
+    git(repo, "commit", "-q", "--no-verify", "-m", "gone")
+    assert not os.path.isdir(os.path.join(repo, "solution"))
+    versions = shapes.committed_versions(os.path.join(repo, "solution", "a.md"))
+    assert [sections for _meta, sections in versions] == [{"T": "Original text."}], versions
+    parts = shapes.history_paths(os.path.join(repo, "solution", "a.md"), with_parts=True)
+    assert parts == [os.path.join(repo, "solution", "a.md")], parts
+
+
+def test_a_budget_part_a_later_commit_deleted_is_found_by_the_history_of_its_topic(tmp: str) -> None:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "fabric"))
+    from assembler import shapes
+    repo = sandbox_repo(tmp)
+    commit_file(repo, "solution/a.md", "## T\n\nx\n")
+    commit_file(repo, "solution/a-2.md", "## U\n\ny\n")
+    commit_file(repo, "solution/ab-2.md", "## V\n\nz\n")   # another topic's part: not this one's
+    git(repo, "rm", "-q", "solution/a-2.md")
+    git(repo, "commit", "-q", "--no-verify", "-m", "gone")
+    found = shapes.history_paths(os.path.join(repo, "solution", "a.md"), with_parts=True)
+    assert found == [os.path.join(repo, "solution", "a.md"), os.path.join(repo, "solution", "a-2.md")], found
+
+
+def test_a_claim_with_merge_target_is_not_judged_by_the_history_pass(tmp: str) -> None:
+    def edit(path: str) -> None:
+        text = ta.read(path).replace("Original text of the finding.", "Original text, closed by hand.")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    drain, claims_dir, out, path, _curated = curated_tree(tmp, edit)
+    revert = claim("revert", "Status v1 of the thing", "Original text of the finding.", "h6", "Status v1 of the thing")
+    ta.set_claims(claims_dir, "alpha", [revert])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    text = "".join(ta.read(f) for f in slice_files(ta.working_copy(out)))
+    assert "Original text of the finding." in text and "closed by hand" not in text, text
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert not any("memory 'revert'" in n for n in listed), listed
+
+
+def test_unreadable_history_stops_the_run_with_one_line_and_writes_nothing(tmp: str) -> None:
+    def edit(path: str) -> None:
+        text = ta.read(path).replace("Original text of the finding.", "Original text, closed by hand.")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    drain, claims_dir, out, path, curated = curated_tree(tmp, edit)
+    wc = ta.working_copy(out)
+    ref = subprocess.run(["git", "-C", wc, "symbolic-ref", "HEAD"], env=GIT_ENV, capture_output=True, text=True, check=True).stdout.strip()
+    with open(os.path.join(wc, ".git", ref), "w", encoding="utf-8") as fh:
+        fh.write("0" * 40 + "\n")
+    ta.set_claims(claims_dir, "alpha", [claim("t", "Status v1 of the thing", "A rewrite by the author.", "h4")])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1, (proc.returncode, proc.stderr)
+    lines = [ln for ln in proc.stderr.splitlines() if "HISTORY UNREADABLE" in ln]
+    assert len(lines) == 1 and "\n" not in lines[0] and proc.stderr.count("\n") == 1, proc.stderr
+    assert ta.read(path) == curated, "a slice was written"
+
+
+def test_git_runs_in_the_c_locale_with_no_repository_variables(tmp: str) -> None:
+    """The environment git is given, captured: a translated catalog or an exported GIT_DIR would change what it says or reads.
+    Observed here and not through a German message, because the locale is not generated on every host."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "fabric"))
+    from assembler import shapes
+    seen: list[dict] = []
+    real = subprocess.run
+
+    def spy(argv, **kw):
+        seen.append(kw.get("env"))
+        return real(argv, **kw)
+    saved = dict(os.environ)
+    os.environ.update({"LANGUAGE": "de", "LC_ALL": "de_DE.UTF-8", "GIT_DIR": "/nonexistent", "GIT_WORK_TREE": "/nonexistent"})
+    shapes.subprocess.run = spy
+    try:
+        shapes._git(tmp, "--version")
+    finally:
+        shapes.subprocess.run = real
+        os.environ.clear()
+        os.environ.update(saved)
+    (env,) = seen
+    assert env["LC_ALL"] == "C" and "LANGUAGE" not in env and not [k for k in env if k.startswith("GIT_")], env
+
+
+def test_a_sibling_topic_named_like_a_budget_part_is_not_read_as_one(tmp: str) -> None:
+    """`t-2` is a topic of its own, not part two of `t`: its history is not `t`'s, and a new memory of `t` with its text is written."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "fabric"))
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    ta.with_agents(drain, AGENTS)
+    other = claim("t-2", "Rollout notes", "Shared words of a rollout.", "h2")
+    ta.set_claims(claims_dir, "alpha", [claim("t", "Another heading", "Other.", "h1"), other])
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    wc = ta.working_copy(out)
+    git(wc, "init", "-q")
+    git(wc, "add", "-A")
+    git(wc, "commit", "-q", "--no-verify", "-m", "drain")
+    ta.set_claims(claims_dir, "alpha", [claim("t", "Another heading", "Other.", "h1"), other,
+                                        claim("t", "Rollout notes", "Shared words of a rollout.", "h4")])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    listed = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert not any("memory 't'" in n for n in listed), listed
+    assert ta.read(os.path.join(wc, ".agent-fabric", "memory", "alpha", "solution", "t.md")).count("## Rollout notes") == 1
+
+
+def test_the_history_reader_refuses_on_a_git_failure_and_says_it_on_one_line(tmp: str) -> None:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "fabric"))
+    from assembler import shapes
+    repo = sandbox_repo(tmp)
+    commit_file(repo, "solution/a.md", "## T\n\nx\n")
+    assert shapes.committed_versions(os.path.join(repo, "solution", "a.md")), "the positive control: a readable history"
+    ref = subprocess.run(["git", "-C", repo, "symbolic-ref", "HEAD"], env=GIT_ENV, capture_output=True, text=True, check=True).stdout.strip()
+    with open(os.path.join(repo, ".git", ref), "w", encoding="utf-8") as fh:
+        fh.write("0" * 40 + "\n")
+    try:
+        shapes.committed_versions(os.path.join(repo, "solution", "a.md"))
+    except shapes.HistoryUnreadable:
+        pass
+    else:
+        raise AssertionError("an unreadable history read as an empty one")
+    assert shapes._one_line(b"fatal: a\nhint: b\n  c\n") == "fatal: a hint: b c"
+
+
 def main() -> int:
     cases = [
         test_a_second_pass_over_two_bundles_with_a_chained_correction_and_a_flat_class_file_changes_nothing,
@@ -301,6 +532,17 @@ def main() -> int:
         test_a_replayed_original_whose_links_the_run_points_is_still_a_replay,
         test_an_earlier_drains_correction_is_not_judged_as_this_drains,
         test_a_correction_that_fell_in_another_budget_part_than_its_memory_is_not_written_again_by_a_second_pass,
+        test_an_unchanged_harvest_does_not_undo_a_section_edited_by_a_later_commit,
+        test_a_section_a_later_commit_removed_is_not_written_back_by_an_unchanged_harvest,
+        test_a_changed_memory_is_written_over_a_curated_section,
+        test_an_unchanged_harvest_over_an_uncurated_tree_is_a_no_op_and_unnamed,
+        test_history_of_a_file_whose_directory_a_later_commit_removed_is_still_read,
+        test_a_budget_part_a_later_commit_deleted_is_found_by_the_history_of_its_topic,
+        test_a_claim_with_merge_target_is_not_judged_by_the_history_pass,
+        test_unreadable_history_stops_the_run_with_one_line_and_writes_nothing,
+        test_git_runs_in_the_c_locale_with_no_repository_variables,
+        test_a_sibling_topic_named_like_a_budget_part_is_not_read_as_one,
+        test_the_history_reader_refuses_on_a_git_failure_and_says_it_on_one_line,
     ]
     # A case written and not listed passes silently and forever (test_assemble_seams.py's registry guard).
     declared = {name for name, obj in sorted(globals().items()) if name.startswith("test_") and callable(obj)}
