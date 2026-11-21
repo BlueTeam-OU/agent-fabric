@@ -405,11 +405,14 @@ class Run:
     # again. Not written; each entry names its memory and the correcting memory so the author can update or delete it.
     superseded_harvests: list[str] = field(default_factory=list)
     # The same claims as `superseded_harvests`, as records a reader can match to a file in an agent's home: one per owner and memory text,
-    # {memory, agent, host, content_hash, slice, heading, stamp (the earliest drain that named it)}. The report carries them past the next drain (report.carry_obsolete).
+    # {memory, agent, host, content_hash, slice, heading, stamp (the earliest drain that named it), merge_target (when the claim named one)}. The report carries them past the next drain (report.carry_obsolete).
     obsolete_memories: list[dict[str, str]] = field(default_factory=list)
     # (agent, host, memory name) -> the content hashes of that memory this run read: a memory read again under another hash
     # was updated by its author, which ends its obsolete row.
     seen_memories: dict[tuple[str, str, str], set[str]] = field(default_factory=lambda: defaultdict(set))
+    # content hash -> the merge_targets ("" for none) of the claims this run read it under. The hash covers name and body only, so an author
+    # who adds or changes a merge_target (a revert of the replacing section) leaves the hash alone: the target is what tells that apart.
+    seen_targets: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
     # A claim written under a heading an earlier correction replaced: a revert, or other text than the replaced section's (j82).
     reharvested_replaced: list[str] = field(default_factory=list)
     applied_decisions: list[dict[str, str]] = field(default_factory=list)
@@ -543,5 +546,7 @@ def note_superseded(run: Run, claim: dict[str, Any], slice_key: str, heading: st
     """One `superseded_harvests` row and the record that lets an agent be shown its own obsolete memory (fabric-status)."""
     run.superseded_harvests.append(note)
     for agent, host, h in owners_of(run, claim):
+        target = claim["merge_target"].strip() if isinstance(claim.get("merge_target"), str) else ""
         run.obsolete_memories.append({"memory": claim["topic"], "agent": agent, "host": host, "content_hash": h,
-                                      "slice": slice_key, "heading": heading, "stamp": run.args.stamp})
+                                      "slice": slice_key, "heading": heading, "stamp": run.args.stamp,
+                                      **({"merge_target": target} if target else {})})
