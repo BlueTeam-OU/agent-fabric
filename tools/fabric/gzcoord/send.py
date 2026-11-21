@@ -28,8 +28,14 @@ CONTRACT, frozen from the Node:
             the message, or (GZCOORD_JOURNAL=off) a bypass that cannot
             be recorded; 3 not configured, no token (neither
             applies in carrier-only, which reads no relay setting), relay unreachable,
-            the token refused, or a post whose outcome is unknown (it may
-            have been delivered); 4 an addressee with no session, silent,
+            the token refused, the relay answering with another 4xx
+            (refused, not sent), a relay failure after which the carrier
+            mirror took a message TO one login (delivered: do not send
+            it again), or a post whose outcome is unknown (it may
+            have been delivered); under a carrier primary also the
+            carrier not accepting the send: absent, failing, or its
+            answer lost (not sent when it recorded nothing, outcome
+            unknown when it may have; carrier_not_accepted); 4 an addressee with no session, silent,
             not placed (no account), or presence not askable — unless
             --force
   and 2 also for a TO no host places whose login part is a role slug of
