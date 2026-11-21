@@ -28,8 +28,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             $CLAUDE_CONFIG_DIR/.claude.json or ~/.claude.json (the sign-in
             email), the fallback markers, runtime/hosts/registry.json, the
             binding, job list and launch-prompt.md of the login, the
-            working copy's last-drain-report.json and the harness's memory
-            directory for it; the control agent's installed unit
+            working copy's and the control plane's last-drain-report.json and
+            the harness's memory directory for the working copy; the control agent's installed unit
             ($XDG_CONFIG_HOME/systemd/user/agent-fabric-agentd.service).
   stdout    the human report (below), or with --json one object, indent 2,
             ensure_ascii. Nothing on stderr by design; a module this file
@@ -47,7 +47,8 @@ asked or stamped), `launch profile` (only when stamped), `pins`,
 `credentials`, `claude sign-in`, a blank line, `capabilities on <provider>`
 and one line per class, one `review engine <provider> <class>` line per
 class an engine provider serves (the Codex engine's openai column), `routing`, `memory` (only when there is something
-to count), `moveto` (only when installed), `journal`, `python`, `agentd`
+to count), `obsolete` (one line per memory of this agent a drain report names as replaced, or one "unknown" line when a
+report cannot be read), `moveto` (only when installed), `journal`, `python`, `agentd`
 (what the account's installed control agent unit runs), `control plane`.
 
 The --json object: agent, host, placement, role, project, working_copy,

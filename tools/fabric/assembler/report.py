@@ -302,6 +302,9 @@ def record_rehomed(other: Run) -> int:
 
 
 OBSOLETE_KEYS = ("memory", "agent", "host", "content_hash", "slice", "heading")
+# The stamp of the drain that first named the memory: what lets a re-run of one stamp under --hold drop its own rows and
+# keep those carried from an earlier stamp. A row of an older report has none and is never taken for this stamp's.
+STAMP_KEY = "stamp"
 
 
 def carry_obsolete(earlier: Any, run: Run) -> list[dict[str, str]]:
@@ -322,7 +325,7 @@ def carry_obsolete(earlier: Any, run: Run) -> list[dict[str, str]]:
         # replaced its text may have been pruned) the file is still the obsolete text, so its row stays.
         read = run.seen_memories.get((row["agent"], row["host"], row["memory"]))
         if read is None or row["content_hash"] in read:
-            kept[(row["agent"], row["host"], row["content_hash"])] = {k: row[k] for k in OBSOLETE_KEYS}
+            kept[(row["agent"], row["host"], row["content_hash"])] = {k: row[k] for k in (*OBSOLETE_KEYS, *([STAMP_KEY] if isinstance(row.get(STAMP_KEY), str) else []))}
     for row in run.obsolete_memories:
         kept[(row["agent"], row["host"], row["content_hash"])] = row
     return list(kept.values())
@@ -463,9 +466,10 @@ def report(run: Run) -> int:
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
         # Not in REPORT_LISTS: drop_held ends what an earlier run of this stamp said of a held slice, but this list is the one
-        # that carries rows across stamps, and a row of an earlier drain is still true while its memory is unchanged.
-        if previous.get("stamp") == run.args.stamp:
-            report["obsolete_memories"] = [r for r in report["obsolete_memories"] if r["slice"] not in run.held_back]
+        # that carries rows across stamps, and a row of an earlier drain is still true while its memory is unchanged: only
+        # a row this stamp itself named goes.
+        report["obsolete_memories"] = [r for r in report["obsolete_memories"]
+                                       if not (r["slice"] in run.held_back and r.get(STAMP_KEY) == run.args.stamp)]
     # After drop_held: a held slice's claim is not this drain's to report.
     report["oversized_by_origin"] = oversized_by_origin(report.get("oversized_claim_details") or [])
     # A correction stays listed only while its slice still holds the text it applied: a later correction, a revert or a hand

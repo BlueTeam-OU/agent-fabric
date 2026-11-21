@@ -544,4 +544,4 @@ def note_superseded(run: Run, claim: dict[str, Any], slice_key: str, heading: st
     run.superseded_harvests.append(note)
     for agent, host, h in owners_of(run, claim):
         run.obsolete_memories.append({"memory": claim["topic"], "agent": agent, "host": host, "content_hash": h,
-                                      "slice": slice_key, "heading": heading})
+                                      "slice": slice_key, "heading": heading, "stamp": run.args.stamp})

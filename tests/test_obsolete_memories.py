@@ -69,7 +69,7 @@ def test_a_row_names_its_owner_and_the_record_names_the_slice_and_heading(tmp: s
     assert "memory 't' (dev-01@hostA)" in note and "update or delete 't'" in note, note
     (row,) = report["obsolete_memories"]
     assert row == {"memory": "t", "agent": "dev-01", "host": "hostA", "content_hash": "h1", "slice": row["slice"],
-                   "heading": "Status v1 of the thing"} and row["slice"].endswith(":t"), row
+                   "heading": "Status v1 of the thing", "stamp": "2026-01-01"} and row["slice"].endswith(":t"), row
 
 
 def test_a_same_run_predecessor_names_its_owner_too(tmp: str) -> None:
@@ -132,10 +132,23 @@ def test_a_hold_under_a_later_stamp_keeps_the_carried_row(tmp: str) -> None:
     assert json.loads(ta.read(ta.report_path(out)))["obsolete_memories"] == first["obsolete_memories"]
 
 
+def test_a_hold_in_a_rerun_of_a_later_stamp_keeps_a_row_carried_from_an_earlier_one(tmp: str) -> None:
+    drain, claims_dir, out, first = replayed(tmp)
+    pass_of(drain, claims_dir, out, [OTHER], stamp="2026-01-02", rows=ONLY_OTHER)   # the row is carried into a report of stamp 2
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/solution:t"], fh)
+    ta.set_claims(claims_dir, "alpha", [OTHER, dict(OTHER, topic="t", title="A newer claim to the slice")])
+    proc = ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02", "--hold", hold)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(ta.read(ta.report_path(out)))["obsolete_memories"] == first["obsolete_memories"]
+
+
 def test_a_row_is_renewed_when_the_memory_is_read_again_unchanged(tmp: str) -> None:
     drain, claims_dir, out, first = replayed(tmp)
     later = pass_of(drain, claims_dir, out, [ORIGINAL], stamp="2026-01-02")
-    assert later["obsolete_memories"] == first["obsolete_memories"] and len(later["superseded_harvests"]) == 1, later
+    # Flagged again by this stamp's drain: the row is this stamp's own now.
+    assert later["obsolete_memories"] == [dict(first["obsolete_memories"][0], stamp="2026-01-02")] and len(later["superseded_harvests"]) == 1, later
 
 
 def test_an_earlier_report_without_the_record_parses_and_a_malformed_row_is_dropped(tmp: str) -> None:
