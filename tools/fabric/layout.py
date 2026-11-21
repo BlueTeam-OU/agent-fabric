@@ -286,6 +286,7 @@ class HygieneError(ValueError):
     every name it lists into the corpus without a word."""
 
 
+HYGIENE_SCOPES = ("others", "own")
 HYGIENE_ENTRY_KEYS = {"pattern", "label", "flags", "refer_as", "scope"}
 
 
@@ -295,14 +296,24 @@ def load_hygiene_patterns(projects: list[str] | None = None, for_project: str | 
     (from <working copy>/.agent-fabric/hygiene.json, when that working copy
     is known). Entries: {"pattern": <regex>, "label": <what it is>,
     "flags": "i"?, "refer_as": <what the corpus says instead>?,
-    "scope": "others"?}. The assembler replaces a hit with refer_as, or
-    "[redacted]" without one; lint refuses a committed hit either way.
+    "scope": "others" | "own"?}. The assembler replaces a hit with
+    refer_as, or "[redacted]" without one; lint refuses a committed hit
+    either way. Both scopes are for a project's list only (a "scope" in
+    policies/hygiene.json raises HygieneError); no scope holds everywhere.
 
     "scope": "others" marks a name that is the listing project's own: it
     is withheld from the fabric's slices and from every other project's,
-    and allowed in that project's own. `for_project` names the project
-    whose slices the patterns are for: its own "others" entries are left
-    out. Without it every entry applies, everywhere (the strictest set).
+    and allowed in that project's own.
+    "scope": "own" is the reverse: the entry holds in the listing
+    project's own slices only (its role classes and its shared/) and is
+    left out of every other project's and of agent-fabric's (an app's
+    knowledge must stay valid wherever it runs, so its corpus names no
+    place; another project's corpus may, about a situation there; owner,
+    2026-11-19; ADR-013 rule 10). `for_project` names the project whose
+    slices the patterns are for. Without it every entry applies,
+    everywhere (the strictest set): that is what the fabric's own field
+    slices (domain classes) are held to, because they are read in every
+    project, so an "own" name must not leak into them either.
 
     A list that exists but cannot be read, does not parse, or holds an
     entry that is not a pattern this reads raises HygieneError, naming the
@@ -365,16 +376,18 @@ def load_hygiene_patterns(projects: list[str] | None = None, for_project: str | 
                 # case let every other casing through.
                 raise HygieneError(f"{where}: flags is {entry['flags']!r}; the one flag is \"i\"")
             scope = entry.get("scope")
-            if scope is not None and scope != "others":
-                raise HygieneError(f"{where}: scope is {scope!r}; the one scope is \"others\"")
-            if scope == "others" and owner is None:
-                raise HygieneError(f"{where}: scope \"others\" belongs in a project's list, not the fabric's")
+            if scope is not None and scope not in HYGIENE_SCOPES:
+                raise HygieneError(f"{where}: scope is {scope!r}; the scopes are \"others\" and \"own\"")
+            if scope is not None and owner is None:
+                raise HygieneError(f"{where}: scope {scope!r} belongs in a project's list, not the fabric's")
             try:
                 compiled = re.compile(pattern, re.I if "i" in (entry.get("flags") or "") else 0)
             except re.error as exc:
                 raise HygieneError(f"{where}: the pattern does not compile ({exc})") from None
             if scope == "others" and owner == for_project:
                 continue   # this project's own name, in this project's own slices
+            if scope == "own" and for_project is not None and owner != for_project:
+                continue   # held in its listing project's slices only
             out.append((compiled, entry.get("label") or default_label, entry.get("refer_as")))
     return out
 

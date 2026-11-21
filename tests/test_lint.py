@@ -283,6 +283,38 @@ def case_a_projects_own_name_is_held_to_its_own_set() -> None:
         assert code == 1 and "Traceback" not in out and "hygiene.json" in out, f"a broken list was not one finding:\n{out}"
 
 
+def case_an_own_scoped_name_is_refused_in_its_own_projects_corpus_only() -> None:
+    """A project's "scope": "own" pattern holds in that project's own slices
+    and nowhere else (the owner, 2026-11-19: gzapp's corpus never names the
+    city, another project's may): lint refuses it in the listing project's
+    slice, passes it in another project's, still refuses it in a fabric
+    domain slice (read in every project: the strictest set), and a no-scope
+    entry is refused everywhere (the positive control). Pattern: springfield
+    (own) and shelbyville (no scope). Kills: dropping the "own" branch of
+    layout.load_hygiene_patterns (the other project's slice is then refused)."""
+    hyg = {"patterns": [{"pattern": "\\bspringfield\\b", "flags": "i", "label": "city name", "scope": "own"},
+                        {"pattern": "\\bshelbyville\\b", "flags": "i", "label": "control name"}]}
+    text = SLICE.replace("A claim with provenance.", "The stack runs in Springfield and Shelbyville.")
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        write(os.path.join(fabric, "projects", "other", "taxonomy.json"), json.dumps({**TAXONOMY, "project": "other"}))
+        wc = wc_demo(fabric)
+        wc_other = os.path.join(root, "wc-other")
+        write(os.path.join(wc, ".agent-fabric", "hygiene.json"), json.dumps(hyg))
+        write(proj(fabric, "solution", "city-demo.md"), text)
+        write(os.path.join(wc_other, ".agent-fabric", "memory", "web-dev", "solution", "city-other.md"), text)
+        write(dom(fabric, "domain", "city.md"), text)
+        code, out = run_lint(fabric, "--working-copy", f"other={wc_other}")
+        lines = out.splitlines()
+        own = [ln for ln in lines if "city name" in ln]
+        ctl = [ln for ln in lines if "control name" in ln]
+        assert any("city-demo.md" in ln for ln in own), f"its own project's slice passed:\n{out}"
+        assert any("domains/web-dev/domain/city.md" in ln for ln in own), f"the fabric slice passed:\n{out}"
+        assert not any("city-other.md" in ln for ln in own), f"another project's slice was held to it:\n{out}"
+        assert any("city-other.md" in ln for ln in ctl), f"the control: a no-scope name passed in another project:\n{out}"
+        assert "Springfield" not in out and "Shelbyville" not in out, f"a finding echoed the text:\n{out}"
+
+
 def case_secrets_are_refused_by_shape() -> None:
     """Passwords, keys and tokens assigned a value, key material and known
     token shapes are refused wherever they appear; a sentence about a
@@ -3063,6 +3095,7 @@ def main() -> int:
         case_hygiene_still_runs_over_payload,
         case_secrets_are_refused_by_shape,
         case_a_projects_own_name_is_held_to_its_own_set,
+        case_an_own_scoped_name_is_refused_in_its_own_projects_corpus_only,
         case_a_persons_name_is_refused_everywhere,
         case_slices_are_still_linted,
         case_a_stale_section_is_a_warning_never_a_finding,

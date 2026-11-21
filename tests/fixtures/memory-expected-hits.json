@@ -25,6 +25,8 @@
     {"slice": "p:python-dev/workflow/test-port-by-mutation-parity", "heading": "Porting a bash TEST to Python has no oracle of its own", "within": 2, "band": "strong"},
     {"slice": "f:domains/python-dev/domain/oracle-blind-spots-in-ports", "heading": "Porting a script with its old test as the oracle", "within": 2, "band": "strong"}]},
   {"query": "lease held by another process fabric-lease", "role": "python-dev", "project": "agent-fabric", "no_better_than": "weak", "expect": []},
-  {"query": "how do I bake a sourdough bread", "no_better_than": "weak", "expect": []}
+  {"query": "how do I bake a sourdough bread", "no_better_than": "weak", "expect": []},
+  {"query": "css grid layout", "role": "python-dev", "project": "agent-fabric", "no_better_than": "weak", "expect": []},
+  {"query": "queued branch refuses a push", "role": "python-dev", "project": "agent-fabric", "no_better_than": "weak", "expect": []}
  ]
 }

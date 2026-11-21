@@ -367,9 +367,12 @@ its record disagree, the record wins. Look it up, never read it whole:
   user-scope hook (rule 14).
 - A 2026-10-10 — the role's holder judges truth: ADR-050 (rules 11, 12, 14,
   15), built (rule 11's report half too, #252).
+- A 2026-11-21 — hygiene `"scope": "own"` holds an entry in its own
+  project's slices only; other projects may say the name; domain slices
+  keep every entry (§2, rule 10).
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
-  watermark, bundle, hygiene, redacted, tier.
+  watermark, bundle, hygiene, redacted, tier, hygiene scope, scope own.
 
 ### ADR-014 — The memory assembler's rules: contested claims, same-agent retitle, corrections (Accepted)
 

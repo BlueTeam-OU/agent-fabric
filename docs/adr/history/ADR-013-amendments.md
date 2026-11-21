@@ -63,3 +63,20 @@ distributed judgement with a central assist over central evaluation.
 None of the four rules' new behaviour is built yet; each says so in its
 text and what happens until it is, and ADR-050 section 6 names the
 builder of each.
+
+### Amendment 2026-11-21 — A hygiene entry may hold in its own project only
+
+The owner ruled on 2026-11-19, in the gzapi.brand half of the drain of
+2026-11-17: gzapp is the app and must be valid wherever it runs, so its
+corpus names no city or country; another project's memory may be about
+a situation in a real place. The one scope there was, `"others"`, does
+the reverse (the name is the listing project's to say, withheld
+everywhere else), and an unscoped entry in gzapp's list redacted a
+gzapi.brand rationale slice that cites that project's own decision
+record, which names the city. `"scope": "own"` is the new value: the
+entry holds in the listing project's slices and is left out of every
+other project's set and of agent-fabric's. Without a project the set is
+the strictest, which is what the fabric's domain slices are held to:
+they are read in every project, so an own name stays out of them. Built
+by python-dev-02 (j173); the scope goes on gzapp's entries only after
+the fleet runs the code, since older code refuses an unknown scope.

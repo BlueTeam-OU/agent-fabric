@@ -722,7 +722,8 @@ def _main() -> int:
     try:
         BANNED_PATTERNS[:] = layout.load_hygiene_patterns(hygiene_projects)
         # A project's own slices are held to its set: its "scope": "others"
-        # names are its own to say there, and withheld everywhere else.
+        # names are its own to say there, and withheld everywhere else;
+        # another project's "scope": "own" names are not in it.
         PROJECT_PATTERNS.clear()
         PROJECT_PATTERNS.update({pid: layout.load_hygiene_patterns(hygiene_projects, for_project=pid)
                                  for pid in hygiene_projects})
