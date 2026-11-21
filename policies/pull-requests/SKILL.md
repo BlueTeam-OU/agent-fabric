@@ -84,7 +84,8 @@ names, and `fabric-jobs switch` would put a same-repository job on it. On a PR-m
 all (no `.github/workflows` on the base, none added by the PR), a head
 with no check arms only on the owner's separate word, "owner's no-CI
 word" in the basis: "the owner's word" lifts the count, never the
-checks, and neither stands in for the other. Any PR status you state carries its counts ("PR <n> is unarmed:
+checks, and neither stands in for the other. No arming authority gives the no-CI word, and a settings or operator
+repository names no authority: both stay the owner's (ADR-019 rule 4). Any PR status you state carries its counts ("PR <n> is unarmed:
 6 work, 2 fix, minimum 8").
 
 **An arming is withdrawn as it was given: on the PR, with a basis.**
