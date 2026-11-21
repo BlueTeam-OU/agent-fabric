@@ -128,9 +128,14 @@ jobs:
         run: python3 -m pip install --quiet --disable-pip-version-check jsonschema
       # A host tool the fabric requires (platform/detect.sh FABRIC_HOST_TOOLS):
       # the store's suite makes a real recovery copy with it, and fails
-      # where it is missing rather than skip the case.
+      # where it is missing rather than skip the case. The image's package
+      # index ages and the archive's name sometimes does not resolve (j772,
+      # 2026-11-11): each fetch retries, and a failed install refreshes the
+      # index once before its second try.
       - name: paperkey, for the recovery copy the store's suite makes
-        run: sudo apt-get install -y --no-install-recommends paperkey
+        run: |
+          apt_get() { sudo apt-get -o Acquire::Retries=5 "$@"; }
+          apt_get install -y --no-install-recommends paperkey || { apt_get update && apt_get install -y --no-install-recommends paperkey; }
       - name: no machine attribution in commits or the PR description
         run: python3 tools/fabric/guards/ban_generated_by_attribution.py
       # agent-fabric ADR-057 §5 rule 5: a commit's timestamp proof is a note,
@@ -164,12 +169,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # platform and shard are the matrix's own keys, so it is their product, 3 x 3 = 9 jobs; each `include` entry below names
-        # its platform, which equals that key's value in three of the nine combinations and so is added to those three and
+        # platform and shard are the matrix's own keys, so it is their product, 2 x 3 = 6 jobs; each `include` entry below names
+        # its platform, which equals that key's value in three of the six combinations and so is added to those three and
         # to no others. Were platform only in `include`, each entry would be added to all three shard combinations and the
         # next entry would overwrite the platform the last had added (added values may be overwritten, original ones not):
-        # three jobs, all almalinux.
-        platform: [fedora, debian, almalinux]
+        # three jobs, all debian.
+        # AlmaLinux 10 is not here: it runs nightly, outside ci-ok (stripped-nightly.yml, the owner, 2026-11-12).
+        platform: [fedora, debian]
         # The python section is split in three on every platform (AGENT_FABRIC_TEST_SHARD, tests/run_python_suites.py): each
         # platform still runs every suite, in a third of the time per job (the owner, 2026-11-13).
         shard: [1, 2, 3]
@@ -185,15 +191,6 @@ jobs:
             image: debian:stable-slim
             install: apt-get install -y --no-install-recommends
             extra: shellcheck python3-pip ca-certificates hostname minisign bubblewrap
-          # AlmaLinux 10 (fabric-h2): gh, ShellCheck and minisign are in EPEL; a minimal
-          # image has coreutils-single, which coreutils replaces only with
-          # --allowerasing; its python3 is 3.12, below the floor (host_python).
-          - platform: almalinux
-            image: almalinux:10
-            install: dnf install -y --allowerasing --setopt=install_weak_deps=False
-            repos: dnf install -y epel-release
-            extra: ShellCheck python3-pip hostname minisign bubblewrap
-            host_python: bootstrap-only
     container: ${{ matrix.image }}
     # Measured 7-8.5 min on 2026-09-29, 20-24 min on 2026-10-11 (Fedora cancelled at 25 on #194 and #197);
     # the cap is for a hang, not a budget, so it sits well above the slowest healthy run.
@@ -207,7 +204,6 @@ jobs:
           set -e
           if command -v apt-get >/dev/null; then apt-get update; fi
           ${{ matrix.install }} bash git ca-certificates   # enough to check out and read the map
-          ${{ matrix.repos }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -228,42 +224,26 @@ jobs:
           set -e
           . runtime/provisioning/platform/detect.sh
           [ "$PLATFORM_ID" = "${{ matrix.platform }}" ] || { echo "detected $PLATFORM_ID, expected ${{ matrix.platform }}"; exit 1; }
-          # A tool the platform packages nowhere (almalinux: paperkey) is installed by hand, so not here.
+          # A tool the platform packages nowhere (PLATFORM_NO_PACKAGE) is installed by hand, so not here.
           for t in "${FABRIC_HOST_TOOLS[@]}"; do
             for skip in "${PLATFORM_NO_PACKAGE[@]}"; do [ "$t" = "$skip" ] && continue 2; done
             command -v "$t" >/dev/null || { echo "missing after install: $t"; exit 1; }
           done
-          if [ "${{ matrix.host_python }}" = bootstrap-only ]; then
-            # ADR-040 §5 rule 1 (A 2026-11-11): a python3 below the floor runs
-            # python_pin.py only, which the step before this one just did; the
-            # suites run on the pin (next step).
-            echo "host $(python3 -V) bootstraps the pin only"
-          else
-            host_python_ok || { echo "the platform's python3 is older than $FABRIC_HOST_PYTHON_MIN"; exit 1; }
-          fi
+          host_python_ok || { echo "the platform's python3 is older than $FABRIC_HOST_PYTHON_MIN"; exit 1; }
       - name: the suites, as an unprivileged login (a host never runs the fabric as root)
         run: |
           set -e
           useradd -m ci && chown -R ci "$GITHUB_WORKSPACE"
-          on_pin=""
-          if [ "${{ matrix.host_python }}" = bootstrap-only ]; then
-            # Below the floor the fabric runs on the pin, as on the host this leg
-            # stands for (fabric-h2), not on the platform's python3 (review F8).
-            # Set inside the command: su resets PATH.
-            mkdir -p /usr/local/lib/ci-pin-bin
-            ln -sf /usr/local/bin/fabric-python /usr/local/lib/ci-pin-bin/python3
-            on_pin="export PATH=/usr/local/lib/ci-pin-bin:\$PATH && python3 -V && "
-          fi
           # Static and bash sections are the platform's, not the python section's, and every shard would repeat them: shard 1 runs them.
           first=""; last=""
           if [ "${{ matrix.shard }}" = 1 ]; then first="bash tests/run.sh static && "; last=" && bash tests/run.sh bash"; fi
           # The python step's per-suite times, for refreshing tests/suite_durations.json; in the workspace, which is ci's.
-          su ci -c "${on_pin}cd '$GITHUB_WORKSPACE' && ${first}AGENT_FABRIC_TEST_DURATIONS='$GITHUB_WORKSPACE/suite-durations.json' AGENT_FABRIC_TEST_SHARD='${{ matrix.shard }}/3' bash tests/run.sh python${last}"
+          su ci -c "cd '$GITHUB_WORKSPACE' && ${first}AGENT_FABRIC_TEST_DURATIONS='$GITHUB_WORKSPACE/suite-durations.json' AGENT_FABRIC_TEST_SHARD='${{ matrix.shard }}/3' bash tests/run.sh python${last}"
       - name: per-suite durations
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          # One name per job: nine uploads of one name collide.
+          # One name per job: six uploads of one name collide.
           name: suite-durations-${{ matrix.platform }}-${{ matrix.shard }}
           path: suite-durations.json
           if-no-files-found: ignore
