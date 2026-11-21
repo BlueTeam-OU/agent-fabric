@@ -665,6 +665,12 @@ class PrGate(unittest.TestCase):
         self.assertIn("arm: post the basis (3 work commits", self.v(3, p))
         self.assertIn("6 work commits, over 5", self.v(6, p))
 
+    def test_below_the_minimum_a_named_authority_is_asked_never_the_owner(self):
+        # ADR-019 rule 4: the gate's verdict agrees with arm's hint (#676 review 0b3aece7 §2)
+        text = self.v(3, arm_policy.validate({"commits": {"min": 8, "below_min_authority": "architect-cto"}}))
+        self.assertIn("ask architect-cto by REQUEST (3 work commits < 8", text)
+        self.assertNotIn("ask the owner", text)
+
     def test_a_policy_that_could_not_be_read_is_said_and_no_number_is_assumed(self):
         text = self.v(9, "o/settings repos/R.json could not be read (HTTP 500)")
         self.assertIn("the arming policy cannot be read (o/settings repos/R.json could not be read (HTTP 500))", text)
