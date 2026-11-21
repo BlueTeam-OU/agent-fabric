@@ -64,8 +64,8 @@ or a `for/` branch to the caller and opens no PR. While your PR is open,
 the next piece of work, any topic, is another commit on it. A PR is armed
 by its work-commit count against the minimum `fabric-pr arm --dry-run`
 prints, never without the review gate; under it, bundle queued jobs
-first, then ask the arming authority the dry-run names for its word by
-`REQUEST`, never the owner, and work in another repository meanwhile.
+first; where the dry-run names an arming authority, ask it by
+`REQUEST`, not the owner, and work in another repository meanwhile.
 Any PR status you state carries its counts ("#215 is unarmed: 6 work, 2
 fix, minimum 8"). The `pull-requests` skill has the whole procedure:
 load it before you open, supply, fold, add to or arm a PR.
