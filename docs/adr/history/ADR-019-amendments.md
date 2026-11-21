@@ -286,6 +286,10 @@ fence the agents are armed under; the no-CI word is not delegated,
 since only an empty repository would read it today. The operator
 repository was not in the sweep's question; it takes the settings
 repositories' reason, and its policy has no word from the owner yet.
+The engine's repository holds `policies/arming.json` and
+`policies/auto-mode.json` until that split and keeps fabric-coordinator
+as its authority meanwhile: the rule names its two kinds of repository,
+not every repository a rule file sits in.
 blueteam-accounting keeps the policy the owner gave it on 2026-11-17:
 its accounting role arms at one work commit, every other PR below the
 minimum on the owner's word. Which repository

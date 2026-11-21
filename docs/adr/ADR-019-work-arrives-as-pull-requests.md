@@ -169,10 +169,11 @@ not on a pipe's exit status.
    alike (A 2026-10-19). An `AUTHORIZES` message named beside the owner's
    word is that word as relayed: read and checked as any authorization,
    but for the role, it can only refuse, and the arming comment records
-   who relayed it (A 2026-11-03). A repository that holds the rules
-   every PR is armed under (a settings repository, the operator
-   repository) names no arming authority, since a PR there changes
-   them, and the owner's no-CI word (a PR-mode repository with no CI
+   who relayed it (A 2026-11-03). A settings repository and the
+   operator repository name no arming authority, since a PR there
+   changes the rules every PR is armed under; the engine's repository,
+   which holds some of those rules until ADR-045's split moves them to
+   the operator, keeps its authority meanwhile; and the owner's no-CI word (a PR-mode repository with no CI
    at all) is the owner's alone, never an authority's: a repository
    without CI is given direct mode or CI in its policy rather than an
    authority's word per PR (A 2026-11-21). `commits.advice_over` is the size a batch is opened at; a PR
