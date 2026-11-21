@@ -402,6 +402,12 @@ def main() -> int:
             pre = json.load(fh)["hooks"]["PreToolUse"]
         hooked = [h["command"] for e in pre if e.get("matcher") == "Bash" for h in e["hooks"]]
         check(f"registered on Bash in {rel}", any("post-review-shape-guard.py" in c for c in hooked), hooked)
+        # The fallback (no managed entry) runs a guard on the pin by its fixed path, never the host's python3 nor an
+        # AGENT_FABRIC_PYTHON the environment could point at /bin/true (ADR-040 rule 1, A 2026-11-21).
+        runs_py = [c for e in pre for h in e["hooks"] for c in [h.get("command", "")] if '.py"' in c]
+        check(f"every .py hook in {rel} runs on /usr/local/bin/fabric-python, none on python3",
+              runs_py and all('/usr/local/bin/fabric-python "$f"' in c for c in runs_py)
+              and not any("python3 " in c for c in runs_py), runs_py)
 
     print(f"{'PASS' if not fails else 'FAIL'}: post-review shape guard ({fails} failed)")
     return 1 if fails else 0

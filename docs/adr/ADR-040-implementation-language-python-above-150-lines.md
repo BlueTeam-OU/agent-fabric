@@ -142,17 +142,16 @@ serve as the parity oracle for each port, unchanged.
    same shell functions, each calling Python, and fails the call, never
    its caller. Every entry point the fabric installs (`bin/`, the
    `policies/` checks a person or a hook runs, `fabric-secrets`) runs it.
-   These keep the host's `python3`:
-   - the hook not yet ported — the Claude Code hook
-     `self-kill-guard.py` — whose port
-     moves it to the pin in Wave 9 (A 2026-10-11), as it moved the three
-     guards of batch 5 (A 2026-10-19) and `pre-commit`, `commit-msg`,
-     `post-commit`, the fallback note and gzapp's host check (A 2026-10-19)
-     and `session-start.sh` (A 2026-10-24), and as rule 1's one Python
-     moved `pre-push` and the hooks the user settings render
-     (A 2026-11-21); the launcher, account creation and bootstrap
-     have moved, and bootstrap's helpers under `runtime/` run on the pin
-     with it, step 7's language-detector venv included (A 2026-11-16);
+   No hook keeps the host's `python3`: Wave 9 (A 2026-10-11) moved the
+   three guards of batch 5 (A 2026-10-19), `pre-commit`, `commit-msg`,
+   `post-commit`, the fallback note and gzapp's host check
+   (A 2026-10-19) and `session-start.sh` (A 2026-10-24), and rule 1's
+   one Python moved `pre-push`, the hooks the user settings render and
+   the workspace fallbacks of `self-kill-guard.py` and
+   `post-review-shape-guard.py` (A 2026-11-21); the launcher, account
+   creation and bootstrap have moved, and bootstrap's helpers under
+   `runtime/` run on the pin with it, step 7's language-detector venv
+   included (A 2026-11-16). These keep the host's `python3`:
    - `check_actions_pinned_by_sha.py`, run by CI's static job, which
      installs no pin;
    - what `fabric-host` runs on another host, which may not have the pin
@@ -413,4 +412,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-11-11 | One Python on every host: a host's python3 only bootstraps the pin | §5 rule 1: the owner's word; `python_pin.py` valid on EL 10's 3.12; a host whose python3 is below 3.13 takes no account until rule 4's host-`python3` entries run on the pin |
 | 2026-11-12 | Wave 10 moves to the operator's record | §5 rule 10 and §7's Wave 10 paragraph and inventory rows move to ADR-070; §8; rule 10's number stays, vacated; rules 1-9 and waves 0-9 stay |
 | 2026-11-16 | the language detector's venv is made with the pin | §5 rule 4: bootstrap step 7's venv leaves the host's `python3` (#627) |
-| 2026-11-21 | `pre-push` and the user-scope hooks run on the pin | §5 rule 4: `pre-push` leaves the host-`python3` list, a forwarder refusing the push without the pin; the six hooks `user-settings.py` renders run on `fabric-python`; §7 batch 4's row, §8 |
+| 2026-11-21 | `pre-push` and the user-scope hooks run on the pin | §5 rule 4: `pre-push` and `self-kill-guard.py` leave the host-`python3` list, which holds no hook now; `pre-push` is a forwarder refusing the push without the pin; the six hooks `user-settings.py` renders and the two guards' workspace fallbacks run on `fabric-python`; §7 batch 4's row, §8 |

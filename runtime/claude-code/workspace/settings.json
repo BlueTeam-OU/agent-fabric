@@ -81,12 +81,12 @@
           },
           {
             "type": "command",
-            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"self-kill-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/self-kill-guard.py\"; [ -f \"$f\" ] && python3 \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"self-kill-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/self-kill-guard.py\"; [ -f \"$f\" ] && /usr/local/bin/fabric-python \"$f\"; true",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"post-review-shape-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/post-review-shape-guard.py\"; [ -f \"$f\" ] && python3 \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"post-review-shape-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/post-review-shape-guard.py\"; [ -f \"$f\" ] && /usr/local/bin/fabric-python \"$f\"; true",
             "timeout": 5
           },
           {

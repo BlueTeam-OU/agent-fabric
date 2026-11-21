@@ -368,7 +368,15 @@ push with the install command when the pin is absent). The six hooks
 `/usr/local/bin/fabric-python "<hook>"`, not `python3 "<hook>"`; they
 were never on rule 4's list, so until now their rendering broke rule 1.
 §7's batch 4 row and §8 no longer say `pre-push` waits on its own
-decision. `self-kill-guard.py` keeps its place on the list.
+decision. `self-kill-guard.py` leaves the list too: the workspace
+settings (`.claude/settings.json`, `runtime/claude-code/workspace/settings.json`)
+ran it and `post-review-shape-guard.py`, which was never on the list, as
+`python3 "$f"` where the managed entry is absent; both fallbacks run
+`/usr/local/bin/fabric-python "$f"`, by its fixed path like every gate,
+so the environment cannot choose a guard's interpreter. The list now
+holds no hook. A host without the pin runs neither fallback guard, as a
+host without `python3` ran neither before; rule 1 gives such a host no
+account.
 
 Why: the amendment of 2026-11-11 put the pin on every host and named
 these two entries, with the language detector's venv (A 2026-11-16), as
@@ -378,4 +386,4 @@ account's checkouts and a host might lack the pin; that reason ended on
 2026-11-11. The rendered hooks reach an account at its next bootstrap,
 which replaces each entry by its script's name.
 
-Written by fabric-coordinator as job j764 (j762's follow-up).
+Written by fabric-coordinator as jobs j764 (j762's follow-up) and j1033.
