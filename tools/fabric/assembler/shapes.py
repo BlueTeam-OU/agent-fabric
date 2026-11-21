@@ -14,20 +14,24 @@ loses the section's knowledge with no collision to ask about:
 The first three are judged before anything is written and stop the drain like a collision does; none of them is a question
 the owner can answer with a decision, because the fix is the memory's text. The last is read from the files written, since
 only the writer knows what it left; it names the files already written, and the drain is discarded, as for a hygiene
-failure."""
+failure.
+
+A claim that is an earlier committed text of its section is dropped, with a report line, by drop_undoing_curation (below),
+from the tree's own git history; only a history git cannot read refuses the run."""
 from __future__ import annotations
 
 import glob
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import defaultdict
 from typing import Any
 from assembler.core import layout, CLASS_FILES, Run, in_report, hygiene_substitute, patterns_for
 from corrections import demote_headings, section_key
-from assembler.slices import read_existing_slice, claim_heading, claim_block, undated, is_retire
-from assembler.targets import existing_sections, slice_candidates
+from assembler.slices import parse_slice, read_existing_slice, claim_heading, claim_block, undated, is_retire
+from assembler.targets import existing_sections, slice_candidates, topic_stem
 
 
 def _groups(run: Run) -> list[tuple[str | None, str, str, str, list[dict[str, Any]]]]:
@@ -267,3 +271,131 @@ def drop_replayed(run: Run) -> None:
                 run.reharvested_replaced.append(
                     f"{where} carries other text than the section {heading!r} a correction replaced (claim key {key}, replaced "
                     f"{', '.join(sorted({e['key'] for e in same_heading}))}); written")
+
+
+GIT_TIMEOUT_S = 60
+
+
+class HistoryUnreadable(Exception):
+    """git could not say what a slice file held before: not the same as "it held nothing", which a fixture tree answers."""
+
+
+def _git(directory: str, *argv: str) -> subprocess.CompletedProcess[bytes]:
+    # The C locale: "not a repository" and "no commits yet" are told from a failure by git's own words, which a translated
+    # catalog changes. The repository variables a hook or a rebase exports would point git at another repository, and a
+    # configured signature check would add lines to the log this reads as hashes.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k not in ("LANGUAGE", "LC_ALL")}
+    env["LC_ALL"] = "C"
+    try:
+        return subprocess.run(["git", "-c", "log.showSignature=false", "-c", "core.quotePath=false", "-C", directory, *argv], capture_output=True,
+                              timeout=GIT_TIMEOUT_S, check=False, env=env)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise HistoryUnreadable(f"git {' '.join(argv)} in {directory}: {exc}") from exc
+
+
+def _one_line(raw: bytes) -> str:
+    return " ".join(raw.decode("utf-8", "replace").split())
+
+
+def _nearest_directory(directory: str) -> str:
+    """The directory itself or its nearest ancestor that exists: a commit that deleted a class's last slice took its
+    directory with it, and git still answers for the path from above."""
+    while not os.path.isdir(directory):
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    return directory
+
+
+def history_paths(path: str, with_parts: bool = False) -> list[str]:
+    """`path`, and with `with_parts` the budget parts `<stem>-<n>.md` the history of its directory ever held, deleted ones
+    too (slice_candidates sees only those that exist)."""
+    if not with_parts:
+        return [path]
+    directory, name = os.path.split(path)
+    base = _nearest_directory(directory)
+    rel = os.path.relpath(directory, base)
+    log = _git(base, "log", "--format=", "--name-only", "--relative", "--", rel)
+    if log.returncode:
+        return [path] if _no_history(log) else _unreadable(f"git log of {directory}", log)
+    pattern = re.compile(re.escape(name[:-3]) + r"-\d+\.md")
+    found = {os.path.join(base, f) for f in log.stdout.decode("utf-8", "replace").split("\n") if f and pattern.fullmatch(os.path.basename(f))}
+    return [path, *sorted(found)]
+
+
+def _no_history(done: subprocess.CompletedProcess[bytes]) -> bool:
+    err = done.stderr.decode("utf-8", "replace")
+    return "not a git repository" in err or "does not have any commits yet" in err
+
+
+def _unreadable(what: str, done: subprocess.CompletedProcess[bytes]) -> Any:
+    raise HistoryUnreadable(f"{what} failed: {_one_line(done.stderr)}")
+
+
+def committed_versions(path: str) -> list[tuple[dict[str, Any], dict[str, str]]]:
+    """The (frontmatter, sections) of every committed version of the slice file `path` (newest first), deleted versions left out. A file
+    in no repository, or in one with no commit yet, has none; any other git failure is HistoryUnreadable, since an
+    unreadable history must not be read as an empty one."""
+    directory, name = os.path.split(path)
+    base = _nearest_directory(directory)
+    rel = os.path.relpath(path, base)
+    log = _git(base, "log", "--format=%H", "--diff-filter=AMR", "--", rel)
+    if log.returncode:
+        return [] if _no_history(log) else _unreadable(f"git log of {path}", log)
+    versions = []
+    for sha in log.stdout.decode().split():
+        shown = _git(base, "show", f"{sha}:./{rel}")
+        if shown.returncode:
+            _unreadable(f"git show {sha}:{rel} in {base}", shown)
+        # A version that is not UTF-8 reads as replacement characters, which no claim's text equals.
+        versions.append(parse_slice(shown.stdout.decode("utf-8", "replace")))
+    return versions
+
+
+def drop_undoing_curation(run: Run) -> int | None:
+    """A claim that is an EARLIER committed text of its section, and not the text the section holds now, is the author's
+    memory harvested again after someone edited the section by hand (a review-fix commit on the drain's branch, round 1 of a project's review,
+    2026-11-17: eleven slices back to the text of the drain before it, a closed thread reopened, two removed slices
+    restored). The same-agent rule would supersede the curated section, and nothing in a report of earlier drains knows of
+    a commit made by hand, so the tree's own history is read. The claim is not written and the report names it
+    (`superseded_harvests`). An author who really means the older text again says so with a merge_target, which is
+    authorised and skipped here; a memory whose text changed matches no earlier version and is written as before.
+    1 when git cannot say, with nothing written."""
+    versions: dict[str, list[tuple[dict[str, Any], dict[str, str]]]] = {}
+    try:
+        for role, label, klass, topic, group in _groups(run):
+            stem = topic_stem(run, role, klass, topic)
+            candidates = slice_candidates(run, role, klass, topic)
+            # The topic file itself even when a curation deleted it: a removed slice has no candidate left to read.
+            # A role's flat class file too, which holds a lone topic.
+            flat = [] if role is None else [os.path.join(layout.class_home(klass, role, run.project), f"{CLASS_FILES[klass]}.md")]
+            paths = list(dict.fromkeys([*candidates, *history_paths(stem + ".md", with_parts=True), *flat]))
+            present = existing_sections(candidates)
+            for claim in list(group):
+                if is_retire(claim) or (claim.get("merge_target") or "").strip():
+                    continue
+                heading = hygiene_substitute(claim_heading(claim), "replaced section heading", patterns_for(klass))[0]
+                keys = {section_key(claim_block(claim).split("\n", 1)[1].strip())}
+                if "_body_as_written" in claim:
+                    keys.add(section_key(claim_block({**claim, "body": claim["_body_as_written"]}).split("\n", 1)[1].strip()))
+                siblings = [k for k in present if k == heading or re.fullmatch(re.escape(heading) + r" \(\d+\)", k)]
+                if any(section_key(present[k]) in keys for k in siblings):
+                    continue
+                for path in paths:
+                    if path not in versions:
+                        versions[path] = committed_versions(path)
+                if any(section_key(old[heading]) in keys for path in paths for meta, old in versions[path] if heading in old
+                       # A file named `<topic>-<n>.md` may be another topic's own (a memory called `release-2`): the topic
+                       # it records decides, as is_budget_part does for the files that exist.
+                       and meta.get("topic") in (None, topic)):
+                    group.remove(claim)
+                    run.superseded_harvests.append(
+                        f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r} is a text of this section an earlier "
+                        f"commit of its slice held, not the text it holds now{'' if siblings else ' (the section is gone)'}; not written "
+                        f"— it would undo an edit made since. Update {claim['topic']!r}, or name the section in merge_target to "
+                        "write the older text again")
+    except HistoryUnreadable as exc:
+        print(f"SLICE HISTORY UNREADABLE — {exc}. This run wrote NOTHING and exits 1.", file=sys.stderr)
+        return 1
+    return None

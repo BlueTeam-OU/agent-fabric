@@ -118,6 +118,7 @@ import sys
 from typing import Any, Callable
 
 from . import bypass, gzmsg, i18n, inbox, intake, paths, placement, transport
+from .transport import carrier as carrier_transport
 from . import jsvalues as js
 from .carrier import CARRIER_LABEL, CARRIER_NAME, arrivals
 
@@ -663,12 +664,13 @@ def main(argv: list[str]) -> int:
 
     to_one_login = bool(msg["metadata"].get("TO"))   # exactly one of TO, TO-ROLE, BROADCAST: the validator's rule
 
-    def refused_log(mid: str, s) -> None:
-        """The carrier mirror did not accept: a durable line beside the sent ledger (arrivals.MirrorLog), because the stderr line
+    def refused_log(mid: str, outcome: str, detail: str, role: str = "mirror") -> None:
+        """The carrier did not accept: a durable line beside the sent ledger (arrivals.MirrorLog), because the stderr line
         of this send is gone with the session and the parity report needs the reason. It is evidence and never a condition of
-        the send: a log that cannot be written is said and the send goes on. With the journal off no mirror is asked (rule 8), so nothing is logged."""
+        the send: a log that cannot be written is said and the send goes on. With the journal off no mirror is asked (rule 8), so
+        a mirror leaves nothing; a carrier that is the primary is logged in every mode, journal off included."""
         try:
-            arrivals.MirrorLog(mirror_log_path(who), iso_now=lambda: _now_iso()[:19] + "Z").append_refused(mid, s.state, s.detail)
+            arrivals.MirrorLog(mirror_log_path(who), iso_now=lambda: _now_iso()[:19] + "Z").append_refused(mid, outcome, detail, role)
         except OSError as e:
             print(f"gzcoord: the mirror refusal log could not be written ({e.strerror or e})", file=sys.stderr)
 
@@ -687,7 +689,7 @@ def main(argv: list[str]) -> int:
         sent_to = tp.send_mirrors(mid, text)
         for s in sent_to:
             if s.name == CARRIER_NAME and s.state != "accepted":
-                refused_log(mid, s)
+                refused_log(mid, s.state, s.detail)
         accepted = [s for s in sent_to if s.state == "accepted"]
         for s in accepted:
             # The relay is the journal's default carrier name (claude-bridge), not its transport name.
@@ -721,6 +723,14 @@ def main(argv: list[str]) -> int:
                 done = journal(["gzcoord-out-final", mid, "--state", "failed"], "")
                 if done["status"] != 0:
                     sys.stderr.write(done["stderr"])
+        if tp.primary.name == CARRIER_NAME:
+            # Before the mirrors are asked: a mirror's trouble must not come between the failure and its line. The outcomes are the
+            # mirror's, with their meaning: absent, failed (the carrier answered and refused, or recorded only some), no-answer
+            # (silent). A primary is never "not-carried" (that is a refusal, "failed"). An error that is no carrier's answer is
+            # no-answer unless it provably recorded nothing.
+            state = getattr(e, "state", "")
+            refused_log(mid, "absent" if getattr(e, "absent", False) else "failed" if state in ("failed", "not-carried") or (never and not state)
+                        else "no-answer", str(e), "primary")
         carried = bool(via_mirrors())
         if tp.primary.name == CARRIER_NAME:
             return carrier_not_accepted(e, never, carried, me["address"], file, mid, t)
@@ -810,8 +820,7 @@ def carrier_not_accepted(error: BaseException, never: bool, relay_took_it: bool,
                          t: i18n.Printer) -> int:
     """The exit and the line when the carrier, the transport of record, did not accept the send (exit 3 always): not sent
     when it provably recorded nothing, its outcome unknown when it may have. A relay mirror that took a copy is said, never counted: the carrier's answer is the status."""
-    login = address.rpartition("/")[2]
-    fix = t("carrier.fix", {"login": login, "name": CARRIER_NAME})
+    fix = carrier_transport.fix_line(t, address)
     if never:
         if getattr(error, "absent", False):
             print(t("send.carrier-absent", {"carrier": CARRIER_LABEL, "fix": fix}), file=sys.stderr)

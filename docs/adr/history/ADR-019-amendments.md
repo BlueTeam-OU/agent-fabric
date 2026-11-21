@@ -262,6 +262,40 @@ the fleet's 8 in its settings repository (`repos/agent-fabric.json`,
 Applied to PRs opened after the settings change; those open before it keep
 the word they were given. j885.
 
+### Amendment 2026-11-21 — the settings repositories and the no-CI word stay the owner's
+
+What changed: §5 rule 4 says two limits of the arming authority. A
+repository that holds the rules every PR is armed under (an
+organisation's `agent-fabric-settings`, and the operator repository,
+where `policies/arming.json` and `policies/auto-mode.json` move at
+ADR-045's split) names no `commits.below_min_authority` or
+`commits.boundary_authority`, so a PR there below its minimum or on its
+boundary arms only on the owner's word. And the owner's no-CI word, which `fabric-pr arm` reads only on a
+PR-mode repository with no CI at all, is never given by an authority:
+a repository without CI is given direct mode (where a head with no
+check merges on its review alone) or CI in its policy.
+
+Why: the owner's rule of 2026-11-09, that no agent waits on the owner
+to arm, found repositories with no authority to ask (j722, from
+devex-tooling's REPLY 01a1c220 on gzapp.decks). The owner, 2026-11-21,
+answering j722's sweep of every `repos/<repo>.json`: the brand, deck
+and transit repositories take architect-cto as both authorities with
+`authority_own_prs` false, radicle-spike fabric-coordinator; the
+settings repositories stay the owner's, since a settings PR loosens the
+fence the agents are armed under; the no-CI word is not delegated,
+since only an empty repository would read it today. The operator
+repository was not in the sweep's question; it takes the settings
+repositories' reason, and its policy has no word from the owner yet.
+The engine's repository holds `policies/arming.json` and
+`policies/auto-mode.json` until that split and keeps fabric-coordinator
+as its authority meanwhile: the rule names its two kinds of repository,
+not every repository a rule file sits in.
+blueteam-accounting keeps the policy the owner gave it on 2026-11-17:
+its accounting role arms at one work commit, every other PR below the
+minimum on the owner's word. Which repository
+names which role is its settings file's, not this
+record's (A 2026-11-12); `policies/auto-mode.json` lists them for the classifier.
+
 ### Amendment 2026-11-21 — nobody waits idle on a word
 
 What changed: §5 rule 4 says how an agent waits for a word to arm.

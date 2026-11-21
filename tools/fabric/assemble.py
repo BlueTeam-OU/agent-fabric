@@ -88,6 +88,12 @@ of one word, a body another correction of the run writes over a different sectio
 the heading it replaces. After the write, a section a correction replaced that stands in its slice again fails the run
 (its files are written: discard them). A flat class file that records no topic is not taken for the topic a drain brings:
 it moves into the directory as the carried file.
+
+A claim without merge_target that equals an EARLIER committed text of its section, and not the text the section holds
+now, is not written and is listed under `superseded_harvests`: the section was edited or removed by a later commit (a
+review answer), and writing the memory again would undo it. This reads the git history of the slice files, so the tree
+is an input as well as the claims; a tree that is not a repository, or has no commits, has no history and behaves as
+before. A history git cannot read refuses the run before the slices are written, with one line on stderr.
 <<< help
 """
 
@@ -108,7 +114,7 @@ from assembler.intake import parse_args, open_layout, read_claims, screen_hygien
 from assembler.targets import plan_classes, held_files, resolve_all_targets, point_disk  # noqa: E402
 from assembler.anchorkeep import keep_resolving_anchors  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
-from assembler.shapes import check_correction_shapes, drop_replayed, verify_replacements  # noqa: E402
+from assembler.shapes import check_correction_shapes, drop_replayed, drop_undoing_curation, verify_replacements  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
 from assembler.index import bound_roles_with_domain_slices, index_role, read_crossref_index, roles_with_project_directory  # noqa: E402
 from assembler.report import report, record_rehomed, read_rehome_report  # noqa: E402
@@ -194,6 +200,8 @@ def assemble_project(run: Run) -> int | None:
         return 1
     keep_resolving_anchors(run)
     drop_replayed(run)
+    if drop_undoing_curation(run):
+        return 1
     if check_correction_shapes(run):
         return 1
     if check_collisions(run):

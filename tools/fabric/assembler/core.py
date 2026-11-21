@@ -62,7 +62,9 @@ CLASS_FILES = {
 BANNED_PATTERNS: list = []
 # The same lists for a slice of this project's own (its classes and its
 # shared/): a name its hygiene.json marks "scope": "others" is its own to
-# say there, and withheld everywhere else (the owner, 2026-10-05).
+# say there, and withheld everywhere else (the owner, 2026-10-05); one
+# another project marks "scope": "own" is withheld only in that project's
+# slices, so it is absent here (the owner, 2026-11-19).
 PROJECT_PATTERNS: list = []
 
 

@@ -16,10 +16,12 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import types
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
@@ -160,6 +162,16 @@ class Watch(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout.count("subject-4")), (0, 1), r.stdout + r.stderr)
         self.assertEqual((w.calls, w.acks), (0, []), "nothing in the inbox path reached the relay")
 
+    def registry(self, operator: str | None) -> str:
+        """A scratch hosts registry whose operator on this account's host is `operator` (None: a host with another login),
+        so a case never reads whether the runner is an operator in the checkout's registry."""
+        d = tempfile.mkdtemp(prefix="j261-reg-")
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "registry.json")
+        with open(path, "w") as fh:
+            json.dump({"hosts": {P.ME["host"]: {"operator": operator or "someone-else"}}, "placement": {}}, fh)
+        return path
+
     def login(self):
         return subprocess.run(["id", "-un"], capture_output=True, text=True, timeout=10).stdout.strip()
 
@@ -167,11 +179,18 @@ class Watch(unittest.TestCase):
         return os.path.join(w.env["XDG_RUNTIME_DIR"], "agent-fabric", f"gzcoord-inbox-{self.login()}.relay-down")
 
     def test_a_carrier_that_is_not_running_ends_the_watch_with_its_line_and_marker(self):
-        w, fake = self.world("carrier-record", pages=[[C.relay_rec(5)]])
-        fake.close()                                              # the socket is gone: no carrier
-        r = w.watch(deadline=8)
-        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
-        self.assertIn(f"fabric-ctl {self.login()} interweave", r.stdout, "the line names the command that says why")
+        for operator in (False, True):
+            w, fake = self.world("carrier-record", pages=[[C.relay_rec(5)]])
+            fake.close()                                          # the socket is gone: no carrier
+            w.env["AGENT_FABRIC_HOSTS_REGISTRY"] = self.registry(P.ME["agent"] if operator else None)
+            r = w.watch(deadline=8)
+            self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+            if operator:
+                self.assertIn(f"fabric-ctl {P.ME['agent']} interweave", r.stdout, "an operator is told the command that says why")
+                self.assertNotIn("OBSERVATION", r.stdout)
+            else:
+                self.assertIn("OBSERVATION to fabric-coordinator", r.stdout, "anyone else is told what they can do")
+                self.assertNotIn("fabric-ctl", r.stdout)
         self.assertIn("carrier", r.stdout)
         self.assertNotIn("relay unreachable", r.stdout)
         self.assertTrue(os.path.exists(self.marker(w)), "the Stop hook's marker: it means the carrier here")
@@ -389,9 +408,17 @@ class Units(unittest.TestCase):
         p = carrier_transport.CarrierPrimary(adapter.Adapter(path="/no/such"), address="h/beta")
         with self.assertRaises(adapter.CarrierError) as cm:
             p.receive(1, threading.Event())
-        x = p.explain(cm.exception)
-        self.assertEqual(x["code"], 0)
-        self.assertIn("fabric-ctl beta interweave", x["line"])
+        for operator, want, absent in ((None, "OBSERVATION", "fabric-ctl"), ("beta", "fabric-ctl beta interweave", "OBSERVATION")):
+            d = tempfile.mkdtemp(prefix="j261-reg-")
+            self.addCleanup(shutil.rmtree, d, True)
+            reg = os.path.join(d, "registry.json")
+            with open(reg, "w") as fh:
+                json.dump({"hosts": {"h": {"operator": operator or "someone-else"}}, "placement": {}}, fh)
+            with mock.patch.dict(os.environ, {"AGENT_FABRIC_HOSTS_REGISTRY": reg}):
+                x = p.explain(cm.exception)
+            self.assertEqual(x["code"], 0)
+            self.assertIn(want, x["line"])
+            self.assertNotIn(absent, x["line"])
         self.assertFalse(p.refresh(cm.exception))
 
     def test_a_record_listed_again_at_once_is_not_news(self):

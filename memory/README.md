@@ -436,7 +436,11 @@ slice that still carries a hit, so nothing reaches `main` unsubstituted.
 A project's own entry may carry `"scope": "others"`: the name is that
 project's to say in its own slices (its `.agent-fabric/memory/`), and is
 withheld everywhere else — the fabric's corpus and every other project.
-The fabric's own list may not use the scope, and a list that cannot be
+`"scope": "own"` is the reverse: the name is withheld in that project's
+own slices only, and every other project's slices may say it (gzapp's
+corpus stays valid wherever the app runs, while a brand's may be about
+a real place); the fabric's domain slices, read in every project, still
+withhold it. The fabric's own list may not use either scope, and a list that cannot be
 read, or carries a key or flag it does not know, stops the drain and is
 a lint finding: nothing is judged clean against a broken list. A
 substitution note names the entry's label and the place, never the text

@@ -544,6 +544,13 @@ class EndToEnd(Scratch):
                 o = breakglass.via_hostexec(r, target, timeout=1, journal=j, run=run)
                 self.assertEqual(o.kind, kind)
                 self.assertIn(detail, o.detail)
+        # A timeout names what the op is: an action may still be running there, a read changes nothing there and is not an "action".
+        for op, says, not_says in (("local-prune", "the action may still be running there", "read"), ("interweave", "a read changes nothing there", "action")):
+            with self.subTest("timeout", op=op):
+                o = breakglass.via_hostexec(self.request(op=op), target, timeout=1, journal=j, run=timeout)
+                self.assertEqual((o.kind, o.detail.startswith("no answer within 1 s")), ("no-answer", True))
+                self.assertIn(says, o.detail)
+                self.assertNotIn(not_says, o.detail)
         # the request travels on stdin, the argument list names only the op
         seen = {}
 
