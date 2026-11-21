@@ -23,8 +23,13 @@ def main() -> int:
 
     print("the policy itself")
     check("every slot has text", all(isinstance(v, str) and v.strip() for v in POLICY["environment"].values()))
+    # Each public repository by name, not the sentence: a new public one (fleetdeck, a fork) must not
+    # break the check, and one dropped from the PUBLIC part must.
+    public = POLICY["environment"]["Repository visibility"].split("INTERNAL:")[0]
     check("the public repositories are named as such",
-          "PUBLIC: BlueTeam-OU/agent-fabric and BlueTeam-OU/InterWeave" in POLICY["environment"]["Repository visibility"])
+          public.startswith("PUBLIC:") and all(f"BlueTeam-OU/{r}" in public.replace(",", " ").split()
+                                               for r in ("agent-fabric", "InterWeave", "agent-fabric-fleetdeck")),
+          public)
     check("lists hold prose, never \"$defaults\" (the writer adds it)",
           all("$defaults" not in POLICY[k] for k in ("allow", "soft_deny", "hard_deny")))
     # The apply writes GitHub's rulesets: the entry must keep it to the policy's keeper and to registered
