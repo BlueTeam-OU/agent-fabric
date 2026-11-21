@@ -105,7 +105,10 @@ WHAT A ROW SAYS
          requires every engine; ? is a reader that could not answer
   verdict one of:
     MERGEABLE — arm (8–16 work commits, gate met: post the basis, arm)
-    MERGEABLE — ask the owner (under 8 work commits, gate met)
+    MERGEABLE — ask <authority> by REQUEST (under 8 work commits, gate met;
+    the policy names commits.below_min_authority)
+    MERGEABLE — ask the owner (under 8 work commits, gate met; the policy
+    names no authority)
     MERGEABLE — N work commits, over 16: smaller batches next time (advice, never a block)
     MERGEABLE — commits unknown (the base is not fetched; count by hand)
     MERGEABLE — record (owner's ruling): on a direct repository, a PR whose every

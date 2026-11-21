@@ -900,7 +900,7 @@ class ArmRun(unittest.TestCase):
             st.enter_context(contextlib.redirect_stdout(out))
             st.enter_context(contextlib.redirect_stderr(err))
             try:
-                rc = arm.arm(["7", "--basis", basis, *extra])
+                rc = arm.arm(["7", *(("--basis", basis) if basis is not None else ()), *extra])
             except arm.Refused as e:
                 rc = f"refused: {e}"
             except arm.Unanswered as e:
@@ -1791,6 +1791,15 @@ class ArmRun(unittest.TestCase):
         self.assertIn("the pull request's author cannot be told from its branch", str(rc))
         rc, out = self.below({"authority_own_prs": True}, basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="fix-x")
         self.assertEqual(rc, 0, out)
+
+    def test_a_dry_run_without_a_basis_names_the_minimum_and_whom_to_ask(self):
+        # pr_gate's verdict and team.md cite a bare `fabric-pr arm N --dry-run` for this (#676 F9)
+        rc, _ = self.below(basis=None, extra=("--dry-run",), fleet=fleet_of(("arch1", "architect-cto", True)))
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertIn("under 8", str(rc))
+        self.assertIn("ask an architect-cto holder with a session running now (arch1)", str(rc))
+        rc, _ = self.below(basis=None, fleet=fleet_of(("arch1", "architect-cto", True)))   # a real arm still needs its record
+        self.assertIn("unanswered: --basis", str(rc))
 
     def test_the_refusal_names_the_authority_its_running_holder_and_the_basis_and_never_the_owner(self):
         text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",), fleet=fleet_of(("arch1", "architect-cto", True), ("dev", "web-dev", True)))

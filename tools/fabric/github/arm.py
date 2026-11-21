@@ -377,7 +377,8 @@ Options:
   --any-owner           arm a PR whose branch is not this session's
   --defer "<head8>:F<n>" "<why>"  lift one open finding of gate 4c (repeatable); recorded in the comment
   --defer-job j<n> "<why>"  lift one blocked job of gate 4c whose wait is not this PR's (repeatable); recorded in the comment
-  --dry-run             evaluate every gate, arm nothing, post nothing
+  --dry-run             evaluate every gate, arm nothing, post nothing; --basis may be
+                        left out, and the count gate then says the minimum and whom to ask
   --repo <owner/name|project>  the PR's repository, whose arm.json and policy apply, not the cwd checkout's
 
 Exit codes:
@@ -1040,7 +1041,11 @@ def arm(argv: list[str]) -> int:
     if not num:
         raise Unanswered("the PR number is required")
     if not basis:
-        raise Unanswered('--basis "<one line>" is required — the arming comment is the record')
+        if not dry:
+            raise Unanswered('--basis "<one line>" is required — the arming comment is the record')
+        # A dry run posts no comment, so it needs no record: without a basis it carries no word, and the count gate
+        # says the minimum and whom to ask (team.md and the pull-requests skill cite a bare `fabric-pr arm --dry-run`).
+        basis = "(dry run: no basis given)"
     if boundary and no_boundary:
         raise Unanswered("--boundary and --no-boundary contradict")
     if bool(no_boundary) != bool(waiver):
