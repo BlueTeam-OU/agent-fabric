@@ -21,7 +21,7 @@ import time
 from unittest import mock
 import jobs_world  # noqa: E402 — tests/, the script's own directory
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
-from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree, write_registry  # noqa: E402 — tests/, the script's own directory
 scrub_process_env()
 own_instance_tree()
 
@@ -1999,6 +1999,14 @@ def main() -> int:
               os.path.exists(os.path.join(left, "docs", "target", "y")) and os.path.exists(os.path.join(left, "a/b/c/d/target/z"))
               and os.path.exists(os.path.join(left, "Cargo.toml")), out + err)
 
+        # The registry names each project by its remotes (tools/fabric/workingcopy.py); a stripped tree holds none (ADR-045 §5 rule 3),
+        # so the cases below that match a checkout to its project read this operator's.
+        project_operator = os.path.join(tmp, "project-operator")
+        write_registry(os.path.join(project_operator, "projects"), {"projects": {
+            "agent-fabric": {"remotes": ["git@github.com:BlueTeam-OU/agent-fabric.git", "https://github.com/BlueTeam-OU/agent-fabric",
+                                         "git@github.com:gzapi-org/agent-fabric.git", "https://github.com/gzapi-org/agent-fabric"]},
+            "gzapp": {"remotes": ["git@github.com:gzapi-org/gzapp.git", "https://github.com/gzapi-org/gzapp"]}}})
+        os.environ["AGENT_FABRIC_OPERATOR"] = project_operator
         print("a job is never bound to another repository's branch or worktree (j164)")
         w = World()
         other = jobs_world.seeded(os.path.join(tmp, f"other{w.n}"), origins)      # a clone of another project, the session's directory
@@ -2064,6 +2072,7 @@ def main() -> int:
         rc, out, err = w.sw("project", mine_job, "agent-fabric", "--working-copy", w.repo, "--forget-checkout")
         check("…and is refused for a job whose checkout is its own repository's (control)",
               rc == 1 and w.job(mine_job).get("branch"), out + err)
+        del os.environ["AGENT_FABRIC_OPERATOR"]
 
         w = World(under=home)
         j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
