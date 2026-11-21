@@ -1155,6 +1155,10 @@ def main() -> int:
         subprocess.run(["git", "-C", w.repo, "worktree", "add", "-q", job["worktree"], job["branch"]], check=True, env=git_env())
         # The record named two places until then; its own worktree is the one re-pointing the guard accepts.
         project = "proj"
+        # `project` takes only ids the registry holds (j154): these three stand for registered projects here.
+        ids_operator = os.path.join(tmp, "ids-operator")
+        write_registry(os.path.join(ids_operator, "projects"), {"projects": {n: {"remotes": [f"https://example.invalid/{n}"]} for n in ("proj", "elsewhere", "somewhere")}})
+        os.environ["AGENT_FABRIC_OPERATOR"] = ids_operator
         before = w.job(j1)
         rc, out, err = w.sw("project", j1, project, "--working-copy", job["worktree"])
         check("project --working-copy <the job's own worktree> is accepted and leaves the two fields equal",
@@ -1168,6 +1172,7 @@ def main() -> int:
         rc, out, err = w.sw("project", j1, "somewhere", "--working-copy", w.repo)
         check("…positive control: any other directory is still refused while the job has a worktree",
               rc == 1 and "its work is in that project's checkout" in err and w.job(j1)["working_copy"] == job["worktree"], out + err)
+        del os.environ["AGENT_FABRIC_OPERATOR"]
 
         # A job whose working copy is a linked worktree (its record names one place, j474): the branch's worktree is made beside the
         # repository's main checkout, not beside that worktree.
@@ -2072,6 +2077,33 @@ def main() -> int:
         rc, out, err = w.sw("project", mine_job, "agent-fabric", "--working-copy", w.repo, "--forget-checkout")
         check("…and is refused for a job whose checkout is its own repository's (control)",
               rc == 1 and w.job(mine_job).get("branch"), out + err)
+        # A job whose recorded id is no registry id (j154: "agent-fabric-settings" for settings-gzapi) holds its own checkout, which no
+        # command could re-point: switch called it another repository's, project called its work that project's, forget refused it.
+        print("a job recorded under an unregistered project id is repaired by project (j154)")
+        rc, out, err = w.sw("add", "typo id", "--project", "agent-fabric-nope")
+        check("add --project refuses an id the registry does not hold", rc == 1 and "not a project id" in err, out + err)
+        rc, out, err = w.sw("project", mine_job, "agent-fabric-nope", "--working-copy", w.repo)
+        check("project refuses an id the registry does not hold, and leaves the job as it was",
+              rc == 1 and "not a project id" in err and w.job(mine_job).get("project") != "agent-fabric-nope", (out + err, w.job(mine_job)["project"]))
+        bare_of_repo = subprocess.run(["git", "-C", w.repo, "remote", "get-url", "origin"], check=True, env=git_env(), capture_output=True, text=True).stdout.strip()
+        git_in(w.repo, "remote", "set-url", "origin", "https://github.com/BlueTeam-OU/agent-fabric.git")
+        git_in(w.repo, "config", f"url.{bare_of_repo}.insteadOf", "https://github.com/BlueTeam-OU/agent-fabric.git")      # fetch stays local
+        unreg = w.working("recorded under a retired id")
+        doc = json.load(open(jpath))
+        rec = next(x for x in doc["jobs"] if x["id"] == unreg)
+        rec["project"], rec["branch"], rec["worktree"] = "agent-fabric-retired", w.job(mine_job)["branch"], w.job(mine_job)["worktree"]
+        json.dump(doc, open(jpath, "w"))
+        rc, out, err = w.sw("project", unreg, "agent-fabric", "--working-copy", w.repo)
+        check("project re-points a job holding its checkout when its recorded id is unregistered and the working copy is the target's repository",
+              rc == 0 and w.job(unreg)["project"] == "agent-fabric" and w.job(unreg).get("branch"), (out + err, w.job(unreg)))
+        again = w.add("registered id, work held")
+        doc = json.load(open(jpath))
+        rec = next(x for x in doc["jobs"] if x["id"] == again)
+        rec["project"], rec["branch"], rec["worktree"] = "agent-fabric", w.job(mine_job)["branch"], w.job(mine_job)["worktree"]
+        json.dump(doc, open(jpath, "w"))
+        rc, out, err = w.sw("project", again, "gzapp", "--working-copy", w.repo)
+        check("control: a job with a registered id holding its checkout is still not re-pointed to another project",
+              rc == 1 and "its work is in that project's checkout" in err, out + err)
         del os.environ["AGENT_FABRIC_OPERATOR"]
 
         w = World(under=home)
