@@ -664,12 +664,13 @@ def main(argv: list[str]) -> int:
 
     to_one_login = bool(msg["metadata"].get("TO"))   # exactly one of TO, TO-ROLE, BROADCAST: the validator's rule
 
-    def refused_log(mid: str, s) -> None:
-        """The carrier mirror did not accept: a durable line beside the sent ledger (arrivals.MirrorLog), because the stderr line
+    def refused_log(mid: str, outcome: str, detail: str, role: str = "mirror") -> None:
+        """The carrier did not accept: a durable line beside the sent ledger (arrivals.MirrorLog), because the stderr line
         of this send is gone with the session and the parity report needs the reason. It is evidence and never a condition of
-        the send: a log that cannot be written is said and the send goes on. With the journal off no mirror is asked (rule 8), so nothing is logged."""
+        the send: a log that cannot be written is said and the send goes on. With the journal off no mirror is asked (rule 8), so
+        a mirror leaves nothing; a carrier that is the primary is logged in every mode, journal off included."""
         try:
-            arrivals.MirrorLog(mirror_log_path(who), iso_now=lambda: _now_iso()[:19] + "Z").append_refused(mid, s.state, s.detail)
+            arrivals.MirrorLog(mirror_log_path(who), iso_now=lambda: _now_iso()[:19] + "Z").append_refused(mid, outcome, detail, role)
         except OSError as e:
             print(f"gzcoord: the mirror refusal log could not be written ({e.strerror or e})", file=sys.stderr)
 
@@ -688,7 +689,7 @@ def main(argv: list[str]) -> int:
         sent_to = tp.send_mirrors(mid, text)
         for s in sent_to:
             if s.name == CARRIER_NAME and s.state != "accepted":
-                refused_log(mid, s)
+                refused_log(mid, s.state, s.detail)
         accepted = [s for s in sent_to if s.state == "accepted"]
         for s in accepted:
             # The relay is the journal's default carrier name (claude-bridge), not its transport name.
@@ -722,6 +723,10 @@ def main(argv: list[str]) -> int:
                 done = journal(["gzcoord-out-final", mid, "--state", "failed"], "")
                 if done["status"] != 0:
                     sys.stderr.write(done["stderr"])
+        if tp.primary.name == CARRIER_NAME:
+            # Before the mirrors are asked: a mirror's trouble must not come between the failure and its line. The outcomes are the
+            # mirror's: absent, failed (provably recorded nothing), no-answer (it may have recorded: the "outcome unknown" exit).
+            refused_log(mid, "absent" if getattr(e, "absent", False) else "failed" if never else "no-answer", str(e), "primary")
         carried = bool(via_mirrors())
         if tp.primary.name == CARRIER_NAME:
             return carrier_not_accepted(e, never, carried, me["address"], file, mid, t)

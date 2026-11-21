@@ -20,8 +20,8 @@ what it filed or printed):
              off, for the rollback drill
   watch      (only for the relay-outage drill) every account's watch log lines {t, event: start|end, pid, reason?, code?}: when a watch
              started and how it ended (carrier/arrivals.WatchLog)
-  mirror     every account's mirror-refusal log lines {mid, t, outcome, reason} (carrier/arrivals.MirrorLog): the sends the carrier did not
-             accept, as the SENDER kept them. Joined to a pair with no InterWeave copy and no sender record by MESSAGE-ID across every
+  mirror     every account's mirror-refusal log lines {mid, t, outcome, reason[, as]} (carrier/arrivals.MirrorLog): the sends the carrier did not
+             accept, as the SENDER kept them; `as` says whether it was the transport of record ("primary") or a mirror, and a row without it is a mirror's. Joined to a pair with no InterWeave copy and no sender record by MESSAGE-ID across every
              account, it names the cause that was on the sender's stderr only; an account without the log (a daemon from before it)
              says "not collected", never "no refusal" (load_mirror)
   shown, acks  (only for the relay-outage drill) every account's shown ledger lines {mid, via, t,
@@ -291,6 +291,8 @@ def _watch(login: str, meta: dict, rows: list | None) -> list[dict] | None:
 
 
 MIRROR_ROW_KEYS = ("mid", "t", "outcome", "reason")
+# `as` is optional: a collection filed by an op from before the field holds none, and such a row is a mirror's.
+MIRROR_ROLES = arrivals.MirrorLog.ROLES
 MIRROR_OUTCOMES = arrivals.MirrorLog.OUTCOMES      # one definition: the writer's
 
 
@@ -304,8 +306,9 @@ def _mirror(login: str, meta: dict, rows: list | None) -> list[dict] | None:
     if isinstance(want, dict) and "mirror" in want and want["mirror"] != len(rows):
         raise CollectedError(f"{login}: the files do not hold what the collection counted of the mirror log (cut short, or edited)")
     for r in rows:
-        if not (isinstance(r, dict) and set(r) == set(MIRROR_ROW_KEYS) and all(isinstance(r[k], str) for k in MIRROR_ROW_KEYS)
-                and r["mid"] and r["outcome"] in MIRROR_OUTCOMES):
+        if not (isinstance(r, dict) and set(r) in (set(MIRROR_ROW_KEYS), {*MIRROR_ROW_KEYS, "as"})
+                and all(isinstance(v, str) for v in r.values()) and r["mid"] and r["outcome"] in MIRROR_OUTCOMES
+                and r.get("as", "mirror") in MIRROR_ROLES):
             raise CollectedError(f"{login}: a mirror log row is not {{{', '.join(MIRROR_ROW_KEYS)}}}")
         try:
             parse_t(r["t"])
@@ -315,7 +318,7 @@ def _mirror(login: str, meta: dict, rows: list | None) -> list[dict] | None:
 
 
 def load_mirror(path: str) -> dict:
-    """{"rows": {mid: [{login, t, outcome, reason}]}, "uncollected": [login], "began": the start of the span every collected log covers}: every account's mirror refusals by MESSAGE-ID (the
+    """{"rows": {mid: [{login, t, outcome, reason, as}]}, "uncollected": [login], "began": the start of the span every collected log covers}: every account's mirror refusals by MESSAGE-ID (the
     sender's log carries no addressee), and the accounts whose log the collection does not hold whole."""
     by_mid: dict[str, list[dict]] = defaultdict(list)
     uncollected: list[str] = []
@@ -331,7 +334,7 @@ def load_mirror(path: str) -> dict:
         except (KeyError, ValueError, TypeError):
             began = float("inf")      # a collection that does not say what it covers rules nothing out
         for r in rows:
-            by_mid[r["mid"]].append({"login": login, "t": r["t"], "outcome": r["outcome"], "reason": r["reason"]})
+            by_mid[r["mid"]].append({"login": login, "t": r["t"], "outcome": r["outcome"], "reason": r["reason"], "as": r.get("as", "mirror")})
     return {"rows": dict(by_mid), "uncollected": sorted(uncollected), "began": began}
 
 
@@ -655,7 +658,13 @@ def _cause(carrier: str, key: tuple, sent: dict, copies: dict, addressee_first: 
                 said = "the sender recorded no InterWeave delivery"
                 refused = mirror["rows"].get(key[0])
                 if refused:
-                    said += "; " + "; ".join(f"{x['login']}'s mirror log: the carrier did not accept it ({x['outcome']}: {x['reason']}) at {x['t']}" for x in refused)
+                    # A primary's failure is the sender's own send exiting 3: the cause, so it leads; a mirror's refusal is an addition
+                    # to a send the relay carried.
+                    first = [f"{x['login']}'s log: the carrier did not accept it at send ({x['outcome']}: {x['reason']}) at {x['t']}"
+                             for x in refused if x["as"] == "primary"]
+                    rest = [f"{x['login']}'s mirror log: the carrier did not accept it ({x['outcome']}: {x['reason']}) at {x['t']}"
+                            for x in refused if x["as"] != "primary"]
+                    said = "; ".join(first + [said] + rest)
                 elif mirror["uncollected"]:
                     said += f"; the mirror log was not collected from {len(mirror['uncollected'])} account(s), the sender's among them or not, so a refusal is not ruled out"
                 elif made is not None and made < mirror.get("began", 0.0):

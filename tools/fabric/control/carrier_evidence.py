@@ -48,9 +48,11 @@ CONTRACT
             gave-up, token-refused, journal-held), `code` its exit status, with `t` in [since, until). Read by the relay-outage
             drill's report (restarts and give-ups inside the outage) and nothing else. A failure of this section ends only this
             section, as the backfill log's does; a line of another shape is skipped and counted.
-  mirror    rows {mid, t, outcome, reason} of gzcoord-mirror.jsonl (carrier/arrivals.py MirrorLog): the SENDER's line for each send the
-            second carrier, as a mirror, did not accept, `outcome` one of MIRROR_OUTCOMES (absent, not-carried, failed, no-answer),
-            `reason` a short line of words (what the sender's stderr said, kept), with `t` in [since, until). Read by the parity
+  mirror    rows {mid, t, outcome, reason, as} of gzcoord-mirror.jsonl (carrier/arrivals.py MirrorLog): the SENDER's line for each send the
+            second carrier did not accept, `outcome` one of MIRROR_OUTCOMES (absent, not-carried, failed, no-answer), `as` "mirror"
+            (a relay-record send's second copy) or "primary" (the transport of record: carrier-record, carrier-only; a line written
+            before the field has none and is sent as "mirror"), `reason` a short line of words (what the sender's stderr said, kept),
+            with `t` in [since, until). Read by the parity
             report to name the cause of a pair with no second-carrier copy and no sender record, and nothing else. A failure of this
             section ends only this section, as the watch log's does; a line of another shape is skipped and counted.
   never     a body. Rows are built key by key from a closed list, each value a
@@ -254,9 +256,10 @@ def _watch_row(o: dict):
 
 
 def _mirror_row(o: dict):
-    """{mid, t, outcome, reason}: a line of another shape, or an outcome this version does not know, is skipped and counted, never
+    """{mid, t, outcome, reason, as}: a line of another shape, or an outcome this version does not know, is skipped and counted, never
     filed as one the report would then print."""
-    if (o.get("outcome") not in MIRROR_OUTCOMES or not isinstance(o.get("mid"), str) or not o["mid"]
+    role = o.get("as", "mirror")      # no field: a line from before it, a mirror's
+    if (role not in arrivals.MirrorLog.ROLES or o.get("outcome") not in MIRROR_OUTCOMES or not isinstance(o.get("mid"), str) or not o["mid"]
             or _time(o.get("t")) is None or not isinstance(o.get("reason"), str)):
         return None
     if not parity.UUID7.fullmatch(o["mid"]):
@@ -264,7 +267,7 @@ def _mirror_row(o: dict):
         # one, which would make the whole log read "not collected" (as _backfill_row does).
         return DROP
     # The carrier's own error can name a file of the sender's (an OSError on its outbox): a path never leaves the account.
-    return {"mid": _short(o["mid"]), "t": o["t"], "outcome": o["outcome"], "reason": _short(re.sub(r"\S*/\S*", "<path>", o["reason"]))}
+    return {"mid": _short(o["mid"]), "t": o["t"], "outcome": o["outcome"], "reason": _short(re.sub(r"\S*/\S*", "<path>", o["reason"])), "as": role}
 
 
 def _page(rows: list[dict], key: str, page_bytes: int | None = None) -> tuple[list[dict], str | None] | str:

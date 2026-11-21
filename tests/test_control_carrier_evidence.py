@@ -656,6 +656,25 @@ class Parity(unittest.TestCase):
                           f"(failed: the InterWeave carrier refused (no roster)) at {iso(30)}", out)
             self.assertNotIn("no account's mirror log holds a refusal", out.split(m3)[1].split("\n")[0])
 
+    def test_a_primary_failure_leads_the_cause_and_a_row_without_the_field_is_a_mirror(self):
+        m3 = mid(30, 3)
+        self.arr["beta"] = self.arr["beta"] + [arrival(m3, "h/beta", "relay", 31)]
+        self.kinds["beta"][m3] = "direct"
+        why = {**mrow(30, m3, "no-answer", "the InterWeave carrier did not answer"), "as": "primary"}
+        for make in (self.filed, self.jsonl):
+            rc, out, err = self.report(make(alpha={"mirror": [why]}, beta={"mirror": []}))
+            self.assertEqual((rc, err), (0, ""), make.__name__)
+            line = out.split(m3)[1].split("\n")[0]
+            self.assertIn(f"alpha's log: the carrier did not accept it at send (no-answer: the InterWeave carrier did not answer) at {iso(30)}; "
+                          "the sender recorded no InterWeave delivery", line)
+            self.assertLess(line.index("did not accept it at send"), line.index("recorded no InterWeave delivery"))
+        old = mrow(30, m3, "failed", "refused")      # no `as`: the op from before the field
+        self.assertNotIn("as", old)
+        _, out, _ = self.report(self.filed(alpha={"mirror": [old]}, beta={"mirror": []}))
+        line = out.split(m3)[1].split("\n")[0]
+        self.assertIn("alpha's mirror log: the carrier did not accept it (failed: refused)", line)
+        self.assertNotIn("at send", line)
+
     def test_a_miss_the_logs_do_not_explain_says_so_and_an_uncollected_log_is_not_no_refusal(self):
         m3 = mid(30, 3)
         self.arr["beta"] = self.arr["beta"] + [arrival(m3, "h/beta", "relay", 31)]
@@ -1770,7 +1789,8 @@ class MirrorAccount(RelayOutageAccount):
         r = ev.carrier_evidence(request("mirror", 0, 100), state=self.state)
         self.assertEqual((r["status"], r["next"], r["skipped"]), ("ok", None, 0))
         self.assertEqual([x["outcome"] for x in r["rows"]], list(ev.MIRROR_OUTCOMES))
-        self.assertEqual(set(r["rows"][0]), {"mid", "t", "outcome", "reason"})
+        self.assertEqual(set(r["rows"][0]), {"mid", "t", "outcome", "reason", "as"})
+        self.assertEqual({x["as"] for x in r["rows"]}, {"mirror"}, "a line written before the field reads as a mirror's")
         self.assertNotIn(BODY_TEXT, json.dumps(r))
         self.assertNotIn(".secret", json.dumps(r))
 
@@ -1815,6 +1835,15 @@ class MirrorAccount(RelayOutageAccount):
         r = ev.carrier_evidence(request("mirror", 0, 100), state=self.state)
         self.assertEqual(([x["outcome"] for x in r["rows"]], r["skipped"]), (list(arrivals.MirrorLog.OUTCOMES), 0))
         self.assertEqual(r["rows"][0]["reason"], "why it failed")
+
+    def test_a_primary_line_is_sent_as_primary_and_an_unknown_role_is_skipped(self):
+        log = arrivals.MirrorLog(os.path.join(self.state, "gzcoord-mirror.jsonl"), iso_now=lambda: iso(50))
+        log.append_refused(mid(1, 1), "failed", "x", "primary")
+        log.append_refused(mid(1, 2), "failed", "x")
+        with open(log.path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({**mrow(51), "as": "bystander"}) + "\n")
+        r = ev.carrier_evidence(request("mirror", 0, 100), state=self.state)
+        self.assertEqual(([x["as"] for x in r["rows"]], r["skipped"]), (["primary", "mirror"], 1))
 
     def test_a_path_in_the_carriers_own_error_does_not_leave_the_account(self):
         self.log([mrow(10, reason="only 1 of 2 recipients recorded: beta: [Errno 13] Permission denied: '/home/x/.local/state/interweave/deliveries.jsonl'")])

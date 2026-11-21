@@ -245,12 +245,15 @@ def mirror_log_cases() -> None:
     """ADR-064 rule 11, the sender's durable line: a mirror send the carrier did not accept leaves {mid, t, outcome, reason} in
     gzcoord-mirror.jsonl beside gzcoord-sent.jsonl, one outcome each; an accepted send leaves none (the positive control).
     The parity report reads it (test_gzcoord_carrier_parity.py); the mutation that drops the write fails each case here."""
-    def logged(run: str, relay_status: int = 200, seed: bytes = b"", **env: str) -> tuple:
+    def logged(run: str, relay_status: int = 200, seed: bytes = b"", mode_name: str = "", **env: str) -> tuple:
         relay = P.Relay(status=relay_status)
         base = P.scratch("send-mirrorlog-")
         state, store = os.path.join(base, "state"), P.id_store()
         agent = os.path.join(state, "agents", P.LOGIN)
         os.makedirs(agent)
+        if mode_name:
+            from gzcoord.transport import mode
+            mode.write(mode_name, "h1/op", agent)
         if seed:
             with open(os.path.join(agent, "gzcoord-mirror.jsonl"), "wb") as fh:
                 fh.write(seed)
@@ -265,10 +268,11 @@ def mirror_log_cases() -> None:
             lines = None
         return r, lines
 
-    def one(name: str, r, lines, outcome: str, reason_has: str) -> None:
+    def one(name: str, r, lines, outcome: str, reason_has: str, role: str = "mirror", code: int = 0) -> None:
         line = (lines or [{}])[0]
-        check(f"{name}: exit 0 and one line {{mid, t, outcome {outcome}, reason}}",
-              r.code == 0 and lines is not None and len(lines) == 1 and set(line) == {"mid", "t", "outcome", "reason"}
+        check(f"{name}: exit {code} and one line {{mid, t, outcome {outcome}, reason, as {role}}}",
+              r.code == code and lines is not None and len(lines) == 1 and set(line) == {"mid", "t", "outcome", "reason", "as"}
+              and line["as"] == role
               and line["mid"] == P.VALID_ID and line["outcome"] == outcome and reason_has in line["reason"]
               and len(line["t"]) == 20 and line["t"].endswith("Z"), f"{r.code} {r.err} {lines}")
 
@@ -310,6 +314,28 @@ def mirror_log_cases() -> None:
     r, lines = logged(f.run, GZCOORD_JOURNAL="off")
     check("  with the journal off no mirror is asked and nothing is logged", r.code == 0 and f.requests == [] and lines is None, f"{r.code} {lines}")
     f.close()
+
+    # The carrier as the transport of record: the send exits 3 and the line says so as `primary`, in both modes, the relay taking
+    # the copy or not (carrier-only has no relay copy to find).
+    for m in ("carrier-record", "carrier-only"):
+        r, lines = logged(P.scratch("run-"), mode_name=m)
+        one(f"primary {m}, no carrier running (absent)", r, lines, "absent", "no InterWeave carrier", "primary", 3)
+        f = Fake({"ok": False, "error": "disk", "carried": 3, "queued": 0})
+        r, lines = logged(f.run, mode_name=m)
+        one(f"primary {m}, the carrier recorded nothing (failed)", r, lines, "failed", "disk", "primary", 3)
+        f.close()
+        f = Fake({"ok": True, "carried": 0, "queued": 0, "posted": 0})
+        r, lines = logged(f.run, mode_name=m)
+        one(f"primary {m}, no roster member carries it (failed, never not-carried)", r, lines, "failed", "no roster member", "primary", 3)
+        f.close()
+        r, lines = logged(dead, mode_name=m)
+        one(f"primary {m}, a carrier that does not answer (no-answer)", r, lines, "no-answer", "did not answer", "primary", 3)
+        f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
+        r, lines = logged(f.run, mode_name=m)
+        check(f"  positive control, primary {m}: a carrier that accepts leaves no line", r.code == 0 and lines is None, f"{r.code} {r.err} {lines}")
+        f.close()
+    r, lines = logged(P.scratch("run-"), mode_name="carrier-only", GZCOORD_JOURNAL="off")
+    one("primary carrier-only, journal off (absent)", r, lines, "absent", "no InterWeave carrier", "primary", 3)
 
 
 def main() -> int:
