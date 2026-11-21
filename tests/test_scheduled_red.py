@@ -18,13 +18,18 @@ own_instance_tree()
 ROOT = os.path.dirname(HERE)
 TOOL = os.path.join(ROOT, "tools", "fabric", "github", "scheduled_red.py")
 REPO, FLOW = "BlueTeam-OU/agent-fabric", "stripped-nightly.yml"
-MARK = f"[scheduled-red:{REPO}/{FLOW}]"
+MARK = f"[scheduled-red:{REPO}/{FLOW}#stripped]"
+ALMA = f"[scheduled-red:{REPO}/{FLOW}#platform-almalinux]"
 
 # gh api's call is argv[1:]; the stub records it and answers the fixture, or fails as MODE says.
 GH = r'''#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$MOCK_STATE/calls"
 case "$(cat "$MOCK_STATE/mode" 2>/dev/null || echo ok)" in
-  ok) cat "$MOCK_STATE/runs.json" ;;
+  ok) case "$*" in
+        *annotations*) cat "$MOCK_STATE/annotations.json" ;;
+        *"/jobs"*) cat "$MOCK_STATE/jobs.json" ;;
+        *) cat "$MOCK_STATE/runs.json" ;;
+      esac ;;
   noauth) echo "gh: To use GitHub CLI, run: gh auth login" >&2; exit 4 ;;
   http500) echo "gh: Server Error (HTTP 500)" >&2; exit 1 ;;
   notjson) echo "<html>proxy</html>" ;;
@@ -41,6 +46,15 @@ def run(created: str, conclusion: str | None, run_id: int, status: str = "comple
 RED = [run("2026-11-02T03:17:04Z", "failure", 300), run("2026-11-01T03:17:01Z", "cancelled", 299),
        run("2026-10-31T03:16:58Z", "failure", 298), run("2026-10-30T03:17:12Z", "timed_out", 297),
        run("2026-10-18T03:17:00Z", "success", 296), run("2026-10-17T03:17:00Z", "failure", 295)]
+
+def job(name: str, conclusion: str, job_id: int = 1) -> dict:
+    return {"id": job_id, "name": name, "conclusion": conclusion}
+
+
+def jobs_doc(*jobs: dict) -> dict:
+    return {"total_count": len(jobs), "jobs": list(jobs)}
+
+
 GREEN = [dict(RED[0], conclusion="success")] + RED[1:]
 
 
@@ -66,6 +80,13 @@ def main() -> int:
                        {"version": 1, "projects": {"fixture-proj": {"remotes": [f"https://github.com/{REPO}"]}}})
         env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": home, "MOCK_STATE": mock, "AGENT_FABRIC_STATE_DIR": state,
                "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_OPERATOR": fixture_root, "LC_ALL": "C.UTF-8", "GH_REPO": REPO}
+
+        def feed_jobs(doc: object, notes: object = ()) -> None:
+            for name, body in (("jobs.json", doc), ("annotations.json", list(notes) if isinstance(notes, tuple) else notes)):
+                with open(os.path.join(mock, name), "w", encoding="utf-8") as fh:
+                    json.dump(body, fh)
+
+        feed_jobs(jobs_doc(job("stripped", "failure")))
 
         def feed(runs: list[dict], mode: str = "ok") -> None:
             with open(os.path.join(mock, "runs.json"), "w", encoding="utf-8") as fh:
@@ -141,6 +162,77 @@ def main() -> int:
         other = subprocess.run([sys.executable, TOOL, "--repository", REPO, "--workflow", "other.yml", "--project", "agent-fabric"],
                                env=env, cwd=tmp, capture_output=True, text=True, timeout=120)
         check("another workflow's marker is another job", other.returncode == 0 and len(jobs()) == 3, (other, jobs()))
+
+        print("one workflow, two jobs: one open job does not hide the other's red")
+        for j in jobs():
+            set_state(j["id"], "done")
+        feed(RED)
+        feed_jobs(jobs_doc(job("stripped", "failure"), job("platform-almalinux", "success", 2)))
+        tool()
+        n = len(jobs())
+        open_id = jobs()[-1]["id"]
+        feed_jobs(jobs_doc(job("stripped", "success"), job("platform-almalinux", "failure", 2)))
+        p = tool()
+        check("open job for stripped, new red of platform-almalinux only: a job is added, naming it",
+              p.returncode == 0 and len(jobs()) == n + 1 and jobs()[-1]["title"].endswith(ALMA) and MARK not in jobs()[-1]["title"]
+              and "platform-almalinux" in jobs()[-1]["title"], (p, jobs()[-1:]))
+        p = tool()
+        check("the same job's red again: the per-marker dedup holds", p.returncode == 0 and len(jobs()) == n + 1, (p, jobs()))
+        feed_jobs(jobs_doc(job("stripped", "failure"), job("platform-almalinux", "failure", 2)))
+        p = tool()
+        check("both red, both open: nothing added", p.returncode == 0 and len(jobs()) == n + 1, (p, jobs()))
+        set_state(jobs()[-1]["id"], "done")
+        p = tool()
+        check("both red, only stripped open: one job for platform-almalinux alone",
+              p.returncode == 0 and len(jobs()) == n + 2 and jobs()[-1]["title"].endswith(ALMA) and MARK not in jobs()[-1]["title"], (p, jobs()[-1:]))
+        for j in jobs():
+            set_state(j["id"], "done")
+        n = len(jobs())
+        p = tool()
+        check("both red, none open: one job naming both markers", p.returncode == 0 and len(jobs()) == n + 1
+              and MARK in jobs()[-1]["title"] and jobs()[-1]["title"].endswith(ALMA), (p, jobs()[-1:]))
+        for j in jobs():
+            set_state(j["id"], "done")
+        feed_jobs(jobs_doc(job("odd ] name", "failure")))
+        tool()
+        check("a ] in a job name never ends its marker early", "#odd _ name]" in jobs()[-1]["title"], jobs()[-1:])
+        for j in jobs():
+            set_state(j["id"], "done")
+        n = len(jobs())
+        feed_jobs(jobs_doc(job("stripped", "success")))
+        p = tool()
+        check("a red run whose jobs name none failed: filed under the workflow-wide marker, saying so",
+              p.returncode == 0 and len(jobs()) == n + 1 and "no failed job named" in jobs()[-1]["title"] and jobs()[-1]["title"].endswith(f"{FLOW}]"), (p, jobs()[-1:]))
+        p = tool()
+        check("...and that marker dedups", p.returncode == 0 and len(jobs()) == n + 1, p)
+        for j in jobs():
+            set_state(j["id"], "done")
+        n = len(jobs())
+        for label, doc in (("a jobs answer of an unknown shape", {"jobs": "x"}), ("a page that does not hold every job", {"total_count": 3, "jobs": [job("stripped", "failure")]}),
+                           ("a nameless job", jobs_doc({"id": 1, "conclusion": "failure"}))):
+            feed_jobs(doc)
+            p = tool()
+            check(f"{label}: exit 3, nothing added", p.returncode == 3 and not p.stdout and len(jobs()) == n, p)
+
+        print("a job that hit timeout-minutes concludes cancelled")
+        cancelled_run = [dict(RED[0], conclusion="cancelled")] + RED[1:]
+        feed(cancelled_run)
+        note = {"message": "The job running on runner GitHub Actions 7 has exceeded the maximum execution time of 90 minutes."}
+        feed_jobs(jobs_doc(job("stripped", "cancelled", 11)), [note])
+        p = tool()
+        check("cancelled with the timeout annotation: red, a job is added naming it, timed out",
+              p.returncode == 0 and len(jobs()) == n + 1 and "stripped (timed out)" in jobs()[-1]["title"] and jobs()[-1]["title"].endswith(MARK), (p, jobs()[-1:]))
+        for j in jobs():
+            set_state(j["id"], "done")
+        n = len(jobs())
+        feed_jobs(jobs_doc(job("stripped", "cancelled", 11)), [{"message": "Canceling since a higher priority waiting request exists"}])
+        p = tool()
+        check("the positive control's twin: cancelled by a person or a concurrency group stays green", p.returncode == 0 and "cancelled" in p.stdout and len(jobs()) == n, (p, jobs()[n:]))
+        feed_jobs(jobs_doc(job("stripped", "cancelled", 11)), {"not": "a list"})
+        p = tool()
+        check("annotations of an unknown shape: exit 3, never green", p.returncode == 3 and not p.stdout and len(jobs()) == n, p)
+        feed(RED)
+        feed_jobs(jobs_doc(job("stripped", "failure")))
 
         print("the project defaults to the repository's registry id")
         set_state("j2", "done")

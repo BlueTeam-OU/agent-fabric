@@ -22,11 +22,19 @@ Usage:
 One read: the workflow's runs with event=schedule and status=completed on
 the branch, newest first, through gh.api, so the gh ledger counts it.
 
-  success, skipped, cancelled   one line, exit 0, nothing added
+  success, skipped              one line, exit 0, nothing added
+  cancelled                     read the run's jobs: a job that hit timeout-minutes is cancelled, not
+                                failed, so a cancelled job carrying GitHub's "exceeded the maximum
+                                execution time" annotation makes the run red; otherwise green as before
   failure, timed_out            exit 0 with one line: the job added, or the
-                                open job whose title carries the marker
-                                [scheduled-red:<org/repo>/<file.yml>] (any
-                                state but done or dropped) and nothing added
+                                open job whose title carries every marker of the failed jobs
+                                (any state but done or dropped) and nothing added
+
+A red run's failed jobs come from the run's jobs API; each gets a marker
+[scheduled-red:<org/repo>/<file.yml>#<job>], and the filed job's title names them and ends in them.
+An open job for one failed job never hides another's: only the failed jobs with no open marked job
+are filed. A red run whose jobs name none failed is filed under the workflow-wide marker
+[scheduled-red:<org/repo>/<file.yml>], saying so.
   any other conclusion          of the NEWEST run: unreadable (exit 3), never green; an older
                                 run this cannot read only ends the red-since count
 
@@ -44,6 +52,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime
 import importlib.util
 import os
@@ -74,6 +83,10 @@ class Unfiled(Exception):
     """The job list could not be read or written: exit 4."""
 
 
+TIMEOUT_NOTE = "exceeded the maximum execution time"
+JOB_NAME = re.compile(r"[^A-Za-z0-9._ ()-]")
+
+
 @dataclass(frozen=True)
 class Run:
     id: int | None  # None: an older run whose id was not an integer; never invented
@@ -81,8 +94,10 @@ class Run:
     date: str  # YYYY-MM-DD, UTC
 
 
-def marker(repository: str, workflow: str) -> str:
-    return f"[scheduled-red:{repository}/{workflow}]"
+def marker(repository: str, workflow: str, job: str | None = None) -> str:
+    # `#` after the file name: the workflow-wide marker is never a prefix of a job's, so one cannot match the other.
+    # A name is cut to the charset a marker can hold, so a `]` in a job name never ends it early.
+    return f"[scheduled-red:{repository}/{workflow}" + (f"#{JOB_NAME.sub('_', job)}" if job else "") + "]"
 
 
 def parse_run(raw: object) -> Run | None:
@@ -152,9 +167,48 @@ def read_runs(repository: str, workflow: str, branch: str) -> list[Run]:
     return parse_runs(data)
 
 
-def title_of(repository: str, workflow: str, run: Run, since: str) -> str:
-    return (f"{workflow} of {repository}: scheduled run {run.id} of {run.date} is red, red since {since}; "
-            f"read the failing files, contract each fix to its holder {marker(repository, workflow)}")
+def read_failed_jobs(repository: str, run: Run) -> tuple[list[str], list[str]]:
+    """(failed, timed_out) job names of one run, from its jobs API. A job whose conclusion is failure or
+    timed_out failed; a `cancelled` one is read for GitHub's timeout annotation, because a job that hit
+    timeout-minutes concludes cancelled and a concurrency or a person's cancel does not carry it.
+    Anything unreadable is Unreadable, never an empty list that reads green."""
+    try:
+        data = gh.api(f"repos/{repository}/actions/runs/{run.id}/jobs?per_page=100")
+    except gh.GhError as e:
+        raise Unreadable(str(e)) from None
+    if not isinstance(data, dict) or not isinstance(data.get("jobs"), list) or not isinstance(data.get("total_count"), int):
+        raise Unreadable(f"the jobs of run {run.id} are not an answer this knows")
+    if data["total_count"] != len(data["jobs"]):
+        raise Unreadable(f"run {run.id} has {data['total_count']} jobs and one page holds {len(data['jobs'])}")
+    failed: list[str] = []
+    timed_out: list[str] = []
+    for job in data["jobs"]:
+        if not isinstance(job, dict) or not isinstance(job.get("name"), str) or not job["name"]:
+            raise Unreadable(f"a job of run {run.id} has no name")
+        conclusion = job.get("conclusion")
+        if conclusion in RED:
+            failed.append(job["name"])
+        elif conclusion == "cancelled":
+            job_id = job.get("id")
+            if not isinstance(job_id, int) or isinstance(job_id, bool):
+                raise Unreadable(f"cancelled job {job['name']!r} of run {run.id} has no integer id")
+            try:
+                notes = gh.api(f"repos/{repository}/check-runs/{job_id}/annotations?per_page=100")
+            except gh.GhError as e:
+                raise Unreadable(str(e)) from None
+            if not isinstance(notes, list):
+                raise Unreadable(f"the annotations of job {job_id} are not a list")
+            if any(isinstance(n, dict) and TIMEOUT_NOTE in str(n.get("message", "")) for n in notes):
+                timed_out.append(job["name"])
+    return failed, timed_out
+
+
+def title_of(repository: str, workflow: str, run: Run, since: str, jobs: list[str], timed_out: frozenset = frozenset()) -> str:
+    named = (", ".join(f"{j} (timed out)" if j in timed_out else j for j in jobs) if jobs
+             else "no failed job named by the run's jobs")
+    marks = " ".join(marker(repository, workflow, j) for j in jobs) if jobs else marker(repository, workflow)
+    return (f"{workflow} of {repository}: scheduled run {run.id} of {run.date} is red in {named}, red since {since}; "
+            f"read the failing files, contract each fix to its holder {marks}")
 
 
 def load_jobs():
@@ -169,19 +223,30 @@ def open_marked(doc: dict, mark: str, open_states) -> dict | None:
     return next((j for j in doc["jobs"] if j.get("state") in open_states and mark in str(j.get("title", ""))), None)
 
 
-def file_job(repository: str, workflow: str, project: str, run: Run, since: str, dry_run: bool) -> str:
+def file_job(repository: str, workflow: str, project: str, run: Run, since: str, dry_run: bool,
+             failed: list[str], timed_out: frozenset = frozenset()) -> str:
     jobs = load_jobs()
-    mark, title = marker(repository, workflow), title_of(repository, workflow, run, since)
+
+    def unlisted(doc: dict) -> tuple[list[str], dict | None]:
+        """The failed jobs with no open marked job, and the open job that covers the first failed one when none is
+        left. A red with no named failed job is one workflow-wide unit."""
+        if not failed:
+            listed = open_marked(doc, marker(repository, workflow), jobs.OPEN)
+            return ([] if listed else failed), listed
+        missing = [j for j in failed if not open_marked(doc, marker(repository, workflow, j), jobs.OPEN)]
+        return missing, (None if missing else open_marked(doc, marker(repository, workflow, failed[0]), jobs.OPEN))
+
     try:
         if dry_run:
-            doc = jobs.identity.read_jobs()
-            listed = open_marked(doc, mark, jobs.OPEN)
+            missing, listed = unlisted(jobs.identity.read_jobs())
             added = None
+            title = title_of(repository, workflow, run, since, missing, timed_out)
         else:
             def add_unless_listed(doc: dict):
-                listed = open_marked(doc, mark, jobs.OPEN)
+                missing, listed = unlisted(doc)
                 if listed:
                     return listed, False
+                title = title_of(repository, workflow, run, since, missing, timed_out)
                 return jobs.new_job(doc, title, topic="ci", project=project, priority="high"), True
             job, added = jobs.mutate(add_unless_listed)
             listed = None if added else job
@@ -220,10 +285,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         runs = read_runs(args.repository, args.workflow, args.branch)
         newest = runs[0]
-        if newest.conclusion in GREEN:
+        failed: list[str] = []
+        timed_out: list[str] = []
+        if newest.conclusion in RED or newest.conclusion == "cancelled":
+            failed, timed_out = read_failed_jobs(args.repository, newest)
+        if newest.conclusion == "cancelled":
+            failed = timed_out  # a plain cancel is not a red: only a timed-out job makes it one
+            if failed:  # red_since counts the streak from the newest run, so it must read as red
+                runs[0] = dataclasses.replace(newest, conclusion="timed_out")
+        if newest.conclusion in GREEN and not failed:
             print(f"ok: {args.workflow} run {newest.id} of {newest.date} concluded {newest.conclusion}; nothing added")
             return 0
-        print(file_job(args.repository, args.workflow, project, newest, red_since(runs), args.dry_run))
+        print(file_job(args.repository, args.workflow, project, newest, red_since(runs), args.dry_run, failed, frozenset(timed_out)))
         return 0
     except Unreadable as e:
         print(f"{PROG}: cannot read the scheduled runs of {args.workflow} in {args.repository}: {e}", file=sys.stderr)
