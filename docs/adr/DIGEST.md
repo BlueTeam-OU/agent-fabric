@@ -937,6 +937,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-11 — start without a copy when no branch; fenced pause records its unpushed head; non-REQUEST answer clears; block refuses an unreadable request (r8/r14).
 - A 2026-11-17 — start and switch decide on a fresh blocker check (r8).
 - A 2026-11-19 — a conflicting default-branch merge is undone and handed to the fresh session, never refused (r10).
+- A 2026-11-21 — start --despite waives a peer's unmet job: blocker, logged, never by switch; job:<me>/jN read from the own list (r8/r14).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker, job-state.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
