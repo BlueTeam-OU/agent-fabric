@@ -1096,9 +1096,14 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-10 — the pin moves to 2.1.322, `latest` that day by the owner's
   choice, after its read-back; rule 6 gated the first move past 2.1.286, and
   each install (upgrade, new-agent) is the gate after it (§5 rule 6, §8).
+- A 2026-11-21 — agent files' routed model and effort come from the
+  installed snapshot the dispatch guard reads, so a routing merge reaches
+  dispatches at the reinstall instead of denying them; fabric-status names
+  the classes that differ meanwhile (§5 rule 10).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
-  MCP server, sandbox, fabric-managed, hook_entry.py, session seal.
+  MCP server, sandbox, fabric-managed, hook_entry.py, session seal,
+  agent file routing, effort denied, snapshot behind main.
 
 ### ADR-044 — Identity kinds: an agent and a human (Accepted)
 
