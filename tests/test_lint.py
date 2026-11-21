@@ -920,7 +920,7 @@ def case_harness_translation_shape_digest_and_tokens() -> None:
         fabric = make_base(root)
         lc = os.path.join(fabric, "docs", "live-checks", "2026-09-17-x.md"); os.makedirs(os.path.dirname(lc), exist_ok=True); write(lc, "# x\n")
         src = os.path.join(fabric, "runtime", "claude-code", "harness", "en.md")
-        write(src, "---\nclass: harness-source\nbuild: \"2.1.274 (Claude Code)\"\ncaptured_at: 2026-09-17\nsource: docs/live-checks/2026-09-17-x.md\n---\n"
+        write(src, "---\nclass: harness-source\nbuild: \"2.1.274 (Claude Code)\"\nmodel: claude-opus-5-5\ncaptured_at: 2026-09-17\nsource: docs/live-checks/2026-09-17-x.md\n---\n"
                    "You are Claude Code. Use `Skill` for a `/<skill-name>`; load `ToolSearch(\"select:EndConversation\")` first.\n\n# Memory\n\nYour memory is at `{memory_dir}`.\n")
         ka = "შენ ხარ Claude Code. გამოიყენე `Skill` `/<skill-name>`-სთვის; ჯერ ჩატვირთე `ToolSearch(\"select:EndConversation\")`.\n\n# მეხსიერება\n\nშენი მეხსიერება არის `{memory_dir}`.\n"
         write(ident(fabric, "locale", "ge", "harness.md"), _translation_of("runtime/claude-code/harness/en.md", "harness-translation", _digest_of_body(src), ka, role=None))
@@ -936,23 +936,23 @@ def case_harness_translation_shape_digest_and_tokens() -> None:
 
 def case_harness_source_shape() -> None:
     """runtime/claude-code/harness/en.md, when a fabric carries it: class,
-    build, captured_at, an existing live check as its source, the
+    build, model, captured_at, an existing live check as its source, the
     memory-directory placeholder exactly once. Absent, nothing is said
-    (a fixture fabric). Kills: a capture with no build, or with the
+    (a fixture fabric). Kills: a capture with no build or model, or with the
     login's real memory path left in."""
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
         assert run_lint(fabric)[0] == 0, "no capture, no finding"
         lc = os.path.join(fabric, "docs", "live-checks", "2026-09-17-x.md"); os.makedirs(os.path.dirname(lc), exist_ok=True); write(lc, "# x\n")
-        good = ("---\nclass: harness-source\nbuild: \"2.1.274 (Claude Code)\"\ncaptured_at: 2026-09-17\nsource: docs/live-checks/2026-09-17-x.md\n---\n"
+        good = ("---\nclass: harness-source\nbuild: \"2.1.274 (Claude Code)\"\nmodel: claude-opus-5-5\ncaptured_at: 2026-09-17\nsource: docs/live-checks/2026-09-17-x.md\n---\n"
                 "You are Claude Code.\n\n# Memory\n\nYou have a persistent file-based memory at `{memory_dir}`.\n")
         write(os.path.join(fabric, "runtime", "claude-code", "harness", "en.md"), good)
         code, out = run_lint(fabric)
         assert code == 0, out
-        write(os.path.join(fabric, "runtime", "claude-code", "harness", "en.md"), good.replace("build: \"2.1.274 (Claude Code)\"\n", "").replace("{memory_dir}", "/home/x/.claude/projects/-home-x/memory/"))
+        write(os.path.join(fabric, "runtime", "claude-code", "harness", "en.md"), good.replace("build: \"2.1.274 (Claude Code)\"\n", "").replace("model: claude-opus-5-5\n", "").replace("{memory_dir}", "/home/x/.claude/projects/-home-x/memory/"))
         code, out = run_lint(fabric)
         assert code == 1, out
-        for phrase in ("no `build`", "{memory_dir} appears 0 time(s)"):
+        for phrase in ("no `build`", "no `model`", "{memory_dir} appears 0 time(s)"):
             assert phrase in out, f"{phrase!r} not reported:\n{out}"
         write(os.path.join(fabric, "runtime", "claude-code", "harness", "en.md"), good.replace("2026-09-17-x.md", "2026-09-17-missing.md"))
         code, out = run_lint(fabric)

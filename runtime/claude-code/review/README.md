@@ -306,8 +306,10 @@ A review is posted only from a run that read the code. Codex runs with
 `--json`, and its event stream must show no `error` item (Codex's "Model
 metadata for X not found" included: the routed model is in its catalog), no failed turn,
 at least one command that completed with exit code 0, and a final agent
-message that is the schema's answer; anything else is a failed review,
-nothing posted, the reason said. A missing tool host is named as such:
+message that is the schema's answer; anything else is a run that is no
+review: no review is posted, and the unavailable marker for that head is,
+with the reason (agent-fabric ADR-055 rule 8, A 2026-11-13), so the arm
+reads codex as unavailable, never as clean. A missing tool host is named as such:
 Codex runs every tool call through `codex-code-mode-host` beside its own
 executable, and installed as `bin/codex` alone it ran no command and
 answered `{"findings": []}` from the brief, which was posted as a clean

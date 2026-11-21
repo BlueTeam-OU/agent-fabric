@@ -126,8 +126,8 @@ def doc_path_findings(root: str | None = None) -> list[str]:
 
 
 def harness_source_findings(root: str | None = None) -> list[str]:
-    """The capture's shape: frontmatter with its class, the build it was
-    captured from, the date, and the live check it came from (which must
+    """The capture's shape: frontmatter with its class, the build and model
+    it was captured on, the date, and the live check it came from (which must
     exist — the capture is a claim about a build, and the live check is
     its evidence); the memory-directory placeholder exactly once; hygiene."""
     root = root or layout.FABRIC_ROOT   # at call time: --fabric may have moved it
@@ -139,12 +139,12 @@ def harness_source_findings(root: str | None = None) -> list[str]:
         text = fh.read()
     meta = parse_frontmatter(text)
     if meta is None:
-        return [f"{HARNESS_SOURCE}: no frontmatter — class, build, captured_at, source"]
+        return [f"{HARNESS_SOURCE}: no frontmatter — class, build, model, captured_at, source"]
     if meta.get("class") != "harness-source":
         out.append(f"{HARNESS_SOURCE}: class {meta.get('class')!r}; the capture is class harness-source")
-    for key in ("build", "captured_at", "source"):
+    for key in ("build", "model", "captured_at", "source"):
         if not meta.get(key):
-            out.append(f"{HARNESS_SOURCE}: no `{key}` — the build it was captured from, when, and the live check that shows it")
+            out.append(f"{HARNESS_SOURCE}: no `{key}` — the build and model it was captured on, when, and the live check that shows it")
     source = str(meta.get("source") or "")
     if source and (not source.startswith("docs/live-checks/") or not os.path.isfile(os.path.join(roots.live_checks_dir(engine=root), source[len("docs/live-checks/"):]))):
         out.append(f"{HARNESS_SOURCE}: source {source!r} is not an existing docs/live-checks/ note")
