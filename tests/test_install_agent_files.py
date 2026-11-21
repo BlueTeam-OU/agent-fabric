@@ -541,6 +541,25 @@ def main() -> int:
         check("a snapshot that is not there: routing fails visibly, nothing written (never the checkout's)",
               r.returncode == 1 and "routing.py pins failed" in r.stderr and not os.path.exists(os.path.join(cfg, "agents")), r.stderr)
 
+        # The snapshot's routing.py is called as the guard calls it: the tree named by --fabric, -E and -s on.
+        root, home, cfg = fixture()
+        base = os.path.dirname(root)
+        stub_snap = os.path.join(base, "stub-snap")
+        put(stub_snap, "tools/fabric/routing.py", (
+            "import json, os, sys\n"
+            "open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'argv.log'), 'a').write(json.dumps("
+            "{'argv': sys.argv[1:], 'E': sys.flags.ignore_environment, 's': sys.flags.no_user_site}) + '\\n')\n"
+            "sub = sys.argv[sys.argv.index('--fabric') + 2]\n"
+            "sys.stdout.write('code-review fable m-snap\\n' if sub == 'pins' else ''.join(f'{k} high ok\\n' for k in "
+            + repr(list(CLASSES)) + "))\n"))
+        etc = managed_for(base, stub_snap)
+        r = run(root, home, cfg, AGENT_FABRIC_MANAGED_ETC=etc)
+        seen = [json.loads(x) for x in read(os.path.join(stub_snap, "tools", "fabric", "argv.log")).splitlines()]
+        check("a snapshot's routing.py runs with --fabric <tree>, -E and -s",
+              r.returncode == 0 and [c["argv"] for c in seen] == [["--fabric", os.path.realpath(stub_snap), "pins", "--me", "--provider", "anthropic"],
+                                                                  ["--fabric", os.path.realpath(stub_snap), "efforts", "--me", "--provider", "anthropic"]]
+              and all(c["E"] == 1 and c["s"] == 1 for c in seen), r.stderr + str(seen))
+
         # A routing failure writes nothing and says which subcommand.
         for sub in ("pins", "efforts"):
             root, home, cfg = fixture()
