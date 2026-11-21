@@ -467,7 +467,7 @@ def rehome_unbound(run: Run) -> list[dict[str, Any]]:
 def retire_rehomed_copies(run: Run) -> None:
     """Remove the project's copy of the re-homed role when this project no longer homes it. Its slices were written here by
     drains before the re-home (a project half carried the coordinator's bundle; since agent-fabric #658 it does not), and a
-    directory left in place was only re-indexed, so a session read six retired slices as the project's (herdr #64 F1).
+    directory left in place was only re-indexed, so a session read six retired slices as the project's (drain of 2026-11-21).
     Retired: the directory of REHOME_ROLE under the project's memory, when the project has a taxonomy that does not bind it, the
     project is not the control plane, and this run left the role nothing to own here (a shared slice a bound role co-owns is
     under shared/, which is never touched). Nothing else: another unbound role's directory is not re-homed, so it is not ours to

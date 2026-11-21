@@ -222,7 +222,7 @@ def write_head(d: str, name: str, head: str) -> None:
 
 
 def test_a_quote_ended_value_that_is_no_yaml_scalar_is_kept_as_written_and_a_terminal_escape_is_no_link(tmp: str) -> None:
-    """InterWeave #735 F10 and F15, herdr #64: scalar() stripped the ends of `"say "hi" now"`, which json.loads refuses, and
+    """the drain of 2026-11-21 (job j176): scalar() stripped the ends of `"say "hi" now"`, which json.loads refuses, and
     the split of an inline anchors list dropped the apostrophe of an unquoted item; a `^[[` escape of a pasted log was
     read as the start of a [[link]]. Each with its control: the escaped and the doubled forms read as before."""
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))

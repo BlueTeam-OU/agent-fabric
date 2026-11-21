@@ -76,7 +76,7 @@ def split_inline_list(value: str) -> list[str] | None:
                 cur.append(ch)
         elif ch in "\"'" and not "".join(cur).strip():
             # A quote opens a quoted item only where the item begins, as YAML reads a flow sequence: inside an unquoted
-            # one it is a character (`Onboarding's` lost its apostrophe, InterWeave #735 F15, and named nothing).
+            # one it is a character (`Onboarding's` lost its apostrophe and named nothing, drain of 2026-11-21).
             quote = ch
         elif ch in "\"'":
             cur.append(ch)

@@ -167,7 +167,7 @@ GENERATED_CLASSES = frozenset({"index"})
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.DOTALL)
 # `^[[` is how a terminal escape (ESC [) is written out in a pasted log; `\x1b[[` is the byte itself. Neither is a link
-# (herdr #64: a rust-ui-dev memory's References line named a link that no memory is).
+# (drain of 2026-11-21: a References line named a link that no memory is).
 WIKILINK_RE = re.compile(r"(?<![\^\x1b])\[\[([^\]]+)\]\]")
 # A memory written in another language (a language-culture holder writes
 # its own in the language it answers for, the CEO, 2026-09-17) reaches the
@@ -264,7 +264,7 @@ def scalar(value: str) -> str:
             # (`"say "hi" now"` is a plain one that happens to start and end
             # with a quote): it is the author's text, kept as written, where
             # stripping the ends dropped the quotes of a description
-            # (InterWeave #735 F10).
+            # (drain of 2026-11-21).
             if re.search(r'(?<!\\)(?:\\\\)*"', inner):
                 return v
             return re.sub(r'\\(["\\])', r"\1", inner)

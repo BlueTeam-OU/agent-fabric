@@ -441,7 +441,7 @@ def fabric_registry(out: str) -> None:
 
 
 def test_a_stale_bare_agent_fabric_anchor_never_replaces_the_resolving_prefixed_one(tmp: str) -> None:
-    """InterWeave #735 F4: the memory's `agent-fabric/src/b.py::marker` (a path of the control plane's tree, written bare)
+    """Drain of 2026-11-21: the memory's `agent-fabric/src/b.py::marker` (a path of the control plane's tree, written bare)
     names nothing in the project and replaced the corpus's resolving `agent-fabric:src/b.py::marker`. It is written
     prefixed, so the one anchor stands. Control: a bare one that resolves in the project's own tree
     stands as written (the project has such a directory), and a bare one that resolves nowhere is left alone."""
@@ -464,7 +464,7 @@ def test_a_stale_bare_agent_fabric_anchor_never_replaces_the_resolving_prefixed_
 
 
 def test_a_bare_agent_fabric_anchor_that_resolves_in_the_control_plane_is_written_prefixed(tmp: str) -> None:
-    """InterWeave #735 F4, decided: in a project's bundle a bare `agent-fabric/<path>` that names nothing in the project
+    """Drain of 2026-11-21, decided: in a project's bundle a bare `agent-fabric/<path>` that names nothing in the project
     and resolves in the control plane is `agent-fabric:<path>`, in a slice with nothing to pair it with. Controls: one that
     resolves nowhere stays as written, and the control plane's own bundle never rewrites its bare anchors."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
@@ -483,7 +483,7 @@ def test_a_bare_agent_fabric_anchor_that_resolves_in_the_control_plane_is_writte
 
 
 def test_a_re_homed_roles_earlier_project_copy_is_retired_and_nothing_else_is(tmp: str) -> None:
-    """herdr #64 F1: slices fabric-coordinator's earlier drains left in a project that does not bind it were re-indexed.
+    """Drain of 2026-11-21: slices fabric-coordinator's earlier drains left in a project that does not bind it were re-indexed.
     The directory goes, with its index, and the report names it. Controls: another unbound role's directory, the shared
     slices, a project that binds the role and a project with no taxonomy keep theirs."""
     for name, roles, retired in (("unbound", ("alpha",), True), ("binds it", ("alpha", COORD), False), ("no taxonomy", None, False)):

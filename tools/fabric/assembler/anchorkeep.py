@@ -36,7 +36,7 @@ FABRIC_PREFIX = layout.FABRIC_PROJECT_ID + "/"
 def prefix_fabric_anchors(run: Run, claim: dict[str, Any], history: Any, slice_name: str) -> None:
     """Normalise to `agent-fabric:<path>` each bare `agent-fabric/<path>` of a project's claim that names nothing in the
     project's own tree and resolves in the control plane's (a memory copies the path from a checkout beside the project;
-    InterWeave #735 F4: such a stale anchor replaced the resolving prefixed one in four slices). Only a project's bundle: the control plane's own bare anchors
+    Drain of 2026-11-21: such a stale anchor replaced the resolving prefixed one in four slices). Only a project's bundle: the control plane's own bare anchors
     are its own. One that resolves bare stays as written, and one that resolves nowhere is left to the pairing and the report. The
     rewrite is the author's text changed, so it is named like any anchor kept over the memory's (anchors_kept): the memory keeps
     the bare form and every drain rewrites it again until it is repaired."""
