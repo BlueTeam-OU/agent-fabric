@@ -611,10 +611,12 @@ def authority_known(role: str) -> bool:
         return False
 
 
-def lift_hint(authority: str | None, key: str, repo: str, num: str, head: str, session: str, author: str, own_prs: bool) -> str:
+def lift_hint(authority: str | None, key: str, repo: str, num: str, head: str, session: str, author: str, own_prs: bool,
+              *, another_holder: bool = False) -> str:
     """Whom to ask for the word a count gate wants: the policy's authority role with the holders running now, the
     line to ask for and the basis a holder arms on; the owner only where the policy names no authority, or one that is
-    not a role."""
+    not a role. another_holder: the session asking holds the role and was refused as the PR's author, so the arming
+    route is offered to another holder only — offered to this session, it would be the refusal again."""
     if not authority:
         return OWNER_WORD
     if not authority_known(authority):
@@ -626,6 +628,8 @@ def lift_hint(authority: str | None, key: str, repo: str, num: str, head: str, s
         else f"--any-owner --basis \"{authority}'s word\""
     # No owner fallback here: where the policy names an authority the agent asks it, never the owner (ADR-019 rule 4,
     # A 2026-11-21); ask_a_holder says who knows the holders when none is running.
+    if another_holder:
+        return f"{ask}; that holder arms it from its own session, {flag}"
     return f"{ask}; or, in a session that holds {authority}, {flag}"
 
 
@@ -1340,7 +1344,7 @@ def arm(argv: list[str]) -> int:
                 if login == author and not own_prs:
                     raise refuse(f"the basis gives {authority}'s word, and {login} is the pull request's own author: an authority"
                                  f" never arms its own PR here (commits.authority_own_prs is false) —"
-                                 f" {lift_hint(authority, authority_key, repo, num, head, session, author, own_prs)}")
+                                 f" {lift_hint(authority, authority_key, repo, num, head, session, author, own_prs, another_holder=True)}")
                 held = session_role(session)
                 if held != role_held:
                     raise refuse(f"the basis gives {authority}'s word, and this session holds {held or 'no role'} by its binding,"

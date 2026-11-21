@@ -1764,6 +1764,9 @@ class ArmRun(unittest.TestCase):
             if "--any-owner" not in extra:   # ADR-019 rule 4: another holder of the authority is asked, never the owner
                 self.assertIn("architect-cto holder", str(rc))
                 self.assertNotIn("ask the owner", str(rc))
+                # the route offered is another holder's, never this refused session's own (#676 F6)
+                self.assertNotIn("in a session that holds", str(rc))
+                self.assertIn("from its own session", str(rc))
             rc, out = self.below({"authority_own_prs": True}, basis=basis, extra=extra, branch=branch, **kw)
             self.assertEqual(rc, 0, (basis, out))
         # the boundary path keeps the same constant

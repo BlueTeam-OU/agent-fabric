@@ -40,8 +40,8 @@ capture taken on it.
 
 **Refreshing it.** No flag prints the default prompt; the text changes
 with the CLI build. The capture is a live-check duty: from a session on
-a new build, record the text as the live check did, update `en.md` and
-its `build`, and every translation lags by digest until its holder
+a new build or model, record the text as the live check did, update
+`en.md` and its `build` and `model`, and every translation lags by digest until its holder
 re-renders it — served meanwhile (a launch never fails on lag), named
 by `tools/fabric/lint.py`. The launcher stamps the build it ran
 (`AGENT_FABRIC_LAUNCH_CLAUDE_VERSION`) beside `build:` here, so a build
