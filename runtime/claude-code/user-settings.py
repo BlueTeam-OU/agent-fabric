@@ -150,6 +150,18 @@ from fabric_cli import table  # noqa: E402
 STATUS_LINE = {"type": "command",
                "command": f'bash "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", "statusline.sh")}"'}
 
+# The fleet's pinned Python (ADR-040 rule 1, A 2026-11-11): a host's own python3 runs only python_pin.py and rule 4's
+# list, which the hooks rendered here were never on. The path is literal, as the managed entry's (managed/hook_entry.py):
+# a settings file outlives the environment that rendered it, so AGENT_FABRIC_PYTHON is not read into it.
+PY = "/usr/local/bin/fabric-python"
+
+
+def hook_command(script: str) -> str:
+    """The command a user-scope hook entry runs: `script` under hooks/ on the pin. Entries are found again by the
+    script's name alone (with_one), so a command rendered on the host's python3 is replaced, not kept beside it."""
+    return f'{PY} "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", script)}"'
+
+
 # The memory-write check (hooks/memory-write-check.py) at user scope, so
 # it runs for every session of the account wherever it was started — a
 # memory is the account's, not a project's — without asking each managed
@@ -161,7 +173,7 @@ MEMORY_CHECK = "memory-write-check.py"
 def memory_check_hook() -> dict:
     return {"matcher": "Write|Edit", "hooks": [{
         "type": "command",
-        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", MEMORY_CHECK)}"',
+        "command": hook_command(MEMORY_CHECK),
         "timeout": 10}]}
 
 
@@ -178,7 +190,7 @@ SESSION_EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionR
 def session_state_hook() -> dict:
     return {"hooks": [{
         "type": "command",
-        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", SESSION_STATE)}"',
+        "command": hook_command(SESSION_STATE),
         "timeout": 5}]}
 
 
@@ -252,7 +264,7 @@ FRESHNESS = "freshness.py"
 def freshness_hook() -> dict:
     return {"hooks": [{
         "type": "command",
-        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", FRESHNESS)}"',
+        "command": hook_command(FRESHNESS),
         "timeout": 15}]}
 
 
@@ -283,7 +295,7 @@ PR_COUNTS = "pr-counts.py"
 def pr_counts_hook() -> dict:
     return {"hooks": [{
         "type": "command",
-        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", PR_COUNTS)}"',
+        "command": hook_command(PR_COUNTS),
         "timeout": 5}]}
 
 
@@ -295,7 +307,7 @@ WATCH_ON_STOP = "watch-on-stop.py"
 def watch_on_stop_hook() -> dict:
     return {"hooks": [{
         "type": "command",
-        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", WATCH_ON_STOP)}"',
+        "command": hook_command(WATCH_ON_STOP),
         "timeout": 5}]}
 
 
@@ -309,7 +321,7 @@ SUBAGENT_LEDGER = "subagent-ledger.py"
 def subagent_ledger_hook() -> dict:
     return {"hooks": [{
         "type": "command",
-        "command": f'python3 "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", SUBAGENT_LEDGER)}"',
+        "command": hook_command(SUBAGENT_LEDGER),
         "timeout": 10}]}
 
 

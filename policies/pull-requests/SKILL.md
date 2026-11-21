@@ -17,7 +17,9 @@ served, a migration against its reader — the role that owns the concern
 integrates: contributors push branches and open no PR; the integrator
 merges them unrebased into one branch, opens the one PR naming whose
 range is which, and arms it. One blind review covers the range; a
-finding goes to the lane that owns the hunk. Independent work of
+finding on any hunk, a contributed one too, is the integrator's to fix
+and re-review, never sent back (but a hunk a fence keeps from the
+integrator, which its supplier fixes). Independent work of
 *different owners* stays separate PRs.
 
 ## Supplying and folding
@@ -34,9 +36,9 @@ dictionary's keys) it delivers the authored text by locator and the
 caller commits it, citing the message. A supplier never opens a PR for
 supplied work and dispatches no review of its own part: it hands off
 its own checks (the test failing before and passing after, the
-mutations, the full suite) under `Supplier-Review:`, and answers
-findings on its hunks from the caller's one review (ADR-020 §5 rule 11;
-the dispatch guard denies a review from a `for/` branch). The caller arms, never with an unanswered
+mutations, the full suite) under `Supplier-Review:`; a finding on its
+hunks from the caller's one review is the caller's to fix (ADR-020 §5
+rule 11; the dispatch guard denies a review from a `for/` branch). The caller arms, never with an unanswered
 `REQUEST` of its own; person-facing copy is never self-authored (a
 caller's draft ships as a marked placeholder). The order is fixed: fold
 every supply, then the project's full suite as CI runs it, then one blind review, then
