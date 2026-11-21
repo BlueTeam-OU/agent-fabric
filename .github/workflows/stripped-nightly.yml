@@ -9,6 +9,14 @@ name: stripped-nightly
 # red file not in tests/stripped_skip.txt and on a listed file that now
 # passes, so the list only shrinks. On a pull request it runs only when the
 # run's own parts change, so a list edit is proven before it lands.
+#
+# The AlmaLinux 10 platform leg (fabric-h2's platform) runs here too, not in
+# ci.yml: it made every PR's CI 6 minutes longer (16 -> 22 min median on main,
+# 2026-11-04..11-12) and the owner put it nightly on 2026-11-12. It is outside
+# ci-ok, so an EL 10 break merges green and is seen here the next morning,
+# through scheduled-red's read of this run (runtime/control/). A branch that
+# changes the profile can run it first: gh workflow run stripped-nightly.yml
+# --ref <branch>.
 on:
   schedule:
     - cron: '17 3 * * *'
@@ -58,3 +66,65 @@ jobs:
         env:
           TMPDIR: /tmp/sr
         run: mkdir -p "$TMPDIR" && python3 tests/stripped_run.py . --skip-list tests/stripped_skip.txt tests/test_*.py
+
+  # ci.yml's platform-smoke steps for one platform; a change there is made here too.
+  platform-almalinux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    # AlmaLinux 10 (fabric-h2): gh, ShellCheck and minisign are in EPEL; a minimal
+    # image has coreutils-single, which coreutils replaces only with --allowerasing.
+    container: almalinux:10
+    # ci.yml's cap for the same steps: a hang, not a budget.
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      INSTALL: dnf install -y --allowerasing --setopt=install_weak_deps=False
+    steps:
+      - name: the host contract, from the profile's own package map
+        run: |
+          set -e
+          $INSTALL bash git ca-certificates   # enough to check out and read the map
+          dnf install -y epel-release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: install what the profile names, and the static-check tools
+        run: |
+          set -e
+          pkgs="$(bash runtime/provisioning/platform/packages.sh almalinux | tr '\n' ' ')"
+          echo "installing: $pkgs"
+          $INSTALL $pkgs ShellCheck python3-pip hostname minisign bubblewrap
+          pipi="python3 -m pip install --quiet --disable-pip-version-check --root-user-action=ignore"
+          $pipi --break-system-packages ruff==0.16.7 jsonschema || $pipi ruff==0.16.7 jsonschema
+      - name: the fleet's pinned Python, as a host installs it (as root, before the unprivileged login)
+        run: /usr/bin/python3 tools/fabric/python_pin.py install && /usr/bin/python3 tools/fabric/python_pin.py check
+      - name: every tool of the contract answers
+        run: |
+          set -e
+          . runtime/provisioning/platform/detect.sh
+          [ "$PLATFORM_ID" = almalinux ] || { echo "detected $PLATFORM_ID, expected almalinux"; exit 1; }
+          # A tool the platform packages nowhere (PLATFORM_NO_PACKAGE: paperkey) is installed by hand, so not here.
+          for t in "${FABRIC_HOST_TOOLS[@]}"; do
+            for skip in "${PLATFORM_NO_PACKAGE[@]}"; do [ "$t" = "$skip" ] && continue 2; done
+            command -v "$t" >/dev/null || { echo "missing after install: $t"; exit 1; }
+          done
+          # ADR-040 §5 rule 1 (A 2026-11-11): EL 10's python3 (3.12) is below the
+          # floor and runs python_pin.py only, which the step before this one did.
+          echo "host $(python3 -V) bootstraps the pin only"
+      - name: the suites, as an unprivileged login (a host never runs the fabric as root)
+        run: |
+          set -e
+          useradd -m ci && chown -R ci "$GITHUB_WORKSPACE"
+          # The fabric runs on the pin, as on fabric-h2, not on the platform's
+          # python3 (review F8). Set inside the command: su resets PATH.
+          mkdir -p /usr/local/lib/ci-pin-bin
+          ln -sf /usr/local/bin/fabric-python /usr/local/lib/ci-pin-bin/python3
+          on_pin="export PATH=/usr/local/lib/ci-pin-bin:\$PATH && python3 -V && "
+          first=""; last=""
+          if [ "${{ matrix.shard }}" = 1 ]; then first="bash tests/run.sh static && "; last=" && bash tests/run.sh bash"; fi
+          su ci -c "${on_pin}cd '$GITHUB_WORKSPACE' && ${first}AGENT_FABRIC_TEST_SHARD='${{ matrix.shard }}/3' bash tests/run.sh python${last}"
