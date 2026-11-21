@@ -61,7 +61,10 @@ held_refusal = needs.held_refusal
 
 def add(args) -> int:
     """add: a queued job, or one made from a GZCoord request (--request)."""
-    require_registered(args.project)
+    # The sender's add of a REQUEST carries the id the message's headers named, which is no one's to refuse: nothing a REQUEST carries is a
+    # reason not to queue it (jobs.py), and the receiver's half queues the same message whatever the id.
+    if not (args.owner and request_id_of(args.title or "")):
+        require_registered(args.project)
     if args.request:
         if args.title:
             raise Refused("--request takes its title from the message; give one or the other")

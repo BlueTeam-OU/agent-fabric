@@ -2096,14 +2096,35 @@ def main() -> int:
         rc, out, err = w.sw("project", unreg, "agent-fabric", "--working-copy", w.repo)
         check("project re-points a job holding its checkout when its recorded id is unregistered and the working copy is the target's repository",
               rc == 0 and w.job(unreg)["project"] == "agent-fabric" and w.job(unreg).get("branch"), (out + err, w.job(unreg)))
-        again = w.add("registered id, work held")
-        doc = json.load(open(jpath))
-        rec = next(x for x in doc["jobs"] if x["id"] == again)
-        rec["project"], rec["branch"], rec["worktree"] = "agent-fabric", w.job(mine_job)["branch"], w.job(mine_job)["worktree"]
-        json.dump(doc, open(jpath, "w"))
-        rc, out, err = w.sw("project", again, "gzapp", "--working-copy", w.repo)
-        check("control: a job with a registered id holding its checkout is still not re-pointed to another project",
-              rc == 1 and "its work is in that project's checkout" in err, out + err)
+        def holding(title: str, project: str, worktree: str) -> str:
+            """A job recorded under `project` that holds branch and worktree, as pause leaves one."""
+            made = w.add(title)
+            held_doc = json.load(open(jpath))
+            rec = next(x for x in held_doc["jobs"] if x["id"] == made)
+            rec["project"], rec["branch"], rec["worktree"] = project, w.job(mine_job)["branch"], worktree
+            json.dump(held_doc, open(jpath, "w"))
+            return made
+        mine_tree = w.job(mine_job)["worktree"]
+        # Each clause of the exception has the case that only it refuses: the same repository and the same target, so the one clause varies.
+        wrong = holding("registered but wrong id, work held", "gzapp", mine_tree)
+        rc, out, err = w.sw("project", wrong, "agent-fabric", "--working-copy", w.repo)
+        check("control: a job whose recorded id IS registered is refused re-pointing, though its worktree is the working copy's repository (only the registry clause refuses it)",
+              rc == 1 and "its work is in that project's checkout" in err and w.job(wrong)["project"] == "gzapp", out + err)
+        elsewhere = holding("unregistered id, target is another project", "agent-fabric-retired", mine_tree)
+        rc, out, err = w.sw("project", elsewhere, "gzapp", "--working-copy", w.repo)
+        check("an unregistered id is not re-pointed to a project whose registry remotes the working copy does not match",
+              rc == 1 and "its work is in that project's checkout" in err and w.job(elsewhere)["project"] == "agent-fabric-retired", out + err)
+        foreign = holding("unregistered id, worktree of another repository", "agent-fabric-retired", other)
+        rc, out, err = w.sw("project", foreign, "agent-fabric", "--working-copy", w.repo)
+        check("…nor when the job's worktree is another repository than the working copy named",
+              rc == 1 and "its work is in that project's checkout" in err and w.job(foreign)["project"] == "agent-fabric-retired", out + err)
+        sent = "sent by the sender (REQUEST 01a09fc1-0000-7000-8000-0000000000f1)"
+        rc, out, err = w.sw("add", "--owner", "host/boss", "--project", "header-only-id", "--", sent)
+        check("the sender's add of a REQUEST is not held to the registry: the id is the message headers'",
+              rc == 0 and "header-only-id" in out, out + err)
+        write_registry(os.path.join(project_operator, "projects"), {"projects": {}})
+        rc, out, err = w.sw("add", "empty registry", "--project", "anything-at-all")
+        check("a registry that lists no project (a stripped tree) refuses no id", rc == 0 and "anything-at-all" in out, out + err)
         del os.environ["AGENT_FABRIC_OPERATOR"]
 
         w = World(under=home)
