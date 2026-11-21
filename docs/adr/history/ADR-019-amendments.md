@@ -325,8 +325,10 @@ What changed: §6's ruleset row. `ci-ok` needs every `platform-smoke`
 leg, and since #554's profile (c5e020d1, made blocking by ab17a69e)
 those included an almalinux:10 leg, the platform of `fabric-h2`. That
 leg leaves `ci.yml`'s matrix and so `ci-ok`, and runs as the job
-`platform-almalinux` in `stripped-nightly.yml`, scheduled daily, on a
-pull request that changes that workflow, and on `workflow_dispatch`.
+`platform-almalinux` in `stripped-nightly.yml`: scheduled daily, on
+`workflow_dispatch`, and on a pull request that changes any of that
+workflow's `pull_request` paths (the workflow, `tests/stripped_run.py`,
+`tests/stripped_skip.txt`), where its result is advisory.
 Its steps are `platform-smoke`'s for one platform, with the floor
 waiver ADR-040 §5 rule 1 (A 2026-11-11) gives EL 10's python3.
 
@@ -335,7 +337,11 @@ median `ci` run on `main` went from 16 to 22 minutes (2026-11-04 to
 11-12), the leg itself 15.0 minutes, on every push of every PR.
 
 What follows: an EL 10 break now merges green. scheduled-red reads the
-nightly's whole run and makes a job of a red one the next day, and
+nightly's newest scheduled run at 17:00 UTC and files one job per
+workflow (`scheduled_red.py`'s marker), so while a job for a red of
+either job in the workflow is open, in any state, a red of the other
+files nothing; the gap is open until python-dev-02's j176 scopes the
+marker to the failed job (REQUEST 01a1ffc0-ed0a, review F1 on #679).
 `fabric-h2` may take `fabric-ctl all upgrade fabric` in between. A PR
 that changes the almalinux profile can run the leg first with
 `gh workflow run stripped-nightly.yml --ref <branch>`. A `pull_request`

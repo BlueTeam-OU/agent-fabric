@@ -13,10 +13,11 @@ name: stripped-nightly
 # The AlmaLinux 10 platform leg (fabric-h2's platform) runs here too, not in
 # ci.yml: it made every PR's CI 6 minutes longer (16 -> 22 min median on main,
 # 2026-11-04..11-12) and the owner put it nightly on 2026-11-12. It is outside
-# ci-ok, so an EL 10 break merges green and is seen here the next morning,
-# through scheduled-red's read of this run (runtime/control/). A branch that
-# changes the profile can run it first: gh workflow run stripped-nightly.yml
-# --ref <branch>.
+# ci-ok, so an EL 10 break merges green. scheduled-red reads this run at 17:00
+# UTC (runtime/control/) and files one job per workflow: while a job for either
+# job's red is open, the other's red files nothing (python-dev-02's j176 scopes
+# it per job). A branch that changes the profile can run the leg first:
+# gh workflow run stripped-nightly.yml --ref <branch>.
 on:
   schedule:
     - cron: '17 3 * * *'
