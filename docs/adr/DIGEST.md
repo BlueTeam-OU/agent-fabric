@@ -370,6 +370,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-21 — hygiene `"scope": "own"` holds an entry in its own
   project's slices only; other projects may say the name; domain slices
   keep every entry (§2, rule 10).
+- A 2026-11-21 — fabric-coordinator's domain slices are listed in
+  agent-fabric's index only, never a project's (§2, rule 8).
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
   watermark, bundle, hygiene, redacted, tier, hygiene scope, scope own.
@@ -500,6 +502,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-12 — organisation's names and counts out: direct projects, counts, account, access are policy data (rules 1, 4, 6, §6).
 - A 2026-11-14 — under the minimum, bundle queued jobs of any topic first; a word only for what cannot wait (rule 4).
 - A 2026-11-21 — settings and operator repositories name no arming authority; the no-CI word stays the owner's, never an authority's (rule 4).
+- A 2026-11-21 — waiting on a word: REQUEST the arming authority, never the owner; a job in another repository meanwhile (rule 4).
 - Keywords: Answers, armed_status, disarm.
 
 ### ADR-020 — The review class is the review (Accepted)
@@ -936,6 +939,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-11 — start without a copy when no branch; fenced pause records its unpushed head; non-REQUEST answer clears; block refuses an unreadable request (r8/r14).
 - A 2026-11-17 — start and switch decide on a fresh blocker check (r8).
 - A 2026-11-19 — a conflicting default-branch merge is undone and handed to the fresh session, never refused (r10).
+- A 2026-11-21 — start --despite waives a peer's unmet job: blocker, logged, never by switch; job:<me>/jN read from the own list (r8/r14).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker, job-state.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
