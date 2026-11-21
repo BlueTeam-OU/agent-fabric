@@ -53,7 +53,9 @@ to count), `moveto` (only when installed), `journal`, `python`, `agentd`
 The --json object: agent, host, placement, role, project, working_copy,
 session, binding_updated, launched_role, launch_prompt_digest, drift (a
 list or null), session_effort ({asked, reported, launched} or null),
-undrained_memories ({drainable, no_roles_class, oldest_ms, bound_days, since, dir} or null), jobs
+undrained_memories ({drainable, no_roles_class, oldest_ms, bound_days, since, dir} or null), obsolete_memories (a list of
+{file, memory, slice, heading, report, action} or null: this agent's own memory files a committed drain report names as
+replaced by a correction and not written; "update or delete" each, and it leaves the list), jobs
 ({active, queued, blocked, delivered} or {error}), api ({provider, path,
 base_url_host, session_model, launch_profile, pins, credentials,
 claude_sign_in}), capabilities ({class: line}), engines ({"<provider> <class>":
@@ -236,6 +238,50 @@ def undrained_memories(ctx, root):
     except Exception:  # noqa: BLE001 — a status line, not a guard
         pass
     return None
+
+
+def obsolete_memories(ctx, root):
+    """This agent's own memory files that a committed drain report names as obsolete, or None when it cannot be said.
+
+    A drain leaves a memory unwritten when a correction replaced its text, and names it in the report's
+    `obsolete_memories`; the file stays in its author's home until the author updates or deletes it. The match is the
+    harvest's own content hash (name + body), so a file changed since the drain is a different text and is not listed,
+    and a row names this login on this host or it is not read at all: nobody's memory but the caller's. Both reports a
+    drain writes are read, the working copy's and the control plane's (a re-homed claim is in the latter), because each
+    holds only its last drain. Read only: this never touches the files it lists."""
+    if not (ctx["working_copy"] and ctx["project"]):
+        return None
+    try:
+        harvest = load("fabric_harvest", os.path.join(root, "tools", "fabric", "harvest_memory.py"))
+        mem_dir = harvest.default_memory_dir(ctx["working_copy"])
+        reports = {os.path.realpath(os.path.join(base, ".agent-fabric", "memory", "last-drain-report.json"))
+                   for base in (ctx["working_copy"], root)}
+        rows = {}
+        for path in sorted(reports):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    listed = json.load(fh).get("obsolete_memories")
+            except (OSError, ValueError, AttributeError):
+                continue    # no report, or an older one: nothing named there
+            for row in listed if isinstance(listed, list) else []:
+                if (isinstance(row, dict) and row.get("agent") == ctx["agent"] and row.get("host") == ctx["host"]
+                        and all(isinstance(row.get(k), str) and row[k] for k in ("content_hash", "slice", "heading"))):
+                    rows.setdefault(row["content_hash"], (row, path))
+        found = []
+        for name in sorted(os.listdir(mem_dir)) if rows and os.path.isdir(mem_dir) else []:
+            if not name.endswith(".md") or name == "MEMORY.md":
+                continue
+            try:
+                rec = harvest.parse_memory(os.path.join(mem_dir, name))
+            except (OSError, UnicodeDecodeError, harvest.ChangedWhileRead):
+                continue
+            hit = rec and rows.get(harvest.content_hash(rec["name"], rec["body"]))
+            if hit:
+                found.append({"file": os.path.join(mem_dir, name), "memory": rec["name"], "slice": hit[0]["slice"],
+                              "heading": hit[0]["heading"], "report": hit[1], "action": "update or delete"})
+        return found
+    except Exception:  # noqa: BLE001 — a status line, not a guard
+        return None
 
 
 def oldest_note(undrained, now_ms=None):
@@ -483,6 +529,7 @@ def build_report(root, environ=None, cred_environ=None):
     checks = routing.check(root)
 
     undrained = undrained_memories(ctx, root)
+    obsolete = obsolete_memories(ctx, root)
 
     # --- drift: what this session was launched with vs. what is bound now ---
     # A rebind from a login shell, or a new default in routing/, does not
@@ -551,6 +598,7 @@ def build_report(root, environ=None, cred_environ=None):
         "drift": [d for d in (role_drift, model_drift, effort_drift, prompt_drift, holder_drift, placement_drift, fallback_drift, signin_drift) if d] or None,
         "session_effort": session_effort,
         "undrained_memories": undrained,
+        "obsolete_memories": obsolete,
         "jobs": jobs,
         "hold": hold_of(identity, ctx["agent"]),
         "api": {"provider": provider, "path": path, "base_url_host": host or None,
@@ -858,6 +906,9 @@ def render(report, base):
         p(f"memory       {undrained['drainable']} drainable (roles_class set) and {undrained['no_roles_class']} private "
           f"(none) written since {undrained['since']}"
           f"{oldest_note(undrained)} — {undrained['dir']}")
+    for row in report.get("obsolete_memories") or []:
+        p(f"obsolete     {row['file']}: the text of {row['slice']}#{row['heading']}, which a correction replaced and the drain "
+          f"did not write — {row['action']}")
     if moveto["installed"]:
         p(f"moveto       {moveto['status']}: {moveto['detail']}" if moveto["status"] == "drift" else f"moveto       {moveto['status']}")
     journal = report["host_tools"].get("journal")
