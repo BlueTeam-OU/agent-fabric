@@ -370,6 +370,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-21 — hygiene `"scope": "own"` holds an entry in its own
   project's slices only; other projects may say the name; domain slices
   keep every entry (§2, rule 10).
+- A 2026-11-21 — fabric-coordinator's domain slices are listed in
+  agent-fabric's index only, never a project's (§2, rule 8).
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
   watermark, bundle, hygiene, redacted, tier, hygiene scope, scope own.
