@@ -94,6 +94,11 @@ now, is not written and is listed under `superseded_harvests`: the section was e
 review answer), and writing the memory again would undo it. This reads the git history of the slice files, so the tree
 is an input as well as the claims; a tree that is not a repository, or has no commits, has no history and behaves as
 before. A history git cannot read refuses the run before the slices are written, with one line on stderr.
+
+Each `superseded_harvests` row names the memory with its owner, `'name' (agent@host)`, and the report records the same
+claims in `obsolete_memories`: {memory, agent, host, content_hash, slice, heading}, one per owner. The next drain carries
+a row until it reads that memory again (an updated memory has another content_hash), so fabric-status can show an agent its
+own obsolete memories after the drain that named them. The drain never edits or deletes a file in an agent's home.
 <<< help
 """
 
@@ -177,7 +182,7 @@ def rehome(run: Run, claims: list) -> int:
     run.rehomed = [rehomed_row(run, c) for role in sorted(other.all_claims) for c in other.all_claims[role]]
     run.rehomed_files = [in_report(other, p) for p in other.written]
     for name in ("rejected_hygiene", "redactions", "problems", "oversized", "oversized_details", "clipped_descriptions", "migrated",
-                 "unresolved_targets", "superseded_harvests", "reharvested_replaced", "titles_one_lined", "anchors_kept",
+                 "unresolved_targets", "superseded_harvests", "obsolete_memories", "reharvested_replaced", "titles_one_lined", "anchors_kept",
                  "anchors_lost", "retired_in", "empty_crossrefs", "applied_decisions", "retitles"):
         getattr(run, name).extend(getattr(other, name))
     if not rc:

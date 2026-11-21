@@ -7,7 +7,7 @@ import re
 import sys
 from collections import defaultdict
 from typing import Any
-from assembler.core import layout, CLASS_FILES, Run, in_report
+from assembler.core import layout, CLASS_FILES, Run, in_report, memory_ref, note_superseded
 from assembler.slices import read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, shares_cue, is_retire
 from assembler.targets import existing_sections, slice_candidates, is_carried, pointed
 
@@ -112,8 +112,9 @@ def settle_same_run(run: Run, label: str, klass: str, topic: str, group: list[di
         if copies and all(k in replaced for k in copies):
             corrector = replaced[copies[0]]
             group.remove(claim)
-            run.superseded_harvests.append(
-                f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r} is the text of the section "
+            note_superseded(
+                run, claim, f"{label}/{klass}:{topic}", claim_heading(claim),
+                f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {memory_ref(run, claim)} is the text of the section "
                 f"memory {corrector['topic']!r} {'retires' if is_retire(corrector) else 'corrects'} "
                 f"({_target(corrector)!r}) in this drain; not written — update or delete {claim['topic']!r}")
     writers: dict[str, list[dict[str, Any]]] = defaultdict(list)
