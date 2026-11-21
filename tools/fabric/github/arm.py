@@ -607,11 +607,9 @@ OWNER_WORD = "ask the owner: their word (\"arm <n>\", relayed to you) goes in th
 
 
 def authority_known(role: str) -> bool:
-    """Whether the policy's authority role is a role of the catalogue (False when the catalogue cannot be read)."""
-    try:
-        return bool(SLUG.fullmatch(role)) and role in catalogue_roles("authority")
-    except Unanswered:
-        return False
+    """Whether the policy's authority role is a role of the catalogue. An unreadable catalogue is Unanswered, not
+    False: "not a role" sends the agent to the owner, which an unanswered read does not justify (review 0b3aece7)."""
+    return bool(SLUG.fullmatch(role)) and role in catalogue_roles("authority")
 
 
 def lift_hint(authority: str | None, key: str, repo: str, num: str, head: str, session: str, author: str, own_prs: bool,
