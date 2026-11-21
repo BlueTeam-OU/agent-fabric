@@ -13,6 +13,12 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+
+# The fallback cases hand the guards a tree through AGENT_FABRIC_ROOT; the runner's operator must not outrank it.
+own_instance_tree()
+
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(HERE, "runtime", "claude-code", "hooks", "post-review-shape-guard.py")
 spec = importlib.util.spec_from_file_location("post_review_shape_guard", HOOK)
@@ -403,7 +409,7 @@ def main() -> int:
         hooked = [h["command"] for e in pre if e.get("matcher") == "Bash" for h in e["hooks"]]
         check(f"registered on Bash in {rel}", any("post-review-shape-guard.py" in c for c in hooked), hooked)
         # The fallback (no managed entry) runs each Python guard on the pin by its literal path with -I -S, so neither
-        # an interpreter nor a module the environment names is the guard's; with the pin missing or the guard failing
+        # an interpreter nor a module the environment names is the guard's; with the pin or the guard file missing, or the guard failing,
         # it answers ask, never silence (ADR-040 rule 1, A 2026-11-21; ADR-043 rule 9). Run here with the managed
         # stand-down pointed at a missing file, and this interpreter standing in for the pin.
         pin = "/usr/local/bin/fabric-python"
