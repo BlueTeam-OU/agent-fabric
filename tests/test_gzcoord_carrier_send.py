@@ -90,6 +90,15 @@ def send_in(mode_name: str, relay_status: int, run: str, **env: str):
     return r, rows(state, store), posts
 
 
+def registry_with(operator: str | None) -> str:
+    """A scratch hosts registry whose operator on the sender's host is `operator` (None: another login), so a case never
+    reads whether whoever runs the suite is an operator in the checkout's registry."""
+    path = os.path.join(P.scratch("reg-"), "registry.json")
+    with open(path, "w") as fh:
+        json.dump({"hosts": {P.ME["host"]: {"operator": operator or "someone-else"}}, "placement": {}}, fh)
+    return path
+
+
 def carrier_primary_cases() -> None:
     """The four outcomes of Adapter.post as gzcoord-send reports them when the carrier is the transport of record (cutover W8):
     accepted is the only exit 0; every other is exit 3 with a line, and the pending row is failed only when the carrier
@@ -107,9 +116,13 @@ def carrier_primary_cases() -> None:
           r.code == 3 and r.out == "" and "not sent" in r.err and db == [("outbound", "failed", "claude-bridge", None)], f"{r.code} {r.err} {db}")
     f.close()
 
-    r, db, posts = send_in("carrier-only", 200, P.scratch("run-"))
-    check("W8 absent: exit 3, the line names the command that says why, the row failed, the relay never posted",
-          r.code == 3 and "not sent" in r.err and "fabric-ctl" in r.err and f"{P.LOGIN} interweave" in r.err
+    r, db, posts = send_in("carrier-only", 200, P.scratch("run-"), AGENT_FABRIC_HOSTS_REGISTRY=registry_with(None))
+    check("W8 absent, a sender who is no operator: exit 3, the line says what an agent can do, the row failed, the relay never posted",
+          r.code == 3 and "not sent" in r.err and "OBSERVATION" in r.err and "fabric-ctl" not in r.err
+          and db == [("outbound", "failed", "claude-bridge", None)] and posts == 0, f"{r.code} {r.err} {db} {posts}")
+    r, db, posts = send_in("carrier-only", 200, P.scratch("run-"), AGENT_FABRIC_HOSTS_REGISTRY=registry_with(P.ME["agent"]))
+    check("W8 absent, a host operator: the line names the command that says why",
+          r.code == 3 and "not sent" in r.err and f"fabric-ctl {P.ME['agent']} interweave" in r.err and "OBSERVATION" not in r.err
           and db == [("outbound", "failed", "claude-bridge", None)] and posts == 0, f"{r.code} {r.err} {db} {posts}")
 
     f = Fake({"ok": False, "error": "disk", "carried": 3, "queued": 0})
@@ -218,9 +231,9 @@ def journal_off_cases() -> None:
               r.code == 0 and r.out == f"sent INFO {P.VALID_ID}\n" and posts == 0 and bypass in r.err and db == []
               and [q["op"] for q in f.requests] == ["send"], f"{r.code} {r.out!r} {r.err} {db} {posts} {f.requests}")
         f.close()
-        r, db, posts = send_in(m, 200, P.scratch("run-"), GZCOORD_JOURNAL="off")
+        r, db, posts = send_in(m, 200, P.scratch("run-"), GZCOORD_JOURNAL="off", AGENT_FABRIC_HOSTS_REGISTRY=registry_with(None))
         check(f"D7 {m}: no carrier running is the carrier's failure (exit 3), never a fall back to the relay",
-              r.code == 3 and "not sent" in r.err and "fabric-ctl" in r.err and posts == 0 and bypass in r.err, f"{r.code} {r.err} {posts}")
+              r.code == 3 and "not sent" in r.err and "OBSERVATION" in r.err and posts == 0 and bypass in r.err, f"{r.code} {r.err} {posts}")
     f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
     r, db, posts = send_in("relay-record", 200, f.run, GZCOORD_JOURNAL="off")
     check("D7 relay-record unchanged: the relay alone takes it, the carrier is not asked, the bypass line is said",

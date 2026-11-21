@@ -118,6 +118,7 @@ import sys
 from typing import Any, Callable
 
 from . import bypass, gzmsg, i18n, inbox, intake, paths, placement, transport
+from .transport import carrier as carrier_transport
 from . import jsvalues as js
 from .carrier import CARRIER_LABEL, CARRIER_NAME, arrivals
 
@@ -810,8 +811,7 @@ def carrier_not_accepted(error: BaseException, never: bool, relay_took_it: bool,
                          t: i18n.Printer) -> int:
     """The exit and the line when the carrier, the transport of record, did not accept the send (exit 3 always): not sent
     when it provably recorded nothing, its outcome unknown when it may have. A relay mirror that took a copy is said, never counted: the carrier's answer is the status."""
-    login = address.rpartition("/")[2]
-    fix = t("carrier.fix", {"login": login, "name": CARRIER_NAME})
+    fix = carrier_transport.fix_line(t, address)
     if never:
         if getattr(error, "absent", False):
             print(t("send.carrier-absent", {"carrier": CARRIER_LABEL, "fix": fix}), file=sys.stderr)
