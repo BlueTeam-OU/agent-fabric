@@ -405,7 +405,7 @@ class Run:
     # again. Not written; each entry names its memory and the correcting memory so the author can update or delete it.
     superseded_harvests: list[str] = field(default_factory=list)
     # The same claims as `superseded_harvests`, as records a reader can match to a file in an agent's home: one per owner and memory text,
-    # {memory, agent, host, content_hash, slice, heading}. The report carries them past the next drain (report.carry_obsolete).
+    # {memory, agent, host, content_hash, slice, heading, stamp (the earliest drain that named it)}. The report carries them past the next drain (report.carry_obsolete).
     obsolete_memories: list[dict[str, str]] = field(default_factory=list)
     # (agent, host, memory name) -> the content hashes of that memory this run read: a memory read again under another hash
     # was updated by its author, which ends its obsolete row.

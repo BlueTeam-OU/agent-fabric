@@ -302,7 +302,7 @@ def record_rehomed(other: Run) -> int:
 
 
 OBSOLETE_KEYS = ("memory", "agent", "host", "content_hash", "slice", "heading")
-# The stamp of the drain that first named the memory: what lets a re-run of one stamp under --hold drop its own rows and
+# The stamp of the earliest drain that named the memory (a renewal keeps it): what lets a re-run of one stamp under --hold drop its own rows and
 # keep those carried from an earlier stamp. A row of an older report has none and is never taken for this stamp's.
 STAMP_KEY = "stamp"
 
@@ -327,7 +327,12 @@ def carry_obsolete(earlier: Any, run: Run) -> list[dict[str, str]]:
         if read is None or row["content_hash"] in read:
             kept[(row["agent"], row["host"], row["content_hash"])] = {k: row[k] for k in (*OBSOLETE_KEYS, *([STAMP_KEY] if isinstance(row.get(STAMP_KEY), str) else []))}
     for row in run.obsolete_memories:
-        kept[(row["agent"], row["host"], row["content_hash"])] = row
+        key = (row["agent"], row["host"], row["content_hash"])
+        # Renewed, not new: the stamp stays the earliest that named it, so a held re-run of this stamp cannot take a row
+        # an earlier drain named for one of its own.
+        if STAMP_KEY in kept.get(key, {}):
+            row = {**row, STAMP_KEY: kept[key][STAMP_KEY]}
+        kept[key] = row
     return list(kept.values())
 
 
