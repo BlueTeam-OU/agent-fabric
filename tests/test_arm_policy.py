@@ -1192,7 +1192,7 @@ class ArmRun(unittest.TestCase):
         self.assertIn(f"`AUTHORIZES: O/R#7@{self.HEAD[:8]}`", text)
         self.assertIn("--authorization <id>", text)
         self.assertNotIn("dev", text.split("running now")[1].split(")")[0])
-        self.assertIn("or ask the owner", text)
+        self.assertNotIn("ask the owner", text)   # ADR-019 rule 4: a named authority is asked, never the owner
 
     def test_with_no_holder_running_the_refusal_says_so_and_who_knows(self):
         policy = claude_only({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
@@ -1723,9 +1723,9 @@ class ArmRun(unittest.TestCase):
 
     def test_the_hint_to_a_holder_carries_any_owner_and_where_it_may_be_the_holders_own_pr_says_when(self):
         text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",))
-        self.assertIn("in a session that holds architect-cto, --any-owner --basis \"architect-cto's word\"; or", text)
+        self.assertTrue(text.endswith("in a session that holds architect-cto, --any-owner --basis \"architect-cto's word\""), text)
         text = self.refusal(claude_only({"commits": {**self.BM, "authority_own_prs": True}}), files=("docs/a.md",))
-        self.assertIn("in a session that holds architect-cto, --basis \"architect-cto's word\" (and --any-owner, on a PR not its own); or", text)
+        self.assertTrue(text.endswith("in a session that holds architect-cto, --basis \"architect-cto's word\" (and --any-owner, on a PR not its own)"), text)
 
     def test_a_policy_with_only_boundary_authority_lets_its_holder_arm_a_boundary_change_by_the_binding_and_nothing_else(self):
         policy = claude_only({"commits": {"min": 8, "boundary_authority": "architect-cto"}})
@@ -1761,6 +1761,9 @@ class ArmRun(unittest.TestCase):
             rc, _ = self.below(basis=basis, extra=extra, branch=branch, **kw)
             self.assertTrue(str(rc).startswith("refused"), (basis, rc))
             self.assertIn("own author", str(rc))
+            if "--any-owner" not in extra:   # ADR-019 rule 4: another holder of the authority is asked, never the owner
+                self.assertIn("architect-cto holder", str(rc))
+                self.assertNotIn("ask the owner", str(rc))
             rc, out = self.below({"authority_own_prs": True}, basis=basis, extra=extra, branch=branch, **kw)
             self.assertEqual(rc, 0, (basis, out))
         # the boundary path keeps the same constant
@@ -1780,12 +1783,12 @@ class ArmRun(unittest.TestCase):
         rc, out = self.below({"authority_own_prs": True}, basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="fix-x")
         self.assertEqual(rc, 0, out)
 
-    def test_the_refusal_names_the_authority_its_running_holder_and_the_basis_before_the_owner(self):
+    def test_the_refusal_names_the_authority_its_running_holder_and_the_basis_and_never_the_owner(self):
         text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",), fleet=fleet_of(("arch1", "architect-cto", True), ("dev", "web-dev", True)))
         self.assertIn("ask an architect-cto holder with a session running now (arch1)", text)
         self.assertIn(f"`AUTHORIZES: O/R#7@{self.HEAD[:8]}`", text)
         self.assertIn("--basis \"architect-cto's word\"", text)
-        self.assertLess(text.index("architect-cto's word"), text.index("ask the owner"))
+        self.assertNotIn("ask the owner", text)   # ADR-019 rule 4: a named authority is asked, never the owner
         text = self.refusal(claude_only({"commits": {**self.BM, "classes": {"big": {"paths": r"^docs/", "min": 10}}}}), files=("docs/a.md",),
                             body="Class: big", work=9, classes={"big": r"^docs/"},
                             fleet=fleet_of(("arch1", "architect-cto", True)))
