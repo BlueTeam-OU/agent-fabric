@@ -191,8 +191,8 @@ arrive, and each can be traced to who learnt it, where and when.
    does not exist, or carries a description other than the slice's.
    fabric-coordinator's domain slices are listed in agent-fabric's own
    index and in no other project's, where their cues name projects that
-   repository has nothing to do with; lint holds the index to the same
-   rule (A 2026-11-21).
+   repository has nothing to do with; lint does not ask a project's index
+   for them (A 2026-11-21).
    Index links are relative to the working copy; a fabric-side slice is
    linked as `../agent-fabric/<path>`.
 9. Evidence from a sibling project is `knowledge_scope: domain-only`;
