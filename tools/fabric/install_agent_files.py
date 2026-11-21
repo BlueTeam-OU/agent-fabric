@@ -106,9 +106,12 @@ FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import fabric_writes  # noqa: E402
 import launch_locale  # noqa: E402
-import managed_settings  # noqa: E402
 import roots  # noqa: E402
 
+# managed_settings.py's own: ENTRY, and ETC with its non-root override. Not imported: it is a root installer's
+# module, and the fixture trees that copy this file's siblings would each have to carry it.
+MANAGED_ENTRY = "runtime/claude-code/managed/hook_entry.py"
+MANAGED_ETC_OVERRIDE = "AGENT_FABRIC_MANAGED_ETC"
 CLASS_FILES = ("code-low.md", "code-medium.md", "code-high.md", "code-plan.md", "code-review.md")
 MARKER = b"agent-fabric"
 MODEL_LINE = re.compile(rb"^model: .*", re.M)
@@ -121,9 +124,12 @@ def dispatch_guard_tree(etc: str | None = None) -> str | None:
     `current` link is the snapshot the operator last installed). None when
     the file is absent, unreadable, not an object or names no such hook: no
     managed file is in force, and the checkout is the only tree there is.
-    `etc` is where the file lives (managed_settings.ETC: /etc/claude-code,
-    overridable for a non-root test, never for root)."""
-    path = os.path.join(managed_settings.ETC if etc is None else etc, "managed-settings.json")
+    `etc` is where the file lives (/etc/claude-code, overridable by
+    AGENT_FABRIC_MANAGED_ETC for a non-root test, never for root, as
+    managed_settings.py has it)."""
+    if etc is None:
+        etc = "/etc/claude-code" if os.geteuid() == 0 else os.environ.get(MANAGED_ETC_OVERRIDE, "/etc/claude-code")
+    path = os.path.join(etc, "managed-settings.json")
     try:
         with open(path, encoding="utf-8") as f:
             settings = json.load(f)
@@ -139,8 +145,8 @@ def dispatch_guard_tree(etc: str | None = None) -> str | None:
                 if not isinstance(args, list) or not args or args[-1] != "agent-dispatch-guard":
                     continue
                 for arg in args:
-                    if isinstance(arg, str) and arg.endswith("/" + managed_settings.ENTRY):
-                        return os.path.realpath(arg[:-len(managed_settings.ENTRY)])
+                    if isinstance(arg, str) and arg.endswith("/" + MANAGED_ENTRY):
+                        return os.path.realpath(arg[:-len(MANAGED_ENTRY)])
     return None
 
 

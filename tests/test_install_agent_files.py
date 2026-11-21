@@ -91,7 +91,7 @@ def main() -> int:
             for d in (home, cfg, os.path.join(root, "tools", "fabric"), os.path.join(root, "runtime", "mcp", "websearch-locale"), os.path.join(root, "runtime", "mcp", "fabric-memory"), os.path.join(root, "runtime", "mcp", "fabric-review")):
                 os.makedirs(d)
             shutil.copy(MODULE, os.path.join(root, "tools", "fabric", "install_agent_files.py"))
-            for sibling in ("fabric_writes.py", "launch_locale.py", "roots.py", "managed_settings.py"):
+            for sibling in ("fabric_writes.py", "launch_locale.py", "roots.py"):
                 shutil.copy(os.path.join(os.path.dirname(MODULE), sibling), os.path.join(root, "tools", "fabric"))
             shutil.copytree(AGENTS, os.path.join(root, "runtime", "claude-code", "agents"))
             shutil.copy(os.path.join(HERE, "runtime", "identity.py"), os.path.join(root, "runtime", "identity_real.py"))
