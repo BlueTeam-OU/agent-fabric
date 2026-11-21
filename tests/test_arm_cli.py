@@ -1585,7 +1585,7 @@ def main() -> int:
             for d in P.SCRATCH:
                 shutil.rmtree(d, ignore_errors=True)
 
-        # ── fabric-pr disarm (REQUEST 01a1c27c): who may arm may disarm, and the basis stays on the PR ──
+        # ── fabric-pr disarm (REQUEST 01a1c27c): your own PR, or another's on the owner's or the authority's word, and the basis stays on the PR ──
         from github import disarm
         whoami = {"AGENT_FABRIC_WHOAMI": f"{bindir}/fabric-whoami"}
 
@@ -1700,7 +1700,7 @@ def main() -> int:
         rc, out = drun("7", "--basis", "b")
         check("a closed PR: refused, nothing written", rc == 1 and "CLOSED, not open" in out and not written(), out)
 
-        print("disarm: who may arm may disarm")
+        print("disarm: another session's PR on the owner's or the authority's word, never --any-owner alone")
         other = "develop-qzapp/other/feat/x"
         cto = dict(claude_only, commits=dict(claude_only["commits"], below_min_authority="architect-cto"))
         armed_pr(other)
