@@ -13,7 +13,7 @@ may install it) works; the interpreter is the fleet's pin, `${AGENT_FABRIC_PYTHO
 (ADR-040 rule 1, A 2026-11-11: every host has the pin); with the module missing the failure is the interpreter's (exit 2, the path named);
 with the pin absent the push is refused, exit 127, naming the pin's path and its install command, the module never run.
 
-Mutations each case fails on (planted on the hook as formatted): `"$@"` to `$@` (arguments); `exec python3 ... "$@"` to `python3 ... "$@"; exit 0`
+Mutations each case fails on (planted on the hook as formatted): `"$@"` to `$@` (arguments); `exec "$py" ... "$@"` to `"$py" ... "$@"; exit 0`
 (exit status); dropping `readlink -f` from the root (the symlinked hook); `"$py"` to `python3` (the pin, not PATH); dropping the `-x` check
 (the refusal's words); `exit 127` to `exit 0` (a missing pin passes the push)."""
 from __future__ import annotations

@@ -151,7 +151,7 @@ STATUS_LINE = {"type": "command",
                "command": f'bash "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", "statusline.sh")}"'}
 
 # The fleet's pinned Python (ADR-040 rule 1, A 2026-11-11): a host's own python3 runs only python_pin.py and rule 4's
-# list, which the hooks rendered here have left. The path is literal, as the managed entry's (managed/hook_entry.py):
+# list, which the hooks rendered here were never on. The path is literal, as the managed entry's (managed/hook_entry.py):
 # a settings file outlives the environment that rendered it, so AGENT_FABRIC_PYTHON is not read into it.
 PY = "/usr/local/bin/fabric-python"
 

@@ -56,9 +56,11 @@ On 2026-11-19, on develop-qzapp, from the main checkout at 45628272:
 | an account off the channel | none | channel `ok` and both units active on 30 of 30 at 13:35Z; between the reads it is shown only by the deliveries |
 
 The `stranded` column is a read at one moment: a delivery stuck for
-hours and receipted before 13:35Z would not appear in it. The delivery
-records are kept, so the counted states above cover that case for every
-delivery the collection holds.
+hours and receipted before 13:35Z would not appear in it. Neither do
+the counted states: the collection keeps each delivery's final state,
+not when its receipt came, so a delivery receipted three hours late
+reads `done` like one receipted in a minute. How long a delivery stayed
+outstanding between the two reads is not measured by this record.
 
 ## The misses
 
@@ -79,10 +81,13 @@ arrival in the whole collection; language-culture-en's last watch ended
 **InterWeave, 2 pairs, both to user.**
 
 - `01a1dbcb-e405` was made 2026-11-14. Its relay copy arrived again on
-  2026-11-19T07:41:04Z, inside the window. Its InterWeave copy came
-  long before the collection began, which parity's own line says. This is
-  the edge case the 2026-11-18 report's Control section shows, not a
-  miss of the soak.
+  2026-11-19T07:41:04Z, inside the window. Parity's line says the
+  sender recorded no InterWeave delivery and that the message was made
+  before the span the mirror logs were collected over, "so a refusal is
+  not ruled out". Whether InterWeave carried it is not read here. It was
+  made before the collection began, so it is the edge case the
+  2026-11-18 report's Control section shows, and it is not counted as
+  a miss of the soak.
 - `01a1f03b-0023` is an OBSERVATION sent `TO-ROLE: fabric-coordinator`
   by rust-services-dev-01 at 2026-11-18T19:56Z, which was in
   `carrier-record` the whole time. The sender's journal holds it as

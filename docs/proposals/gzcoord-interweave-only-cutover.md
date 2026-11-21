@@ -444,5 +444,6 @@ in this order (gate 1's word was given on 2026-11-18, on items 1 to 4 of §4):
    [`docs/live-checks/2026-11-19-carrier-record-soak.md`](../live-checks/2026-11-19-carrier-record-soak.md):
    nothing stranded or blocked. In one send the carrier did not accept and the relay mirror took a
    copy (exit 3, by design). That kind of failure leaves no durable line, so a `carrier-only` soak
-   could not count it. A line for the primary's failure, which parity reads, comes before that
-   rung (python-dev, REPLY 01a1f431-e266).
+   could not count it. A line for the primary's failure, which parity reads, was to come before
+   that rung (python-dev, REPLY 01a1f431-e266); it came with #673 (merged 2026-11-21, f73f9611):
+   `send.py` writes the `primary` row and parity names a send the carrier did not accept.
