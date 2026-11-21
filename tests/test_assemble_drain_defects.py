@@ -983,6 +983,20 @@ def test_the_commit_body_counts_what_was_rehomed(tmp: str) -> None:
     assert "Re-homed" not in ta.read(msg), "control: bound, nothing re-homed, no line"
 
 
+def test_the_commit_body_names_a_retired_copy(tmp: str) -> None:
+    """Review F7: a drain commit that removes a role's directory says so in its body. Control: a drain that retires nothing has
+    no line."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF])})
+    ta.with_agents(drain, {"h1": "dev-01"})
+    bind(out, "alpha")
+    seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/workflow.md", "---\ntopic: old\n---\n\n## Old\nx\n")
+    msg = os.path.join(tmp, "msg.txt")
+    assert ta.run_assemble(drain, claims_dir, out, "--commit-message", msg).returncode == 0
+    assert f"Retired (re-homed role, earlier project copy removed): 1 ({COORD}: 1 file(s) of {COORD})." in ta.read(msg), ta.read(msg)
+    assert ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02", "--commit-message", msg).returncode == 0
+    assert "Retired" not in ta.read(msg), "control: nothing left to retire, no line"
+
+
 def test_a_rehomed_claim_the_control_planes_pass_rejects_is_no_rehomed_row(tmp: str) -> None:
     """F1's other half: the rows are of what the control plane's pass kept. A claim it rejected (non-English prose) was not
     re-homed, and the report, the commit body and stderr must not say it was. Control: the English claim beside it is."""
@@ -1046,6 +1060,7 @@ def main() -> int:
         test_a_rehome_collision_decision_reaches_the_control_planes_own_report,
         test_an_unreadable_report_of_the_drained_project_is_refused_and_left_as_it_is,
         test_the_commit_body_counts_what_was_rehomed,
+        test_the_commit_body_names_a_retired_copy,
         test_a_rehomed_claim_the_control_planes_pass_rejects_is_no_rehomed_row,
     ]
     failures = 0
