@@ -112,19 +112,24 @@ class WatchLog(ArrivalLog):
 
 
 class MirrorLog(ArrivalLog):
-    """gzcoord-mirror.jsonl, in the SENDER's state beside gzcoord-sent.jsonl: one line for each send the InterWeave carrier,
-    as a mirror, did not accept: {"mid","t","outcome","reason"}, `outcome` one of OUTCOMES. The relay's record then holds the
-    message alone, and the parity report (ADR-064 rule 11) sees a pair with no InterWeave copy and no sender record; before this
-    log the reason was a stderr line of a send nobody kept. A send the carrier accepted leaves no line here: it has a
-    delivery row in the carrier's own outbox. The log is bounded (a sender with no carrier at all writes a line per send)."""
+    """gzcoord-mirror.jsonl, in the SENDER's state beside gzcoord-sent.jsonl: one line for each send the InterWeave carrier
+    did not accept: {"mid","t","outcome","reason","as"}, `outcome` one of OUTCOMES, `as` the carrier's place in that send: "mirror"
+    (a relay-record send's second copy; the relay's record then holds the message alone) or "primary" (the transport of record,
+    carrier-record and carrier-only: the send exited 3 and, in carrier-only, no relay copy is left to find). A line without `as`
+    was written before the field and is a mirror's. The parity report (ADR-064 rule 11) sees a pair with no InterWeave copy and
+    no sender record; before this log the reason was a stderr line of a send nobody kept. A send the carrier accepted leaves no
+    line here: it has a delivery row in the carrier's own outbox. The log is bounded (a sender with no carrier at all writes a
+    line per send). A primary is never "not-carried": a roster without a recipient is a refusal that recorded nothing, "failed"."""
 
     OUTCOMES = ("absent", "not-carried", "failed", "no-answer")
+    ROLES = ("primary", "mirror")
     MAX_BYTES = 256 * 1024
     REASON_MAX = 200
 
-    def append_refused(self, mid: str, outcome: str, reason: str) -> None:
+    def append_refused(self, mid: str, outcome: str, reason: str, role: str = "mirror") -> None:
         assert outcome in self.OUTCOMES, outcome
-        self._append({"mid": mid, "t": self._iso(), "outcome": outcome, "reason": " ".join(reason.split())[:self.REASON_MAX]})
+        assert role in self.ROLES, role
+        self._append({"mid": mid, "t": self._iso(), "outcome": outcome, "reason": " ".join(reason.split())[:self.REASON_MAX], "as": role})
 
     def _append(self, line: dict) -> None:
         # The lock is a file of its own, never the log: the trim replaces the log by rename, and a lock on the replaced inode would

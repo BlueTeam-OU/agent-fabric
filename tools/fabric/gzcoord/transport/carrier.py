@@ -75,7 +75,7 @@ class CarrierPrimary(CarrierTransport):
         if post.state == "accepted":
             return Sent(self.name, "accepted")
         raise adapter.CarrierError(post.detail or f"the carrier answered {post.state}", absent=post.state == "absent",
-                                   never_reached_it=post.proved_unsent)
+                                   never_reached_it=post.proved_unsent, state=post.state)
 
     def receive(self, seconds: float, abort: threading.Event) -> list[dict]:
         records = self._adapter.wait(seconds, abort)
