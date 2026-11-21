@@ -372,11 +372,14 @@ decision. `self-kill-guard.py` leaves the list too: the workspace
 settings (`.claude/settings.json`, `runtime/claude-code/workspace/settings.json`)
 ran it and `post-review-shape-guard.py`, which was never on the list, as
 `python3 "$f"` where the managed entry is absent; both fallbacks run
-`/usr/local/bin/fabric-python "$f"`, by its fixed path like every gate,
-so the environment cannot choose a guard's interpreter. The list now
-holds no hook. A host without the pin runs neither fallback guard, as a
-host without `python3` ran neither before; rule 1 gives such a host no
-account.
+`/usr/local/bin/fabric-python -I -S "$f"`, as `hook_entry.py` runs the
+managed guards: the literal path, so no variable chooses the
+interpreter, and `-I -S`, so no `PYTHON*` variable or user site puts a
+module of its own under the guard. Where the pin is missing or the
+guard fails, the fallback answers `ask`, as `hook_entry.py`'s
+`cannot_run` does, never silence: before, a host with `python3` and no
+pin ran the guard, and a silent fallback would have let every call
+through there (#678 review round 1, F1). The list now holds no hook.
 
 Why: the amendment of 2026-11-11 put the pin on every host and named
 these two entries, with the language detector's venv (A 2026-11-16), as
