@@ -9,11 +9,13 @@ URL as arguments and the ref lines on stdin.
 The contract the forwarder keeps (each is a method): the arguments reach the module verbatim, spaces, an empty argument and non-ASCII
 included; stdin reaches it whole; its exit status is the hook's exit status; its stdout and stderr come out unchanged and apart; it runs in
 the repository's directory with the caller's environment; it is found from the hook's REAL path, so a symlink to the hook (how a checkout
-may install it) works; the interpreter is `python3` from PATH (not the pinned fabric-python: this hook is installed in checkouts of every
-account); with the module missing the failure is the interpreter's (exit 2, the path named); with no python3 on PATH it is exit 127.
+may install it) works; the interpreter is the fleet's pin, `${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}`, never `python3` from PATH
+(ADR-040 rule 1, A 2026-11-11: every host has the pin); with the module missing the failure is the interpreter's (exit 2, the path named);
+with the pin absent the push is refused, exit 127, naming the pin's path and its install command, the module never run.
 
 Mutations each case fails on (planted on the hook as formatted): `"$@"` to `$@` (arguments); `exec python3 ... "$@"` to `python3 ... "$@"; exit 0`
-(exit status); dropping `readlink -f` from the root (the symlinked hook); `python3` to `/usr/local/bin/fabric-python` (interpreter from PATH)."""
+(exit status); dropping `readlink -f` from the root (the symlinked hook); `"$py"` to `python3` (the pin, not PATH); dropping the `-x` check
+(the refusal's words); `exit 127` to `exit 0` (a missing pin passes the push)."""
 from __future__ import annotations
 
 import json
@@ -30,7 +32,7 @@ from githook_fixtures import GITHOOKS_DIR, GIT_ENV, Repo  # noqa: E402
 
 STUB = '''#!/usr/bin/env python3
 import json, os, sys
-rec = {"argv": sys.argv[1:], "stdin": sys.stdin.read(), "cwd": os.getcwd(), "env_marker": os.environ.get("PREPUSH_TEST_MARKER"), "exe": sys.argv[0]}
+rec = {"argv": sys.argv[1:], "stdin": sys.stdin.read(), "cwd": os.getcwd(), "env_marker": os.environ.get("PREPUSH_TEST_MARKER"), "exe": sys.argv[0], "py": sys.executable}
 json.dump(rec, open(os.environ["PREPUSH_TEST_RECORD"], "w"))
 mode = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mode.json")))
 sys.stdout.write(mode.get("out", ""))
@@ -59,8 +61,11 @@ class PrePush(unittest.TestCase):
         with open(os.path.join(self.fabric, "tools", "fabric", "mode.json"), "w", encoding="utf-8") as fh:
             json.dump(doc, fh)
 
-    def run_hook(self, *args, stdin="", hook=None, path="/usr/bin:/bin", cwd=None):
+    def run_hook(self, *args, stdin="", hook=None, path="/usr/bin:/bin", cwd=None, py=sys.executable):
+        # The pin is this interpreter unless a case says otherwise (None: unset, the hook's own default).
         env = {**GIT_ENV, "PATH": path, "HOME": self.root, "PREPUSH_TEST_RECORD": self.record, "PREPUSH_TEST_MARKER": "marker-value"}
+        if py is not None:
+            env["AGENT_FABRIC_PYTHON"] = py
         return subprocess.run([hook or os.path.join(self.hooks, "pre-push"), *args], cwd=cwd or self.repo.path, input=stdin, capture_output=True,
                               text=True, timeout=60, env=env)
 
@@ -112,17 +117,34 @@ class PrePush(unittest.TestCase):
         self.assertEqual(r.returncode, 5, r.stderr)
         self.assertEqual(self.recorded()["argv"], ["origin", "url"])
 
-    def test_the_interpreter_is_python3_from_path_not_a_pinned_one(self):
+    def shim(self, name: str) -> tuple[str, str]:
+        """An executable that records it ran, then runs this interpreter; (its path, its marker)."""
         shim_dir = os.path.join(self.root, "shim")
-        os.makedirs(shim_dir)
-        shim = os.path.join(shim_dir, "python3")
-        marker = os.path.join(self.root, "shim-ran")
+        os.makedirs(shim_dir, exist_ok=True)
+        shim, marker = os.path.join(shim_dir, name), os.path.join(self.root, f"{name}-ran")
         with open(shim, "w", encoding="utf-8") as fh:
-            fh.write(f'#!/bin/sh\necho ran > "{marker}"\nexec /usr/bin/python3 "$@"\n')
+            fh.write(f'#!/bin/sh\necho ran > "{marker}"\nexec "{sys.executable}" "$@"\n')
         os.chmod(shim, os.stat(shim).st_mode | stat.S_IXUSR)
-        r = self.run_hook("origin", "url", path=f"{shim_dir}:/usr/bin:/bin")
+        return shim, marker
+
+    def test_the_interpreter_is_the_pin_named_by_agent_fabric_python(self):
+        pin, pin_ran = self.shim("fabric-python")
+        _, path_ran = self.shim("python3")
+        r = self.run_hook("origin", "url", path=f"{os.path.dirname(pin)}:/usr/bin:/bin", py=pin)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue(os.path.exists(marker), "the python3 first on PATH was not the interpreter")
+        self.assertTrue(os.path.exists(pin_ran), "the pin was not the interpreter")
+        self.assertFalse(os.path.exists(path_ran), "the python3 first on PATH ran")
+
+    def test_unset_the_pin_is_usr_local_bin_fabric_python_never_python3_from_path(self):
+        shim, path_ran = self.shim("python3")
+        r = self.run_hook("origin", "url", path=f"{os.path.dirname(shim)}:/usr/bin:/bin", py=None)
+        self.assertFalse(os.path.exists(path_ran), "the python3 first on PATH ran")
+        if os.access("/usr/local/bin/fabric-python", os.X_OK):
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(os.path.realpath(self.recorded()["py"]), os.path.realpath("/usr/local/bin/fabric-python"))
+        else:
+            self.assertEqual(r.returncode, 127)
+            self.assertIn("/usr/local/bin/fabric-python", r.stderr)
 
     def test_with_the_module_missing_the_failure_is_the_interpreters_and_names_the_path(self):
         os.remove(self.module)
@@ -130,16 +152,13 @@ class PrePush(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("githooks_prepush.py", r.stderr)
 
-    def test_with_no_python3_on_path_it_is_exit_127(self):
-        empty = os.path.join(self.root, "empty-bin")
-        os.makedirs(empty)
-        for tool in ("bash", "dirname", "readlink", "env"):
-            src = shutil.which(tool, path="/usr/bin:/bin")
-            if src:
-                os.symlink(src, os.path.join(empty, tool))
-        r = self.run_hook("origin", "url", path=empty)
+    def test_with_the_pin_absent_the_push_is_refused_naming_it_and_its_install(self):
+        missing = os.path.join(self.root, "no-such", "fabric-python")
+        r = self.run_hook("origin", "url", py=missing)
         self.assertEqual(r.returncode, 127)
-        self.assertIn("python3", r.stderr)
+        self.assertIn(f"not installed at {missing}", r.stderr)
+        self.assertIn("python_pin.py install", r.stderr)
+        self.assertFalse(os.path.exists(self.record), "the module ran without the pin")
 
 
 if __name__ == "__main__":
