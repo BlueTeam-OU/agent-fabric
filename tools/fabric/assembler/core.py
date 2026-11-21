@@ -546,7 +546,7 @@ def note_superseded(run: Run, claim: dict[str, Any], slice_key: str, heading: st
     """One `superseded_harvests` row and the record that lets an agent be shown its own obsolete memory (fabric-status)."""
     run.superseded_harvests.append(note)
     for agent, host, h in owners_of(run, claim):
-        target = claim.get("merge_target")
+        target = claim["merge_target"].strip() if isinstance(claim.get("merge_target"), str) else ""
         run.obsolete_memories.append({"memory": claim["topic"], "agent": agent, "host": host, "content_hash": h,
                                       "slice": slice_key, "heading": heading, "stamp": run.args.stamp,
-                                      **({"merge_target": target} if isinstance(target, str) and target else {})})
+                                      **({"merge_target": target} if target else {})})

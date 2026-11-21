@@ -222,7 +222,7 @@ def read_claims(run: Run) -> int | None:
         for claim in run.all_claims[role]:
             if isinstance(claim, dict):
                 for h in claim.get("evidence") or []:
-                    run.seen_targets[h].add(claim["merge_target"] if isinstance(claim.get("merge_target"), str) else "")
+                    run.seen_targets[h].add(claim["merge_target"].strip() if isinstance(claim.get("merge_target"), str) else "")
         for claim in run.all_claims[role]:
             claim["_role"] = role   # for the section's dated tail; never written to disk
             if isinstance(claim.get("title"), str):

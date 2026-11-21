@@ -325,11 +325,14 @@ def carry_obsolete(earlier: Any, run: Run) -> list[dict[str, str]]:
     for row in earlier if isinstance(earlier, list) else []:
         if not (isinstance(row, dict) and all(isinstance(row.get(k), str) and row[k] for k in OBSOLETE_KEYS)):
             continue
-        # Ended only by another hash of the same memory: read again unchanged and not flagged this run (the ledger that
-        # replaced its text may have been pruned) the file is still the obsolete text, so its row stays.
+        if any(k in row and not isinstance(row[k], str) for k in OPTIONAL_KEYS):
+            continue   # present but not a string: not the record's shape; reading it as "none" would be a guess
+        # Ended only by another hash or another merge_target of the same memory: read again unchanged and not flagged this run
+        # (the ledger that replaced its text may have been pruned) the file is still the obsolete text, so its row stays.
         read = run.seen_memories.get((row["agent"], row["host"], row["memory"]))
         targets = run.seen_targets.get(row["content_hash"])
-        retargeted = bool(targets) and row.get(TARGET_KEY, "") not in targets
+        # Only when the row's own memory was read: seen_targets is keyed by hash, which two owners of one text share.
+        retargeted = read is not None and bool(targets) and row.get(TARGET_KEY, "") not in targets
         if (read is None or row["content_hash"] in read) and not retargeted:
             kept[(row["agent"], row["host"], row["content_hash"])] = {k: row[k] for k in (*OBSOLETE_KEYS, *(k for k in OPTIONAL_KEYS if isinstance(row.get(k), str)))}
     for row in run.obsolete_memories:
