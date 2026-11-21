@@ -25,7 +25,9 @@ instance data asks it and the later move is a change here.
     checkout_root()  the same variable, else <home>/projects/agent-fabric: the account's clone, for the control
                      plane's readers that answer for the account and not for the tree their code was loaded from.
     operator_root()  AGENT_FABRIC_OPERATOR when set and non-empty, else
-                     engine_root().
+                     <engine_root()>/operator (step B of docs/split/move-plan.md:
+                     the instance data sits in operator/ inside the engine
+                     checkout until step D gives it a repository of its own).
 
 Every helper below takes `environ` (a mapping, default os.environ: the
 launcher reads the environment of the session it builds, not its own),
@@ -109,14 +111,15 @@ def checkout_root(home: str, environ: Mapping[str, str] | None = None, *, empty_
 def operator_root(environ: Mapping[str, str] | None = None, *, empty_is_set: bool = False,
                   engine: str | None = None) -> str:
     """`engine` is for a caller that was handed its engine tree (status.py's
-    `root`, a launcher's fabric_root): with no operator exported, that tree
-    is the operator's too, not the environment's."""
+    `root`, a launcher's fabric_root): with no operator exported, that tree's
+    operator/ is the operator's, not the environment's engine's."""
     value = _env(environ).get(ENV_OPERATOR)
     if value:
         return value
-    if engine is not None:
-        return engine
-    return engine_root(environ, empty_is_set=empty_is_set)
+    tree = engine if engine is not None else engine_root(environ, empty_is_set=empty_is_set)
+    # An empty engine root names nothing found (empty_is_set): joining would turn it into the
+    # relative path "operator", which the working directory could answer.
+    return os.path.join(tree, "operator") if tree else tree
 
 
 def _under(root: str | None, environ: Mapping[str, str] | None, engine: str | None, *parts: str) -> str:
@@ -236,12 +239,13 @@ _MOVING = (
 
 def operator_prefix(base: str, environ: Mapping[str, str] | None = None) -> str:
     """The operator's tree relative to `base`, with a trailing "/", or "" when
-    it is `base` itself (AGENT_FABRIC_OPERATOR unset, empty or equal to it:
-    today's layout). An operator outside `base` has no repository-relative
-    path there: ValueError, never a guess."""
+    it is `base` itself (AGENT_FABRIC_OPERATOR equal to it: a fixture tree laid
+    out as the old layout). Unset or empty it is `operator/`, where
+    operator_root() falls back. An operator outside `base` has no
+    repository-relative path there: ValueError, never a guess."""
     value = _env(environ).get(ENV_OPERATOR)
     if not value:
-        return ""
+        return "operator/"
     # realpath on both: the repository's toplevel is what git reports, and
     # the operator may be exported through a differently spelled link to it.
     rel = os.path.relpath(os.path.realpath(value), os.path.realpath(base))

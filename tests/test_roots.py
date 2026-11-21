@@ -56,12 +56,12 @@ def case_engine_root_is_the_checkout_unless_exported() -> None:
     assert roots.engine_root({"AGENT_FABRIC_ROOT": ""}, empty_is_set=True) == ""
 
 
-def case_operator_root_is_the_engine_root_unless_exported() -> None:
-    assert roots.operator_root({}) == ROOT
-    assert roots.operator_root({"AGENT_FABRIC_ROOT": E}) == E
+def case_operator_root_is_operator_under_the_engine_root_unless_exported() -> None:
+    assert roots.operator_root({}) == J(ROOT, "operator")
+    assert roots.operator_root({"AGENT_FABRIC_ROOT": E}) == J(E, "operator")
     assert roots.operator_root({"AGENT_FABRIC_OPERATOR": O}) == O
     assert roots.operator_root({"AGENT_FABRIC_OPERATOR": O, "AGENT_FABRIC_ROOT": E}) == O
-    assert roots.operator_root({"AGENT_FABRIC_OPERATOR": "", "AGENT_FABRIC_ROOT": E}) == E
+    assert roots.operator_root({"AGENT_FABRIC_OPERATOR": "", "AGENT_FABRIC_ROOT": E}) == J(E, "operator")
     assert roots.operator_root({"AGENT_FABRIC_ROOT": ""}, empty_is_set=True) == ""
 
 
@@ -70,8 +70,8 @@ def case_every_helper_is_under_the_operator_root() -> None:
         if name == "hostsRegistry":
             continue
         assert call(environ={"AGENT_FABRIC_OPERATOR": O, "AGENT_FABRIC_ROOT": E}) == J(O, rel), name
-        assert call(environ={"AGENT_FABRIC_ROOT": E}) == J(E, rel), name
-        assert call(environ={}) == J(ROOT, rel), name
+        assert call(environ={"AGENT_FABRIC_ROOT": E}) == J(E, "operator", rel), name
+        assert call(environ={}) == J(ROOT, "operator", rel), name
 
 
 def case_an_explicit_root_wins_over_both_roots() -> None:
@@ -83,11 +83,11 @@ def case_an_explicit_root_wins_over_both_roots() -> None:
 
 
 def case_an_engine_tree_handed_in_stands_for_the_environments_engine_root() -> None:
-    assert roots.policy("x.json", engine="/g", environ={"AGENT_FABRIC_ROOT": E}) == "/g/policies/x.json"
+    assert roots.policy("x.json", engine="/g", environ={"AGENT_FABRIC_ROOT": E}) == "/g/operator/policies/x.json"
     assert roots.policy("x.json", engine="/g", environ={"AGENT_FABRIC_OPERATOR": O}) == "/o/policies/x.json"
     assert roots.policy("x.json", engine="/g", root="/x", environ={"AGENT_FABRIC_OPERATOR": O}) == "/x/policies/x.json"
-    assert roots.hosts_registry(engine="/g", environ={}) == "/g/runtime/hosts/registry.json"
-    assert roots.operator_root({}, engine="/g") == "/g"
+    assert roots.hosts_registry(engine="/g", environ={}) == "/g/operator/runtime/hosts/registry.json"
+    assert roots.operator_root({}, engine="/g") == "/g/operator"
 
 
 def case_the_hosts_registry_override_outranks_the_tree() -> None:
@@ -101,8 +101,8 @@ def case_the_environment_read_is_the_one_given_not_the_process_s() -> None:
     saved = os.environ.get("AGENT_FABRIC_OPERATOR")
     os.environ["AGENT_FABRIC_OPERATOR"] = "/process"
     try:
-        assert roots.operator_root({}) == ROOT
-        assert roots.policy("x.json", environ={}) == J(ROOT, "policies", "x.json")
+        assert roots.operator_root({}) == J(ROOT, "operator")
+        assert roots.policy("x.json", environ={}) == J(ROOT, "operator", "policies", "x.json")
         assert roots.policy("x.json") == "/process/policies/x.json"
     finally:
         if saved is None:
@@ -113,10 +113,10 @@ def case_the_environment_read_is_the_one_given_not_the_process_s() -> None:
 
 def case_live_checks_dir_is_python_only_and_follows_the_operator_root() -> None:
     assert roots.live_checks_dir(environ={"AGENT_FABRIC_OPERATOR": O, "AGENT_FABRIC_ROOT": E}) == J(O, "docs", "live-checks")
-    assert roots.live_checks_dir(environ={"AGENT_FABRIC_ROOT": E}) == J(E, "docs", "live-checks")
+    assert roots.live_checks_dir(environ={"AGENT_FABRIC_ROOT": E}) == J(E, "operator", "docs", "live-checks")
     assert roots.live_checks_dir(root="/x", environ={"AGENT_FABRIC_OPERATOR": O}) == J("/x", "docs", "live-checks")
     assert roots.live_checks_dir(environ={"AGENT_FABRIC_OPERATOR": O}, engine="/g") == J(O, "docs", "live-checks")
-    assert roots.live_checks_dir(environ={}, engine="/g") == J("/g", "docs", "live-checks")
+    assert roots.live_checks_dir(environ={}, engine="/g") == J("/g", "operator", "docs", "live-checks")
 
 
 def case_the_engine_adr_dir_is_the_engines_whatever_the_operator_is() -> None:
@@ -163,8 +163,15 @@ MOVE_LIST = (
 )
 
 
-def case_git_path_is_the_working_tree_path_with_no_operator_prefix() -> None:
-    for env in ({}, {"AGENT_FABRIC_OPERATOR": ""}, {"AGENT_FABRIC_OPERATOR": E}, {"AGENT_FABRIC_OPERATOR": E + "/."}):
+def case_git_path_is_the_operator_directory_when_none_is_exported() -> None:
+    for env in ({}, {"AGENT_FABRIC_OPERATOR": ""}):
+        for parts in MOVE_LIST:
+            assert roots.git_path(*parts, base=E, environ=env) == "operator/" + "/".join(parts), (env, parts)
+
+
+def case_git_path_is_the_old_layout_for_an_operator_that_is_the_base() -> None:
+    # a fixture tree laid out as before step B: the exported operator is the base itself
+    for env in ({"AGENT_FABRIC_OPERATOR": E}, {"AGENT_FABRIC_OPERATOR": E + "/."}):
         for parts in MOVE_LIST:
             assert roots.git_path(*parts, base=E, environ=env) == "/".join(parts), (env, parts)
 
@@ -196,7 +203,7 @@ def case_git_path_refuses_what_it_cannot_name() -> None:
     refused("identities", "..", "x")
     refused("")
     # positive control for the projects/ refusals: a project directory is answered.
-    assert roots.git_path("projects", "gzapp", "integration", base=E, environ={}) == "projects/gzapp/integration"
+    assert roots.git_path("projects", "gzapp", "integration", base=E, environ={}) == "operator/projects/gzapp/integration"
     # positive control for the refusals above: the same call is answered inside the base.
     assert roots.git_path("policies", "authority.json", base=E, environ={"AGENT_FABRIC_OPERATOR": E + "/o"}) == "o/policies/authority.json"
 
