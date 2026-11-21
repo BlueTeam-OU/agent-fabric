@@ -499,6 +499,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-10 — `fabric-pr disarm`: withdrawn with a basis; another's PR on a word (rule 5).
 - A 2026-11-12 — organisation's names and counts out: direct projects, counts, account, access are policy data (rules 1, 4, 6, §6).
 - A 2026-11-14 — under the minimum, bundle queued jobs of any topic first; a word only for what cannot wait (rule 4).
+- A 2026-11-21 — settings and operator repositories name no arming authority; the no-CI word stays the owner's, never an authority's (rule 4).
 - Keywords: Answers, armed_status, disarm.
 
 ### ADR-020 — The review class is the review (Accepted)
