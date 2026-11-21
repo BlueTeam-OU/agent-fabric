@@ -14,7 +14,14 @@
 # project's push is checked for unsigned commits, and for a value of the
 # account's own secrets in anything it adds (agent-fabric ADR-012 §5 rule 9). Installed per
 # checkout like pre-commit (core.hooksPath); --no-verify bypasses it, which
-# is a choice, not an accident. The decision is tools/fabric/githooks_prepush.py.
+# is a choice, not an accident. The decision is tools/fabric/githooks_prepush.py, on the
+# fleet's pinned Python like the other git hooks (ADR-040 rule 1, A 2026-11-11: every host
+# has the pin, so the host's python3 this hook kept until then is no longer needed). A push
+# hook that cannot reach its interpreter REFUSES the push in its own words (127): git reads
+# a hook's silence as no objection.
 set -uo pipefail
 FABRIC_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
-exec python3 "$FABRIC_ROOT/tools/fabric/githooks_prepush.py" "$@"
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without the pin.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "pre-push: the fleet's pinned Python is not installed at $py, so this push is refused; as root: /usr/bin/python3 $FABRIC_ROOT/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$FABRIC_ROOT/tools/fabric/githooks_prepush.py" "$@"

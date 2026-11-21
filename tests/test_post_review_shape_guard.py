@@ -13,6 +13,13 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+
+# Held by tests/test_own_instance_tree.py: this file names AGENT_FABRIC_ROOT. The fallback cases build a closed
+# environment, so no exported operator reaches them; the call changes nothing this suite does.
+own_instance_tree()
+
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(HERE, "runtime", "claude-code", "hooks", "post-review-shape-guard.py")
 spec = importlib.util.spec_from_file_location("post_review_shape_guard", HOOK)
@@ -402,6 +409,42 @@ def main() -> int:
             pre = json.load(fh)["hooks"]["PreToolUse"]
         hooked = [h["command"] for e in pre if e.get("matcher") == "Bash" for h in e["hooks"]]
         check(f"registered on Bash in {rel}", any("post-review-shape-guard.py" in c for c in hooked), hooked)
+        # The fallback (no managed entry) runs each Python guard on the pin by its literal path with -I -S, so neither
+        # an interpreter nor a module the environment names is the guard's; with the pin or the guard file missing, or the guard failing,
+        # it answers ask, never silence (ADR-040 rule 1, A 2026-11-21; ADR-043 rule 9). Run here with the managed
+        # stand-down pointed at a missing file, and this interpreter standing in for the pin.
+        pin = "/usr/local/bin/fabric-python"
+        w = "post" + "-review"
+        kills = {"self-kill-guard.py": {"tool_name": "Bash", "tool_input": {"command": "pk" + "ill -f claude"}},
+                 "post-review-shape-guard.py": {"tool_input": {"command": f"fabric-pr {w} 12 < r.md | cat"}}}
+        shadow = tempfile.mkdtemp(prefix="guard-shadow-")
+        with open(os.path.join(shadow, "json.py"), "w", encoding="utf-8") as fh:
+            fh.write("import sys; sys.exit(0)\n")
+        for script, payload in kills.items():
+            cmds = [h["command"] for e in pre for h in e["hooks"] if f"hooks/{script}" in h.get("command", "")]
+            check(f"{rel}: one fallback for {script}, none on python3", len(cmds) == 1 and "python3 " not in cmds[0], cmds)
+            if len(cmds) != 1:
+                continue
+            cmd = cmds[0].replace("/etc/claude-code/managed-settings.json", os.path.join(shadow, "no-managed.json"))
+            env = {"PATH": "/usr/bin:/bin", "HOME": shadow, "CLAUDE_PROJECT_DIR": HERE, "AGENT_FABRIC_ROOT": HERE}
+            for label, c, extra, want in (
+                    ("the pin runs it", cmd.replace(pin, sys.executable), {}, "deny"),
+                    ("PYTHONPATH does not silence it", cmd.replace(pin, sys.executable), {"PYTHONPATH": shadow}, "deny"),
+                    ("AGENT_FABRIC_PYTHON does not redirect it", cmd.replace(pin, sys.executable),
+                     {"AGENT_FABRIC_PYTHON": "/bin/true"}, "deny"),
+                    ("a missing pin asks", cmd.replace(pin, os.path.join(shadow, "no-python")), {}, "ask"),
+                    ("a missing guard file asks", cmd.replace(pin, sys.executable).replace(f"hooks/{script}", "hooks/no-such-guard.py"),
+                     {}, "ask")):
+                r = subprocess.run(["sh", "-c", c], input=json.dumps(payload), capture_output=True, text=True,
+                                   env={**env, **extra}, timeout=60)
+                got = json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] if r.stdout.strip() else None
+                check(f"{rel}: {script} fallback: {label}", r.returncode == 0 and got == want, (r.returncode, r.stdout[-200:]))
+            # The pass-through branch: a call the guard allows stays allowed, with no decision printed.
+            r = subprocess.run(["sh", "-c", cmd.replace(pin, sys.executable)], input=json.dumps({"tool_input": {"command": "ls -la"}}),
+                               capture_output=True, text=True, env=env, timeout=60)
+            check(f"{rel}: {script} fallback: an allowed command passes with no output", (r.returncode, r.stdout) == (0, ""),
+                  (r.returncode, r.stdout[-200:]))
+        shutil.rmtree(shadow, True)
 
     print(f"{'PASS' if not fails else 'FAIL'}: post-review shape guard ({fails} failed)")
     return 1 if fails else 0
