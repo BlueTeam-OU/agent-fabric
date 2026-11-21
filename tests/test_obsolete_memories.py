@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A memory a correction replaced is told to its author (j174): the drain's `superseded_harvests` row names the owner and the
-report records the same claim in `obsolete_memories`, which the next drain carries until the memory is read again changed, and
+report records the same claim in `obsolete_memories`, which the next drain carries until the memory is read again changed (another body, or another merge_target), and
 fabric-status lists an agent's own files that a committed report names — never another agent's, never one edited since, and
 without touching any file in the agent's home.
 
@@ -100,6 +100,46 @@ def test_a_row_ends_when_the_memory_is_read_again_changed(tmp: str) -> None:
     drain, claims_dir, out, _first = replayed(tmp)
     rewritten = dict(ORIGINAL, body="Another account of the matter, rewritten by its author.", evidence=["h4"])
     later = pass_of(drain, claims_dir, out, [rewritten], stamp="2026-01-02", rows={"h4": ("dev-01", "t")})
+    assert later["obsolete_memories"] == [], later["obsolete_memories"]
+
+
+def test_a_row_ends_when_only_the_merge_target_changes(tmp: str) -> None:
+    """j175: the author restores the text by naming the replacing section; name and body, so the hash, are the same."""
+    drain, claims_dir, out, first = replayed(tmp)
+    assert first["obsolete_memories"], "the control: the row is there before the revert"
+    revert = dict(ORIGINAL, merge_target="Status v2 of the thing")
+    later = pass_of(drain, claims_dir, out, [revert], stamp="2026-01-02")
+    assert later["obsolete_memories"] == [], later["obsolete_memories"]
+
+
+def test_another_owners_same_text_under_a_new_target_leaves_the_row(tmp: str) -> None:
+    """The hash is shared by every owner of one text: a memory this run did not read keeps its row."""
+    drain, claims_dir, out, first = replayed(tmp)
+    revert = dict(ORIGINAL, merge_target="Status v2 of the thing")
+    later = pass_of(drain, claims_dir, out, [revert], stamp="2026-01-02", rows={"h1": ("dev-09", "t")})
+    assert later["obsolete_memories"] == first["obsolete_memories"], later["obsolete_memories"]
+
+
+def test_a_row_records_a_stale_target_and_keeps_its_stamp_while_the_target_is_unchanged(tmp: str) -> None:
+    drain, claims_dir, out = drain_of(tmp)
+    pass_of(drain, claims_dir, out, [ORIGINAL])
+    pass_of(drain, claims_dir, out, [CORRECTION])
+    stale = dict(ORIGINAL, merge_target="No such section")
+    first = pass_of(drain, claims_dir, out, [stale], stamp="2026-01-02")
+    (row,) = first["obsolete_memories"]
+    assert row["merge_target"] == "No such section" and row["stamp"] == "2026-01-02", row
+    later = pass_of(drain, claims_dir, out, [stale], stamp="2026-01-03")
+    assert later["obsolete_memories"] == first["obsolete_memories"], later["obsolete_memories"]
+
+
+def test_a_carried_row_with_a_non_string_target_is_dropped(tmp: str) -> None:
+    drain, claims_dir, out, first = replayed(tmp)
+    path = ta.report_path(out)
+    report = json.loads(ta.read(path))
+    report["obsolete_memories"] = [dict(first["obsolete_memories"][0], merge_target=None)]
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(report, fh)
+    later = pass_of(drain, claims_dir, out, [OTHER], stamp="2026-01-02", rows=ONLY_OTHER)
     assert later["obsolete_memories"] == [], later["obsolete_memories"]
 
 

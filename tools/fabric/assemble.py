@@ -96,9 +96,9 @@ is an input as well as the claims; a tree that is not a repository, or has no co
 before. A history git cannot read refuses the run before the slices are written, with one line on stderr.
 
 Each `superseded_harvests` row names the memory with its owner, `'name' (agent@host)`, and the report records the same
-claims in `obsolete_memories`: {memory, agent, host, content_hash, slice, heading, stamp}, one per owner and memory text (stamp: the earliest
+claims in `obsolete_memories`: {memory, agent, host, content_hash, slice, heading, stamp, merge_target (only if the claim named one)}, one per owner and memory text (stamp: the earliest
 drain that named it; absent on a row of an older report). The next drain carries
-a row until it reads that memory under another content_hash (an updated memory), so fabric-status can show an agent its
+a row until it reads that memory under another content_hash (an updated memory) or another merge_target (a revert), so fabric-status can show an agent its
 own obsolete memories after the drain that named them. The drain never edits or deletes a file in an agent's home.
 <<< help
 """
