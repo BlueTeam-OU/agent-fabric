@@ -89,6 +89,7 @@
   "send.id-reused": "send: MESSAGE-ID {id} უკვე გაიგზავნა სხვა წერილით (seq {seq}) — ახალ წერილს ახალი id სჭირდება: წაშალე MESSAGE-ID სტრიქონი და ხელახლა გააგზავნე; არ გაიგზავნა",
   "send.ledger-not-written": "send: გაიგზავნა, მაგრამ id ამ ლოგინის გაგზავნილი id-ების ჩანაწერში ვერ დაემატა ({detail}) — განმეორებული id ვერ დაიჭირება",
   "send.would-post": "send: გაიგზავნებოდა {type} {id} — გამგზავნი {address}, არხი {channel}, რელე {relay_url}",
+  "send.would-post-carrier": "send: გაიგზავნებოდა {type} {id} — გამგზავნი {address}, არხი {channel}, გადამცემი {carrier}",
   "send.no-token": "send: CLAUDE_BRIDGE_AUTH_TOKEN არც გარემოშია და არც სამუშაო ასლში — არ გაიგზავნა",
   "send.token-refused": "send: რელემ ეს ტოკენი უარყო (HTTP {status}) — ის შეიცვალა; გაუშვი fabric-secrets sync — არ გაიგზავნა",
   "send.relay-unreachable": "send: რელე ({relay_url}) მიუწვდომელია ({detail}) — არ გაიგზავნა",
