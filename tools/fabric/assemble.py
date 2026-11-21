@@ -70,6 +70,9 @@ last-drain-report.json that cannot be read as a JSON object is refused the same 
 file; an absent one is no refusal. Any other role refuses the
 run before anything is written (exit 1), naming the claim, its role and the project: no fallback. A claim some bound role
 co-owns (shared_with) stays; a project with no taxonomy, the fabric's own project and domain claims are not judged.
+When the project does not bind fabric-coordinator and the run leaves it no project-class claim, the role's earlier directory
+under the project's memory (the copies of drains before the re-home) is removed after every refusal, named in the report's
+`retired_copies`, on stderr and in the commit body; the role's index, if it still owns anything here, is written afresh.
 
 Merge mode is the default: existing slices are read, and a claim whose
 `merge_target` names an existing section updates it instead of appending
@@ -213,10 +216,11 @@ def assemble_project(run: Run) -> int | None:
     if check_collisions(run):
         return 1
     # Refused before anything is written, as a broken taxonomy is.
+    for role in roles_with_project_directory(run):
+        read_crossref_index(os.path.join(layout.project_dir(run.project, role), "crossref.json"))
+    # After every refusal above, so a refused run has deleted nothing it would not name on the rerun.
     retire_rehomed_copies(run)
     held_roles = roles_with_project_directory(run)
-    for role in held_roles:
-        read_crossref_index(os.path.join(layout.project_dir(run.project, role), "crossref.json"))
     point_disk(run)
     write_shared(run)
     # Every role that owns anything gets a project directory and an index —

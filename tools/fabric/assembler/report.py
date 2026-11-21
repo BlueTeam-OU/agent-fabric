@@ -211,6 +211,9 @@ def commit_message(report: dict[str, Any], built_against: str | None) -> str:
     rehomed = report.get("rehomed") or []
     if rehomed:
         lines.append(f"Re-homed to the control plane's corpus: {len(rehomed)} ({', '.join(r['slice'] for r in rehomed)}).")
+    retired = report.get("retired_copies") or []
+    if retired:
+        lines.append(f"Retired (re-homed role, earlier project copy removed): {len(retired)} ({'; '.join(retired)}).")
     held = report.get("held_back") or []
     if held:
         lines.append(f"Held back: {len(held)} ({', '.join(held)}).")

@@ -475,7 +475,11 @@ def retire_rehomed_copies(run: Run) -> None:
     bound = bound_role_ids(run.project)
     if bound is None or run.project == layout.FABRIC_PROJECT_ID or REHOME_ROLE in bound:
         return
-    if REHOME_ROLE in run.all_claims or REHOME_ROLE in run.per_role or REHOME_ROLE in run.shared_index:
+    # Project-class claims only: a domain claim of the role (its reviews of external tools) lives in the fabric and keeps the
+    # role in this run, but the slices under the project's directory are the retired ones. A shared slice is under shared/,
+    # never in the directory; the role's index, if it still owns one, is written again after this from what it owns now.
+    if any(c.get("class") in layout.PROJECT_CLASSES for c in run.all_claims.get(REHOME_ROLE, [])) \
+            or any(klass in layout.PROJECT_CLASSES for klass, _topic in run.per_role.get(REHOME_ROLE, {})):
         return
     directory = layout.project_dir(run.project, REHOME_ROLE)
     if os.path.islink(directory):

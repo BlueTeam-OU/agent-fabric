@@ -33,11 +33,13 @@ from assembler.targets import slice_candidates
 FABRIC_PREFIX = layout.FABRIC_PROJECT_ID + "/"
 
 
-def prefix_fabric_anchors(run: Run, claim: dict[str, Any], history: Any) -> None:
+def prefix_fabric_anchors(run: Run, claim: dict[str, Any], history: Any, slice_name: str) -> None:
     """Normalise to `agent-fabric:<path>` each bare `agent-fabric/<path>` of a project's claim that names nothing in the
     project's own tree and resolves in the control plane's (a memory copies the path from a checkout beside the project;
     InterWeave #735 F4: such a stale anchor replaced the resolving prefixed one in four slices). Only a project's bundle: the control plane's own bare anchors
-    are its own. One that resolves bare stays as written, and one that resolves nowhere is left to the pairing and the report."""
+    are its own. One that resolves bare stays as written, and one that resolves nowhere is left to the pairing and the report. The
+    rewrite is the author's text changed, so it is named like any anchor kept over the memory's (anchors_kept): the memory keeps
+    the bare form and every drain rewrites it again until it is repaired."""
     if run.project == layout.FABRIC_PROJECT_ID or not claim.get("anchors"):
         return
     path = os.path.join(layout.project_memory_root(run.project), "x")
@@ -47,6 +49,11 @@ def prefix_fabric_anchors(run: Run, claim: dict[str, Any], history: Any) -> None
             named = layout.FABRIC_PROJECT_ID + ":" + anchor[len(FABRIC_PREFIX):]
             if anchors.problem(named) is None and verdict(run, anchor, path, {}, history) == GONE \
                     and verdict(run, named, path, {}, history) in RESOLVES:
+                origin = run.origins.get((claim.get("evidence") or [""])[0]) or {}
+                run.anchors_kept.append({
+                    "slice": slice_name, "heading": claim_heading(claim), "dropped": anchor, "kept": named,
+                    "agent": origin.get("agent") or "unresolved", **({"host": origin["host"]} if origin.get("host") else {}),
+                    "memory": claim["topic"]})
                 anchor = named
         if anchor not in out:
             out.append(anchor)
@@ -89,7 +96,7 @@ def settle_topic(run: Run, role: str | None, label: str, klass: str, topic: str,
         for heading, text in sections.items():
             held[heading] = (path, meta, text)
     for claim in group:
-        prefix_fabric_anchors(run, claim, history)
+        prefix_fabric_anchors(run, claim, history, f"{label}/{klass}:{topic}")
         wanted = claim.get("anchors")
         target = (claim.get("merge_target") or "").strip()
         heading = target if target in held else claim_heading(claim)
