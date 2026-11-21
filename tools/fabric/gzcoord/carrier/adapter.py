@@ -43,9 +43,12 @@ class CarrierError(Exception):
     proves the carrier recorded nothing of the request (no carrier, a request refused before any record, nothing queued);
     a call that was sent and not answered may have been recorded, and says False."""
 
-    def __init__(self, message: str, *, absent: bool = False, never_reached_it: bool = False) -> None:
+    def __init__(self, message: str, *, absent: bool = False, never_reached_it: bool = False, state: str = "") -> None:
         super().__init__(message)
         self.absent, self.never_reached_it = absent, never_reached_it
+        # The Post's state ("" when the error is not a send's): the sender's durable line names an answered refusal "failed"
+        # and a silent carrier "no-answer", as the mirror's does.
+        self.state = state
 
 
 @dataclass(frozen=True)
@@ -123,11 +126,12 @@ class Adapter:
                 out = self._call(self.path, req, timeout=SEND_TIMEOUT)
             except OSError as e:
                 # Sent and not answered, or not sent: the carrier may hold it.
-                return Post("failed", f"the InterWeave carrier did not answer ({e})")
+                return Post("no-answer", f"the InterWeave carrier did not answer ({e})")
             if not out.get("ok"):
                 # Unsent is proved only by an explicit queued count of 0: an answer without one ("bad request", a handler that
                 # raised mid-loop) may follow recipients already recorded.
-                return Post("failed", str(out.get("error", "no reason given")), proved_unsent=out.get("queued") == 0)
+                queued = f", {out['queued']} recipient(s) recorded" if "queued" in out and out.get("carried") != 0 else ""
+                return Post("failed", f"{out.get('error', 'no reason given')}{queued}", proved_unsent=out.get("queued") == 0)
         if out.get("carried", 0) == 0:
             return Post("not-carried", "no roster member carries the message's TO", proved_unsent=True)
         return Post("accepted") if out.get("queued") == out.get("carried") else Post("failed", "not every recipient was recorded")
