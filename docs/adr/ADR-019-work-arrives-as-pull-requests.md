@@ -176,7 +176,11 @@ not on a pipe's exit status.
    the operator, keeps its authority meanwhile; and the owner's no-CI word (a PR-mode repository with no CI
    at all) is the owner's alone, never an authority's: a repository
    without CI is given direct mode or CI in its policy rather than an
-   authority's word per PR (A 2026-11-21). `commits.advice_over` is the size a batch is opened at; a PR
+   authority's word per PR (A 2026-11-21). Nobody waits idle on a word: where
+   the dry-run names an arming authority the agent asks it by
+   `REQUEST`, never the owner, and works on a job in another repository
+   until the word arrives, since a commit on this PR would move the
+   head the word names (A 2026-11-21). `commits.advice_over` is the size a batch is opened at; a PR
    over that size is armed on the gate all the same, and the count is advice for the
    next batch.
 5. The gate is `fabric-pr gate`'s verdict for the PR, read
@@ -314,3 +318,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-11-12 | the record names no organisation's projects, counts or accounts | §5 rules 1, 4, 6, §6 access row, title: the direct projects and the counts are `policies/arming.json`'s; the merging account is the operator's; access is the repository's administrators |
 | 2026-11-14 | under the minimum, bundle first | §2, §5 rule 4: an agent's queued jobs ride its open PR, whatever their topic, until it reaches the minimum; a word below it is for work that cannot wait |
 | 2026-11-21 | the settings repositories and the no-CI word stay the owner's | §5 rule 4: a settings or operator repository names no arming authority; the no-CI word is never an authority's, a repository without CI gets direct mode or CI in its policy |
+| 2026-11-21 | nobody waits idle on a word | §5 rule 4: the agent asks the arming authority the dry-run names by `REQUEST`, never the owner, and works on a job in another repository until the word arrives |
