@@ -200,8 +200,10 @@ def read_claims(run: Run) -> int | None:
             if line.strip():
                 row = json.loads(line)
                 run.origins[row["content_hash"]] = origin_of_row(row)
-                if row.get("agent") and row.get("topic"):
-                    run.seen_memories[(row["agent"], row.get("host") or "unknown", row["topic"])].add(row["content_hash"])
+                # harvest_memory.py writes the memory's name as the observation's `title` (the claim's `topic` is its name for it).
+                name = row.get("title")
+                if row.get("agent") and name:
+                    run.seen_memories[(row["agent"], row.get("host") or "unknown", name)].add(row["content_hash"])
                 run.evidence_epoch[row["content_hash"]] = row.get("created_at_epoch")
 
     claim_files = sorted(

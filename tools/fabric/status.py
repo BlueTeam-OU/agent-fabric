@@ -247,7 +247,7 @@ def obsolete_memories(ctx, root):
     `obsolete_memories`; the file stays in its author's home until the author updates or deletes it. The match is the
     harvest's own content hash (name + body), so a file changed since the drain is a different text and is not listed,
     and a row names this login on this host or it is not read at all: nobody's memory but the caller's. Both reports a
-    drain writes are read, the working copy's and the control plane's (a re-homed claim is in the latter), because each
+    drain writes are read, the working copy's and the control plane's (a re-homed claim's row is in the drained project's report; the control plane's holds those of its own drains), because each
     holds only its last drain. Read only: this never touches the files it lists."""
     if not (ctx["working_copy"] and ctx["project"]):
         return None
@@ -261,9 +261,11 @@ def obsolete_memories(ctx, root):
             try:
                 with open(path, encoding="utf-8") as fh:
                     listed = json.load(fh).get("obsolete_memories")
-            except (OSError, ValueError, AttributeError):
-                continue    # no report, or an older one: nothing named there
-            for row in listed if isinstance(listed, list) else []:
+            except FileNotFoundError:
+                continue    # no drain has written this report: nothing named there
+            if listed is not None and not isinstance(listed, list):
+                return None   # a report that cannot be read is unknown, never "nothing obsolete"
+            for row in listed or []:
                 if (isinstance(row, dict) and row.get("agent") == ctx["agent"] and row.get("host") == ctx["host"]
                         and all(isinstance(row.get(k), str) and row[k] for k in ("content_hash", "slice", "heading"))):
                     rows.setdefault(row["content_hash"], (row, path))

@@ -318,7 +318,10 @@ def carry_obsolete(earlier: Any, run: Run) -> list[dict[str, str]]:
     for row in earlier if isinstance(earlier, list) else []:
         if not (isinstance(row, dict) and all(isinstance(row.get(k), str) and row[k] for k in OBSOLETE_KEYS)):
             continue
-        if (row["agent"], row["host"], row["memory"]) not in run.seen_memories:
+        # Ended only by another hash of the same memory: read again unchanged and not flagged this run (the ledger that
+        # replaced its text may have been pruned) the file is still the obsolete text, so its row stays.
+        read = run.seen_memories.get((row["agent"], row["host"], row["memory"]))
+        if read is None or row["content_hash"] in read:
             kept[(row["agent"], row["host"], row["content_hash"])] = {k: row[k] for k in OBSOLETE_KEYS}
     for row in run.obsolete_memories:
         kept[(row["agent"], row["host"], row["content_hash"])] = row

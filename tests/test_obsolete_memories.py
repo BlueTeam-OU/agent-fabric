@@ -34,10 +34,10 @@ ONLY_OTHER = {"h3": ("dev-02", "other")}   # a later drain's bundle that never r
 
 
 def observe(drain: str, rows: dict[str, tuple[str, str]] = OWNERS) -> None:
-    """Observations as harvest_memory.py writes them: the memory's name is the row's `topic`."""
+    """Observations as harvest_memory.py writes them: the memory's name is the row's `title`."""
     with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
         for h, (agent, topic) in sorted(rows.items()):
-            fh.write(json.dumps({"content_hash": h, "agent": agent, "host": "hostA", "topic": topic}) + "\n")
+            fh.write(json.dumps({"content_hash": h, "agent": agent, "host": "hostA", "title": topic}) + "\n")
 
 
 def drain_of(tmp: str) -> tuple[str, str, str]:
@@ -99,8 +99,26 @@ def test_a_row_survives_the_next_drain_that_does_not_read_the_memory(tmp: str) -
 def test_a_row_ends_when_the_memory_is_read_again_changed(tmp: str) -> None:
     drain, claims_dir, out, _first = replayed(tmp)
     rewritten = dict(ORIGINAL, body="Another account of the matter, rewritten by its author.", evidence=["h4"])
-    later = pass_of(drain, claims_dir, out, [rewritten], stamp="2026-01-02")
+    later = pass_of(drain, claims_dir, out, [rewritten], stamp="2026-01-02", rows={"h4": ("dev-01", "t")})
     assert later["obsolete_memories"] == [], later["obsolete_memories"]
+
+
+def test_a_row_stays_when_the_memory_is_read_again_unchanged_and_not_flagged(tmp: str) -> None:
+    drain, claims_dir, out, first = replayed(tmp)
+    later = pass_of(drain, claims_dir, out, [OTHER], stamp="2026-01-02")   # OWNERS still holds h1, the unchanged memory 't'
+    assert later["obsolete_memories"] == first["obsolete_memories"], later["obsolete_memories"]
+
+
+def test_a_held_slice_keeps_no_obsolete_record(tmp: str) -> None:
+    drain, claims_dir, out, first = replayed(tmp)
+    assert first["obsolete_memories"], "the control: the record is there before the hold"
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/solution:t"], fh)
+    ta.set_claims(claims_dir, "alpha", [ORIGINAL])
+    proc = ta.run_assemble(drain, claims_dir, out, "--hold", hold)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(ta.read(ta.report_path(out)))["obsolete_memories"] == []
 
 
 def test_a_row_is_renewed_when_the_memory_is_read_again_unchanged(tmp: str) -> None:
@@ -217,9 +235,10 @@ def test_a_report_without_the_record_or_unreadable_names_nothing_and_no_working_
     assert listed(ctx, root, home) == []
     with open(put_report(root, None), "w", encoding="utf-8") as fh:
         fh.write("{not json")
-    assert listed(ctx, root, home) == []
+    assert listed(ctx, root, home) is None, "an unreadable report is unknown, not 'nothing obsolete'"
+    put_report(root, None)
     put_report(ctx["working_copy"], "not a list")
-    assert listed(ctx, root, home) == []
+    assert listed(ctx, root, home) is None
     assert listed(dict(ctx, working_copy=None), root, home) is None
 
 
