@@ -32,7 +32,10 @@ it as every agent carries one:
   request (a P3 may carry, named), re-reviewed on the fix range;
 - `fabric-pr gate <N>` read before arming: 8 or more work
   commits and MERGEABLE, arm it yourself with the basis posted; fewer,
-  ask the owner;
+  bundle your queued jobs first, then ask the arming authority the
+  dry-run names by `REQUEST`, never the owner, and
+  work in another repository until its word arrives (pull-requests
+  skill);
 - then tell fabric-coordinator it merged: distribution to the accounts
   (`fabric-ctl all upgrade fabric`) is signed with the operator's key
   and stays fabric-coordinator's.

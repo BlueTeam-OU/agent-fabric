@@ -261,3 +261,26 @@ the fleet's 8 in its settings repository (`repos/agent-fabric.json`,
 `commits.min`), with `commits.below_min_authority` fabric-coordinator.
 Applied to PRs opened after the settings change; those open before it keep
 the word they were given. j885.
+
+### Amendment 2026-11-21 — nobody waits idle on a word
+
+What changed: §5 rule 4 says how an agent waits for a word to arm.
+Where `fabric-pr arm --dry-run` names an arming authority
+(`commits.below_min_authority`, `commits.boundary_authority`), the agent
+asks it by `REQUEST`, never the owner, and works on a job in another
+repository until the word arrives: a commit on the PR would move the
+head the word names, and a same-repository job would ride the PR.
+`identities/prompt/team.md` and `policies/pull-requests/SKILL.md` say the
+same.
+
+Why: the owner's rule of 2026-11-09, broadcast to the fleet that day
+(INFO 01a1c1dc-793e): sessions ended their turn asking the owner for an
+arm word the arming authority could give, and sat idle at the prompt
+until the owner read it. The skill carried the rule from 2026-11-18;
+this puts it in the record and the launch prompt. A Stop hook that
+sends a session back when its turn ends on an arm question was
+considered and not built: telling an arm question from any other
+question in a turn's last message is a text match that would fire on
+the wrong turns, and the prompt line reaches sessions only at their
+next launch, so stalls before then say nothing about whether it works.
+j718.
