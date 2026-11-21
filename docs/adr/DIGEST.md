@@ -1020,6 +1020,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-11 — one Python on every host; host python3 only bootstraps the pin (§5 r1).
 - A 2026-11-12 — rule 10 and §7's Wave 10 rows, the managed projects' Node scripts, moved to the operator's ADR-070; rules 1-9 and waves 0-9 stay (§5 r10, §7, §8).
 - A 2026-11-16 — bootstrap step 7's language-detector venv is made with the pin (rule 4).
+- A 2026-11-21 — `pre-push` and the user-scope hooks user-settings.py renders run on the pin (rule 4).
 - Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
   forwarder.
 

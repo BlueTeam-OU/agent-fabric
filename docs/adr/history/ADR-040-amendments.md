@@ -357,3 +357,25 @@ interpreter running it, which `runtime/langid/install.sh` already makes
 the pin, and makes a venv of another minor again. Raised as #627's
 review F3 and deferred to this record; no owner decision was needed,
 the rule's direction being rule 1's.
+
+### Amendment 2026-11-21 — `pre-push` and the user-scope hooks run on the pin
+
+What changed: rule 4's list of what keeps the host's `python3` loses
+`pre-push`, which is now a forwarder to the pin like `pre-commit`
+(`${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}`, refusing the
+push with the install command when the pin is absent). The six hooks
+`runtime/claude-code/user-settings.py` renders at user scope run as
+`/usr/local/bin/fabric-python "<hook>"`, not `python3 "<hook>"`; they
+were never on rule 4's list, so until now their rendering broke rule 1.
+§7's batch 4 row and §8 no longer say `pre-push` waits on its own
+decision. `self-kill-guard.py` keeps its place on the list.
+
+Why: the amendment of 2026-11-11 put the pin on every host and named
+these two entries, with the language detector's venv (A 2026-11-16), as
+what still had to move before a host below 3.13 could take an account.
+`pre-push` had stayed on `python3` because it is installed in every
+account's checkouts and a host might lack the pin; that reason ended on
+2026-11-11. The rendered hooks reach an account at its next bootstrap,
+which replaces each entry by its script's name.
+
+Written by fabric-coordinator as job j764 (j762's follow-up).
