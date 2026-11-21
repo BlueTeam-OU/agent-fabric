@@ -28,7 +28,7 @@ cancelled job, its check-run annotations.
                                 failed, so a cancelled job carrying GitHub's "exceeded the maximum
                                 execution time" annotation makes the run red; otherwise green as before
   failure, timed_out            exit 0 with one line: the job added, or the
-                                open job whose title carries every marker of the failed jobs (or the
+                                open job whose title carries every marker of the failed jobs (or the bare
                                 workflow-wide marker of an earlier version)
                                 (any state but done or dropped) and nothing added
   any other conclusion          of the NEWEST run: unreadable (exit 3), never green; an older
@@ -37,8 +37,9 @@ cancelled job, its check-run annotations.
 A red run's failed jobs come from the run's jobs API; each gets a marker
 [scheduled-red:<org/repo>/<file.yml>#<job>], and the filed job's title names them and ends in them.
 An open job for one failed job never hides another's: only the failed jobs with no open marked job
-are filed. A red run whose jobs name none failed is filed under the workflow-wide marker
-[scheduled-red:<org/repo>/<file.yml>], saying so.
+are filed. A red run whose jobs name none failed is filed under the marker
+[scheduled-red:<org/repo>/<file.yml>#*], saying so. An open job carrying the bare
+workflow-wide marker of an earlier version covers every job.
 
 Exit codes:
   0  read; the line says whether a job was added
@@ -169,6 +170,12 @@ def read_runs(repository: str, workflow: str, branch: str) -> list[Run]:
     return parse_runs(data)
 
 
+def unnamed_marker(repository: str, workflow: str) -> str:
+    # `*` is outside the charset a job name is cut to, so no job's marker equals it; and it is not the bare
+    # workflow-wide marker of an earlier version, which covers every job and must not be confused with this one.
+    return f"[scheduled-red:{repository}/{workflow}#*]"
+
+
 def read_failed_jobs(repository: str, run: Run) -> tuple[list[str], list[str]]:
     """(failed, timed_out) job names of one run, from its jobs API. A job whose conclusion is failure or
     timed_out failed; a `cancelled` one is read for GitHub's timeout annotation, because a job that hit
@@ -208,7 +215,7 @@ def read_failed_jobs(repository: str, run: Run) -> tuple[list[str], list[str]]:
 def title_of(repository: str, workflow: str, run: Run, since: str, jobs: list[str], timed_out: frozenset = frozenset()) -> str:
     named = (", ".join(f"{j} (timed out)" if j in timed_out else j for j in jobs) if jobs
              else "no failed job named by the run's jobs")
-    marks = " ".join(marker(repository, workflow, j) for j in jobs) if jobs else marker(repository, workflow)
+    marks = " ".join(marker(repository, workflow, j) for j in jobs) if jobs else unnamed_marker(repository, workflow)
     return (f"{workflow} of {repository}: scheduled run {run.id} of {run.date} is red in {named}, red since {since}; "
             f"read the failing files, contract each fix to its holder {marks}")
 
@@ -232,12 +239,12 @@ def file_job(repository: str, workflow: str, project: str, run: Run, since: str,
     def unlisted(doc: dict) -> tuple[list[str], dict | None]:
         """The failed jobs with no open marked job, and the open job that covers the first failed one when none is
         left. A red with no named failed job is one workflow-wide unit."""
-        if not failed:
-            listed = open_marked(doc, marker(repository, workflow), jobs.OPEN)
-            return ([] if listed else failed), listed
         legacy = open_marked(doc, marker(repository, workflow), jobs.OPEN)
         if legacy:  # filed before markers named a job: it covers whichever job failed, as it always did
             return [], legacy
+        if not failed:
+            listed = open_marked(doc, unnamed_marker(repository, workflow), jobs.OPEN)
+            return [], listed
         missing = [j for j in failed if not open_marked(doc, marker(repository, workflow, j), jobs.OPEN)]
         return missing, (None if missing else open_marked(doc, marker(repository, workflow, failed[0]), jobs.OPEN))
 

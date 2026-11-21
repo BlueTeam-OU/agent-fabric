@@ -200,10 +200,14 @@ def main() -> int:
         n = len(jobs())
         feed_jobs(jobs_doc(job("stripped", "success")))
         p = tool()
-        check("a red run whose jobs name none failed: filed under the workflow-wide marker, saying so",
-              p.returncode == 0 and len(jobs()) == n + 1 and "no failed job named" in jobs()[-1]["title"] and jobs()[-1]["title"].endswith(f"{FLOW}]"), (p, jobs()[-1:]))
+        check("a red run whose jobs name none failed: filed under the unnamed marker, saying so",
+              p.returncode == 0 and len(jobs()) == n + 1 and "no failed job named" in jobs()[-1]["title"] and jobs()[-1]["title"].endswith(f"{FLOW}#*]"), (p, jobs()[-1:]))
         p = tool()
         check("...and that marker dedups", p.returncode == 0 and len(jobs()) == n + 1, p)
+        feed_jobs(jobs_doc(job("stripped", "failure")))
+        p = tool()
+        check("...but an open job that named no failed job does not hide a later named red",
+              p.returncode == 0 and len(jobs()) == n + 2 and jobs()[-1]["title"].endswith(MARK), (p, jobs()[-1:]))
         for j in jobs():
             set_state(j["id"], "done")
         n = len(jobs())
