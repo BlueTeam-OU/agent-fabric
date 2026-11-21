@@ -522,3 +522,23 @@ same account state. The admission rule stays one rule, a request signed
 by an operator; an unsigned read was proposed and declined, because the
 break-glass path is the one used when the normal one is down, and an
 exception to its admission there is the one nobody re-reads.
+
+### Amendment 2026-11-22 — Presence and the queue's holder asks also go through the account's own agentd on dual
+
+W12 of the InterWeave-only cutover: before a message leaves, `gzcoord-send`
+asks presence (ADR-030), and the job queue asks its holder (`pool-list`,
+`pool-claim`, `job-state`); both rode the relay alone, so a relay that was
+down stopped a send and every queue read even with InterWeave running.
+python-dev-01's BlueTeam-OU/agent-fabric#586 (merged ce5991a7) keeps the
+relay post first and, under `control_carrier` `dual`, hands the same
+request to the asking account's own agentd over the 0600 socket
+`fabric-ctl` already uses; a reply on either carrier answers, attributed
+to the roster's address for its PeerId, and the record must claim that
+sender, as rule 18 requires of every control reply. A failed relay post
+is made up for by the socket; when both fail, the error names both and
+keeps the relay's classification. An account asking itself is reached by
+the relay alone, as before: the socket could loop the ask back, as it
+does `fabric-ctl`'s own row, but this ask has not chosen to; an account
+with no socket asks by the relay alone, said once. `waits`, a read of
+the state stream, stays on the relay. Not yet read back live: a
+two-account run with the relay stopped.

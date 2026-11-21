@@ -743,6 +743,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-14 — interweave-mode: the transport mode by signed action (§2).
 - A 2026-11-15 — evidence takes a sixth section, watch: the watch log's starts and ends (§2).
 - A 2026-11-18 — fabric-op admits one read, the signed `interweave` read, ADR-064 rule 14's fallback; action ttl cap (rule 19).
+- A 2026-11-22 — presence and pool/job-state holder asks also by the account's own agentd socket on dual; self-asks by the relay (r18).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, HOLD_MAX_S, interweave-mode.
