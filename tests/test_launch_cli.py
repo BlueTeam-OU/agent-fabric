@@ -244,7 +244,7 @@ def main() -> int:
             live routing/profiles.json, whose agent layer may name the login
             running this suite (python-dev-03 declares anthropic, and every
             restart case then moved provider, j438): it reads the fixture's."""
-            e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state,
+            e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_OPERATOR": fabric, "AGENT_FABRIC_STATE_DIR": state,
                  "AGENT_FABRIC_RESUME_PROFILES": f"{fabric}/routing/profiles.json", **(plant or {}), **env}
             e.pop("TMPDIR", None)
             if keep_tmpdir is not None:
@@ -280,7 +280,7 @@ def main() -> int:
             # The class lines and the effort beside them, and nothing on stderr:
             # the launcher has no `set -e`, so a traceback there costs the caller
             # nothing but the output it came for.
-            e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state}
+            e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_OPERATOR": fabric, "AGENT_FABRIC_STATE_DIR": state}
             r = subprocess.run(["bash", LAUNCHER, "--print"], cwd=repo, env=e, stdin=subprocess.DEVNULL,
                                capture_output=True, text=True, timeout=300)
             check("a line per capability class, from the python block",
@@ -1240,7 +1240,7 @@ print("a" * 40, "b" * 40)
 
             def jobs_cmd(*args: str) -> None:
                 subprocess.run([sys.executable, f"{fabric}/tools/fabric/jobs.py", *args],
-                               env={**base, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state},
+                               env={**base, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_OPERATOR": fabric, "AGENT_FABRIC_STATE_DIR": state},
                                stdout=subprocess.DEVNULL, check=True, timeout=60)
             other = f"{sandbox}/other"
             rm(other)
@@ -1872,7 +1872,7 @@ echo "CLAUDE-ENDED:$(date +%s.%N)"
             # job in the prompt and dropped AGENT_FABRIC_FRESH_JOB, so the line that says how to mend it reads the job from
             # the restart's own flag. The environment is the one restart() hands its relaunch, for a job the list holds.
             subprocess.run([sys.executable, f"{fabric}/tools/fabric/jobs.py", "add", "ship the gateway thing"],
-                           env={**base, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state},
+                           env={**base, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_OPERATOR": fabric, "AGENT_FABRIC_STATE_DIR": state},
                            stdout=subprocess.DEVNULL, check=True, timeout=60)
             relaunch = {**gw_env, "AGENT_FABRIC_RESTARTING": "fresh:j1", "AGENT_FABRIC_FRESH_JOB": "j1",
                         "AGENT_FABRIC_FRESH_NOTE": "PR merged"}
