@@ -375,8 +375,8 @@ ran it and `post-review-shape-guard.py`, which was never on the list, as
 `/usr/local/bin/fabric-python -I -S "$f"`, as `hook_entry.py` runs the
 managed guards: the literal path, so no variable chooses the
 interpreter, and `-I -S`, so no `PYTHON*` variable or user site puts a
-module of its own under the guard. Where the pin is missing or the
-guard fails, the fallback answers `ask`, as `hook_entry.py`'s
+module of its own under the guard. Where the pin or the guard file is
+missing or the guard fails, the fallback answers `ask`, as `hook_entry.py`'s
 `cannot_run` does, never silence: before, a host with `python3` and no
 pin ran the guard, and a silent fallback would have let every call
 through there (#678 review round 1, F1). The list now holds no hook.

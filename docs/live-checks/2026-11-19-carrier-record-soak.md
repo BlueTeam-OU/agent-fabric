@@ -7,7 +7,8 @@ Gate 2's first item in the cutover plan
 fabric-coordinator for job j947.
 
 **Result.** The soak held on every measure the plan's step-back list
-names, and turned up one send the carrier did not accept
+names, as far as two reads and the deliveries' final states show (an
+outstanding delivery's age between the reads is not measured), and turned up one send the carrier did not accept
 (below, "Traced"). Over the window 2026-11-18T13:18:00Z to
 2026-11-19T13:17:00Z the fleet carried 441 pairs (MESSAGE-ID,
 addressee), 9 of them to a `TO-ROLE` recipient. InterWeave delivered
@@ -50,7 +51,7 @@ On 2026-11-19, on develop-qzapp, from the main checkout at 45628272:
 
 | trigger | read | how |
 |---|---|---|
-| a delivery outstanding past an agreed age | none | no delivery record outside `done` across the whole collection; the `stranded` column (older than `position.STRANDED_AFTER_S`, 600 s) 0 on 30 accounts at 13:35Z and on 2026-11-18 at 15:35Z |
+| a delivery outstanding past an agreed age | none at the two reads; between them not measured | no delivery record outside `done` across the whole collection (final states, no receipt time); the `stranded` column (older than `position.STRANDED_AFTER_S`, 600 s) 0 on 30 accounts at 13:35Z and on 2026-11-18 at 15:35Z |
 | a `blocked` code other than `NotInRoster` | none | no delivery record `blocked`, `NotInRoster` included |
 | a roster that fails to verify | not read directly | the `interweave` op does not report the roster's verification. Indirect: no `NotInRoster`, user's carrier counts `unrostered: 0`, and InterWeave carried every pair but 2 |
 | an account off the channel | none | channel `ok` and both units active on 30 of 30 at 13:35Z; between the reads it is shown only by the deliveries |
@@ -129,8 +130,9 @@ and the relay took a copy" from "the relay was the primary", and under
 ## What this decides
 
 Gate 2's first item, the one-day soak with no stranded delivery, is
-met. Two caveats are named above: roster verification was read only
-indirectly, and one send the carrier did not accept, with its cause
+met. Three caveats are named above: roster verification was read only
+indirectly; how long a delivery stayed outstanding between the two reads
+is not measured; and one send the carrier did not accept, with its cause
 unread and no durable line for that kind of failure. The gate's other items have no record
 yet: the 30-minute carrier-outage drill on one account, two accounts
 in `carrier-only` through an hour's relay stop with every GZCoord

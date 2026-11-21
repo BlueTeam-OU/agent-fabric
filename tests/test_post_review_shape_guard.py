@@ -423,11 +423,20 @@ def main() -> int:
             for label, c, extra, want in (
                     ("the pin runs it", cmd.replace(pin, sys.executable), {}, "deny"),
                     ("PYTHONPATH does not silence it", cmd.replace(pin, sys.executable), {"PYTHONPATH": shadow}, "deny"),
-                    ("a missing pin asks", cmd.replace(pin, os.path.join(shadow, "no-python")), {}, "ask")):
+                    ("AGENT_FABRIC_PYTHON does not redirect it", cmd.replace(pin, sys.executable),
+                     {"AGENT_FABRIC_PYTHON": "/bin/true"}, "deny"),
+                    ("a missing pin asks", cmd.replace(pin, os.path.join(shadow, "no-python")), {}, "ask"),
+                    ("a missing guard file asks", cmd.replace(pin, sys.executable).replace(f"hooks/{script}", "hooks/no-such-guard.py"),
+                     {}, "ask")):
                 r = subprocess.run(["sh", "-c", c], input=json.dumps(payload), capture_output=True, text=True,
                                    env={**env, **extra}, timeout=60)
                 got = json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] if r.stdout.strip() else None
                 check(f"{rel}: {script} fallback: {label}", r.returncode == 0 and got == want, (r.returncode, r.stdout[-200:]))
+            # The pass-through branch: a call the guard allows stays allowed, with no decision printed.
+            r = subprocess.run(["sh", "-c", cmd.replace(pin, sys.executable)], input=json.dumps({"tool_input": {"command": "ls -la"}}),
+                               capture_output=True, text=True, env=env, timeout=60)
+            check(f"{rel}: {script} fallback: an allowed command passes with no output", (r.returncode, r.stdout) == (0, ""),
+                  (r.returncode, r.stdout[-200:]))
         shutil.rmtree(shadow, True)
 
     print(f"{'PASS' if not fails else 'FAIL'}: post-review shape guard ({fails} failed)")
