@@ -51,7 +51,7 @@ def registry_problem(anchor: str, known: "set[str] | frozenset[str]") -> str | N
 def split_inline_list(value: str) -> list[str] | None:
     """The items of a YAML inline list `[a, "b, c", 'd', 'it''s']`, unquoted; None when the value is no list. A
     comma splits only outside quotes, because a literal an anchor names may contain one; inside single quotes a
-    doubled quote is one quote, as YAML reads it."""
+    doubled quote is one quote, as YAML reads it. A quote inside an unquoted item is part of it."""
     v = value.strip()
     if not (v.startswith("[") and v.endswith("]")):
         return None
@@ -74,8 +74,12 @@ def split_inline_list(value: str) -> list[str] | None:
                 quote = ""
             else:
                 cur.append(ch)
-        elif ch in "\"'":
+        elif ch in "\"'" and not "".join(cur).strip():
+            # A quote opens a quoted item only where the item begins, as YAML reads a flow sequence: inside an unquoted
+            # one it is a character (`Onboarding's` lost its apostrophe, InterWeave #735 F15, and named nothing).
             quote = ch
+        elif ch in "\"'":
+            cur.append(ch)
         elif ch == ",":
             items.append("".join(cur).strip())
             cur = []

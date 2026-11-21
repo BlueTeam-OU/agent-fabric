@@ -452,6 +452,7 @@ def report(run: Run) -> int:
         "held_back": sorted(run.held_back),
         "rehomed": run.rehomed,
         "rehomed_files": run.rehomed_files,
+        "retired_copies": run.retired_copies,
         "anchors_kept": run.anchors_kept,
         "anchors_lost": run.anchors_lost,
         "titles_one_lined": run.titles_one_lined,
@@ -569,6 +570,11 @@ def report(run: Run) -> int:
               file=sys.stderr)
         for note in run.unresolved_targets:
             print(f"  {note}", file=sys.stderr)
+    if run.retired_copies:
+        print(f"\nRETIRED ({len(run.retired_copies)}: the role is re-homed to {layout.FABRIC_PROJECT_ID}, which {run.project}'s taxonomy does not bind; "
+              "its earlier copy here is removed):", file=sys.stderr)
+        for row in run.retired_copies:
+            print(f"  {row}", file=sys.stderr)
     if run.rehomed:
         print(f"\nRE-HOMED ({len(run.rehomed)}: the role is not bound by {run.project}'s taxonomy, so the claim went to agent-fabric's "
               "own corpus, which that role's remit covers):", file=sys.stderr)

@@ -166,7 +166,9 @@ HAND_AUTHORED_CLASSES = frozenset({"charter", "brief", "recall"})
 GENERATED_CLASSES = frozenset({"index"})
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.DOTALL)
-WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+# `^[[` is how a terminal escape (ESC [) is written out in a pasted log; `\x1b[[` is the byte itself. Neither is a link
+# (herdr #64: a rust-ui-dev memory's References line named a link that no memory is).
+WIKILINK_RE = re.compile(r"(?<![\^\x1b])\[\[([^\]]+)\]\]")
 # A memory written in another language (a language-culture holder writes
 # its own in the language it answers for, the CEO, 2026-09-17) reaches the
 # corpus — which is English, a slice travels into every project — through
@@ -254,12 +256,24 @@ def scalar(value: str) -> str:
         try:
             return json.loads(v)
         except ValueError:
+            inner = v[1:-1]
             # YAML admits escapes JSON does not (`\\xe9`, a raw tab); the
             # two that matter to a cue are unescaped here rather than
-            # returned raw, which was the defect this function fixes.
-            return re.sub(r'\\(["\\])', r"\1", v[1:-1])
+            # returned raw, which was the defect this function fixes. But an
+            # unescaped quote inside is no YAML double-quoted scalar at all
+            # (`"say "hi" now"` is a plain one that happens to start and end
+            # with a quote): it is the author's text, kept as written, where
+            # stripping the ends dropped the quotes of a description
+            # (InterWeave #735 F10).
+            if re.search(r'(?<!\\)(?:\\\\)*"', inner):
+                return v
+            return re.sub(r'\\(["\\])', r"\1", inner)
     if len(v) >= 2 and v[0] == v[-1] == "'":
-        return v[1:-1].replace("''", "'")
+        inner = v[1:-1]
+        # Same rule: a lone quote inside is not YAML's `''`, so the value is a plain scalar.
+        if re.search(r"(?<!')(?:'')*'(?!')", inner):
+            return v
+        return inner.replace("''", "'")
     return v
 
 

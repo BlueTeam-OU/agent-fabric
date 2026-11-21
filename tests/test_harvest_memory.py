@@ -221,6 +221,28 @@ def write_head(d: str, name: str, head: str) -> None:
         fh.write(f"---\nname: {name}\ndescription: d\n{head}---\n\nThe fact.\n")
 
 
+def test_a_quote_ended_value_that_is_no_yaml_scalar_is_kept_as_written_and_a_terminal_escape_is_no_link(tmp: str) -> None:
+    """InterWeave #735 F10 and F15, herdr #64: scalar() stripped the ends of `"say "hi" now"`, which json.loads refuses, and
+    the split of an inline anchors list dropped the apostrophe of an unquoted item; a `^[[` escape of a pasted log was
+    read as the start of a [[link]]. Each with its control: the escaped and the doubled forms read as before."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import importlib.util
+    import anchors
+    spec = importlib.util.spec_from_file_location("harvest_scalar", os.path.join(ROOT, "tools", "fabric", "harvest_memory.py"))
+    harvest = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harvest)
+    assert harvest.scalar('"say "hi" now"') == '"say "hi" now"', harvest.scalar('"say "hi" now"')
+    assert harvest.scalar("'it's here'") == "'it's here'", harvest.scalar("'it's here'")
+    assert harvest.scalar('"a \\"b\\" c"') == 'a "b" c', "control: an escaped quote is unescaped"
+    assert harvest.scalar("'it''s'") == "it's", "control: a doubled quote is one quote"
+    assert harvest.scalar('"caf\\xe9 \\"x\\""') == 'caf\\xe9 "x"', "control: a YAML-only escape still unescapes the two that matter"
+    assert harvest.WIKILINK_RE.findall("see ^[[1;31m red]] and [[real-link]] and \x1b[[2m x]]") == ["real-link"], \
+        harvest.WIKILINK_RE.findall("see ^[[1;31m red]] and [[real-link]]")
+    assert anchors.split_inline_list("[a/b.md::Onboarding's guide, 'c.py::x', \"d.py::y, z\"]") == \
+        ["a/b.md::Onboarding's guide", "c.py::x", "d.py::y, z"]
+    assert anchors.split_inline_list("[\"it\\\"s\", 'it''s']") == ['it"s', "it's"], "control: quoted items keep their escapes"
+
+
 def test_an_anchors_block_list_is_read_like_the_inline_form(tmp: str) -> None:
     """A memory the harness normalises comes back with `anchors:` as a YAML block list, beside keys it adds; it parses to the
     same anchors, with the same validation and problems, and a form that cannot be read is said, never silently no anchors."""
@@ -1527,6 +1549,7 @@ def main() -> int:
         test_a_legacy_entry_without_an_applied_key_is_not_a_correction_and_its_memory_is_filed,
         test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_points_its_links,
         test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays,
+        test_a_quote_ended_value_that_is_no_yaml_scalar_is_kept_as_written_and_a_terminal_escape_is_no_link,
         test_an_anchors_block_list_is_read_like_the_inline_form,
         test_a_block_list_a_dumper_wrapped_or_commented_is_read_whole_and_a_block_scalar_is_said,
         test_a_named_anchor_travels_when_the_registry_names_the_project_and_is_refused_said_when_not,

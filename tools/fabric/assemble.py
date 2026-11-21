@@ -116,7 +116,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import Run, layout, in_report  # noqa: E402
-from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, rehome_unbound, note_unbound_owners, rehomed_row, load_hygiene, load_decisions  # noqa: E402
+from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, rehome_unbound, note_unbound_owners, rehomed_row, retire_rehomed_copies, load_hygiene, load_decisions  # noqa: E402
 from assembler.targets import plan_classes, held_files, resolve_all_targets, point_disk  # noqa: E402
 from assembler.anchorkeep import keep_resolving_anchors  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
@@ -213,6 +213,7 @@ def assemble_project(run: Run) -> int | None:
     if check_collisions(run):
         return 1
     # Refused before anything is written, as a broken taxonomy is.
+    retire_rehomed_copies(run)
     held_roles = roles_with_project_directory(run)
     for role in held_roles:
         read_crossref_index(os.path.join(layout.project_dir(run.project, role), "crossref.json"))

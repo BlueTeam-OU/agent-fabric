@@ -434,6 +434,74 @@ def test_the_own_project_form_and_the_malformed_working_copy_arguments(tmp: str)
     assert not os.path.exists(os.path.join(other, ".agent-fabric")), "nothing was written to the checkout that was refused"
 
 
+def fabric_registry(out: str) -> None:
+    os.makedirs(os.path.join(out, "projects"), exist_ok=True)
+    with open(os.path.join(out, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+        json.dump({"version": 1, "projects": {"agent-fabric": {}}}, fh)
+
+
+def test_a_stale_bare_agent_fabric_anchor_never_replaces_the_resolving_prefixed_one(tmp: str) -> None:
+    """InterWeave #735 F4: the memory's `agent-fabric/src/b.py::marker` (a path of the control plane's tree, written bare)
+    names nothing in the project and replaced the corpus's resolving `agent-fabric:src/b.py::marker`. It is written
+    prefixed, so the one anchor stands. Control: a bare one that resolves in the project's own tree
+    stands as written (the project has such a directory), and a bare one that resolves nowhere is left alone."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [anchored(["agent-fabric:src/b.py::marker"])])})
+    ta.with_agents(drain, {"h1": "dev-01"})
+    seed_file(out, "agent-fabric/src/b.py", "a marker\n")
+    fabric_registry(out)
+    assert ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene").returncode == 0
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(ta.claims("alpha", [anchored(["agent-fabric/src/b.py::marker"])]), fh)
+    proc = ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(ta.proj(out, "alpha", "solution.md"))
+    assert "*Anchors: `agent-fabric:src/b.py::marker`*" in text and "`agent-fabric/src" not in text, text
+    seed_file(ta.working_copy(out), "agent-fabric/src/b.py", "a marker\n")     # control: it resolves bare, in the project
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(ta.claims("alpha", [anchored(["agent-fabric/src/b.py::marker"])]), fh)
+    assert ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene").returncode == 0
+    assert "*Anchors: `agent-fabric/src/b.py::marker`*" in ta.read(ta.proj(out, "alpha", "solution.md"))
+
+
+def test_a_bare_agent_fabric_anchor_that_resolves_in_the_control_plane_is_written_prefixed(tmp: str) -> None:
+    """InterWeave #735 F4, decided: in a project's bundle a bare `agent-fabric/<path>` that names nothing in the project
+    and resolves in the control plane is `agent-fabric:<path>`, in a slice with nothing to pair it with. Controls: one that
+    resolves nowhere stays as written, and the control plane's own bundle never rewrites its bare anchors."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        anchored(["agent-fabric/src/b.py::marker", "agent-fabric/src/none.py::marker"])])})
+    ta.with_agents(drain, {"h1": "dev-01"})
+    seed_file(out, "agent-fabric/src/b.py", "a marker\n")
+    fabric_registry(out)
+    proc = ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(ta.proj(out, "alpha", "solution.md"))
+    assert "`agent-fabric:src/b.py::marker`" in text and "`agent-fabric/src/none.py::marker`" in text \
+        and "`agent-fabric/src/b.py" not in text, text
+
+
+def test_a_re_homed_roles_earlier_project_copy_is_retired_and_nothing_else_is(tmp: str) -> None:
+    """herdr #64 F1: slices fabric-coordinator's earlier drains left in a project that does not bind it were re-indexed.
+    The directory goes, with its index, and the report names it. Controls: another unbound role's directory, the shared
+    slices, a project that binds the role and a project with no taxonomy keep theirs."""
+    for name, roles, retired in (("unbound", ("alpha",), True), ("binds it", ("alpha", COORD), False), ("no taxonomy", None, False)):
+        with tempfile.TemporaryDirectory() as sub:
+            drain, claims_dir, out = ta.build(sub, {"alpha": ta.claims("alpha", [WF])})
+            ta.with_agents(drain, {"h1": "dev-01"})
+            if roles:
+                bind(out, *roles)
+            seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/workflow.md", "---\ntopic: old\n---\n\n## Old\nx\n")
+            seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/INDEX.md", "# index\n")
+            seed_file(ta.working_copy(out), ".agent-fabric/memory/other/INDEX.md", "# another unbound role\n")
+            proc = ta.run_assemble(drain, claims_dir, out)
+            assert proc.returncode == 0, (name, proc.stderr)
+            assert os.path.isfile(ta.proj(out, "alpha", "workflow.md")), name
+            assert os.path.isdir(ta.proj(out, "other")), (name, "another role is not re-homed, not retired")
+            assert os.path.isdir(ta.proj(out, COORD)) != retired, (name, sorted(ta.tree(out)))
+            rows = report(out).get("retired_copies", [])
+            assert bool(rows) == retired and (not rows or rows[0].startswith(COORD + ": 2 file(s)")), (name, rows)
+            assert ("RETIRED" in proc.stderr) == retired, (name, proc.stderr)
+
+
 def test_a_link_in_a_code_span_is_not_cited(tmp: str) -> None:
     """Drain of 2026-11-08 (j663): the harvest cites every `[[x]]` of a body, code or not, and the section carried it in
     its References line. A code span is literal text. The link written outside code is still cited (the control), and
@@ -900,6 +968,9 @@ def main() -> int:
         test_a_checkout_given_by_working_copy_project_dir_is_where_the_guard_judges,
         test_a_working_copy_project_dir_that_is_no_directory_is_refused_with_its_name,
         test_the_own_project_form_and_the_malformed_working_copy_arguments,
+        test_a_stale_bare_agent_fabric_anchor_never_replaces_the_resolving_prefixed_one,
+        test_a_bare_agent_fabric_anchor_that_resolves_in_the_control_plane_is_written_prefixed,
+        test_a_re_homed_roles_earlier_project_copy_is_retired_and_nothing_else_is,
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,
         test_a_title_made_one_line_is_told_for_a_slice_written_with_an_unbound_co_owner,
