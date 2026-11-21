@@ -220,6 +220,10 @@ def read_claims(run: Run) -> int | None:
             sys.exit(f"assemble: {shown(name)}: the claims file's role {shown_why(role, why)}")
         run.all_claims[role] = payload.get("claims", [])
         for claim in run.all_claims[role]:
+            if isinstance(claim, dict):
+                for h in claim.get("evidence") or []:
+                    run.seen_targets[h].add(claim["merge_target"] if isinstance(claim.get("merge_target"), str) else "")
+        for claim in run.all_claims[role]:
             claim["_role"] = role   # for the section's dated tail; never written to disk
             if isinstance(claim.get("title"), str):
                 lined = one_line(claim["title"])

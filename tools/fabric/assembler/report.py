@@ -305,6 +305,10 @@ OBSOLETE_KEYS = ("memory", "agent", "host", "content_hash", "slice", "heading")
 # The stamp of the earliest drain that named the memory (a renewal keeps it): what lets a re-run of one stamp under --hold drop its own rows and
 # keep those carried from an earlier stamp. A row of an older report has none and is never taken for this stamp's.
 STAMP_KEY = "stamp"
+# The merge_target the claim named when the row was written (absent: none). Read again under another one, the author has acted on the
+# notice, e.g. restored the text by naming the replacing section; the hash cannot show it, it covers name and body only.
+TARGET_KEY = "merge_target"
+OPTIONAL_KEYS = (STAMP_KEY, TARGET_KEY)
 
 
 def carry_obsolete(earlier: Any, run: Run) -> list[dict[str, str]]:
@@ -324,8 +328,10 @@ def carry_obsolete(earlier: Any, run: Run) -> list[dict[str, str]]:
         # Ended only by another hash of the same memory: read again unchanged and not flagged this run (the ledger that
         # replaced its text may have been pruned) the file is still the obsolete text, so its row stays.
         read = run.seen_memories.get((row["agent"], row["host"], row["memory"]))
-        if read is None or row["content_hash"] in read:
-            kept[(row["agent"], row["host"], row["content_hash"])] = {k: row[k] for k in (*OBSOLETE_KEYS, *([STAMP_KEY] if isinstance(row.get(STAMP_KEY), str) else []))}
+        targets = run.seen_targets.get(row["content_hash"])
+        retargeted = bool(targets) and row.get(TARGET_KEY, "") not in targets
+        if (read is None or row["content_hash"] in read) and not retargeted:
+            kept[(row["agent"], row["host"], row["content_hash"])] = {k: row[k] for k in (*OBSOLETE_KEYS, *(k for k in OPTIONAL_KEYS if isinstance(row.get(k), str)))}
     for row in run.obsolete_memories:
         key = (row["agent"], row["host"], row["content_hash"])
         # Renewed, not new: the stamp stays the earliest that named it, so a held re-run of this stamp cannot take a row

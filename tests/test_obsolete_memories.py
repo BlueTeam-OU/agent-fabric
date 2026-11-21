@@ -103,6 +103,15 @@ def test_a_row_ends_when_the_memory_is_read_again_changed(tmp: str) -> None:
     assert later["obsolete_memories"] == [], later["obsolete_memories"]
 
 
+def test_a_row_ends_when_only_the_merge_target_changes(tmp: str) -> None:
+    """j175: the author restores the text by naming the replacing section; name and body, so the hash, are the same."""
+    drain, claims_dir, out, first = replayed(tmp)
+    assert first["obsolete_memories"], "the control: the row is there before the revert"
+    revert = dict(ORIGINAL, merge_target="Status v2 of the thing")
+    later = pass_of(drain, claims_dir, out, [revert], stamp="2026-01-02")
+    assert later["obsolete_memories"] == [], later["obsolete_memories"]
+
+
 def test_a_row_stays_when_the_memory_is_read_again_unchanged_and_not_flagged(tmp: str) -> None:
     drain, claims_dir, out, first = replayed(tmp)
     later = pass_of(drain, claims_dir, out, [OTHER], stamp="2026-01-02")   # OWNERS still holds h1, the unchanged memory 't'
