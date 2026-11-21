@@ -52,7 +52,11 @@ blockers. A peer's board the caller cannot read is not seen, and the public op w
 the cycle is then the other side's to find from the blocker it holds.
 
 A CHECK says one of three things: `cleared`, `waiting`, or `unknown` (it could not be told: gh, the journal or
-fabric-ctl failed, or the job is not on the open list and was never seen there). Unknown never clears a job.
+fabric-ctl failed, the peer's job-state op refused, a request answerer's board was unreadable with no job named in the
+body, the job a request became waits on this request (a cycle, never re-pointed), this login's own list could not be
+read or holds the job with no state of a job, gh or a control agent answered in another shape than a state, a stored
+spec is of no checkable form, the check itself raised, or the job is not on the open list and was never seen there).
+Unknown never clears a job.
 
 THE CACHE (<state dir>/jobs-blockers.json, 0600): a listing checks at most once per CACHE_TTL_S per blocker; `start` (and
 `switch <id>`, the same R4 need) decides on a fresh check (refresh(decide=True)), since a refusal read from a ten-minute-old "waiting" is wrong;

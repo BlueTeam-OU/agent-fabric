@@ -80,3 +80,10 @@ the strictest, which is what the fabric's domain slices are held to:
 they are read in every project, so an own name stays out of them. Built
 by python-dev-02 (j173); the scope goes on gzapp's entries only after
 the fleet runs the code, since older code refuses an unknown scope.
+
+### Amendment 2026-11-21 — fabric-coordinator's domain slices in agent-fabric's index only
+
+What changed: §2 (Two tiers) and §5 rule 8 said a project's generated index lists every slice its role can reach. Since #621 (python-dev-01's, merged 8ae9cc43), the assembler leaves fabric-coordinator's `domain` slices out of every index but agent-fabric's own, and lint does not ask a project's index for them (`tools/fabric/assembler/index.py`, `_unlisted_here`). Another role's domain slices and every project-scoped class are listed as before.
+
+Why: those slices are reviews of external tools and lessons learned anywhere, and in another project's index their cues name projects that repository has nothing to do with (the owner, 2026-11-14, on agent-fabric-gateway's review F4). The filter sits where an index is rendered, since three producers add domain entries (written claims, the on-disk sweep, shared rows) and one filter cannot disagree with itself. The record lagged the build; #621's round-3 review (F5) asked for this amendment. j894.
+

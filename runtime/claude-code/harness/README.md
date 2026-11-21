@@ -2,8 +2,9 @@
 
 `en.md` is the text Claude Code puts before the fabric's appended prompt
 — Anthropic's, not ours — captured verbatim from a live session
-(`docs/live-checks/2026-11-07-claude-code-harness-prompt.md`, build
-2.1.311; the first capture, 2.1.274, is `2026-09-17-…`), with the
+(`docs/live-checks/2026-11-21-claude-code-harness-prompt.md`, build
+2.1.322 on Opus 5.5; before it 2.1.311, `2026-11-07-…`, and the first,
+2.1.274, `2026-09-17-…`), with the
 one login-specific span, the memory directory, replaced by the
 placeholder `{memory_dir}` that `tools/fabric/launch_prompt.py` fills at
 render (`harvest_memory.default_memory_dir`, the path the harness uses).
@@ -21,16 +22,26 @@ section — which is why the Memory section is in here with its path as a
 placeholder.
 
 **As captured, verbatim.** The text carries the harness's own slips
-(build 2.1.311: "…correct the Edit and publish again.Write code that
-reads…" — two sentences glued at a lost newline, which on 2.1.274
+(build 2.1.322: "…correct the Edit and publish again.When you use a
+pronoun…" — two paragraphs glued at a lost newline, which on 2.1.311
+glued a "Write code that reads…" sentence there, and on 2.1.274
 followed "it's clickable."), and they stay: the file is what the harness
-sends. The token list therefore counts that `Write` as a tool name, and
-a translation keeps a literal `Write` there (the ge holder, 2026-09-17).
+sends. Where a slip puts a tool name at a sentence's start, the token
+list counts it as one, and a translation keeps it literal there (the ge
+holder, 2026-09-17, for 2.1.311's `Write`).
+
+**One capture, one model.** The harness assembles this text from
+sections it selects per model and from the server's settings for that
+model, not per build alone (the 2026-11-21 check, read from the
+bundle): the header's `model:` is part of the claim. It matches the
+readers while every language-culture login runs on that model
+(`routing/profiles.json`); a login moved to another model needs a
+capture taken on it.
 
 **Refreshing it.** No flag prints the default prompt; the text changes
 with the CLI build. The capture is a live-check duty: from a session on
-a new build, record the text as the live check did, update `en.md` and
-its `build`, and every translation lags by digest until its holder
+a new build or model, record the text as the live check did, update
+`en.md` and its `build` and `model`, and every translation lags by digest until its holder
 re-renders it — served meanwhile (a launch never fails on lag), named
 by `tools/fabric/lint.py`. The launcher stamps the build it ran
 (`AGENT_FABRIC_LAUNCH_CLAUDE_VERSION`) beside `build:` here, so a build
