@@ -130,3 +130,16 @@ unread and no durable line for that kind of failure. The gate's other items have
 yet: the 30-minute carrier-outage drill on one account, two accounts
 in `carrier-only` through an hour's relay stop with every GZCoord
 function exercised, and W12's read-back with the relay stopped.
+
+## Since: the gap is closed (2026-11-21)
+
+BlueTeam-OU/agent-fabric#673 (python-dev-01 j264, merged
+2026-11-21T08:28Z at f73f9611) answers REQUEST `01a1f433`. A send whose
+primary is the carrier now writes a `gzcoord-mirror.jsonl` line with
+`as: primary` and the outcome (`absent`, `failed` or `no-answer`)
+before the mirrors are asked, journal off included, and parity leads a
+miss with "the carrier did not accept it at send". Every account runs
+d8c876e4, which contains it (`fabric-ctl all status`, 2026-11-21). A
+failure like 01a1f03b's now leaves a line for a soak to count, under
+`carrier-only` too. The gate's other items stay as listed above, open
+under j918.
