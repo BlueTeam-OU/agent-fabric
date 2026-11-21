@@ -170,7 +170,6 @@ def main() -> int:
         feed_jobs(jobs_doc(job("stripped", "failure"), job("platform-almalinux", "success", 2)))
         tool()
         n = len(jobs())
-        open_id = jobs()[-1]["id"]
         feed_jobs(jobs_doc(job("stripped", "success"), job("platform-almalinux", "failure", 2)))
         p = tool()
         check("open job for stripped, new red of platform-almalinux only: a job is added, naming it",
