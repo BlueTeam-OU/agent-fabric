@@ -303,6 +303,16 @@ class MemoryWriteCheck(Base):
         self.assertTrue(any(e["hooks"][0]["command"] == "mine.sh" for e in p), p)
         self.assertEqual(d["hooks"]["Stop"][0]["hooks"][0]["command"], "stop.sh")
 
+    def test_a_check_rendered_on_the_hosts_python3_moves_to_the_pin_at_the_same_path(self) -> None:
+        # Every account rendered `python3 "<hook>"` before ADR-040 rule 1's amendment of 2026-11-11: the entry is
+        # found by the script's name, so the same path under the old interpreter is replaced, never kept beside.
+        here = os.path.join(HERE, "runtime", "claude-code", "hooks", MEMORY_CHECK)
+        self.put_json({"hooks": {"PostToolUse": [
+            {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": f'python3 "{here}"'}]}]}})
+        self.run_s(self.s)
+        cmds = [h["command"] for e in self.entries(self.doc()) for h in e["hooks"]]
+        self.assertEqual(cmds, [f'/usr/local/bin/fabric-python "{here}"'])
+
     def test_memory_check_second_run_changes_nothing(self) -> None:
         # On the file the first run rewrote (the account's own hook, an old
         # path, a Stop hook), not on a fresh one: the merge of the account's

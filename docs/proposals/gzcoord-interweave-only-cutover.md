@@ -1,6 +1,6 @@
 # GZCoord on InterWeave only: the cutover from the dual run
 
-**Status 2026-11-18.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, and D6, D7 and
+**Status 2026-11-19.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, and D6, D7 and
 D8 on 2026-11-15, each as recommended (§7). D3's first half is done: #573 merged on 2026-11-13.
 W1 is done: #573's real-carrier read-back is the 2026-11-15 drill's record. D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
 and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in §4 change when
@@ -9,7 +9,8 @@ each gate's word is given. W2 to W14, W17 and W18 are done (§5): W6, W7 and W8 
 were amended 2026-11-16, and W2's parity report, gate 1's last item, was filed 2026-11-18.
 The owner gave gate 1's word on 2026-11-18; ADR-033 and ADR-064 are amended for it. The same day
 the owner shortened D8's soak at both rungs (§7), and #638 merged: `carrier-only` needs no relay
-token or relay section, and the one-command mode override is built (§6).
+token or relay section, and the one-command mode override is built (§6). On 2026-11-19 the
+fleet's one-day `carrier-record` soak, gate 2's first item, was read and filed (§8 item 2).
 
 A plan for the owner's review, drafted for fabric-coordinator. It decides nothing: every step
 that changes what carries a message waits for the owner's word and the record named beside it
@@ -431,10 +432,18 @@ in this order (gate 1's word was given on 2026-11-18, on items 1 to 4 of §4):
    backfill logs a ledger row `present` without posting it. So a `carrier-record` send whose relay
    mirror failed, a `carrier-only` send, and a send under `GZCOORD_TRANSPORT_MODE=carrier-only`
    each leave a hole in the relay's record, and the way back in §6 is not lossless
-   (REQUEST 01a1ed4e-82ec to python-dev). Gate 1's mode switch waits on it.
+   (REQUEST 01a1ed4e-82ec to python-dev). Done: #651 merged on 2026-11-18, and since then the
+   ledger keeps an `id` only for a send the relay answered 2xx.
 2. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
    gate 3. D8's soak follows gate 1's word, not before it: the word moves python-dev-02 and
    python-dev-03 to `carrier-record` (§6 step 1) and they soak two hours; then every account
    moves, the coordinator's last, and the fleet soaks one day, which is gate 2's first item.
    Gate 2's word repeats both at `carrier-only`: two hours on the pair, then one day on every
    account, the coordinator's last (D8 as the owner shortened it on 2026-11-18).
+   Every account was in `carrier-record` by 2026-11-18T13:17Z. The day's soak is read in
+   [`docs/live-checks/2026-11-19-carrier-record-soak.md`](../live-checks/2026-11-19-carrier-record-soak.md):
+   nothing stranded or blocked. In one send the carrier did not accept and the relay mirror took a
+   copy (exit 3, by design). That kind of failure leaves no durable line, so a `carrier-only` soak
+   could not count it. A line for the primary's failure, which parity reads, was to come before
+   that rung (python-dev, REPLY 01a1f431-e266); it came with #673 (merged 2026-11-21, f73f9611):
+   `send.py` writes the `primary` row and parity names a send the carrier did not accept.

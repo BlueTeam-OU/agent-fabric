@@ -178,3 +178,24 @@ Supplied by devex-tooling (j271). j527.
 ### Amendment 2026-11-05 — A record PR is not reviewed
 
 The review of #488 (round 1 on 2bf7557b, F1) found that rule 1 still said every pull request's head is reviewed by the review class before it is armed, while ADR-019 §5 rule 1 (A 2026-11-05) now arms a record PR on a direct project on the owner's ruling with no review-class review, and `fabric-pr arm` does so. A later session reading this record alone would either put the review back into arm or file the record path as a gate bypass. Rule 1 now names the exception and points to ADR-019 for its conditions (every file a record path, none a PR path or in the security boundary, every file at the head a regular file); nothing else in this record changes.
+
+### Amendment 2026-11-21 — A finding on a supplied hunk is the integrator's to fix
+
+What changed: rule 11 sent a review finding on a supplied hunk back to
+its supplier, who answered it with another supply. The caller now fixes
+it itself, as an `Answers:` commit on its own branch, and re-reviews the
+fix range with its own review class; the supplier is not asked. Where a
+fence keeps the hunk's path from the caller (a locale's translations,
+`policies/AUTHORITY.md`), the supplier still supplies the fix, because
+the caller cannot commit it.
+
+Why: the owner, 2026-11-18, on BlueTeam-OU/agent-fabric#652, after
+round 1's F1 (a line in a folded supply) had been sent back to its
+contributor: "do yourself the review of next fold in commits … you can
+use YOUR reviewing subagent, but not send back to the folding in agent".
+A round trip costs a message, a wait and a refold for what the
+integrator fixes in one commit. The supplier's own checks and the one
+blind review of the whole head are unchanged.
+
+Written by fabric-coordinator as job j950; the remit and the
+`pull-requests` skill follow in the same commit.
