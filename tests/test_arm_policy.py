@@ -1800,6 +1800,12 @@ class ArmRun(unittest.TestCase):
         self.assertIn("ask an architect-cto holder with a session running now (arch1)", str(rc))
         rc, _ = self.below(basis=None, fleet=fleet_of(("arch1", "architect-cto", True)))   # a real arm still needs its record
         self.assertIn("unanswered: --basis", str(rc))
+        # at the floor the gates pass: it says a basis is all a real arm needs, and shows no comment (#676 F11)
+        rc, out = self.run_arm(arm_policy.default(), 9, basis=None, extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("a real arm needs --basis", out)
+        self.assertNotIn("would post", out)
+        self.assertNotIn("no basis given", out)
 
     def test_the_refusal_names_the_authority_its_running_holder_and_the_basis_and_never_the_owner(self):
         text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",), fleet=fleet_of(("arch1", "architect-cto", True), ("dev", "web-dev", True)))
