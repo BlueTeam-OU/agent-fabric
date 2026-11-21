@@ -16,7 +16,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 
-# The fallback cases hand the guards a tree through AGENT_FABRIC_ROOT; the runner's operator must not outrank it.
+# Held by tests/test_own_instance_tree.py: this file names AGENT_FABRIC_ROOT. The fallback cases build a closed
+# environment, so no exported operator reaches them; the call changes nothing this suite does.
 own_instance_tree()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
