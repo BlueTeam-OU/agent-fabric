@@ -28,7 +28,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from typing import Any
-from assembler.core import layout, CLASS_FILES, Run, in_report, hygiene_substitute, patterns_for
+from assembler.core import layout, CLASS_FILES, Run, in_report, hygiene_substitute, patterns_for, memory_ref, note_superseded
 from corrections import demote_headings, section_key
 from assembler.slices import parse_slice, read_existing_slice, claim_heading, claim_block, undated, is_retire
 from assembler.targets import existing_sections, slice_candidates, topic_stem
@@ -253,7 +253,7 @@ def drop_replayed(run: Run) -> None:
                 written = section_key(claim_block({**claim, "body": claim["_body_as_written"]}).split("\n", 1)[1].strip())
                 if any(e["key"] == written for e in same_heading):
                     key = written
-            where = f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r}"
+            where = f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {memory_ref(run, claim)}"
             if (claim.get("merge_target") or "").strip() in present:
                 # Replaying a correction after a revert and a revert's first run are one claim to the corpus: nothing in it says
                 # which (the revert's own record is pruned once its text stands). Written, and said, so the pass is not silent.
@@ -262,7 +262,8 @@ def drop_replayed(run: Run) -> None:
                                                     "a correction replayed after its revert)")
             elif any(e["key"] == key for e in same_heading):
                 group.remove(claim)
-                run.superseded_harvests.append(
+                note_superseded(
+                    run, claim, f"{label}/{klass}:{topic}", claim_heading(claim),
                     f"{where} is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or "
                     f"applied_corrections); not written — update or delete {claim['topic']!r}")
             else:
@@ -390,8 +391,9 @@ def drop_undoing_curation(run: Run) -> int | None:
                        # it records decides, as is_budget_part does for the files that exist.
                        and meta.get("topic") in (None, topic)):
                     group.remove(claim)
-                    run.superseded_harvests.append(
-                        f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r} is a text of this section an earlier "
+                    note_superseded(
+                        run, claim, f"{label}/{klass}:{topic}", claim_heading(claim),
+                        f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {memory_ref(run, claim)} is a text of this section an earlier "
                         f"commit of its slice held, not the text it holds now{'' if siblings else ' (the section is gone)'}; not written "
                         f"— it would undo an edit made since. Update {claim['topic']!r}, or name the section in merge_target to "
                         "write the older text again")

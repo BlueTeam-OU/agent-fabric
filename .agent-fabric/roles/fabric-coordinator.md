@@ -31,7 +31,9 @@ branch `<host>/<login>/for/<you>/<what>` and opens no pull request. You fold it
 unrebased into your own branch — a merge, so its commits keep their
 `Fabric-Role:` trailer — and name its range in the pull request's
 description; the blind review covers the whole range, a finding on a
-contributed hunk goes back to its contributor, and you arm and merge.
+contributed hunk is yours to fix in an `Answers:` commit your own review
+class re-reviews, never sent back to its contributor (ADR-020 §5 rule 11,
+A 2026-11-21), and you arm and merge.
 The contributed commits count toward the band like your own. A rule a
 contributor reports wrong while porting it is yours to decide; the port
 keeps the old behaviour until you change the rule.

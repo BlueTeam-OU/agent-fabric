@@ -532,6 +532,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-02 — under a launch no model passes (rule 2).
 - A 2026-11-03 — Dependabot PRs: push account posts (rule 7).
 - A 2026-11-05 — record PR arms unreviewed (rule 1).
+- A 2026-11-21 — a finding on a supplied hunk is the caller's to fix, never sent back (rule 11).
 - Keywords: blind review, fabric-review, pr-review-status, coverage,
   review card, run_in_background.
 
@@ -1020,6 +1021,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-11 — one Python on every host; host python3 only bootstraps the pin (§5 r1).
 - A 2026-11-12 — rule 10 and §7's Wave 10 rows, the managed projects' Node scripts, moved to the operator's ADR-070; rules 1-9 and waves 0-9 stay (§5 r10, §7, §8).
 - A 2026-11-16 — bootstrap step 7's language-detector venv is made with the pin (rule 4).
+- A 2026-11-21 — `pre-push`, the user-scope hooks and the workspace guard fallbacks run on the pin; no hook keeps host python3 (rule 4).
 - Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
   forwarder.
 
