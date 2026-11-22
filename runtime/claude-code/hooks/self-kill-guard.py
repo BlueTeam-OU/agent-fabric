@@ -280,17 +280,19 @@ WORD_END = " \t;&|()<>"
 # What makes a command line's quoting or its `<<` unreadable to heredoc_operators: ANSI-C quoting, where `\'` is a
 # literal quote (`cat $'a\' <<true'` is one word to bash, an operator to a plain quote scan; review of #612, round 2
 # F4), arithmetic, where `<<` is a shift (`echo $((1<<n))`, `(( x<<2 ))`, the old `$[1<<n]`), and a parameter
-# expansion, where it is pattern text (`${x/<<'t'/y}`; review of #612, round 3 F11). Matched on the raw line, quotes
-# and all: inside `"${x/"<<'t'"/y}"` and `"$[1"<<'n'"]"` bash reads the inner quotes as part of the expansion, a quote
-# scan reads them as closing it and finds an operator, and those two are what only this search catches (round 4 F14).
-# The cost: `--to "${P}"` on a data reader's line keeps its body judged, where `--to "$P"` does not.
-UNREADABLE_LINE = re.compile(r"\$'|\(\(|\$\[|\$\{")
+# expansion, where it is pattern text (`${x/<<'t'/y}`; review of #612, round 3 F11), and a command substitution.
+# Matched on the raw line, quotes and all: inside `"${x/"<<'t'"/y}"`, `"$[1"<<'n'"]"`, `"$(cat "<<'#'")"` and
+# `` "`cat "<<'#'"`" `` bash reads the inner quotes as part of the expansion, a quote scan reads them as closing it
+# and finds an operator, and `$'a\' <<\X '\'` is one word to bash; each of these only this search catches (round 4
+# F14, and #689 round 1 F3 and P-2). Not `((`: `$((` is a `$(`, and a bare `(( … ))` holds an unquoted `(`, which
+# OPENS_SYNTAX reads. The cost: `--to "${P}"` or a `$(…)` anywhere on a data reader's line keeps its body judged.
+UNREADABLE_LINE = re.compile(r"\$'|\$\(|\$\[|\$\{|`")
 # What a line that opens a here-document may not hold outside plain quotes for its body to be dropped: an expansion,
 # a substitution, a subscript, a subshell or a group can each make a `<<` something bash does not read as an operator.
 # Not `$`: what makes a `$` dangerous is the bracket or quote after it, caught here and by UNREADABLE_LINE, and a bare
 # `$name` refused `gzcoord-send --to $P - <<'X'` (review of #612, round 4 F15). A variable that runs the body (`$SHELL
-# <<'X'`) is no data reader and is judged by _runs_what_it_writes.
-OPENS_SYNTAX = frozenset("`[({")
+# <<'X'`) is no data reader and is judged by _runs_what_it_writes. Not a backtick: UNREADABLE_LINE refuses any.
+OPENS_SYNTAX = frozenset("[({")
 
 
 def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
@@ -364,11 +366,14 @@ def _leaves_open(line: str) -> bool:
     bash reads the lines after it as part of it: a here-document there is not the top-level command it looks like.
     `{` / `cat <<'n'` / `pkill …` / `n` / `} | sh` runs the body, as do `(`, `while`, `if`, `case` and a function body
     piped the same way, and `a[1` / `<<"n"]=5` is one subscript with no operator in it (review of #612, round 4 F13 and
-    its section 2). Counted on the line alone, never carried to the next: a closer on a later line is the guard
-    talked into "closed", so _strip_bodies stops at the first line this answers yes for, closed or not later.
+    its section 2). A line that ends in `|` or `|&` leaves its pipeline open the same way: `cat <<'n' |` NL body NL
+    `n` NL `sh` (#689 round 1, P-1); a `&&` or `||` there pipes nothing. A backtick left open is UNREADABLE_LINE's (F2).
+    Counted on the line alone, never carried to the next: a closer on a later line is the guard talked into
+    "closed", so _strip_bodies stops at the first line this answers yes for, closed or not later.
     Generous on what opens, strict on what closes: every unquoted `(`, `[`, `{` and every opening reserved word as a
     whole word counts, wherever it stands (`time -p while` is still a while); a `)` closes only a `(`, a `]` only a
-    `[`, and a `}`, `fi`, `done` or `esac` standing alone closes only in command position, and only its own opener."""
+    `[`, a `}` inside a word only a `{` opened inside a word (`{a,b}`; `{ : a}` leaves the group open, #689 round 1
+    F1), and a `}`, `fi`, `done` or `esac` standing alone closes only in command position, and only its own opener."""
     s, blank, i, quote = strip_non_arguments(line), [], 0, None
     while i < len(s):
         c = s[i]
@@ -388,11 +393,12 @@ def _leaves_open(line: str) -> bool:
         else:
             blank.append(c)
         i += 1
-    if quote:
+    blanked = "".join(blank)
+    if quote or re.search(r"(?<!\|)\|&?\s*$", blanked):
         return True
     stack: list[str] = []
     command = True
-    for token in re.findall(r"&&|\|\||;;&?|;&|[;&|()\n]|[^\s;&|()]+", "".join(blank)):
+    for token in re.findall(r"&&|\|\||;;&?|;&|[;&|()\n]|[^\s;&|()]+", blanked):
         if token == "(":
             stack.append("(")
             command = True
@@ -418,10 +424,11 @@ def _leaves_open(line: str) -> bool:
             command = True
         else:
             if token != "}":
+                # A brace inside a word is "w{", so its `}` never closes a group's `{` (F1).
                 for ch in token:
                     if ch in "[{":
-                        stack.append(ch)
-                    elif ch in "]}" and stack and stack[-1] == "[{"["]}".index(ch)]:
+                        stack.append("[" if ch == "[" else "w{")
+                    elif ch in "]}" and stack and stack[-1] == ("[" if ch == "]" else "w{"):
                         stack.pop()
             command = command and token in COMMAND_LEADERS
     return bool(stack)

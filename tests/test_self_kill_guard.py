@@ -366,7 +366,9 @@ def main() -> int:
                        ("sort --compress-program=sh", f"sort -S 1K --compress-program=sh <<'X'\nkill {W}\nX"),
                        ("cat | sort --compress-program=sh", f"cat <<'X' | sort -S 1K --compress-program=sh\nkill {W}\nX"),
                        # Rule 4, doubt keeps the body: ANSI-C quoting, where \' is a literal quote.
-                       ("a <<true inside $'…'", f"cat $'a\\' <<true'\nkill {W}\ntrue")):
+                       ("a <<true inside $'…'", f"cat $'a\\' <<true'\nkill {W}\ntrue"),
+                       # #689 round 1, F3: $'…' alone hides the <<, the delimiter balanced. Kills: UNREADABLE_LINE's $'.
+                       ("$'…' hiding a balanced <<", f"echo $'a\\' <<\\X '\\'\nkill {W}\nX")):
         d = by_pid(cmd)
         check(f"a here-document no data reader alone takes still denies: {label}",
               d is not None and d[0] == "deny" and "inbox watch" in d[1], d)
@@ -405,6 +407,17 @@ def main() -> int:
                        # Round 4 F15: with $ out of OPENS_SYNTAX, a variable that runs the body is still judged.
                        # Kills: the opener rule (a non-reader opener stores the body) in _runs_what_it_writes.
                        ("$SHELL <<'n'", "$SHELL <<'n'\npkill -f claude-fable\nn"),
+                       # #689 round 1, F1: a `}` inside a word closes no group. Kills: "w{" for a word's brace.
+                       ("{ : a} leaves the group open", "{ : a}\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
+                       ("{ x=} leaves the group open", "{ x=}\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
+                       # F2: a substitution opened by a backtick. Kills: UNREADABLE_LINE without its ` alternative.
+                       ("a backtick open over the body", "echo `\ncat <<'n'\npkill -f claude-fable\nn\n` | sh"),
+                       # P-1: a pipeline or list left open at the line's end. Kills: the trailing-operator test.
+                       ("cat <<'n' | … sh on a later line", "cat <<'n' |\npkill -f claude-fable\nn\nsh"),
+                       # F3 and P-2: spellings only UNREADABLE_LINE's $', $( and ` alternatives catch, each alone.
+                       ("$'…' hiding a <<", "echo $'a\\' <<\\X '\\'\npkill -f claude-fable\nX"),
+                       ("a << in quotes nested in $( … )", "echo \"$(cat \"<<'#'\")\"\npkill -f claude-fable\n#)"),
+                       ("a << in quotes nested in ` … `", "echo \"`cat \"<<'#'\"`\"\npkill -f claude-fable\n#`"),
                        ("an unquoted body joined over its delimiter",
                         "cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\npkill -f claude-fable\nY"),
                        ("a here-document inside a shell's body", "bash <<'EOF'\ncat <<'Y'\nEOF\npkill -f claude-fable\nY")):
