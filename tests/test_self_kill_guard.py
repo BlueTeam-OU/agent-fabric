@@ -318,7 +318,9 @@ def main() -> int:
                        ("grep -c", f"grep -c x <<'X'\nkill {W}\nX"),
                        ("wc, head, tail", f"wc -l <<'X' | head -1 | tail -1\nkill {W}\nX"),
                        ("a quoted body's $( … ) is not run", f"cat <<'X'\n$(kill {W})\nX"),
-                       ("a \\-quoted delimiter", f"cat <<\\X\n`kill {W}`\nX")):
+                       ("a \\-quoted delimiter", f"cat <<\\X\n`kill {W}`\nX"),
+                       # Review of #612, round 4 F15: an unquoted $name on the reader's line. Kills: $ in OPENS_SYNTAX.
+                       ("gzcoord-send --to $P", f"gzcoord-send --to $P - <<'X'\nkill {W}\nX")):
         d = by_pid(cmd)
         check(f"a data reader's here-document naming a watch's pid passes: {label}", d is None, d)
     for label, cmd in (("bash <<X", f"bash <<'X'\nkill {W}\nX"),
@@ -382,6 +384,27 @@ def main() -> int:
                        # The allowlist, not a spelling: a subscript holds a << bash reads as a shift.
                        ("a << inside an array subscript", "a[1<<\"n\"]=5\npkill -f claude-fable\nn]=5"),
                        ("a here-document in a function body", "f() { cat <<'n'; }\npkill -f claude-fable\nn"),
+                       # Round 4 F13 and section 2: a line left open makes the next lines part of it, a closer
+                       # later piping the whole into sh. Kills: _leaves_open returning False.
+                       ("a subscript opened on the line before", "a[1\n<<\"n\"]=5\npkill -f claude-fable\nn]=5"),
+                       ("{ … } | sh", "{\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
+                       ("( … ) | sh", "(\ncat <<'n'\npkill -f claude-fable\nn\n) | sh"),
+                       ("while … done | sh", "while :; do\ncat <<'n'\npkill -f claude-fable\nn\nbreak; done | sh"),
+                       ("if … fi | sh", "if :; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
+                       ("case … esac | sh", "case x in x)\ncat <<'n'\npkill -f claude-fable\nn\n;; esac | sh"),
+                       ("a function body, run into sh", "f() {\ncat <<'n'\npkill -f claude-fable\nn\n}\nf | sh"),
+                       ("a closer that is an argument", "{\necho }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
+                       # Round 4 F14: the split-line spellings. Kills: _leaves_open and UNREADABLE_LINE's $[ or ${
+                       # alternative, removed together.
+                       ("${ … } split over the <<", "echo ${x/\n<<'t'/y}\npkill -f claude-fable\nt/y}"),
+                       ("$[ … ] split over the <<", "echo $[1\n<<\"n\"]\npkill -f claude-fable\nn]"),
+                       # Round 4 F14: quotes nested in the expansion hide its bracket from the quote scan. Kills:
+                       # UNREADABLE_LINE without its ${ alternative, and without its $[ alternative.
+                       ("a << in quotes nested in ${ … }", "echo \"${x/\"<<'t'\"/y}\"\npkill -f claude-fable\nt/y}"),
+                       ("a << in quotes nested in $[ … ]", "echo \"$[1\"<<'n'\"]\"\npkill -f claude-fable\nn]"),
+                       # Round 4 F15: with $ out of OPENS_SYNTAX, a variable that runs the body is still judged.
+                       # Kills: the opener rule (a non-reader opener stores the body) in _runs_what_it_writes.
+                       ("$SHELL <<'n'", "$SHELL <<'n'\npkill -f claude-fable\nn"),
                        ("an unquoted body joined over its delimiter",
                         "cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\npkill -f claude-fable\nY"),
                        ("a here-document inside a shell's body", "bash <<'EOF'\ncat <<'Y'\nEOF\npkill -f claude-fable\nY")):
