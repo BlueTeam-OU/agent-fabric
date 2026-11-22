@@ -70,9 +70,10 @@ last-drain-report.json that cannot be read as a JSON object is refused the same 
 file; an absent one is no refusal. Any other role refuses the
 run before anything is written (exit 1), naming the claim, its role and the project: no fallback. A claim some bound role
 co-owns (shared_with) stays; a project with no taxonomy, the fabric's own project and domain claims are not judged.
-When the project does not bind fabric-coordinator and the run leaves it no project-class claim, the role's earlier directory
-under the project's memory (the copies of drains before the re-home) is removed after every refusal, named in the report's
-`retired_copies`, on stderr and in the commit body; the role's index, if it still owns anything here, is written afresh.
+When the project has a taxonomy that does not bind fabric-coordinator (and is not the control plane), the role's earlier
+directory under the project's memory (the copies of drains before the re-home) is removed after every refusal, named in the
+report's `retired_copies`, on stderr and in the commit body. A shared slice the role co-owns with a bound role stays under
+shared/; the role gets an index again only where a claim of its own (a domain claim) still brings it into the run.
 
 Merge mode is the default: existing slices are read, and a claim whose
 `merge_target` names an existing section updates it instead of appending
