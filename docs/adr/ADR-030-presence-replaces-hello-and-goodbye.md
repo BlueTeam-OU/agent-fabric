@@ -122,7 +122,8 @@ something asked once, when it matters.
   second carrier (`dual`, or InterWeave alone), where the check also,
   or only, goes through the account's own agentd and InterWeave
   (ADR-029 rule 18) (A 2026-11-22); a send's own address is still
-  asked by the relay alone under `dual`.
+  asked by the relay alone under `dual`, outside the transport mode
+  `carrier-only`.
 - The watches are quieter: the announcements had been most of what every
   watch printed.
 

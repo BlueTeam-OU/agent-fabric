@@ -29,4 +29,4 @@ that is down no longer makes every addressee unknown; control agents that
 are down still do. With `control_carrier` naming InterWeave alone the check
 never touched the relay (since e494899a), which the old sentence also
 missed; a send's own address is still asked by the relay alone under
-`dual`. ADR-029 rule 18 (A 2026-11-22) has the mechanism.
+`dual`, outside the transport mode `carrier-only` (ADR-029 rule 18). ADR-029 rule 18 (A 2026-11-22) has the mechanism.
