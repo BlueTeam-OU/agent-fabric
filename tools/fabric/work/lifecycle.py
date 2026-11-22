@@ -98,7 +98,16 @@ def transition(doc: dict, job: dict, to: str, who: str, proof: Proof | None, *, 
     job["state"] = to
     job["updated"] = now
     entry = {"at": now, "state": to, **({"note": fields["note"]} if fields.get("note") else {})}
-    if touches_active and session:
+    # A request closed `--no-artifact` is no work of this session's to fence: the job-copy guard (ADR-037 rule 3) reads these ids as
+    # "this session worked a job", so keeping them locked the session out of committing its own job's change afterwards (j178).
+    # Its earlier entries in this session go too: the start was the other half of the same close. A job holding an artifact stays worked.
+    unworked = (to == "done" and bool(fields.get("no_artifact")) and not job.get("artifacts")
+                and (job.get("source") or {}).get("kind") == "request")
+    if unworked and session:
+        for earlier in job.get("log", []):
+            if earlier.get("session") == session:
+                del earlier["session"]
+    if touches_active and session and not unworked:
         entry["session"] = session
     job.setdefault("log", []).append(entry)
     for key, value in fields.items():
