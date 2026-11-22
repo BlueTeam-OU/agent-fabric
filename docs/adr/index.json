@@ -593,13 +593,13 @@
     },
     {
       "number": "059",
-      "file": "ADR-059-third-party-personal-data-stays-out-of-ai-tools.md",
-      "title": "Third-party personal data stays out of the Max plan",
-      "status": "Accepted",
-      "date": "2026-10-16",
-      "pillar": "P3",
-      "class": "organisational",
-      "amendments": 1
+      "file": null,
+      "title": "moved to the operator (organisational: third-party personal data and AI tools), docs/split/move-plan.md step B",
+      "status": "Reserved",
+      "date": "",
+      "pillar": "",
+      "class": "",
+      "amendments": 0
     },
     {
       "number": "060",
@@ -693,32 +693,32 @@
     },
     {
       "number": "069",
-      "file": "ADR-069-this-organisations-decentralization-inventory.md",
-      "title": "This organisation's decentralization inventory",
-      "status": "Accepted",
-      "date": "2026-11-12",
-      "pillar": "P5",
-      "class": "organisational",
-      "amendments": 1
+      "file": null,
+      "title": "moved to the operator (organisational: this organisation's decentralization inventory), docs/split/move-plan.md step B",
+      "status": "Reserved",
+      "date": "",
+      "pillar": "",
+      "class": "",
+      "amendments": 0
     },
     {
       "number": "070",
-      "file": "ADR-070-this-organisations-porting-programme-for-its-projects.md",
-      "title": "This organisation's porting programme: its projects' Node scripts move to Python",
-      "status": "Accepted",
-      "date": "2026-11-12",
-      "pillar": "P1",
-      "class": "organisational",
+      "file": null,
+      "title": "moved to the operator (organisational: this organisation's porting programme), docs/split/move-plan.md step B",
+      "status": "Reserved",
+      "date": "",
+      "pillar": "",
+      "class": "",
       "amendments": 0
     },
     {
       "number": "071",
-      "file": "ADR-071-this-organisations-persona-naming-theme-and-house-style.md",
-      "title": "This organisation's persona naming theme and house style",
-      "status": "Accepted",
-      "date": "2026-11-12",
-      "pillar": "P2",
-      "class": "organisational",
+      "file": null,
+      "title": "moved to the operator (organisational: this organisation's persona naming theme), docs/split/move-plan.md step B",
+      "status": "Reserved",
+      "date": "",
+      "pillar": "",
+      "class": "",
       "amendments": 0
     }
   ]

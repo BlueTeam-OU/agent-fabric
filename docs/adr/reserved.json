@@ -1,4 +1,9 @@
 {
   "$comment": "Hand-written: a number whose record moved to the operator, kept here so it is never reused (ADR-045 §5 rule 4). Map of three-digit number to a one-line reason; adr.py check counts each as present, adr.py new skips it.",
-  "reserved": {}
+  "reserved": {
+    "059": "moved to the operator (organisational: third-party personal data and AI tools), docs/split/move-plan.md step B",
+    "069": "moved to the operator (organisational: this organisation's decentralization inventory), docs/split/move-plan.md step B",
+    "070": "moved to the operator (organisational: this organisation's porting programme), docs/split/move-plan.md step B",
+    "071": "moved to the operator (organisational: this organisation's persona naming theme), docs/split/move-plan.md step B"
+  }
 }
