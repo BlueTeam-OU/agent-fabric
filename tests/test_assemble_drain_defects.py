@@ -479,7 +479,8 @@ def test_a_bare_agent_fabric_anchor_that_resolves_in_the_control_plane_is_writte
         and "`agent-fabric/src/b.py" not in text, text
     assert [(r["dropped"], r["kept"], r["agent"]) for r in report(out)["anchors_kept"]] == \
         [("agent-fabric/src/b.py::marker", "agent-fabric:src/b.py::marker", "dev-01")], report(out)["anchors_kept"]
-    assert "agent-fabric/src/b.py::marker -> agent-fabric:src/b.py::marker" in proc.stderr, proc.stderr
+    assert "agent-fabric/src/b.py::marker -> agent-fabric:src/b.py::marker" in proc.stderr and "ANCHORS REWRITTEN" in proc.stderr \
+        and "ANCHORS KEPT" not in proc.stderr, proc.stderr
 
 
 def test_a_re_homed_roles_earlier_project_copy_is_retired_and_nothing_else_is(tmp: str) -> None:
@@ -522,7 +523,7 @@ def test_the_control_planes_own_bundle_never_rewrites_a_bare_agent_fabric_anchor
 def test_a_re_homed_role_with_a_domain_claim_still_has_its_stale_project_slices_retired(tmp: str) -> None:
     """Review F1: the role's domain claim (reviews of external tools, learned anywhere) keeps it in the run, but the
     project-class slices under the project's directory are the retired ones and must neither stay nor be indexed again.
-    Control: the same run with a project-class claim of the role left in it (a bound co-owner) would keep the directory."""
+    The co-owned project-class claim is the next case."""
     domain = {"class": "domain", "topic": "field", "title": "F", "body": "Field knowledge.", "evidence": ["h1"]}
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [domain])})
     ta.with_agents(drain, {"h1": "dev-01"})
@@ -535,6 +536,24 @@ def test_a_re_homed_role_with_a_domain_claim_still_has_its_stale_project_slices_
     assert "OldStale" not in (ta.read(index) if os.path.isfile(index) else ""), ta.read(index)
     assert [r.split(":")[0] for r in report(out)["retired_copies"]] == [COORD], report(out)["retired_copies"]
     assert "Retired" in proc.stderr or "RETIRED" in proc.stderr, proc.stderr
+
+
+def test_a_re_homed_roles_claim_co_owned_by_a_bound_role_does_not_keep_its_stale_copy_and_a_corrupt_crossref_of_it_is_no_refusal(tmp: str) -> None:
+    """Re-review: the role's project-class claim shared with a bound role is a slice under shared/, so it neither keeps the
+    old directory nor re-indexes its stale slices; and a crossref.json inside the copy about to be removed does not refuse
+    the run. Control: the same corrupt file in another role's directory does refuse (test_a_refused_run_deletes_no_retired_copy)."""
+    co = {**WF, "topic": "co", "title": "Co", "evidence": ["h2"], "shared_with": ["alpha"]}
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [co])})
+    ta.with_agents(drain, {"h1": "dev-01", "h2": "dev-02"})
+    bind(out, "alpha")
+    seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/workflow.md", "---\ntopic: old\n---\n\n## OldStale\nx\n")
+    seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/crossref.json", "{not json")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(ta.proj(out, COORD, "workflow.md")), sorted(ta.tree(out))
+    index = ta.proj(out, COORD, "INDEX.md")
+    assert "OldStale" not in (ta.read(index) if os.path.isfile(index) else ""), ta.read(index)
+    assert [r.split(":")[0] for r in report(out)["retired_copies"]] == [COORD], report(out)["retired_copies"]
 
 
 def test_a_refused_run_deletes_no_retired_copy(tmp: str) -> None:
@@ -1038,6 +1057,7 @@ def main() -> int:
         test_a_re_homed_roles_earlier_project_copy_is_retired_and_nothing_else_is,
         test_the_control_planes_own_bundle_never_rewrites_a_bare_agent_fabric_anchor_and_an_escape_is_no_link,
         test_a_re_homed_role_with_a_domain_claim_still_has_its_stale_project_slices_retired,
+        test_a_re_homed_roles_claim_co_owned_by_a_bound_role_does_not_keep_its_stale_copy_and_a_corrupt_crossref_of_it_is_no_refusal,
         test_a_refused_run_deletes_no_retired_copy,
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,

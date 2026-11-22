@@ -464,22 +464,27 @@ def rehome_unbound(run: Run) -> list[dict[str, Any]]:
     return [c for claims in moved.values() for c in claims]
 
 
+def retires_rehomed_copy(run: Run) -> bool:
+    """Whether this run retires the project's copy of the re-homed role (retire_rehomed_copies says why). Asked before the
+    deletion too, by the refusal loop: a crossref.json inside a copy about to be removed is no reason to refuse the run."""
+    bound = bound_role_ids(run.project)
+    if bound is None or run.project == layout.FABRIC_PROJECT_ID or REHOME_ROLE in bound:
+        return False
+    # A project-class claim the role keeps in its own directory: one a bound role co-owns is a shared slice, under shared/,
+    # and a domain claim lives in the fabric; neither needs the directory, which is written afresh (index only) if the role
+    # still owns anything here.
+    return not any(klass in layout.PROJECT_CLASSES for klass, _topic in run.per_role.get(REHOME_ROLE, {}))
+
+
 def retire_rehomed_copies(run: Run) -> None:
     """Remove the project's copy of the re-homed role when this project no longer homes it. Its slices were written here by
     drains before the re-home (a project half carried the coordinator's bundle; since agent-fabric #658 it does not), and a
     directory left in place was only re-indexed, so a session read six retired slices as the project's (drain of 2026-11-21).
     Retired: the directory of REHOME_ROLE under the project's memory, when the project has a taxonomy that does not bind it, the
-    project is not the control plane, and this run left the role nothing to own here (a shared slice a bound role co-owns is
-    under shared/, which is never touched). Nothing else: another unbound role's directory is not re-homed, so it is not ours to
+    project is not the control plane, and this run keeps no project-class claim of the role in its own directory (a shared slice a bound role co-owns is
+    under shared/, which is never touched, and a domain claim is the fabric's). Nothing else: another unbound role's directory is not re-homed, so it is not ours to
     judge, and a project with no taxonomy binds every role. The knowledge itself is in the control plane's corpus."""
-    bound = bound_role_ids(run.project)
-    if bound is None or run.project == layout.FABRIC_PROJECT_ID or REHOME_ROLE in bound:
-        return
-    # Project-class claims only: a domain claim of the role (its reviews of external tools) lives in the fabric and keeps the
-    # role in this run, but the slices under the project's directory are the retired ones. A shared slice is under shared/,
-    # never in the directory; the role's index, if it still owns one, is written again after this from what it owns now.
-    if any(c.get("class") in layout.PROJECT_CLASSES for c in run.all_claims.get(REHOME_ROLE, [])) \
-            or any(klass in layout.PROJECT_CLASSES for klass, _topic in run.per_role.get(REHOME_ROLE, {})):
+    if not retires_rehomed_copy(run):
         return
     directory = layout.project_dir(run.project, REHOME_ROLE)
     if os.path.islink(directory):

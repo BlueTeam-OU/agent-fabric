@@ -53,7 +53,7 @@ def prefix_fabric_anchors(run: Run, claim: dict[str, Any], history: Any, slice_n
                 run.anchors_kept.append({
                     "slice": slice_name, "heading": claim_heading(claim), "dropped": anchor, "kept": named,
                     "agent": origin.get("agent") or "unresolved", **({"host": origin["host"]} if origin.get("host") else {}),
-                    "memory": claim["topic"]})
+                    "memory": claim["topic"], "rewritten": True})
                 anchor = named
         if anchor not in out:
             out.append(anchor)
@@ -145,9 +145,17 @@ def keep_resolving_anchors(run: Run) -> None:
         for row in run.anchors_lost:
             print(f"  {row['slice']}#{row['heading']} ({row['agent']}, memory {row['memory']}): {row['lost']} -> {row['gained']}",
                   file=sys.stderr)
-    if run.anchors_kept:
+    rewritten = [r for r in run.anchors_kept if r.get("rewritten")]
+    if rewritten:
+        print("ANCHORS REWRITTEN (the memory's bare agent-fabric/<path> names nothing in this project and resolves in the control "
+              "plane's tree; written agent-fabric:<path> — fix the memory so the next harvest needs none):", file=sys.stderr)
+        for row in rewritten:
+            print(f"  {row['slice']}#{row['heading']} ({row['agent']}, memory {row['memory']}): "
+                  f"{row['dropped']} -> {row['kept']}", file=sys.stderr)
+    kept = [r for r in run.anchors_kept if not r.get("rewritten")]
+    if kept:
         print("ANCHORS KEPT (the corpus's anchor resolves, the memory's does not; the memory's was dropped — "
               "fix the memory so the next harvest needs none):", file=sys.stderr)
-        for row in run.anchors_kept:
+        for row in kept:
             print(f"  {row['slice']}#{row['heading']} ({row['agent']}, memory {row['memory']}): "
                   f"{row['dropped']} -> {row['kept']}", file=sys.stderr)
