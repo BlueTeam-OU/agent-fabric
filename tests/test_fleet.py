@@ -22,6 +22,7 @@ from contextlib import redirect_stderr, redirect_stdout
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import fleet  # noqa: E402
+import roots  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -59,10 +60,11 @@ class Fleet:
         self.test = test
         self.dir = tempfile.mkdtemp(prefix="fleet-test-")
         test.addCleanup(lambda: __import__("shutil").rmtree(self.dir, ignore_errors=True))
-        os.makedirs(os.path.join(self.dir, "root", "runtime", "hosts"))
-        with open(os.path.join(self.dir, "root", "runtime", "hosts", "registry.json"), "w") as fh:
-            json.dump(registry or REGISTRY, fh)
         self.root = os.path.join(self.dir, "root")
+        self.registry_path = roots.hosts_registry(environ={}, engine=self.root)
+        os.makedirs(os.path.dirname(self.registry_path))
+        with open(self.registry_path, "w") as fh:
+            json.dump(registry or REGISTRY, fh)
         self.xdg = os.path.join(self.dir, "xdg")
         os.makedirs(self.xdg, mode=0o700)
         self.t = 1_800_000_000.0
@@ -513,7 +515,7 @@ class Plans(unittest.TestCase):
         os.makedirs(self.state)
         saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_HOSTS_REGISTRY")}
         os.environ["AGENT_FABRIC_STATE_DIR"] = self.state
-        os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = os.path.join(self.f.root, "runtime", "hosts", "registry.json")
+        os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = self.f.registry_path
         self.addCleanup(lambda: [os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v) for k, v in saved.items()])
         self.me = plan_mod.identity.current_agent()
 
@@ -716,7 +718,7 @@ class Timeouts(unittest.TestCase):
                                      {"id": "s2", "title": "t", "owner": "a", "depends_on": [], "job": "a:j2"}]}, fh)
         saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_HOSTS_REGISTRY")}
         os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(f.dir, "state")
-        os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = os.path.join(f.root, "runtime", "hosts", "registry.json")
+        os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = f.registry_path
         f.test.addCleanup(lambda: [os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v) for k, v in saved.items()])
 
 
@@ -1041,7 +1043,7 @@ class Command(unittest.TestCase):
 
     def test_an_unreadable_registry_is_refused_not_guessed(self):
         f = Fleet(self)
-        with open(os.path.join(f.root, "runtime", "hosts", "registry.json"), "w") as fh:
+        with open(f.registry_path, "w") as fh:
             fh.write("{}")
         with self.assertRaisesRegex(fleet.FleetError, "no placement object"):
             f.fetch(["jobs"])

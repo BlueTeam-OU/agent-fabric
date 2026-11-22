@@ -24,6 +24,7 @@ from control import agentd, ctl, ops  # noqa: E402
 from control import clone as cl  # noqa: E402
 from control.ops import util  # noqa: E402
 import project_clone as pc  # noqa: E402
+import roots  # noqa: E402
 
 GIT = shutil.which("git") or "/usr/bin/git"
 HTTPS = "https://example.invalid/o/gzapp"
@@ -72,8 +73,9 @@ class Scratch(unittest.TestCase):
         os.chmod(path, 0o755)
 
     def registry(self, projects: dict) -> None:
-        os.makedirs(os.path.join(self.root, "projects"), exist_ok=True)
-        with open(os.path.join(self.root, "projects", "registry.json"), "w") as fh:
+        path = roots.projects_registry(engine=self.root)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
             json.dump({"projects": projects}, fh)
 
     def go(self, project: str = "gzapp", run=None, **kw) -> dict:
@@ -335,13 +337,13 @@ class Clone(Scratch):
         self.assertEqual(git("config", "--get", "remote.origin.url", cwd=elsewhere), HTTPS, "the link's target was not touched")
 
     def test_an_unreadable_registry_is_a_failure_not_an_unknown_project(self):
-        os.remove(os.path.join(self.root, "projects", "registry.json"))
+        os.remove(roots.projects_registry(engine=self.root))
         doc = self.go()
         self.assertEqual(doc["status"], "failed")
         self.assertIn("registry could not be read", doc["reason"])
 
     def test_a_registry_that_is_not_json_names_no_project(self):
-        with open(os.path.join(self.root, "projects", "registry.json"), "w") as fh:
+        with open(roots.projects_registry(engine=self.root), "w") as fh:
             fh.write("{ not json")
         self.assertEqual(self.go()["status"], "refused")
 

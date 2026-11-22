@@ -148,8 +148,20 @@ class Fabric:
         self.repos: list[Repo] = []
 
     def write_authority_text(self, text: str) -> None:
-        with open(os.path.join(self.fabric, "policies", "authority.json"), "w", encoding="utf-8") as fh:
+        import sys
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        import roots
+        # The operator's policies, wherever the guards under test look for them (step B: <fabric>/operator/policies/);
+        # environ={} so an exported AGENT_FABRIC_OPERATOR cannot move the scratch fabric's own copy.
+        path = roots.policy("authority.json", environ={}, engine=self.fabric)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
+        # The shim step B leaves at the old path, as in the real tree: guards/commit_hooks.py owner_role() still reads
+        # <fabric>/policies/authority.json (it hands roots.policy() the fabric as an explicit operator root).
+        shim = os.path.join(self.fabric, "policies", "authority.json")
+        if not os.path.lexists(shim):
+            os.symlink(os.path.relpath(path, os.path.dirname(shim)), shim)
 
     def cleanup(self) -> None:
         for repo in self.repos:

@@ -26,6 +26,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 import lease  # noqa: E402
+import roots  # noqa: E402
 from instance_fixtures import own_instance_tree, write_json  # noqa: E402
 from git_env import scrub_process_env  # noqa: E402
 scrub_process_env()
@@ -462,7 +463,7 @@ def main() -> int:
         # a tree of its own: the checkout's live policy would make the case follow the fleet's tuning.
         # Three slots is no default (cores_per_slot would give NPROC // 4 or 2), so only a read of this file passes.
         tree = f"{sandbox}/tree"
-        write_json(f"{tree}/policies/host-load.json",
+        write_json(roots.policy("host-load.json", engine=tree),
                    {"cores_per_slot": 4, "wait_s": 1500, "hosts": {HOST: {"cpu_slots": 3}}})
         fe = env(AGENT_FABRIC_ROOT=tree)
         del fe["AGENT_FABRIC_HOST_LOAD"]

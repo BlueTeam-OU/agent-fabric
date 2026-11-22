@@ -20,6 +20,8 @@ own_instance_tree()
 # caller's ~/.gitconfig: set here, it reaches the calls that pass no env.
 os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+import roots  # noqa: E402
 CMD = os.path.abspath(os.environ.get("FABRIC_BRANCHES") or os.path.join(ROOT, "bin", "fabric-branches"))
 if not os.path.isfile(CMD):
     sys.exit(f"test: script under test not found at {CMD}")
@@ -236,8 +238,9 @@ def main() -> int:
         git("remote", "set-head", "origin", "-d", cwd=wc2)
         git("config", "remote.origin.followRemoteHEAD", "never", cwd=wc2)
         fab = f"{t}/fab"
-        os.makedirs(f"{fab}/projects")
-        with open(f"{fab}/projects/registry.json", "w", encoding="utf-8") as fh:
+        registry = roots.projects_registry(engine=fab)
+        os.makedirs(os.path.dirname(registry))
+        with open(registry, "w", encoding="utf-8") as fh:
             json.dump({"version": 1, "projects": {"herd": {"remotes": [], "default_branch": "master"}}}, fh)
         with open(f"{wc2}/.agent-fabric-project", "w", encoding="utf-8") as fh:
             fh.write("herd\n")
@@ -255,14 +258,14 @@ def main() -> int:
               r.returncode == 2 and r.stderr.startswith("fabric-branches: ") and "does not know" in r.stderr,
               f"rc={r.returncode}\n{r.stderr}")
         os.remove(f"{wc2}/.agent-fabric-project")
-        with open(f"{fab}/projects/registry.json", "w", encoding="utf-8") as fh:
+        with open(registry, "w", encoding="utf-8") as fh:
             fh.write("{")
         r = subprocess.run([CMD], cwd=wc2, env={**env, "AGENT_FABRIC_ROOT": fab}, capture_output=True,
                            text=True, timeout=120)
         check("a registry that does not parse: exit 2, a prefixed refusal, no traceback",
               r.returncode == 2 and r.stderr.startswith("fabric-branches: ") and "Traceback" not in r.stderr,
               f"rc={r.returncode}\n{r.stderr}")
-        with open(f"{fab}/projects/registry.json", "w", encoding="utf-8") as fh:
+        with open(registry, "w", encoding="utf-8") as fh:
             json.dump({"version": 1, "projects": {}}, fh)
         # Neither: unknown, never guessed as main.
         r = subprocess.run([CMD], cwd=wc2, env={**env, "AGENT_FABRIC_ROOT": fab}, stdout=subprocess.PIPE,
