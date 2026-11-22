@@ -421,6 +421,13 @@ def main() -> int:
                        ("if>/dev/null", "if>/dev/null :; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
                        ("until</dev/null",
                         "until</dev/null false; do\ncat <<'n'\npkill -f claude-fable\nn\nbreak; done | sh"),
+                       # Round 3, F11: a word after a redirection's target is no command word, so it closes nothing.
+                       # Kills: command = False when the target is consumed.
+                       ("{ >/dev/null }", "{ >/dev/null }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
+                       ("then >/dev/null fi", "if :; then >/dev/null fi\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
+                       # Round 3, F12: a `(` after a redirection opens a process substitution with a command inside.
+                       # Kills: target = False on a `(`.
+                       ("<(case …", "cat <(case x in x)\ncat <<'n'\npkill -f claude-fable\nn\n;; esac) | sh"),
                        # F3 and P-2: spellings only UNREADABLE_LINE's $', $( and ` alternatives catch, each alone.
                        ("$'…' hiding a <<", "echo $'a\\' <<\\X '\\'\npkill -f claude-fable\nX"),
                        ("a << in quotes nested in $( … )", "echo \"$(cat \"<<'#'\")\"\npkill -f claude-fable\n#)"),

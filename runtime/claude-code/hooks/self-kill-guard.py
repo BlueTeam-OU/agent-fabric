@@ -371,9 +371,11 @@ def _leaves_open(line: str) -> bool:
     Counted on the line alone, never carried to the next: a closer on a later line is the guard talked into
     "closed", so _strip_bodies stops at the first line this answers yes for, closed or not later.
     Generous on what opens, strict on what closes: every unquoted `(`, `[`, `{` and every opening reserved word as a
-    whole word counts, wherever it stands (`time -p while` is still a while); a `)` closes only a `(`, a `]` only a
-    `[`, a `}` inside a word only a `{` opened inside a word (`{a,b}`; `{ : a}` leaves the group open, #689 round 1
-    F1), and a `}`, `fi`, `done` or `esac` standing alone closes only in command position, and only its own opener."""
+    whole word counts, wherever it stands but as a redirection's target (`time -p while` is still a while); a `)`
+    closes only a `(`, a `]` only a `[`, a `}` inside a word only a `{` opened inside a word (`{a,b}`; `{ : a}`
+    leaves the group open, #689 round 1 F1), and a `}`, `fi`, `done` or `esac` standing alone closes only in command
+    position, and only its own opener. The cost of reading a target word as nothing: `x[1>2]=5` or `echo a{ >b}`
+    reads as left open, and a here-document after it is judged (#689 round 3, a risk)."""
     s, blank, i, quote = strip_non_arguments(line), [], 0, None
     while i < len(s):
         c = s[i]
@@ -399,16 +401,17 @@ def _leaves_open(line: str) -> bool:
     stack: list[str] = []
     command, target = True, False
     # A word ends at `<` and `>` as bash ends it: `{>/dev/null` is the group's `{` and a redirection, `if>f` an `if`
-    # (#689 round 2, F1 and P-3). A redirection's target word is no command word and opens or closes nothing (`{ >}`);
-    # a `(` after it is a process substitution's, and counts.
+    # (#689 round 2, F1 and P-3). A redirection's target word opens or closes nothing (`{ >}`), and the word after it
+    # is no command word: bash reads `}` in `{ >/dev/null }` as an argument (round 3, F11). A `(` after the operator
+    # is a process substitution's: it counts, and the word inside it is a command word (`<(case …`, F12).
     for token in re.findall(r"&&|\|\||;;&?|;&|[;&|()\n]|[<>]+&?|[^\s;&|()<>]+", blanked):
         if target and token[0] not in "()<>;&|\n":
-            target = False
+            target, command = False, False
         elif token[0] in "<>":
             target = True
         elif token == "(":
             stack.append("(")
-            command = True
+            target, command = False, True
         elif token == ")":
             if stack and stack[-1] == "(":
                 stack.pop()
