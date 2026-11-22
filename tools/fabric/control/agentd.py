@@ -825,7 +825,7 @@ class Leaver:
         return self.why
 
 
-def join_inflight(inflight: set) -> None:
+def join_inflight(inflight: Iterable[object]) -> None:
     """Wait for every running action or disk read (--once, before it exits). A member that is no thread is a
     ctl_hold token: leaving while a session is held is the defect that token exists to prevent, so it is
     refused loudly, never skipped. Raised, not asserted: `python -O` strips an assert."""
