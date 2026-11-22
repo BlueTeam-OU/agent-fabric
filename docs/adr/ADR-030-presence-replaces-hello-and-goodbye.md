@@ -116,9 +116,14 @@ something asked once, when it matters.
   deliberate choice to let it wait.
 - A send costs a presence round-trip, up to about six seconds when an
   account is silent (`PRESENCE_WAIT_MS`).
-- Presence is only as available as the control plane: with the relay or
-  the control agents down, a send says "unknown" and refuses without
-  `--force`.
+- Presence is only as available as the control plane: with the control
+  agents down, a send says "unknown" and refuses without `--force`; so
+  it does with the relay down, unless `control_carrier` names the
+  second carrier (`dual`, or InterWeave alone), where the check also,
+  or only, goes through the account's own agentd and InterWeave
+  (ADR-029 rule 18) (A 2026-11-22); a send's own address is still
+  asked by the relay alone under `dual`, outside the transport mode
+  `carrier-only`.
 - The watches are quieter: the announcements had been most of what every
   watch printed.
 
@@ -158,3 +163,4 @@ The body above reads current; each change's full note is in [history/ADR-030-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-27 | HELLO and GOODBYE retired | §5 rule 7: the types are retired from GZCOORD/1 and a parser rejects them; §3's rejected alternative says why a new major version was not needed |
+| 2026-11-22 | A relay that is down no longer leaves presence unknown under dual | §6 third bullet: under `control_carrier` `dual` the check also goes through the account's own agentd and InterWeave (ADR-029 rule 18, #586, j832) |
