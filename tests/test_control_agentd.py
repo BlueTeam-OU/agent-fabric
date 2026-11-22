@@ -664,8 +664,21 @@ class Pieces(Scratch):
         self.assertEqual(done, [1], "positive control: a thread is joined")
         leave = agentd.leaver(inflight, exit=lambda code: None, log=lambda m: None)
         self.assertIsNotNone(agentd.ctl_hold(leave, inflight), "a held session puts a token in the set")
+        late = threading.Thread(target=lambda: (time.sleep(0.2), done.append(2)))
+        late.start()
+        inflight.add(late)
         with self.assertRaises(TypeError):
             agentd.join_inflight(inflight)
+        self.assertEqual(done, [1, 2], "every thread was joined before the refusal, wherever the token sits in the set")
+
+    def test_ctl_hold_for_refuses_under_once_and_holds_on_a_serving_daemon(self):
+        inflight: set = set()
+        leave = agentd.leaver(inflight, exit=lambda code: None, log=lambda m: None)
+        with self.assertRaises(RuntimeError):
+            agentd.ctl_hold_for(leave, inflight, True)
+        self.assertEqual(inflight, set(), "nothing was held")
+        self.assertIsNotNone(agentd.ctl_hold_for(leave, inflight, False), "positive control: a serving daemon holds")
+        self.assertEqual(len(inflight), 1)
 
     def test_leaving_for_new_code_waits_for_every_running_action_to_reply_then_exits_once(self):
         inflight = {"a", "b"}
