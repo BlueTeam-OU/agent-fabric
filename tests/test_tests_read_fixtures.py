@@ -38,14 +38,12 @@ SCANNED = ("tests", "communication/gzcoord/tests")
 # fixtures (fabric-coordinator's request 01a11d15-2dc2-7cc9-8e7b-770a36dcf895).
 DELIBERATE = {
     "tests/test_availability_policy.py": "one case pins the committed policy's shape (OpenAI the less tolerant): the operator's own data; skipped on a stripped copy",
-    "tests/test_launch_prompt.py": "every role of the real catalogue renders under the prompt ceiling: the operator's own roles",
     "tests/test_operator_data.py": "the committed operator keys parse as the daemons read them, and every locale carries its reminder: the operator's own data",
     "tests/test_auto_mode_policy.py": "the operator's auto-mode policy names its public repositories and holds no \"$defaults\": the operator's own text",
     "tests/test_arm_fabric_config.py": "every project's committed arm.json loads and holds the rules the fabric relies on: the operator's own files",
     "tests/test_session_commands.py": "no session-facing text, the projects' CLAUDE files included, calls a fabric command through a path: the operator's own texts",
     "tests/memory_expand_measure.py": "the linked-sections measurement (ADR-049 follow-up) reads the operator's own committed corpus on purpose: not a test, a report of that corpus",
     "tests/test_arm_policy.py": "the operator's fleet default arming policy loads through arm_policy and is the built-in default, and agrees with its schema: the operator's own file",
-    "tests/test_contributors.py": "one case reads what the committed authority.json grants devex-tooling (j574): the operator's own policy; skipped on a stripped copy",
     "tests/test_arming_schema.py": "the committed policies/arming.json validates against the schema and loads through arm_policy.validate (j133): the operator's own file",
     "tests/test_tools_install.py": "the registry pins the Codex CLI (ADR-053 rule 7) at a version and digest the installer accepts: the operator's own pin",
     "tests/test_host_check.py": "the gzapp host probe is the project's own integration file (instance data): its test runs the operator's script on purpose, and a stripped copy has none to run",
@@ -54,7 +52,6 @@ DELIBERATE = {
     "tests/test_hygiene_github_owner.py": "the committed policies/hygiene.json keeps a personal GitHub handle out of a slice and reads the drain's substitution through the assembler, the owner list being its own organizations: the operator's own list",
     "tests/test_hygiene_share_link.py": "the committed policies/hygiene.json keeps a claude.ai artifact, share, chat or session link out of a slice: the operator's own list",
     "tests/test_hygiene_private_network.py": "the committed policies/hygiene.json keeps private-network addresses and /home/<login>/ paths out of a slice: the operator's own list",
-    "tests/test_project_import.py": "the import is acceptance-tested --like real registered projects (the request's acceptance): a copy of the operator's tree, lint run on it; on a stripped copy it finds no sibling, says so and passes",
     "tests/test_registry_id.py": "every id the committed projects/registry.json holds matches the registry-id grammar, so the two cannot drift: the operator's own file",
     "tests/test_githooks_prepush.py": "the brand projects' committed direct.pr_paths send secret-shaped files to a pull request and design files direct: the operator's own files",
 }
@@ -68,6 +65,11 @@ STRIPPED_RED = {
     # Reads the operator's committed corpus through roots.memory_dir, which the source scan follows to no live path: not an
     # allowance, but a stripped copy has no corpus, so it is red there on purpose (ADR-049 rule 7: the hits are a fact of that corpus).
     "tests/test_memory_expected_hits.py": "the offline expected-hit set is run against the operator's own committed corpus",
+    # Reads what the committed authority.json grants devex-tooling through roots.policy, which the source scan follows to no live
+    # path: not an allowance, but a stripped copy has no policy, so it is red there on purpose.
+    "tests/test_contributors.py": "one case reads what the committed authority.json grants devex-tooling (j574): the operator's own policy; skipped on a stripped copy",
+    # Reads the real role catalogue through roots.role_catalog, which the source scan follows to no live path: red on a stripped copy on purpose.
+    "tests/test_launch_prompt.py": "every role of the real catalogue renders under the prompt ceiling: the operator's own roles",
     "tests/test_adr.py": "the decision records are checked as the corpus they are (the records are instance data, ADR-045 §5 rule 2)",
     "tests/test_workingcopy.py": "the moved BlueTeam projects resolve under both organizations: a fact of the operator's registry",
     "tests/test_roots_readers.py": "lint over a copy of the operator's data prints what it prints without one: the operator's roles",

@@ -34,7 +34,6 @@ SKIP_PARTS = ("/tests/", "/__pycache__/", "/claude-code/")
 EXEMPT = {
     "tools/fabric/roots.py": "the seam itself",
     "tools/fabric/secretstore/lineage.py": "keys_dir(fabric) takes the tree to check; the module is stdlib-only by fence (tests/test_lineage_fence.py), so it cannot import roots; core.keys_dir passes the operator root",
-    "tools/fabric/hostexec.py": "the host executor's registry default is THIS checkout's, by contract: tests/test_hostexec_cli.py pins that it does not follow the operator tree (fabric-host, which does, exports the answer in AGENT_FABRIC_HOSTS_REGISTRY). Held while it was shell, which could not call roots; whether it follows roots now is the coordinator's to say",
     "tools/fabric/secretstore/trust.py": "git-shows identities/keys/ from the keys' checkout (origin/main), a path inside that repository; moves with the keys (ADR-045 §6)",
 }
 
