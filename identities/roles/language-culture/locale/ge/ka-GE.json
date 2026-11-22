@@ -120,7 +120,7 @@
   "watch.relay-gave-up": "gzcoord watch: რელე ({relay_url}) 15 წუთის განმავლობაში მიუწვდომელი რჩებოდა — დაკვირვება შეწყდა; რელეს დაბრუნების შემდეგ ის თავიდან ჩართე",
   "watch.relay-back": "gzcoord watch: რელე დაბრუნდა; დაკვირვება გაგრძელდა",
   "carrier.fix": "მიზეზს აჩვენებს fabric-ctl {login} {name}, გადამცემს კი გაუშვებს fabric-ctl {login} {name}-start",
-  "carrier.fix-agent": "რამდენიმე წუთში ისევ სცადე: გადამცემი თავისით ხელახლა ეშვება, რასაც დაახლოებით 30 წამი სჭირდება. თუ არც მაშინ უპასუხებს, fabric-coordinator როლს OBSERVATION ტიპის წერილი გაუგზავნე",
+  "carrier.fix-agent": "გაუშვი gzcoord-carrier self-start. გადამცემი დაახლოებით 30 წამში ჩაირთვება. თუ ბრძანება უარს იტყვის ან გადამცემი მაინც არ უპასუხებს, fabric-coordinator როლს OBSERVATION ტიპის წერილი გაუგზავნე",
   "watch.carrier-down": "gzcoord watch: გადამცემი {carrier} არ პასუხობს — ველოდები, სანამ ისევ უპასუხებს ({fix}; ეს სტრიქონი ერთხელ იბეჭდება)",
   "watch.carrier-gave-up": "gzcoord watch: გადამცემი {carrier} {minutes} წუთის განმავლობაში არ პასუხობდა — დაკვირვება შეწყდა; როცა გადამცემი ისევ ამუშავდება, დაკვირვება თავიდან ჩართე ({fix})",
   "watch.carrier-back": "gzcoord watch: გადამცემი {carrier} ისევ პასუხობს; დაკვირვება განახლდა",
