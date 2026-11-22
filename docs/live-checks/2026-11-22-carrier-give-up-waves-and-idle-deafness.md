@@ -10,9 +10,8 @@ returned them on this date, and the panes as they stood.*
 
 j1015 was opened on 11-21 as "eight idle sessions deaf after exit 5 at about
 11-20 22:30". No watch on any of the 30 accounts ended with exit 5 between
-2026-11-19T00:00Z and 2026-11-21T12:00Z. Every watch running at 11-20 22:30Z
-ended `quiet` or `delivery` on its usual cycle. The date in the title was
-wrong. The give-ups happened on 11-15 and 11-18. python-dev-01's record on #686
+2026-11-19T00:00Z and 2026-11-21T12:00Z, so none gave up at 11-20 22:30Z.
+The date in the title was wrong. The give-ups happened on 11-15 and 11-18. python-dev-01's record on #686
 repeated the 11-20 date from the request. Its fix does not depend on the date.
 
 ## What was measured
@@ -26,8 +25,8 @@ code and a reason. A watch killed outright writes no `end`.
 
 | when (Z) | accounts | primary then |
 |---|---|---|
-| 11-15 07:13:26, to the second | 24 | relay (the fleet's move to `carrier-record` finished 11-18T13:17Z) |
-| 11-15 07:14–07:29 | 26 | relay |
+| 11-15 07:13:26, to the second | 24 | relay, inferred: the move to `carrier-record` finished 11-18T13:17Z; each account's mode on 11-15 is not read here |
+| 11-15 07:14–07:29 | 26 | relay, inferred as above |
 | 11-18 18:29:35–18:30:14 | 19 | carrier |
 | 11-18 19:25:01–19:25:10 | 4 | carrier |
 | 11-18 19:54:10–19:54:59 | 16 | carrier |
@@ -50,8 +49,11 @@ It did not stop answering. Each fleet upgrade that evening (#656, #659, #661 and
 #665, through `fabric-ctl all upgrade fabric`) restarted every account's
 `interweave-client@gzcoord`. The client takes 80–180 s to report `up`.
 language-culture-ru's journal, quoted in its OBSERVATION of 11-18T19:57Z,
-shows each give-up seconds after a restart: restart 22:29:43, exit 22:29:50;
-restart 23:54:13, exit 23:54:18, both in +04. Its daemon had been up since
+shows each give-up seconds after a restart: restart 18:29:43Z, exit 18:29:50Z;
+restart 19:54:13Z, exit 19:54:18Z (its journal reads +04). Each restart falls
+inside the 18:29Z and 19:54Z waves. Which upgrade caused which wave is not
+read here. #659 was reported merged at 18:28Z, and #665's distribution was
+requested at 19:52Z, so the two match. The 19:25Z wave is unmatched. Its daemon had been up since
 11-16 with `NRestarts=0`. My own daemon has been up since 11-15 with
 `NRestarts=0`.
 
@@ -61,11 +63,6 @@ the down flag set by one restart outlived the recovery, and the next restart
 was counted from the old failure. The watch exited 5 within seconds and said
 "15 minutes". python-dev-02 fixed this for j169 in `b40ac2e4d`
 (BlueTeam-OU/agent-fabric#666, merged 2026-11-19T06:28Z).
-
-The 18:29Z wave came about 24 minutes after the #656 distribution started,
-not seconds after. The reason is not read here. The upgrade restarts accounts
-one at a time, and a watch's down flag can date from a restart earlier in
-the same pass.
 
 ## Why the sessions stayed deaf
 
@@ -92,25 +89,34 @@ reboot.
 ## A second cause, found while reading: the harness reaps idle watches
 
 At 2026-11-21 17:34–17:35Z Claude Code (2.1.322) stopped the background
-`gzcoord inbox wait` in several sessions with "stopped because the system is
-running low on memory". Sixteen watches have a `start` before that time and
-no `end`, so they were killed outright:
+`gzcoord inbox wait` with "stopped because the system is running low on
+memory". The panes of five sessions show that line.
 
-- **Back within 2 minutes:** four accounts (legal-expert-ge, p2p-network-dev-01,
-  rust-services-dev-02, web-dev-01). Their sessions started a new watch.
-- **Back after 35 minutes:** architect-cto-01.
-- **Back at 20:42–20:44Z:** six accounts.
-- **Back on 11-22 at 06:47Z or 08:47Z:** six accounts, when they were relaunched.
-- **Still without a watch at 11-22T18:40Z:** backend-dev-01, brand-comms-01,
-  devex-tooling, domain-transit and ux-designer-01.
+On 21 accounts, the watch open at 17:34:00Z never logged an `end`. A watch
+killed at any moment leaves that same trace. p2p-network-dev-02, for
+example, logs starts without ends on 11-20 too. So the logs alone do not
+pin every one of the 21 on the reap. When each account next started a
+watch:
 
-Each of these five panes shows the session declining to restart the watch,
-because "memory may still be short", and waiting for its human.
+- **17:35–17:37Z:** four accounts (legal-expert-ge, p2p-network-dev-01,
+  rust-services-dev-02, web-dev-01). Whether their earlier watch was reaped
+  is not read.
+- **17:59Z:** architect-cto-01.
+- **20:42–20:44Z:** five accounts (python-dev-01, -02, -04,
+  rust-services-dev-01, rust-ui-dev-01).
+- **11-22, 06:47–08:47Z:** six accounts, when they were relaunched.
+- **11-22, 19:01–19:03Z:** backend-dev-01, brand-comms-01, devex-tooling,
+  domain-transit and ux-designer-01, after `fabric-ctl <login> restart`.
+  These are the five panes. Each session had said it would not restart the
+  watch because "memory may still be short", and was waiting for its human.
+  They had been deaf for 25 hours.
+
 brand-comms-01's pane also shows its `session-state.py` UserPromptSubmit
 hook timing out after 5 s at that moment. `watch-on-stop.py` runs with the
-same 5 s timeout, and none of the five panes shows it asking for the watch.
-Whether it timed out, or passed for another reason, is not established. At
-18:40Z `MemAvailable` was 16 of 31 GiB.
+same 5 s timeout. Three of the five panes were searched for hook lines, and
+none shows watch-on-stop asking for the watch after the reap. Whether it
+timed out, or passed for another reason, is not established. At 18:40Z on
+11-22, `MemAvailable` was 16 of 31 GiB.
 
 This is the 2026-10-23 failure (j366) again, which led to the hook's `ASKED`
 line. It is a separate defect from the carrier give-up, and its own job
