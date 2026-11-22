@@ -238,11 +238,12 @@ with any tree under ~/projects is exit 1, nothing removed, the path named (an em
 Each switch appends one line to the old and one to the new job's log: the outcome and its evidence, and the branch.
 `switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
 cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued settles the job being left and clears its build output, as under a hold, then offers the pool's.
-A session that has worked no job has nothing to settle and takes the job in place, from inside the job's copy (below); "worked" is read from the list: a
+A session that has worked no job (a request closed with no artifact is none) has nothing to fence and takes the job in place, from inside the job's copy (below); "worked" is read from the list: a
 transition whose old or new state is `active` (a start, a block, a delivery, a finish or a drop of the active job) writes
 the harness session id (CLAUDE_CODE_SESSION_ID), when the environment has one, into the job's log entry, and a session is one
 that appears in any entry, so a session launched with its job already active is known once it finishes it. A request closed
-with no artifact flags its entries `unfenced`: they still name the session for `switch`, and the job copy guard does not count them.
+with no artifact flags its entries `unfenced`: `switch` still settles that request and counts the replies owed since its start,
+but neither its fresh verdict nor the job copy guard counts the entries as work.
 With no session id in the environment (an unlaunched shell) the job that last left `active` counts, so `switch` says fresh.
 "Inside the job's copy" (the job copy guard's own, job-copy-guard.py): the real path of the current directory's git toplevel (the
 directory itself outside a checkout) equal to, or under, the job's `working_copy` or `worktree`, read before the list is locked.

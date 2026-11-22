@@ -102,14 +102,15 @@ def main() -> int:
     by_path = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(by_path)
     work = by_path.load_package("fabric_work", os.path.join(ROOT, "tools", "fabric", "work"))
-    for label, held in (("a request closed with an artifact", ["o/r#4"]), ("a request closed with none", None)):
-        doc = {"jobs": [{"id": "j1", "title": "t", "state": "active", "source": {"kind": "request"}, "artifacts": [], "log": [{"at": "x", "state": "active", "session": "s"}]}]}
+    for label, held, stored in (("a request closed with an artifact", ["o/r#4"], []), ("a delivered request, its artifact stored, closed with none named", None, ["o/r#4"]),
+                                ("a request closed with none", None, [])):
+        doc = {"jobs": [{"id": "j1", "title": "t", "state": "active", "source": {"kind": "request"}, "artifacts": stored, "log": [{"at": "x", "state": "active", "session": "s"}]}]}
         j = doc["jobs"][0]
         need = "done_test_or_no_artifact_reason"
         proof = work.Proof(job="j1", seal=work.seal(j), held={need: ["x"]})
         work.transition(doc, j, "done", "done", proof, now="y", session="s", no_artifact="answered", **({"artifacts": held} if held else {}))
         flagged = [bool(e.get("unfenced")) for e in j["log"] if e.get("session")]
-        check(f"{label}: " + ("the session stays fenced" if held else "the session is unfenced"), flagged == ([False, False] if held else [True, True]), j["log"])
+        check(f"{label}: " + ("the session stays fenced" if held or stored else "the session is unfenced"), flagged == ([False, False] if held or stored else [True, True]), j["log"])
     print(f"\ntest_jobs_request_unworked: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 

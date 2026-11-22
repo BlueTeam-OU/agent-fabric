@@ -37,7 +37,7 @@ def session_worked(doc: dict, session: str | None) -> str | None:
     a session id (an unlaunched shell) nothing can be told apart, so any job
     that has left `active` counts: such a session always says "fresh", even
     when just launched, which is the safe error. An entry flagged `unfenced` (a request closed with no artifact, work/lifecycle.py)
-    is the session's record for `switch` and no work for this fence."""
+    is no work: neither this fence nor `switch`'s fresh verdict counts it (switch still settles the job through last_worked)."""
     for job in doc["jobs"]:
         if session is None and doc.get("last") == job["id"]:
             return job["id"]
