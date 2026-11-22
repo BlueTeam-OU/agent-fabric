@@ -22,17 +22,46 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 scrub_process_env()
 
+OPERATOR = os.path.join(ROOT, "operator")   # the live organisational records, until step D
 ZERO = "docs/adr/ADR-000-the-enduring-organization.md"
 ONE = "docs/adr/ADR-001-decision-records.md"
+
+
+def merge_operator_records(root: str) -> None:
+    """The fixture is the pre-step-B whole fabric: every record in one docs/adr. The live organisational
+    records sit in operator/docs/adr (their numbers reserved in the engine's), so the copy takes them
+    back, entry by entry in the DIGEST, and drops the reservations they now fill."""
+    src, dst = os.path.join(OPERATOR, "docs", "adr"), os.path.join(root, "docs", "adr")
+    for sub in ("", "history"):
+        os.makedirs(os.path.join(dst, sub), exist_ok=True)
+        d = os.path.join(src, sub)
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else ():
+            if re.match(r"ADR-\d{3}-", f):
+                shutil.copy(os.path.join(d, f), os.path.join(dst, sub, f))
+    eng_path = os.path.join(dst, "DIGEST.md")
+    eng = open(eng_path, encoding="utf-8").read()
+    op = open(os.path.join(src, "DIGEST.md"), encoding="utf-8").read()
+    rows = [ln for ln in op.split("\n") if re.match(r"\|.*\| ADR-\d{3} \|$", ln)]
+    entries = ("\n" + op).split("\n### ")[1:]
+    head, *eng_entries = ("\n" + eng).split("\n### ")
+    head_lines = head.split("\n")
+    table_end = max(i for i, ln in enumerate(head_lines) if re.match(r"\|.*\| ADR-\d{3}", ln))
+    head_lines[table_end + 1:table_end + 1] = rows
+    merged = sorted(eng_entries + entries, key=lambda e: int(re.match(r"ADR-(\d{3})", e).group(1)))
+    with open(eng_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(head_lines).strip("\n") + "\n\n" + "\n".join("### " + e.strip("\n") + "\n" for e in merged))
+    os.remove(os.path.join(dst, "reserved.json"))   # every number it held is a record again
 
 
 def fixture(tmp: str) -> str:
     root = os.path.join(tmp, "fabric")
     shutil.copytree(os.path.join(ROOT, "docs", "adr"), os.path.join(root, "docs", "adr"))
+    merge_operator_records(root)
     # A record's Evidence paths must exist (adr.check), so the copy carries them.
-    adrs, _ = adr.load(ROOT)
+    adrs, _ = adr.load(root)
     for ev in {e.strip() for a in adrs for e in a["fields"].get("Evidence", "").split(",") if e.strip()}:
-        src, dst = os.path.join(ROOT, ev), os.path.join(root, ev)
+        src = next((p for p in (os.path.join(ROOT, ev), os.path.join(OPERATOR, ev)) if os.path.exists(p)), os.path.join(ROOT, ev))
+        dst = os.path.join(root, ev)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         (shutil.copytree if os.path.isdir(src) else shutil.copy)(src, dst)
     write_registry(os.path.join(root, "projects"))   # the fixture's, never the live one
