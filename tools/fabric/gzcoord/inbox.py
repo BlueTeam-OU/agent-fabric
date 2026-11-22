@@ -94,7 +94,9 @@ CONTRACT, frozen from the Node:
                                 nothing after S seconds prints exactly
                                 `gzcoord inbox: quiet for <N> min,
                                 nothing delivered; run the watch again`
-                                on STDOUT, releases its lock and exits 0.
+                                on STDOUT (after the carrier's own line
+                                naming the failure, when a carrier primary
+                                is still not answering), releases its lock and exits 0.
                                 Only with --until-delivery.
             --wait [S]          block up to S seconds (Number(S), else
                                 1800) and return the moment a message
@@ -141,7 +143,8 @@ CONTRACT, frozen from the Node:
             under a background Bash, whose output reaches the session once,
             at exit: it prints the one delivery (or, on exit 2-7, the
             reason; under GZCOORD_JOURNAL=off also the bypass warning)
-            and no relay-down/back lines; the journal's held-messages
+            and no relay-down/back lines (a carrier primary still silent at the
+            deadline adds one line, the failure, before the quiet line); the journal's held-messages
             line is printed only as it exits 6.
             a second watch's refusal line (watchlock.py), the --deadline
             quiet line and the session-ended line, which exit 0 without
@@ -650,7 +653,7 @@ def main(argv: list[str]) -> int:
         fix = carrier_transport.fix_line(t, me["address"])
         if kind == "down":
             return t("watch.carrier-down", {"carrier": CARRIER_LABEL, "fix": fix})
-        if kind == "gave-up":
+        if kind == "gave-up":   # unreachable under --until-delivery since j266 (a carrier is retried to the deadline); the key stays until it is retired
             return t("watch.carrier-gave-up", {"carrier": CARRIER_LABEL, "minutes": f"{UNTIL_DELIVERY_DOWN_S / 60:g}", "fix": fix})
         return t("watch.carrier-back", {"carrier": CARRIER_LABEL})
 
@@ -698,6 +701,8 @@ def main(argv: list[str]) -> int:
         # failure of the previous outage and the watch gives up at once (j169, every fleet upgrade).
         answered = {"at": 0.0}
         carrier_bound_said = {"v": False}
+        # The last failure of the primary, said at the deadline when the carrier is still not answering.
+        last_failure: dict[str, Any] = {"e": None}
 
         def fetch_noting(slice_s: int, abort: threading.Event) -> Any:
             page = tp.fetch_page(slice_s, abort)
@@ -744,9 +749,10 @@ def main(argv: list[str]) -> int:
             # deadline, or a hold that outlasted it, ends the watch as a quiet one.
             left = deadline - time.monotonic()
             if until_delivery and left <= 0:
-                if down and primary.name == CARRIER_NAME:   # the relay's quiet ending is frozen as the one line
+                if down and primary.name == CARRIER_NAME and last_failure["e"] is not None:   # the relay's quiet ending is frozen as the one line
                     # Still down at the deadline: said before the quiet line, so the session that re-runs the watch knows why it was quiet.
-                    print(primary_down_line("down"), flush=True)
+                    # The failure itself, not the "waiting for it" line: the watch is ending.
+                    print(primary.explain(last_failure["e"], t)["line"], flush=True)
                 print(QUIET_LINE.format(minutes=int((time.monotonic() - started) // 60)), flush=True)
                 return ended("quiet", 0)
             try:
@@ -760,6 +766,7 @@ def main(argv: list[str]) -> int:
                 print(e.line, flush=True)
                 return ended("journal-held", 6)
             except Exception as e:  # noqa: BLE001 — every failure of an arm is the relay's, said once
+                last_failure["e"] = e
                 x = primary.explain(e, t)
                 if x["code"] == 4:
                     print(x["line"], file=sys.stdout if until_delivery else sys.stderr, flush=True)
@@ -774,6 +781,7 @@ def main(argv: list[str]) -> int:
                         print(primary_down_line("down"), flush=True)
                     down = True
                     down_since = time.monotonic()
+                    carrier_bound_said["v"] = False
                 elif until_delivery and primary.name == CARRIER_NAME:
                     # The carrier is a local daemon that comes back by itself (a restart, an upgrade, an outage like 2026-11-20 22:30Z
                     # that deafened eight idle sessions): exiting 5 left a session that waits to be re-run, deaf until someone restarted
@@ -813,12 +821,15 @@ def main(argv: list[str]) -> int:
                     mode_watch.report(str(e))
                 else:
                     primary = tp.primary
+                    # The old primary's outage is not the new one's: the give-up bound counts from the new primary's first failure.
+                    down, carrier_bound_said["v"], last_failure["e"] = False, False, None
                     print(f"gzcoord-inbox: transport mode is now {tp.mode}", file=sys.stderr, flush=True)
                 continue
             if r.get("sessionEnded"):
                 print(SESSION_ENDED.format(pid=session.pid), flush=True)
                 return ended("session-ended", 0)
-            if down and r.get("relayError") is None:   # a delivery the carrier made says nothing of the relay
+            # An arm the deadline cut short asked and heard nothing (watch.py returns out_of_time without an error): it is no answer.
+            if down and r.get("relayError") is None and answered["at"] > down_since:   # a delivery the carrier made says nothing of the relay
                 if not until_delivery:
                     print(primary_down_line("back"), flush=True)
                 down = False
