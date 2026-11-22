@@ -368,7 +368,7 @@ def main() -> int:
                        # Rule 4, doubt keeps the body: ANSI-C quoting, where \' is a literal quote.
                        ("a <<true inside $'…'", f"cat $'a\\' <<true'\nkill {W}\ntrue"),
                        # #689 round 1, F3: $'…' alone hides the <<, the delimiter balanced. Kills: UNREADABLE_LINE's $'.
-                       ("$'…' hiding a balanced <<", f"echo $'a\\' <<\\X '\\'\nkill {W}\nX")):
+                       ("$'…' hiding a balanced <<", f"cat $'a\\' <<\\X '\\'\nkill {W}\nX")):
         d = by_pid(cmd)
         check(f"a here-document no data reader alone takes still denies: {label}",
               d is not None and d[0] == "deny" and "inbox watch" in d[1], d)
@@ -414,6 +414,13 @@ def main() -> int:
                        ("a backtick open over the body", "echo `\ncat <<'n'\npkill -f claude-fable\nn\n` | sh"),
                        # P-1: a pipeline or list left open at the line's end. Kills: the trailing-operator test.
                        ("cat <<'n' | … sh on a later line", "cat <<'n' |\npkill -f claude-fable\nn\nsh"),
+                       # #689 round 2, F7. Kills: the &? of the trailing-operator test.
+                       ("cat <<'n' |& … sh on a later line", "cat <<'n' |&\npkill -f claude-fable\nn\nsh"),
+                       # Round 2, F1 and P-3: a word ends at < and >, as bash ends it. Kills: <> out of the tokeniser.
+                       ("{>/dev/null : a}", "{>/dev/null : a}\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
+                       ("if>/dev/null", "if>/dev/null :; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
+                       ("until</dev/null",
+                        "until</dev/null false; do\ncat <<'n'\npkill -f claude-fable\nn\nbreak; done | sh"),
                        # F3 and P-2: spellings only UNREADABLE_LINE's $', $( and ` alternatives catch, each alone.
                        ("$'…' hiding a <<", "echo $'a\\' <<\\X '\\'\npkill -f claude-fable\nX"),
                        ("a << in quotes nested in $( … )", "echo \"$(cat \"<<'#'\")\"\npkill -f claude-fable\n#)"),

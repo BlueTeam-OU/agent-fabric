@@ -397,9 +397,16 @@ def _leaves_open(line: str) -> bool:
     if quote or re.search(r"(?<!\|)\|&?\s*$", blanked):
         return True
     stack: list[str] = []
-    command = True
-    for token in re.findall(r"&&|\|\||;;&?|;&|[;&|()\n]|[^\s;&|()]+", blanked):
-        if token == "(":
+    command, target = True, False
+    # A word ends at `<` and `>` as bash ends it: `{>/dev/null` is the group's `{` and a redirection, `if>f` an `if`
+    # (#689 round 2, F1 and P-3). A redirection's target word is no command word and opens or closes nothing (`{ >}`);
+    # a `(` after it is a process substitution's, and counts.
+    for token in re.findall(r"&&|\|\||;;&?|;&|[;&|()\n]|[<>]+&?|[^\s;&|()<>]+", blanked):
+        if target and token[0] not in "()<>;&|\n":
+            target = False
+        elif token[0] in "<>":
+            target = True
+        elif token == "(":
             stack.append("(")
             command = True
         elif token == ")":
@@ -471,10 +478,11 @@ def _strip_bodies(text: str, takes, opened: list[str] | None = None) -> str:
     3. A command line heredoc_operators cannot read surely (None: UNREADABLE_LINE, a quote it cannot balance, an
        operator beside OPENS_SYNTAX) opens no droppable here-document, and everything from it on is judged.
     4. An operator whose delimiter line is not there drops nothing (review of #70, eighth round).
-    5. A command line that leaves a compound, group, subshell, subscript or expansion open (_leaves_open) ends the
-       drop: what follows is inside it, and its closing line may pipe it into a shell. The cost, accepted: a
-       here-document inside a multi-line `for`, `if` or `{ … }` (a gzcoord-send in a loop) is judged as text, and
-       a kill named in its body is a rephrase.
+    5. A command line that leaves a compound, group, subshell, subscript or expansion open, or a pipeline open at
+       its end (`cat <<'X' |`; _leaves_open), ends the drop: what follows is inside it, and its closing line may
+       pipe it into a shell. The cost, accepted: a here-document inside a multi-line `for`, `if` or `{ … }` (a
+       gzcoord-send in a loop), or one whose pipe continues on a later line even into a data reader (`cat <<'X' |`
+       NL body NL `X` NL `grep x`), is judged as text, and a kill named in its body is a rephrase.
     The opening line and every line after a body stay: a kill there still runs. `opened`, when given, collects the
     opening line of each here-document whose body is dropped (_written_names reads what that line may write)."""
     lines, out, i = text.split("\n"), [], 0
