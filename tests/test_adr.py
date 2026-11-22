@@ -41,7 +41,7 @@ def merge_operator_records(root: str) -> None:
     eng_path = os.path.join(dst, "DIGEST.md")
     eng = open(eng_path, encoding="utf-8").read()
     op = open(os.path.join(src, "DIGEST.md"), encoding="utf-8").read()
-    rows = [ln for ln in op.split("\n") if re.match(r"\|.*\| ADR-\d{3} \|$", ln)]
+    rows = [ln for ln in op.split("\n") if re.fullmatch(r"\|.*\| ADR-\d{3} \|", ln)]
     entries = ("\n" + op).split("\n### ")[1:]
     head, *eng_entries = ("\n" + eng).split("\n### ")
     head_lines = head.split("\n")
