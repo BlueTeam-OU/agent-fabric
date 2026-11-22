@@ -35,7 +35,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             ($XDG_CONFIG_HOME/systemd/user/agent-fabric-agentd.service); the
             managed-settings.json in /etc/claude-code (or AGENT_FABRIC_MANAGED_ETC)
             and, when it names the dispatch guard, that snapshot's routing files,
-            through its tools/fabric/routing.py (ADR-043 §5 rule 10).
+            through its tools/fabric/routing.py (ADR-043 §5 rule 10), and the
+            five class files in $CLAUDE_CONFIG_DIR/agents (or ~/.claude/agents),
+            their model: and effort: lines, as the dispatch guard reads them.
   stdout    the human report (below), or with --json one object, indent 2,
             ensure_ascii. Nothing on stderr by design; a module this file
             loads that fails writes its own traceback there. The snapshot's
@@ -53,8 +55,8 @@ asked or stamped), `launch profile` (only when stamped), `pins`,
 `credentials`, `claude sign-in`, a blank line, `capabilities on <provider>`
 and one line per class, one `review engine <provider> <class>` line per
 class an engine provider serves (the Codex engine's openai column), `routing`, `agent files` (one line per class whose
-routing the guard's snapshot reads otherwise than this checkout, or one "cannot compare" line; only when there is something
-to say), `memory` (only when there is something
+routing the guard's snapshot reads otherwise than this checkout, one per class whose agent file differs from that
+snapshot's routing, or one "cannot compare" line; only when there is something to say), `memory` (only when there is something
 to count), `obsolete` (one line per memory of this agent a drain report names as replaced, or one "unknown" line when a
 report cannot be read), `moveto` (only when installed), `journal`, `python`, `agentd`
 (what the account's installed control agent unit runs), `control plane`.
@@ -684,7 +686,9 @@ def agent_file_routing_drift(root, provider, etc=None, agents=None):
         agents = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude"),
                               "agents")
     pins, efforts = answers[("snapshot", "pins")], answers[("snapshot", "efforts")]
-    for klass in sorted(set(pins) | set(efforts)):
+    # Every class file the guard reads, not the snapshot's keys: a class the snapshot now routes no effort is in
+    # neither map, and the guard still refuses its file's effort line (#688 round 3 F7).
+    for klass in [f[:-3] for f in install.CLASS_FILES]:
         parts = []
         # As the guard compares: the review model when the snapshot pins one, an effort only where the file has a line.
         if klass == "code-review" and pins.get(klass):
@@ -695,9 +699,11 @@ def agent_file_routing_drift(root, provider, etc=None, agents=None):
         if effort and effort.split()[0] != efforts.get(klass, ""):
             parts.append(f"effort {effort.split()[0]} (file) vs {efforts.get(klass) or 'none'} (snapshot)")
         if parts:
-            lines.append(f"agent files  {klass}: {'; '.join(parts)} — written before the snapshot {tree} was "
-                         "installed; its dispatches are refused until fabric-model apply in the session, or "
-                         "fabric-ctl all upgrade fabric")
+            # Named by its effect: a reinstall since the file was written, or this account's launch on the other
+            # provider, gives the same line, and the guard's denial lists the causes (#688 round 3 F9).
+            lines.append(f"agent files  {klass}: {'; '.join(parts)} — the file differs from the routing of the "
+                         f"snapshot {tree}; the guard refuses its dispatches until fabric-model apply in the "
+                         "session, or fabric-ctl all upgrade fabric")
     return lines
 
 

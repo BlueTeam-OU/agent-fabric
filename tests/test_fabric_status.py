@@ -580,6 +580,17 @@ def main() -> int:
         put(os.path.join(new_files, "code-review.md"), "---\nname: code-review\nmodel: claude-sonnet-5-5\neffort: high\n---\n")
         check("files written from the installed snapshot: no file line",
               not [l for l in status.agent_file_routing_drift(HERE, "anthropic", etc_now, new_files) if "(file)" in l])
+        # A class the snapshot routes no effort: in neither of its maps, and still refused by the guard for its file's line.
+        unexpressible = snapshot("unexpressible", False)
+        caps = os.path.join(tmp, "unexpressible", "routing", "capabilities.json")
+        doc = json.load(open(caps))
+        doc["providers"]["anthropic"]["models"]["code-low"] = "claude-haiku-4-5"
+        json.dump(doc, open(caps, "w"))
+        stale_low = os.path.join(tmp, "stale-low-files")
+        put(os.path.join(stale_low, "code-low.md"), "---\nname: code-low\neffort: medium\n---\n")
+        lines = [l for l in status.agent_file_routing_drift(HERE, "anthropic", unexpressible, stale_low) if "(file)" in l]
+        check("a class the snapshot routes no effort, whose file still carries one: named, as the guard refuses it",
+              len(lines) == 1 and "code-low: effort medium (file) vs none (snapshot)" in lines[0])
         no_effort = os.path.join(tmp, "no-effort-files")
         put(os.path.join(no_effort, "code-low.md"), "---\nname: code-low\n---\n")
         check("a file with no effort line is not a difference, as the guard reads it",
