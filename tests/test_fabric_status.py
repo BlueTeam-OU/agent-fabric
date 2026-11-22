@@ -562,7 +562,7 @@ def main() -> int:
         status.ROUTING_PROBE_TIMEOUT_S = 1
         lines = status.agent_file_routing_drift(HERE, "anthropic", managed_etc("slow", slow), no_files)
         check("a snapshot whose routing.py does not answer in time: the cannot-compare line too",
-              len(lines) == 1 and "agent files  cannot compare" in lines[0])
+              len(lines) == 1 and "agent files  cannot compare" in lines[0] and "snapshot's" in lines[0])
 
         # The window after a reinstall: files written from an older snapshot, the guard on the new one.
         status.ROUTING_PROBE_TIMEOUT_S = 20
