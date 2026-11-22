@@ -23,6 +23,11 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import lint  # noqa: E402
 import roots  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+# The fixture fabrics below hold their own instance data: an exported operator would outrank them (roots.operator_root).
+# The one case that reads the operator's registry on purpose takes the exported one from here.
+EXPORTED_OPERATOR = os.environ.get(roots.ENV_OPERATOR)
+own_instance_tree()
 from lint_rules import schema as lint_schema  # noqa: E402
 
 TOOL = os.path.join(ROOT, "tools", "fabric", "ssh_hosts.py")
@@ -167,7 +172,8 @@ def test_the_committed_registry_passes() -> None:
     import importlib.util
     spec = importlib.util.spec_from_file_location("fabric_roots", os.path.join(ROOT, "tools", "fabric", "roots.py"))
     roots = importlib.util.module_from_spec(spec); spec.loader.exec_module(roots)
-    path = roots.hosts_registry(engine=ROOT, environ={k: v for k, v in os.environ.items() if k != roots.ENV_HOSTS_REGISTRY})
+    path = roots.hosts_registry(engine=ROOT, environ={**{k: v for k, v in os.environ.items() if k != roots.ENV_HOSTS_REGISTRY},
+                                                              **({roots.ENV_OPERATOR: EXPORTED_OPERATOR} if EXPORTED_OPERATOR else {})})
     if not os.path.isfile(path):
         print(f"  skip test_the_committed_registry_passes: no hosts registry at {path}")
         return
