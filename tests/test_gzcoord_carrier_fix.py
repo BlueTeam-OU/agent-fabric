@@ -39,11 +39,11 @@ class FixByReader(unittest.TestCase):
             self.assertIn(f"fabric-ctl {login} interweave-start starts it", line)
             self.assertNotIn("OBSERVATION", line)
 
-    def test_non_operator_gets_the_rerun_and_the_coordinator(self):
+    def test_non_operator_gets_the_self_start_and_the_coordinator(self):
         for address in ("h1/agent-a", "h1/user", "h3/boss", ""):     # placed agent, another host's operator name, nobody
             line = carrier.fix_line(self.t, address)
-            self.assertIn("try again in a few minutes", line)
-            self.assertIn("30 s", line)
+            self.assertIn("run gzcoord-carrier self-start", line)
+            self.assertIn("if it refuses or the carrier stays silent", line)
             self.assertIn("OBSERVATION to fabric-coordinator", line)
             self.assertNotIn("fabric-ctl", line)
 
