@@ -66,7 +66,7 @@ def case_charter_is_judged() -> None:
     code, out = lint(fabric)
     assert code == 1, out
     line = text[: text.index("\n") + 1].count("\n") + 1
-    want = f"identities/roles/web-dev/charter.md:{line}:3: U+200B ZERO WIDTH SPACE (format): {HEAD}"
+    want = f"operator/identities/roles/web-dev/charter.md:{line}:3: U+200B ZERO WIDTH SPACE (format): {HEAD}"
     assert want in out, f"{want!r} not in:\n{out}"
 
 
@@ -74,7 +74,7 @@ def case_skill_is_judged() -> None:
     fabric = fresh()
     write(ident(fabric, "skills", "x", "SKILL.md"), f"---\nname: x\ndescription: d\n---\n\nbody {RLO}\n")
     code, out = lint(fabric)
-    assert code == 1 and any(h.startswith("identities/roles/web-dev/skills/x/SKILL.md:6:6: U+202E") for h in hits(out)), out
+    assert code == 1 and any(h.startswith("operator/identities/roles/web-dev/skills/x/SKILL.md:6:6: U+202E") for h in hits(out)), out
 
 
 def case_project_slice_is_labelled() -> None:
