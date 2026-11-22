@@ -91,6 +91,7 @@ different providers would rewrite it in turn, which the guard catches.
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import pwd
@@ -150,17 +151,42 @@ def dispatch_guard_tree(etc: str | None = None) -> str | None:
     return None
 
 
+def snapshot_environment(tree: str) -> dict[str, str] | None:
+    """The environment hook_entry.main gives the guard: only the KEEP variables from this one, AGENT_FABRIC_ROOT=tree,
+    AGENT_FABRIC_PYTHON and PATH. KEEP and PATH are read from the SNAPSHOT'S OWN hook_entry.py, parsed and never run:
+    a copy here would drift from the file the guard actually runs under (a KEEP that grows is the guard's environment
+    changing), and an older snapshot has the older list. None when that file does not say them."""
+    try:
+        with open(os.path.join(tree, MANAGED_ENTRY), encoding="utf-8") as f:
+            module = ast.parse(f.read())
+        found = {t.id: ast.literal_eval(n.value) for n in module.body if isinstance(n, ast.Assign)
+                 for t in n.targets if isinstance(t, ast.Name) and t.id in ("KEEP", "PATH")}
+    except (OSError, SyntaxError, ValueError):
+        return None
+    keep, path = found.get("KEEP"), found.get("PATH")
+    if not isinstance(keep, tuple) or not isinstance(path, str):
+        return None
+    env = {k: os.environ[k] for k in keep if k in os.environ}
+    env.update(AGENT_FABRIC_ROOT=tree, AGENT_FABRIC_PYTHON=sys.executable, PATH=path)
+    return env
+
+
 def routing_run(sub: str, provider: str, root: str, tree: str | None) -> subprocess.CompletedProcess:
-    """`routing.py <sub> --me --provider P`, from the guard's tree where there
-    is one, as dispatch_guard.routing_map runs it (--fabric <tree>, -E -s: no
-    PYTHON* variable or user site reaches the answer the guard compares to),
-    else from the checkout as before."""
-    where = tree or root
-    cmd = [sys.executable, os.path.join(where, "tools", "fabric", "routing.py"), sub, "--me", "--provider", provider]
-    if tree:
-        cmd = [sys.executable, "-E", "-s", cmd[1], "--fabric", tree, *cmd[2:]]
-    return subprocess.run(cmd, stdout=subprocess.PIPE, text=True, env={**os.environ, "AGENT_FABRIC_ROOT": where},
-                          check=False)
+    """`routing.py <sub> --me --provider P`. From the guard's tree where there is one, exactly as
+    dispatch_guard.routing_map runs it under hook_entry.py: `-E -s ... --fabric <tree>`, and the environment
+    snapshot_environment builds, so an exported AGENT_FABRIC_OPERATOR or PYTHONPATH reaches neither answer. Else from
+    the checkout as before, with this process's environment and AGENT_FABRIC_ROOT=<checkout>. A snapshot whose
+    hook_entry.py cannot be read is a failed run, never the checkout's answer."""
+    if tree is None:
+        cmd = [sys.executable, os.path.join(root, "tools", "fabric", "routing.py"), sub, "--me", "--provider", provider]
+        return subprocess.run(cmd, stdout=subprocess.PIPE, text=True, env={**os.environ, "AGENT_FABRIC_ROOT": root},
+                              check=False)
+    cmd = [sys.executable, "-E", "-s", os.path.join(tree, "tools", "fabric", "routing.py"), "--fabric", tree, sub,
+           "--me", "--provider", provider]
+    env = snapshot_environment(tree)
+    if env is None:
+        return subprocess.CompletedProcess(cmd, 1, "", "")
+    return subprocess.run(cmd, stdout=subprocess.PIPE, text=True, env=env, check=False)
 
 
 def parse_pins(text: str) -> dict[str, str]:

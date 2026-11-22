@@ -552,7 +552,31 @@ def main() -> int:
             "sub = sys.argv[sys.argv.index('--fabric') + 2]\n"
             "sys.stdout.write('code-review fable m-snap\\n' if sub == 'pins' else ''.join(f'{k} high ok\\n' for k in "
             + repr(list(CLASSES)) + "))\n"))
+        # The snapshot's own hook_entry.py is where the child's environment is read from (F2): this one keeps
+        # a variable no real KEEP names, so the test shows the snapshot's list is the one used.
+        put(stub_snap, "runtime/claude-code/managed/hook_entry.py",
+            'KEEP = ("HOME", "CLAUDE_CONFIG_DIR", "SNAPSHOT_KEPT")\nPATH = "/snap/bin:/bin"\n')
+        put(stub_snap, "tools/fabric/routing.py", read(os.path.join(stub_snap, "tools/fabric/routing.py"))
+            + "open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'env.log'), 'a').write("
+              "json.dumps(dict(os.environ)) + '\\n')\n")
         etc = managed_for(base, stub_snap)
+        r = run(root, home, cfg, AGENT_FABRIC_MANAGED_ETC=etc, AGENT_FABRIC_OPERATOR=os.path.join(base, "other-op"),
+                PYTHONPATH=os.path.join(base, "pp"), SNAPSHOT_KEPT="1", AGENT_FABRIC_ROOT="/elsewhere")
+        envs = [json.loads(x) for x in read(os.path.join(stub_snap, "tools", "fabric", "env.log")).splitlines()]
+        check("a snapshot's routing.py sees hook_entry's environment: the snapshot's KEEP, ROOT, PYTHON and PATH, "
+              "no AGENT_FABRIC_OPERATOR or PYTHONPATH",
+              r.returncode == 0 and len(envs) == 2 and all(
+                  e.get("SNAPSHOT_KEPT") == "1" and e["HOME"] == home and e["AGENT_FABRIC_ROOT"] == os.path.realpath(stub_snap)
+                  and e["PATH"] == "/snap/bin:/bin" and e["AGENT_FABRIC_PYTHON"] == sys.executable
+                  and "AGENT_FABRIC_OPERATOR" not in e and "PYTHONPATH" not in e
+                  and "AGENT_FABRIC_MANAGED_ETC" not in e for e in envs), r.stderr + str(envs))
+        os.unlink(os.path.join(stub_snap, "tools", "fabric", "env.log"))
+        os.unlink(os.path.join(stub_snap, "tools", "fabric", "argv.log"))
+        os.unlink(os.path.join(stub_snap, "runtime/claude-code/managed/hook_entry.py"))
+        r = run(root, home, cfg, AGENT_FABRIC_MANAGED_ETC=etc)
+        check("a snapshot with no readable hook_entry.py: routing fails, nothing is routed from the checkout",
+              r.returncode == 1 and "routing.py pins failed" in r.stderr, r.stderr)
+        put(stub_snap, "runtime/claude-code/managed/hook_entry.py", read(os.path.join(HERE, "runtime/claude-code/managed/hook_entry.py")))
         r = run(root, home, cfg, AGENT_FABRIC_MANAGED_ETC=etc)
         seen = [json.loads(x) for x in read(os.path.join(stub_snap, "tools", "fabric", "argv.log")).splitlines()]
         check("a snapshot's routing.py runs with --fabric <tree>, -E and -s",
