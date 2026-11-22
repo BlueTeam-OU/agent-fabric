@@ -33,6 +33,8 @@ T = tempfile.mkdtemp(prefix="test_check_charter_authority_cli.")
 HOME = f"{T}/home"
 SANDBOX = f"{T}/sandbox"
 fails = 0
+# Unexported, the guard reads the base's list where the repository stores it (roots.git_path: operator/ is the fallback).
+AUTHORITY = "operator/policies/authority.json"
 
 
 def check(label: str, good: bool, detail: str = "") -> None:
@@ -86,7 +88,7 @@ def new_repo() -> None:
             shutil.copy(f"{TOOLS}/guards/{name}", f"{SANDBOX}/tools/fabric/guards/")
     put("identities/roles/flutter-dev/charter.md", "scope\n")
     put("identities/roles/catalog.json", '{"roles":[]}\n')
-    put("policies/authority.json", '{"role_definitions":{"role":"fabric-coordinator","holders":["coord-01"]}}\n')
+    put(AUTHORITY, '{"role_definitions":{"role":"fabric-coordinator","holders":["coord-01"]}}\n')
     put("projects/demo/taxonomy.json", '{"roles":[]}\n')
     put("memory/projects/demo/flutter-dev/workflow.md", "other\n")
     git("init", "-q")
@@ -137,15 +139,15 @@ def main() -> int:
 
     print("an authority.json the base cannot show: refused, naming why (exit 2)")
     new_repo()
-    git("rm", "-q", "policies/authority.json")
+    git("rm", "-q", AUTHORITY)
     git("commit", "-qm", "no authority")
     git("branch", "-qf", "base-ref")
     commit_change("identities/roles/flutter-dev/charter.md")
     rc, out = guard("develop-qzapp/coord-01/feat/x")
     check("exit 2", rc == 2, f"exit {rc}")
-    check("says it cannot read policies/authority.json", "cannot read policies/authority.json" in out, out)
+    check(f"says it cannot read {AUTHORITY}", f"cannot read {AUTHORITY}" in out, out)
     new_repo()
-    put("policies/authority.json", '{"version":1}\n')
+    put(AUTHORITY, '{"version":1}\n')
     git("add", "-A")
     git("commit", "-qm", "authority without role_definitions")
     git("branch", "-qf", "base-ref")
@@ -161,7 +163,7 @@ def main() -> int:
 
     print("a branch cannot add itself to the holders in the same change")
     new_repo()
-    p = f"{SANDBOX}/policies/authority.json"
+    p = f"{SANDBOX}/{AUTHORITY}"
     with open(p, encoding="utf-8") as f:
         d = json.load(f)
     d["role_definitions"]["holders"].append("web-dev-01")
