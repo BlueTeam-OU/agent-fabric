@@ -137,6 +137,10 @@ def run_environment(environ: dict[str, str], scratch: str) -> dict[str, str]:
     # case appended its fixture replies to the running account's real control-arrivals.jsonl, the parity report's
     # source, and dialled its live agentd socket (#583 F1). The run pins the relay; the dual cases set it themselves.
     env["FABRIC_CONTROL_CARRIER"] = "relay"
+    # Likewise the host's managed settings (ADR-043 rule 10): where they are in force the agent files are routed from the
+    # installed snapshot they name, so a suite read the host's routing, not its fixture's. The run points the managed
+    # directory at an empty one in its scratch; a case that needs a managed file sets its own.
+    env["AGENT_FABRIC_MANAGED_ETC"] = os.path.join(scratch, "no-managed-etc")
     # Likewise the account's commit signing: a gpg key with a timestamp that needs the network made five suites'
     # fixture commits fail offline, green in CI and red on the account that signs. Git's environment config outranks
     # every file, so the run's sandboxes never sign. Nor do they start git's automatic housekeeping: a sandbox lives

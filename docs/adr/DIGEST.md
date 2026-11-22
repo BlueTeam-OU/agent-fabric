@@ -1096,9 +1096,15 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-10 — the pin moves to 2.1.322, `latest` that day by the owner's
   choice, after its read-back; rule 6 gated the first move past 2.1.286, and
   each install (upgrade, new-agent) is the gate after it (§5 rule 6, §8).
+- A 2026-11-21 — agent files' routed model and effort come from the
+  installed snapshot the dispatch guard reads, so a routing merge reaches
+  dispatches at the reinstall; running sessions are refused the changed
+  classes until upgrade fabric or apply rewrites their files, and
+  fabric-status names both windows (§5 rule 10).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
-  MCP server, sandbox, fabric-managed, hook_entry.py, session seal.
+  MCP server, sandbox, fabric-managed, hook_entry.py, session seal,
+  agent file routing, effort denied, snapshot behind main.
 
 ### ADR-044 — Identity kinds: an agent and a human (Accepted)
 
@@ -1614,7 +1620,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   (§5 r7–r9).
 - Keywords: fabric command, dispatcher, noun, verb, fabric help, commands.json, shim, alias, front door, guard bypass, second spelling.
 
-### ADR-072 — A route's failover alternatives are authored per model, held by a live continuity check, and declared wherever the model is served (Proposed)
+### ADR-072 — A route's failover alternatives are authored per model, held by a live continuity check, and declared wherever the model is served (Accepted)
 
 - A session, a subagent and a review may be served by another model of the
   same provider and account when the gateway sets the routed one aside (§2).

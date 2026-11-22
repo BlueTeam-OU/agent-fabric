@@ -22,6 +22,11 @@ from fabric_launcher.base import _load, HERE, INSTALL_TIMEOUT_S, RESTART_WAIT_S,
 _record = _load("fabric_launch_provider_record", os.path.join(HERE, "launch_provider_record.py"))
 
 
+def _install_agent_files():
+    # By path, as _record above: the installer reads the managed settings file, and a fixture fabric on sys.path cannot answer for it.
+    return _load("fabric_install_agent_files", os.path.join(HERE, "install_agent_files.py"))
+
+
 def require_files(*paths: str) -> None:
     for path in paths:
         if not os.path.isfile(path):
@@ -166,9 +171,30 @@ def settle_tmpdir(env: dict, *, now: float | None = None, login: str | None = No
     prune_tmpdir(env["TMPDIR"], now=now)
 
 
+def _parse_effort_outcomes(text: str) -> dict[str, tuple[str, str]]:
+    """`routing.py efforts` lines as {class: (level or "", outcome)}. install_agent_files.parse_efforts drops the
+    outcome column and the `-` lines because the installer needs only the levels it writes; --print needs both."""
+    out: dict[str, tuple[str, str]] = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 3:
+            out[parts[0]] = ("" if parts[1] == "-" else parts[1], parts[2])
+    return out
+
+
+def _snapshot_effort(row: tuple[str, str] | None, intent: str | None) -> dict | None:
+    """The effort dict routing.effort_phrase consumes, from a snapshot's `<level|-> <outcome>` row. The row does not
+    carry the asked level, so `asked` is this checkout's routed intent for the class: it is the snapshot's own only
+    while the checkout's routing/effort.json agrees, and "?" where the checkout names none."""
+    if row is None:
+        return None
+    level, outcome = row
+    return {"outcome": outcome, "level": level or None, "intent": intent or "?"}
+
+
 def print_report(d: dict, routing, *, label: str, agent: str, role: str, provider: str, session: str,
                  effective_session: str, session_effort: str, caller_effort: bool, prompt_file: str,
-                 prompt_flag: str) -> None:
+                 prompt_flag: str, fabric_root: str = "") -> None:
     s = d["session"]
     cap = s.get("capability")
     print(f"# resolved profile for {label} (agent {agent}, role {role}, provider {provider})")
@@ -195,7 +221,44 @@ def print_report(d: dict, routing, *, label: str, agent: str, role: str, provide
     # to stderr, and leave --print exiting 0 with the lines around it intact
     # — measured. A crash here is exit 1.
     try:
+        # ADR-043 rule 10: under managed settings the agent files carry the routing of the snapshot the dispatch guard
+        # reads, not this checkout's. The values printed for them are the installer's own call, parsed as it parses
+        # them: re-resolving here would run this checkout's code without the login's local layer and print what no
+        # file carries.
+        iaf = _install_agent_files()
+        tree = iaf.dispatch_guard_tree()
+        snap_pins: dict[str, str] | None = None
+        snap_outcomes: dict[str, tuple[str, str]] = {}
+        if tree is not None:
+            try:
+                runs = {sub: iaf.routing_run(sub, provider, fabric_root, tree, stderr=subprocess.DEVNULL, timeout=20)
+                        for sub in ("pins", "efforts")}
+                if any(r.returncode != 0 for r in runs.values()):
+                    raise OSError("a routing run of the snapshot failed")
+                snap_pins, snap_outcomes = iaf.parse_pins(runs["pins"].stdout), _parse_effort_outcomes(runs["efforts"].stdout)
+            except (OSError, subprocess.SubprocessError):
+                snap_pins = None
+            if snap_pins is not None:
+                print(f"  (the agent files' model and effort below come from the managed snapshot {tree}, "
+                      "which the dispatch guard reads; ADR-043 rule 10)")
+            else:
+                print(f"  (the managed snapshot {tree}'s routing could not be read: the model and effort below are "
+                      "this checkout's and may differ from the agent files'; ADR-043 rule 10)")
         for klass, res in d["classes"].items():
+            if snap_pins is not None:
+                res = dict(res)
+                asked = res.get("effort")
+                res["effort"] = _snapshot_effort(snap_outcomes.get(klass), asked.get("intent") if isinstance(asked, dict) else None)
+                if res["via"] == "file":
+                    pin = snap_pins.get(klass, "")
+                    if pin:
+                        # Every shims.json value starts with "@" and the unmanaged path prints it, so the shim keeps
+                        # it; a bare "@preset/x" has no model part, and the composite stands in for it.
+                        model, at, shim = pin.partition("@")
+                        res.update(model=model or pin, shim=at + shim if shim else None, composite=pin,
+                                   source="the managed snapshot")
+                    else:
+                        res["via"] = "harness"
             if res["via"] == "harness":
                 how = "(harness default for its tier)"
             elif res["via"] == "file":

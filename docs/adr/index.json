@@ -439,7 +439,7 @@
       "date": "2026-10-04",
       "pillar": "P1",
       "class": "engine",
-      "amendments": 6
+      "amendments": 7
     },
     {
       "number": "044",
@@ -725,7 +725,7 @@
       "number": "072",
       "file": "ADR-072-failover-alternatives-are-authored-per-model.md",
       "title": "A route's failover alternatives are authored per model, held by a live continuity check, and declared wherever the model is served",
-      "status": "Proposed",
+      "status": "Accepted",
       "date": "2026-11-22",
       "pillar": "P1",
       "class": "engine",
