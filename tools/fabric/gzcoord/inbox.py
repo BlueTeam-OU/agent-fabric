@@ -744,7 +744,7 @@ def main(argv: list[str]) -> int:
             # deadline, or a hold that outlasted it, ends the watch as a quiet one.
             left = deadline - time.monotonic()
             if until_delivery and left <= 0:
-                if down:
+                if down and primary.name == CARRIER_NAME:   # the relay's quiet ending is frozen as the one line
                     # Still down at the deadline: said before the quiet line, so the session that re-runs the watch knows why it was quiet.
                     print(primary_down_line("down"), flush=True)
                 print(QUIET_LINE.format(minutes=int((time.monotonic() - started) // 60)), flush=True)
