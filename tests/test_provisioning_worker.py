@@ -19,6 +19,10 @@ from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+sys.path.insert(0, os.path.join(HERE, "tests"))
+from instance_fixtures import own_instance_tree  # noqa: E402
+import roots  # noqa: E402
+own_instance_tree()   # the worker is handed a fixture root; an exported operator would outrank it
 from provisioning import worker, worker_args as wa  # noqa: E402
 
 LOGIN = "zz-unit-login"
@@ -178,7 +182,7 @@ def main() -> int:
 
     print("finish: a project's host-check is a probe")
     with tempfile.TemporaryDirectory() as root:
-        hc = f"{root}/projects/demo/integration/provisioning"
+        hc = roots.project_integration("demo", "provisioning", engine=root, environ={})
         os.makedirs(hc)
         with open(f"{hc}/host-check.sh", "w") as fh:
             fh.write("#!/bin/sh\necho hello-from-check\nexit 3\n")
@@ -213,7 +217,7 @@ def main() -> int:
 
     print("finish: a project's Python probe is run with the pin, ahead of its script")
     with tempfile.TemporaryDirectory() as root:
-        hc = f"{root}/projects/demo/integration/provisioning"
+        hc = roots.project_integration("demo", "provisioning", engine=root, environ={})
         os.makedirs(hc)
         for name in ("host_check.py", "host-check.sh"):
             with open(f"{hc}/{name}", "w") as fh:

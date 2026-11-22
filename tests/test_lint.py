@@ -58,6 +58,15 @@ REAL_PROMPT = os.path.join(ROOT, "identities", "prompt")
 REAL_ALIASES = os.path.join(ROOT, "runtime", "claude-code", "aliases.json")
 REAL_I18N_SCHEMA = os.path.join(ROOT, "communication", "gzcoord", "i18n", "i18n.schema.json")
 PROJECT = "demo"
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+import roots  # noqa: E402
+
+
+def OP(tree: str, *parts: str) -> str:
+    """A path in a fixture tree's operator data: where lint finds it with no operator exported (roots.operator_root:
+    <tree>/operator). The engine's own files stay at os.path.join(tree, ...)."""
+    return os.path.join(roots.operator_root(environ={}, engine=tree), *parts)
+
 
 SKILL = """---
 name: webapp-testing
@@ -138,7 +147,7 @@ def make_base(root: str) -> str:
     # The engine's capabilities, and the operator half (the review grade) from
     # the frozen fixture: the live review-grade list is instance data.
     shutil.copytree(REAL_ROUTING, os.path.join(fabric, "routing"), ignore=shutil.ignore_patterns("profiles.json", "policies"))
-    shutil.copytree(os.path.join(ROOT, "tests", "fixtures", "routing-distinct", "policies"), os.path.join(fabric, "routing", "policies"))
+    shutil.copytree(os.path.join(ROOT, "tests", "fixtures", "routing-distinct", "policies"), OP(fabric, "routing", "policies"))
     os.makedirs(os.path.join(fabric, "runtime", "claude-code"))
     shutil.copy2(REAL_ALIASES, os.path.join(fabric, "runtime", "claude-code", "aliases.json"))
     # The launch-prompt sections every session appends; lint requires them.
@@ -154,18 +163,18 @@ def make_base(root: str) -> str:
     os.makedirs(os.path.join(fabric, "runtime", "control"))
     shutil.copy2(os.path.join(ROOT, "runtime", "control", "agent-fabric-agentd.service"),
                  os.path.join(fabric, "runtime", "control", "agent-fabric-agentd.service"))
-    write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(CATALOG))
-    write(os.path.join(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(TAXONOMY))
-    write(os.path.join(fabric, "identities", "roles", "web-dev", "charter.md"), CHARTER)
+    write(OP(fabric, "identities", "roles", "catalog.json"), json.dumps(CATALOG))
+    write(OP(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(TAXONOMY))
+    write(OP(fabric, "identities", "roles", "web-dev", "charter.md"), CHARTER)
     return fabric
 
 
 def ident(fabric: str, *rest: str) -> str:
-    return os.path.join(fabric, "identities", "roles", "web-dev", *rest)
+    return OP(fabric, "identities", "roles", "web-dev", *rest)
 
 
 def dom(fabric: str, *rest: str) -> str:
-    return os.path.join(fabric, "memory", "domains", "web-dev", *rest)
+    return OP(fabric, "memory", "domains", "web-dev", *rest)
 
 
 def wc_demo(fabric: str) -> str:
@@ -297,7 +306,7 @@ def case_an_own_scoped_name_is_refused_in_its_own_projects_corpus_only() -> None
     text = SLICE.replace("A claim with provenance.", "The stack runs in Springfield and Shelbyville.")
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        write(os.path.join(fabric, "projects", "other", "taxonomy.json"), json.dumps({**TAXONOMY, "project": "other"}))
+        write(OP(fabric, "projects", "other", "taxonomy.json"), json.dumps({**TAXONOMY, "project": "other"}))
         wc = wc_demo(fabric)
         wc_other = os.path.join(root, "wc-other")
         write(os.path.join(wc, ".agent-fabric", "hygiene.json"), json.dumps(hyg))
@@ -351,7 +360,7 @@ def case_a_persons_name_is_refused_everywhere() -> None:
         fabric = make_base(root)
         os.makedirs(os.path.join(fabric, "policies"), exist_ok=True)
         # Lint prints the pattern's label as written: the fixture's label carries the advice, and the name is a fixture's.
-        write(os.path.join(fabric, "policies", "hygiene.json"), json.dumps({"patterns": [
+        write(OP(fabric, "policies", "hygiene.json"), json.dumps({"patterns": [
             {"pattern": "\\bAda(\\s+Fixture)?\\b", "label": "person's name -- refer to the CEO by role", "refer_as": "the CEO"}]}))
         write(dom(fabric, "domain", "named.md"), SLICE.replace("A claim with provenance.", "Ada Fixture asked for it; Ada caught the workaround."))
         code, out = run_lint(fabric)
@@ -582,14 +591,14 @@ def case_project_index_needs_no_fabric_coordinator_domain_slice() -> None:
     link is still expected. Kills: lint expecting every role's domain slices in every project's index."""
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        cat = json.load(open(os.path.join(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
+        cat = json.load(open(OP(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
         cat["roles"].append({"id": "fabric-coordinator", "title": "Coordinator"})
-        write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
+        write(OP(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
         tax = dict(TAXONOMY); tax["roles"] = TAXONOMY["roles"] + [{"id": "fabric-coordinator", "paths": [".agent-fabric/"]}]
-        write(os.path.join(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(tax))
-        write(os.path.join(fabric, "identities", "roles", "fabric-coordinator", "charter.md"),
+        write(OP(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(tax))
+        write(OP(fabric, "identities", "roles", "fabric-coordinator", "charter.md"),
               CHARTER.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
-        write(os.path.join(fabric, "memory", "domains", "fabric-coordinator", "domain", "tool-review.md"),
+        write(OP(fabric, "memory", "domains", "fabric-coordinator", "domain", "tool-review.md"),
               SLICE.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
         fc_index = os.path.join(wc_demo(fabric), ".agent-fabric", "memory", "fabric-coordinator", "INDEX.md")
         write(fc_index, "# Index\n\n" + CHARTER_LINE.replace("web-dev", "fabric-coordinator"))
@@ -608,16 +617,16 @@ def case_a_bound_project_without_a_fabric_coordinator_directory_is_not_asked_to_
     'indexed by no project' check naming fabric-coordinator."""
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        cat = json.load(open(os.path.join(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
+        cat = json.load(open(OP(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
         cat["roles"].append({"id": "fabric-coordinator", "title": "Coordinator"})
-        write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
+        write(OP(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
         tax = dict(TAXONOMY); tax["roles"] = TAXONOMY["roles"] + [{"id": "fabric-coordinator", "paths": [".agent-fabric/"]}]
-        write(os.path.join(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(tax))
+        write(OP(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(tax))
         write(os.path.join(wc_demo(fabric), ".agent-fabric", "taxonomy.json"), json.dumps(tax))  # the copy lint reads first
         os.makedirs(os.path.join(wc_demo(fabric), ".agent-fabric", "memory", "web-dev"))  # a project is visible by its memory
-        write(os.path.join(fabric, "identities", "roles", "fabric-coordinator", "charter.md"),
+        write(OP(fabric, "identities", "roles", "fabric-coordinator", "charter.md"),
               CHARTER.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
-        write(os.path.join(fabric, "memory", "domains", "fabric-coordinator", "domain", "tool-review.md"),
+        write(OP(fabric, "memory", "domains", "fabric-coordinator", "domain", "tool-review.md"),
               SLICE.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
         code, out = run_lint(fabric)
         assert "memory/domains/fabric-coordinator" not in out, out
@@ -629,12 +638,12 @@ def case_agent_fabrics_own_index_still_needs_fabric_coordinators_domain_slice() 
     every project, agent-fabric's own included (the project clause of the exception)."""
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        cat = json.load(open(os.path.join(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
+        cat = json.load(open(OP(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
         cat["roles"].append({"id": "fabric-coordinator", "title": "Coordinator"})
-        write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
-        write(os.path.join(fabric, "identities", "roles", "fabric-coordinator", "charter.md"),
+        write(OP(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
+        write(OP(fabric, "identities", "roles", "fabric-coordinator", "charter.md"),
               CHARTER.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
-        write(os.path.join(fabric, "memory", "domains", "fabric-coordinator", "domain", "tool-review.md"),
+        write(OP(fabric, "memory", "domains", "fabric-coordinator", "domain", "tool-review.md"),
               SLICE.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
         own_index = os.path.join(fabric, ".agent-fabric", "memory", "fabric-coordinator", "INDEX.md")
         write(own_index, "# Index\n\n" + CHARTER_LINE.replace("web-dev", "fabric-coordinator"))
@@ -655,16 +664,16 @@ def case_domain_bound_by_an_unseen_project_is_not_judged() -> None:
         write(dom(fabric, "domain", "good.md"), SLICE)
         write(proj(fabric, "INDEX.md"), index_for(
             "- [`../agent-fabric/memory/domains/web-dev/domain/good.md`](../agent-fabric/memory/domains/web-dev/domain/good.md) — A good slice\n"))
-        other = os.path.join(fabric, "memory", "domains", "db-admin", "domain", "plan.md")
+        other = OP(fabric, "memory", "domains", "db-admin", "domain", "plan.md")
         write(other, SLICE.replace('role: "web-dev"', 'role: "db-admin"'))
-        cat = json.load(open(os.path.join(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
+        cat = json.load(open(OP(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
         cat["roles"].append({"id": "db-admin", "title": "DB"})
-        write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
+        write(OP(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
         code, out = run_lint(fabric)
         assert "indexed by no project" not in out, f"a role the visible project does not bind was judged:\n{out}"
         # …and once the visible project binds that role, the missing index is named.
         tax = dict(TAXONOMY); tax["roles"] = TAXONOMY["roles"] + [{"id": "db-admin", "paths": ["infra/db/"]}]
-        write(os.path.join(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(tax))
+        write(OP(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(tax))
         code, out = run_lint(fabric)
         assert code == 1 and "memory/domains/db-admin" in out and "indexed by no project" in out, out
 
@@ -918,7 +927,7 @@ def case_harness_translation_shape_digest_and_tokens() -> None:
     including {memory_dir}, the flat harness budget."""
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        lc = os.path.join(fabric, "docs", "live-checks", "2026-09-17-x.md"); os.makedirs(os.path.dirname(lc), exist_ok=True); write(lc, "# x\n")
+        lc = OP(fabric, "docs", "live-checks", "2026-09-17-x.md"); os.makedirs(os.path.dirname(lc), exist_ok=True); write(lc, "# x\n")
         src = os.path.join(fabric, "runtime", "claude-code", "harness", "en.md")
         write(src, "---\nclass: harness-source\nbuild: \"2.1.274 (Claude Code)\"\nmodel: claude-opus-5-5\ncaptured_at: 2026-09-17\nsource: docs/live-checks/2026-09-17-x.md\n---\n"
                    "You are Claude Code. Use `Skill` for a `/<skill-name>`; load `ToolSearch(\"select:EndConversation\")` first.\n\n# Memory\n\nYour memory is at `{memory_dir}`.\n")
@@ -943,7 +952,7 @@ def case_harness_source_shape() -> None:
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
         assert run_lint(fabric)[0] == 0, "no capture, no finding"
-        lc = os.path.join(fabric, "docs", "live-checks", "2026-09-17-x.md"); os.makedirs(os.path.dirname(lc), exist_ok=True); write(lc, "# x\n")
+        lc = OP(fabric, "docs", "live-checks", "2026-09-17-x.md"); os.makedirs(os.path.dirname(lc), exist_ok=True); write(lc, "# x\n")
         good = ("---\nclass: harness-source\nbuild: \"2.1.274 (Claude Code)\"\nmodel: claude-opus-5-5\ncaptured_at: 2026-09-17\nsource: docs/live-checks/2026-09-17-x.md\n---\n"
                 "You are Claude Code.\n\n# Memory\n\nYou have a persistent file-based memory at `{memory_dir}`.\n")
         write(os.path.join(fabric, "runtime", "claude-code", "harness", "en.md"), good)
@@ -1243,7 +1252,7 @@ def case_taxonomy_roles_are_catalogued() -> None:
         fabric = make_base(root)
         tax = dict(TAXONOMY)
         tax["roles"] = [{"id": "web-dev", "paths": ["apps/"]}, {"id": "ghost", "paths": ["/home/someone/x/"]}]
-        write(os.path.join(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(tax))
+        write(OP(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(tax))
         code, out = run_lint(fabric)
         assert code == 1, out
         assert "'ghost' is not in identities/roles/catalog.json" in out, out
@@ -1251,7 +1260,7 @@ def case_taxonomy_roles_are_catalogued() -> None:
 
 
 def write_profiles(fabric: str, doc: dict) -> None:
-    write(os.path.join(fabric, "routing", "profiles.json"), json.dumps(doc))
+    write(OP(fabric, "routing", "profiles.json"), json.dumps(doc))
 
 
 def case_model_profiles_layered_file_passes() -> None:
@@ -1361,11 +1370,11 @@ def _write_license_layout(fabric: str, registry: dict, reuse_toml: str, licenses
                           clients: bool = True) -> None:
     """`clients=False` writes the registry as given, for a case that judges
     the clients themselves."""
-    os.makedirs(os.path.join(fabric, "projects"), exist_ok=True)
+    os.makedirs(OP(fabric, "projects"), exist_ok=True)
     if clients:
-        write_clients(os.path.join(fabric, "projects"))
+        write_clients(OP(fabric, "projects"))
         registry = with_client(registry)
-    with open(os.path.join(fabric, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+    with open(OP(fabric, "projects", "registry.json"), "w", encoding="utf-8") as fh:
         json.dump(registry, fh)
     with open(os.path.join(fabric, "REUSE.toml"), "w", encoding="utf-8") as fh:
         fh.write(reuse_toml)
@@ -1429,7 +1438,7 @@ def case_the_repository_is_one_license() -> None:
         assert code == 1 and "project 'demo' names no license" in out, f"licenseless project passed:\n{out}"
         # project knowledge in the fabric
         _write_license_layout(fabric, registry, REUSE_OK)
-        os.makedirs(os.path.join(fabric, "memory", "projects", PROJECT), exist_ok=True)
+        os.makedirs(OP(fabric, "memory", "projects", PROJECT), exist_ok=True)
         code, out = run_lint(fabric)
         assert code == 1 and "lives in the project's repository" in out, f"project knowledge here passed:\n{out}"
 
@@ -1446,7 +1455,7 @@ def case_every_client_with_a_project_names_a_settings_repository() -> None:
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
         _write_license_layout(fabric, registry, REUSE_OK, clients=False)
-        path = os.path.join(fabric, "projects", "clients.json")
+        path = OP(fabric, "projects", "clients.json")
         write(path, clients(settings_repo="acme/agent-fabric-settings"))
         code, out = run_lint(fabric)
         assert code == 0, f"a client with a settings_repo, and one without projects and none, was refused:\n{out}"
@@ -1469,14 +1478,14 @@ def case_every_project_names_a_defined_client() -> None:
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
         _write_license_layout(fabric, registry, REUSE_OK, clients=False)
-        write(os.path.join(fabric, "projects", "clients.json"),
+        write(OP(fabric, "projects", "clients.json"),
               json.dumps({"version": 1, "clients": {"self": {"settings_repo": "o/s"}, "acme": {"settings_repo": "o/s"}}}))
         code, out = run_lint(fabric)
         assert code == 0, f"defined clients were refused:\n{out}"
-        write(os.path.join(fabric, "projects", "clients.json"), json.dumps({"version": 1, "clients": {"self": {"settings_repo": "o/s"}}}))
+        write(OP(fabric, "projects", "clients.json"), json.dumps({"version": 1, "clients": {"self": {"settings_repo": "o/s"}}}))
         code, out = run_lint(fabric)
         assert code == 1 and "names client 'acme', which projects/clients.json does not define" in out, out
-        os.remove(os.path.join(fabric, "projects", "clients.json"))
+        os.remove(OP(fabric, "projects", "clients.json"))
         code, out = run_lint(fabric)
         assert code == 1 and "names client 'self'" in out, f"a deleted clients.json passed:\n{out}"
         _write_license_layout(fabric, {"projects": {"agent-fabric": {"license": "Apache-2.0", "client": "self"},
@@ -1492,7 +1501,7 @@ def case_a_registry_with_projects_and_no_clients_is_a_finding() -> None:
         fabric = make_base(root)
         _write_license_layout(fabric, {"projects": {"agent-fabric": {"license": "Apache-2.0"},
                                                     PROJECT: {"license": "Apache-2.0"}}}, REUSE_OK, clients=False)
-        assert not os.path.exists(os.path.join(fabric, "projects", "clients.json"))
+        assert not os.path.exists(OP(fabric, "projects", "clients.json"))
         code, out = run_lint(fabric)
         assert code == 1 and "project 'demo' names no client" in out, f"a clientless registry passed:\n{out}"
 
@@ -1529,13 +1538,13 @@ def case_a_bound_and_held_role_is_not_a_candidate() -> None:
     Kills: dropping the rule, or matching a login that is not the role's."""
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
-        cat_path = os.path.join(fabric, "identities", "roles", "catalog.json")
+        cat_path = OP(fabric, "identities", "roles", "catalog.json")
         cat = json.load(open(cat_path, encoding="utf-8"))
         for r in cat["roles"]:
             if r["id"] == "web-dev":
                 r["candidate"] = True
         write(cat_path, json.dumps(cat))
-        reg = os.path.join(fabric, "runtime", "hosts", "registry.json")
+        reg = OP(fabric, "runtime", "hosts", "registry.json")
         host = {"version": 1, "hosts": {"h1": {"platform": "debian", "ssh": None, "operator": "op", "fabric": "x"}}}
         write(reg, json.dumps({**host, "placement": {"db-admin": "h1", "web-developer-x": "h1"}}))
         code, out = run_lint(fabric)
@@ -1557,7 +1566,7 @@ def case_a_skill_carries_rules_not_occasions() -> None:
     _s.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     import lint as L
     with tempfile.TemporaryDirectory() as root:
-        write(os.path.join(root, "runtime", "hosts", "registry.json"),
+        write(OP(root, "runtime", "hosts", "registry.json"),
               json.dumps({"version": 1, "hosts": {}, "placement": {"web-dev-01": "h", "user": "h"}}))
         good = os.path.join(root, "policies", "good", "SKILL.md")
         write(good, '---\nname: good\ndescription: "Load it when a thing happens."\n---\n# Good\nThe user runs it.\n')
@@ -1578,7 +1587,7 @@ def case_a_skill_carries_rules_not_occasions() -> None:
         write(bad, '---\nname: bad\ndescription: "Load it when X."\n---\n# Bad\nSee gzapp#12.\n')
         assert any("gzapp#12" in f for f in L.skill_findings(root)), L.skill_findings(root)
         os.remove(bad)
-        loc = os.path.join(root, "identities", "roles", "r", "locale", "ru", "skills", "x", "SKILL.md")
+        loc = OP(root, "identities", "roles", "r", "locale", "ru", "skills", "x", "SKILL.md")
         write(loc, '---\nname: x\ndescription: "x"\n---\n2026-01-01\n')
         assert not any("locale" in f for f in L.skill_findings(root)), "a locale's copy is its holder's"
 
@@ -1591,7 +1600,7 @@ def case_the_host_registry_is_one_host_per_id_and_placements_are_known() -> None
     with tempfile.TemporaryDirectory() as root:
         fabric = make_base(root)
         shutil.copytree(os.path.join(ROOT, "runtime", "hosts", "schema"), os.path.join(fabric, "runtime", "hosts", "schema"))
-        reg = os.path.join(fabric, "runtime", "hosts", "registry.json")
+        reg = OP(fabric, "runtime", "hosts", "registry.json")
         write(reg, registry({"local": L, "h2": H}, {"a": "local", "b": "h2"}))
         code, out = run_lint(fabric)
         assert code == 0, f"a sound registry was refused:\n{out}"
@@ -1731,7 +1740,7 @@ def case_a_committed_agent_source_may_not_pin_effort() -> None:
 
         # The locale worker is installed the same way, so it is the same rule.
         write(agent, "---\nname: code-high\ndescription: x\nmodel: opus\n---\n\nDo the work.\n")
-        worker = os.path.join(fabric, "identities", "roles", "language-culture", "locale", "ge", "worker.md")
+        worker = OP(fabric, "identities", "roles", "language-culture", "locale", "ge", "worker.md")
         write(worker, "---\nname: locale-worker\ndescription: (agent-fabric) x\nmodel: opus\neffort: low\n---\n\nx\n")
         code, out = run_lint(fabric)
         assert code != 0 and "worker.md" in out, \
@@ -1746,8 +1755,8 @@ def case_decision_records_are_lint_findings() -> None:
         fabric = make_base(root)
         code, out = run_lint(fabric)
         assert code == 0 and "adr:" not in out, out
-        shutil.copytree(os.path.join(ROOT, "tests", "fixtures", "adr-mini", "docs", "adr"), os.path.join(fabric, "docs", "adr"))
-        idx = os.path.join(fabric, "docs", "adr", "index.json")
+        shutil.copytree(os.path.join(ROOT, "tests", "fixtures", "adr-mini", "docs", "adr"), OP(fabric, "docs", "adr"))
+        idx = OP(fabric, "docs", "adr", "index.json")
         with open(idx, "a", encoding="utf-8") as fh:
             fh.write(" ")
         code, out = run_lint(fabric)
@@ -1766,7 +1775,7 @@ def case_a_committed_agent_key_needs_its_lineage() -> None:
     AID = "019bbe31-2fff-7a2f-9849-96bdf286e011"   # a UUIDv7 born 2026-01-14T20:27:33.247Z
     with tempfile.TemporaryDirectory() as root:
         assert lint.key_lineage_findings(root) == [], "no keys committed yet is clean"
-        keys = os.path.join(root, "identities", "keys")
+        keys = OP(root, "identities", "keys")
         os.makedirs(keys)
         with open(os.path.join(keys, "lineage.json"), "w", encoding="utf-8") as fh:
             json.dump({AID: {"login": "someone", "born": "2026-01-14T20:27:33.247Z", "fingerprint": "0" * 40, "parent": None},
@@ -1792,7 +1801,7 @@ def case_a_cited_fabric_document_must_resolve() -> None:
               "# see docs/here.md and docs/gone.md and agent-fabric ADR-042\n"
               "# a project's docs/scratchpad/decision.md is an example\n")
         write(os.path.join(fabric, "communication", "gzcoord", "README.md"), "see docs/RELAY.md beside me\n")
-        write(os.path.join(fabric, "docs", "live-checks", "2026-09-17-x.md"), "cites docs/also-gone.md\n")
+        write(OP(fabric, "docs", "live-checks", "2026-09-17-x.md"), "cites docs/also-gone.md\n")
         subprocess.run(["git", "-C", fabric, "init", "-q"], check=True, env=git_env())
         subprocess.run(["git", "-C", fabric, "add", "-A"], check=True, env=git_env())
         code, out = run_lint(fabric)
@@ -1819,10 +1828,10 @@ def case_arm_direct_block() -> None:
             doc = {"boundary": {"paths": "^src/", "cases": ["src/a"]}}
             if direct is not None:
                 doc["direct"] = direct
-            write(os.path.join(root, rel), json.dumps(doc))
+            write(OP(root, rel), json.dumps(doc))
             g("add", "-A")
         good = {"roles": ["devex-tooling"], "pr_paths": "^\\.github/|key", "cases": [".github/ci.yml", "lib/key.rs"]}
-        write(os.path.join(root, "identities", "roles", "catalog.json"),
+        write(OP(root, "identities", "roles", "catalog.json"),
               json.dumps({"roles": [{"id": "architect-cto"}, {"id": "devex-tooling"}]}))
         g("init", "-q", "-b", "main")
         arm()
@@ -1883,8 +1892,8 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
             doc = {"boundary": b}
             if waiver_role is not None:
                 doc["waiver_role"] = waiver_role
-            write(os.path.join(root, rel), json.dumps(doc))
-        write(os.path.join(root, "identities", "roles", "catalog.json"),
+            write(OP(root, rel), json.dumps(doc))
+        write(OP(root, "identities", "roles", "catalog.json"),
               json.dumps({"roles": [{"id": "architect-cto"}, {"id": "devex-tooling"}]}))
         arm(["src/a.rs", "lib/key.rs"])
         g("init", "-q", "-b", "main")
@@ -1911,7 +1920,7 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         arm(["docs/src/x.md"], paths="src/")
         assert any("not boundary" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
             "an exempt path is no boundary case"
-        write(os.path.join(root, rel), json.dumps({"boundary": {"paths": "^src/"}}))
+        write(OP(root, rel), json.dumps({"boundary": {"paths": "^src/"}}))
         assert any("boundary.cases must list" in f for f in lint.arm_boundary_findings(root, base_ref="base")), \
             "no cases at all"
         # The cases are a floor (review of #91): an alternative no case
@@ -1995,14 +2004,14 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
         # A base whose arm.json is malformed: a finding, never a crash
         # (review of #92, round 2).
         for broken in ("{ broken", "[]"):
-            write(os.path.join(root, rel), broken)
+            write(OP(root, rel), broken)
             g("add", "-A")
             g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "broken base")
             g("branch", "-f", "base")
             arm(["src/a.rs"], waiver_role="architect-cto", retired=keep["retired"], changes=keep["changes"])
             got = lint.arm_boundary_findings(root, base_ref="base")
             assert got == [], ("the repair's records are all cited: nothing to report", broken, got)
-        os.remove(os.path.join(root, "identities", "roles", "catalog.json"))
+        os.remove(OP(root, "identities", "roles", "catalog.json"))
         assert any("cannot be checked: identities/roles/catalog.json" in f
                    for f in lint.arm_boundary_findings(root, base_ref="base")), "an unreadable catalogue is named"
         arm(["src/a.rs"], paths="^src/")
@@ -2010,22 +2019,22 @@ def case_arm_boundary_cases_only_leave_retired() -> None:
             "without a base (a project CI's depth-1 fabric checkout), nothing is compared"
         # A deleted arm.json takes its records with it (review of #92): it
         # leaves only with its project.
-        write(os.path.join(root, "identities", "roles", "catalog.json"),
+        write(OP(root, "identities", "roles", "catalog.json"),
               json.dumps({"roles": [{"id": "architect-cto"}]}))
-        write(os.path.join(root, "projects", "registry.json"), json.dumps({"projects": {"demo": {}}}))
+        write(OP(root, "projects", "registry.json"), json.dumps({"projects": {"demo": {}}}))
         arm(["src/a.rs"], paths="^src/")
         g("add", "-A")
         g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a usable arm.json")
         g("branch", "-f", "base")
-        g("rm", "-q", rel)
+        g("rm", "-q", os.path.relpath(OP(root, rel), root))
         got = lint.arm_boundary_findings(root, base_ref="base")
         assert any("deleted while projects/registry.json still names 'demo'" in f for f in got), \
             ("an arm.json deleted under a registered project", got)
-        write(os.path.join(root, "projects", "registry.json"), "{ not json")
+        write(OP(root, "projects", "registry.json"), "{ not json")
         assert any("projects/registry.json: unreadable" in f and "cannot be judged" in f
                    for f in lint.arm_boundary_findings(root, base_ref="base")), \
             "an unreadable registry is no clean bill for a deletion (review of #96)"
-        write(os.path.join(root, "projects", "registry.json"), json.dumps({"projects": {}}))
+        write(OP(root, "projects", "registry.json"), json.dumps({"projects": {}}))
         assert lint.arm_boundary_findings(root, base_ref="base") == [], "…and allowed when the project leaves too"
         assert lint.arm_boundary_findings(root, base_ref="no-such-ref") == [], "…and nothing without a base"
 
@@ -2040,18 +2049,18 @@ def case_every_registered_project_declares_an_arm_json() -> None:
     with tempfile.TemporaryDirectory() as root:
         g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
         g("init", "-q", "-b", "main")
-        write(os.path.join(root, "projects", "registry.json"),
+        write(OP(root, "projects", "registry.json"),
               json.dumps({"projects": {"has": {}, "lacks": {}}}))
-        write(os.path.join(root, "projects", "has", "integration", "gh", "arm.json"), "{}")
+        write(OP(root, "projects", "has", "integration", "gh", "arm.json"), "{}")
         g("add", "-A")
         got = lint.arm_declared_findings(root)
         assert len(got) == 1 and "'lacks'" in got[0] and "'has'" not in got[0], ("one project lacks one", got)
-        write(os.path.join(root, "projects", "lacks", "integration", "gh", "arm.json"), "{}")
+        write(OP(root, "projects", "lacks", "integration", "gh", "arm.json"), "{}")
         assert any("'lacks'" in f for f in lint.arm_declared_findings(root)), \
             "an untracked arm.json is not declared: lint reads what is tracked"
         g("add", "-A")
         assert lint.arm_declared_findings(root) == [], "every project has one: no finding"
-        write(os.path.join(root, "projects", "registry.json"), "{ not json")
+        write(OP(root, "projects", "registry.json"), "{ not json")
         assert lint.arm_declared_findings(root) == [], "an unreadable registry is reported elsewhere"
 
 
@@ -2066,9 +2075,9 @@ def case_every_registered_project_declares_a_gzcoord_config() -> None:
     good = json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "x:gzcoord"})
     with tempfile.TemporaryDirectory() as root:
         g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
-        cfg = lambda p: os.path.join(root, "projects", p, "integration", "gzcoord", "config.json")
+        cfg = lambda p: OP(root, "projects", p, "integration", "gzcoord", "config.json")
         g("init", "-q", "-b", "main")
-        write(os.path.join(root, "projects", "registry.json"),
+        write(OP(root, "projects", "registry.json"),
               json.dumps({"projects": {"has": {}, "lacks": {}}}))
         write(cfg("has"), good)
         g("add", "-A")
@@ -2089,7 +2098,7 @@ def case_every_registered_project_declares_a_gzcoord_config() -> None:
         assert any("unreadable" in f for f in lint.gzcoord_declared_findings(root)), "an unreadable config is named"
         write(cfg("lacks"), json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "x:control"}))
         assert any("control channel" in f for f in lint.gzcoord_declared_findings(root)), "a control channel is refused"
-        write(os.path.join(root, "projects", "registry.json"), "{ not json")
+        write(OP(root, "projects", "registry.json"), "{ not json")
         assert lint.gzcoord_declared_findings(root) == [], "an unreadable registry is reported elsewhere"
     with tempfile.TemporaryDirectory() as plain:
         write(os.path.join(plain, "projects", "registry.json"), json.dumps({"projects": {"lacks": {}}}))
@@ -2251,7 +2260,8 @@ def case_read_tree_listing_and_its_two_edges() -> None:
         for as_operator in (False, True):
             with tempfile.TemporaryDirectory() as root:
                 tree = os.path.join(root, "tree")
-                write(os.path.join(tree, "projects", "registry.json"), registry)
+                # as the engine, the checkout's own operator/ holds the registry; as the operator, the tree is it
+                write(os.path.join(tree if as_operator else roots.operator_root(environ={}, engine=tree), "projects", "registry.json"), registry)
                 git(tree, "init", "-q", "-b", "main")
                 engine = os.path.join(root, "engine") if as_operator else tree
                 if as_operator:
@@ -2673,7 +2683,7 @@ def case_a_generic_file_names_no_managed_project_but_the_fence() -> None:
     spec.loader.exec_module(lint)
     project = lint.CARRIER_FENCE[0].split("/")[1]
     with tempfile.TemporaryDirectory() as root:
-        write(os.path.join(root, "projects", "registry.json"),
+        write(OP(root, "projects", "registry.json"),
               json.dumps({"projects": {"agent-fabric": {}, project: {}}}))
         src = os.path.join(root, "tools", "fabric", "fence.py")
         write(src, "".join(f"NEVER = {p!r}\n" for p in lint.CARRIER_FENCE))
@@ -2693,7 +2703,7 @@ def case_the_operator_is_the_fabrics_own_name() -> None:
     spec.loader.exec_module(lint)
     from fabric_lint_rules import docs
     with tempfile.TemporaryDirectory() as root:
-        write(os.path.join(root, "projects", "registry.json"),
+        write(OP(root, "projects", "registry.json"),
               json.dumps({"projects": {"agent-fabric": {}, docs.OPERATOR_PROJECT_ID: {}, "other.proj": {}}}))
         src = os.path.join(root, "tools", "fabric", "clone.py")
         write(src, f"DIR = '{docs.OPERATOR_PROJECT_ID}'\n")
@@ -2726,11 +2736,11 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
     with tempfile.TemporaryDirectory() as root:
-        write(os.path.join(root, "identities", "roles", "catalog.json"),
+        write(OP(root, "identities", "roles", "catalog.json"),
               json.dumps({"roles": [{"id": "fabric-coordinator"}, {"id": "python-dev"}]}))
 
         def findings(*entries: dict) -> list[str]:
-            write(os.path.join(root, "policies", "authority.json"),
+            write(OP(root, "policies", "authority.json"),
                   json.dumps({"role_definitions": {"role": "fabric-coordinator"}, "contributors": list(entries)}))
             return lint.contributor_findings(root)
 
@@ -2841,10 +2851,10 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         assert any("not in identities/roles/catalog.json" in f for f in got), got
         got = findings({**good, "role": "fabric-coordinator"})
         assert any("the owner role needs no entry" in f for f in got), got
-        write(os.path.join(root, "identities", "roles", "catalog.json"), "{")
+        write(OP(root, "identities", "roles", "catalog.json"), "{")
         got = findings(good)
         assert any("catalog.json: unreadable" in f for f in got), got
-        write(os.path.join(root, "policies", "authority.json"), json.dumps({"contributors": {"role": "x"}}))
+        write(OP(root, "policies", "authority.json"), json.dumps({"contributors": {"role": "x"}}))
         assert lint.contributor_findings(root) == ["policies/authority.json: `contributors` is not a list"]
 
 
@@ -2976,11 +2986,11 @@ def case_project_tools_are_declared_and_never_retired() -> None:
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
     with tempfile.TemporaryDirectory() as root:
-        write(os.path.join(root, "identities", "roles", "catalog.json"), json.dumps({"roles": [{"id": "flutter-dev"}]}))
+        write(OP(root, "identities", "roles", "catalog.json"), json.dumps({"roles": [{"id": "flutter-dev"}]}))
         good = {"name": "doppler", "proof": "doppler --version", "why": "w", "where": "host", "optional": True}
 
         def findings(tools, retired=None, spelling="RETIRED = {!r}\n"):
-            write(os.path.join(root, "projects", "registry.json"),
+            write(OP(root, "projects", "registry.json"),
                   json.dumps({"projects": {"p": {"tools": tools}}}))
             script = os.path.join(root, "runtime", "claude-code", "retire-x.py")
             if retired is None:

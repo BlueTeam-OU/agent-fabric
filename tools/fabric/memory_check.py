@@ -135,7 +135,12 @@ def tree_of(corpus: str) -> str | None:
     if os.path.basename(corpus) != "memory":
         return None
     parent = os.path.dirname(corpus)
-    return os.path.dirname(parent) if os.path.basename(parent) == ".agent-fabric" else parent
+    if os.path.basename(parent) == ".agent-fabric":
+        return os.path.dirname(parent)
+    # The fabric's own memory/ sits in its operator tree, operator/ inside the engine checkout (move-plan step B):
+    # its anchors name engine paths, so the checkout is the tree, not operator/.
+    engine = os.path.dirname(parent)
+    return engine if roots.operator_root(environ={}, engine=engine) == parent else parent
 
 
 def own_project_of(corpus: str, given: str | None) -> str | None:

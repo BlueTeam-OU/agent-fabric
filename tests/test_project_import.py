@@ -19,6 +19,7 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import project as pj  # noqa: E402
+import roots  # noqa: E402
 
 GIT = shutil.which("git") or "/usr/bin/git"
 PY = sys.executable
@@ -36,6 +37,12 @@ def clean_env(home: str) -> dict:
 
 def sh(cwd: str, *argv: str, env: dict) -> subprocess.CompletedProcess:
     return subprocess.run(list(argv), cwd=cwd, env=env, capture_output=True, text=True, timeout=300, check=False)
+
+
+def op(tree: str, *parts: str) -> str:
+    """A path in `tree`'s operator data, where roots puts it with AGENT_FABRIC_OPERATOR unset (the env the
+    tool runs under, clean_env): <tree>/operator/<parts>."""
+    return os.path.join(roots.operator_root(environ={}, engine=tree), *parts)
 
 
 def tree_state(root: str) -> dict:
@@ -56,7 +63,9 @@ def make_tree(dest: str, env: dict) -> None:
     for raw in filter(None, names):
         rel = os.fsdecode(raw)
         src = os.path.join(HERE, rel)
-        if not os.path.isfile(src):
+        # A link is a tracked entry too (move-plan step B leaves one at each old top-level path); it points
+        # inside the tree, so the copy resolves as the original does.
+        if not (os.path.isfile(src) or os.path.islink(src)):
             continue
         dst = os.path.join(dest, rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -116,7 +125,7 @@ def main() -> int:
     finally:
         shutil.rmtree(unit, ignore_errors=True)
 
-    live = os.path.join(HERE, "projects", "registry.json")
+    live = roots.projects_registry(engine=HERE)
     if not os.path.exists(live) or LIKE not in json.load(open(live, encoding="utf-8")).get("projects", {}):
         print(f"  skip: {LIKE} is not registered here (a stripped copy); the tree cases need the operator's registry")
         return 1 if fails else 0
@@ -128,7 +137,7 @@ def main() -> int:
         base = os.path.join(scratch, "tree")
         os.makedirs(base)
         make_tree(base, env)
-        registry = json.load(open(os.path.join(base, "projects", "registry.json"), encoding="utf-8"))["projects"]
+        registry = json.load(open(op(base, "projects", "registry.json"), encoding="utf-8"))["projects"]
         assert LIKE in registry and LIKE_FULL in registry, "the cases need both siblings registered"
 
         shim = os.path.join(base, "bin", "fabric-project")
@@ -200,17 +209,17 @@ def main() -> int:
         refuses("refuses a malformed id", base, ["--like", LIKE, "--role", "python-dev", "--id", "Bad_Id"] + ARGS[2:], "--id")
         refuses("refuses an opt-in file the sibling does not have", base, base_args + ["--with-trial"], "has no integration/gh/trial.json")
 
-        existing = os.path.join(base, "projects", "scratch.proj", "integration", "gh", "arm.json")
+        existing = op(base, "projects", "scratch.proj", "integration", "gh", "arm.json")
         os.makedirs(os.path.dirname(existing))
         open(existing, "w").write("mine\n")
         refuses("refuses to overwrite an existing integration file", base, base_args, "exists; nothing is overwritten")
         check("  ...and the file is as it was", open(existing).read() == "mine\n")
-        shutil.rmtree(os.path.join(base, "projects", "scratch.proj"))
+        shutil.rmtree(op(base, "projects", "scratch.proj"))
 
         badwc = os.path.join(scratch, "badwc")
         outside = os.path.join(scratch, "outside")
         os.makedirs(os.path.join(outside, "integration"))
-        held = os.path.join(base, "projects", "scratch.proj")
+        held = op(base, "projects", "scratch.proj")
         os.symlink(outside, held)
         refuses("refuses a symlinked projects/<id>", base, base_args + ["--write"], "is not a registered project")
         check("  ...and nothing went through the link", os.listdir(os.path.join(outside, "integration")) == [])
@@ -233,8 +242,8 @@ def main() -> int:
         open(os.path.join(badwc, ".agent-fabric", "roles", "python-dev.md"), "wb").write(b"---\nproject: x\n---\n\xff\xfe\n")
         refuses("refuses a sibling remit that is not UTF-8, with no traceback", base,
                 base_args + ["--working-copy", wc, "--like-working-copy", badwc], "is not UTF-8")
-        linked = os.path.join(base, "projects", LIKE, "integration", "linked")
-        os.symlink(os.path.join(base, "projects", LIKE, "integration", "gh"), linked)
+        linked = op(base, "projects", LIKE, "integration", "linked")
+        os.symlink(op(base, "projects", LIKE, "integration", "gh"), linked)
         refuses("refuses a symlinked directory in the sibling's integration", base, base_args, "is a symlink")
         os.unlink(linked)
 
@@ -252,15 +261,15 @@ def main() -> int:
             os.makedirs(wcopy)
             argv = ARGS + ["--like", like, "--role", "python-dev", "--role", "devex-tooling", "--working-copy", wcopy,
                            "--write", *extra]
-            original = open(os.path.join(tree, "projects", "registry.json"), encoding="utf-8").read()
-            reg_mode = os.stat(os.path.join(tree, "projects", "registry.json")).st_mode & 0o777
+            original = open(op(tree, "projects", "registry.json"), encoding="utf-8").read()
+            reg_mode = os.stat(op(tree, "projects", "registry.json")).st_mode & 0o777
             old_umask = os.umask(0o077)   # a created file must still take the sibling's mode
             try:
                 r = imp(tree, *argv)
             finally:
                 os.umask(old_umask)
             check(f"--like {like} --write: exit 0, nothing committed", r.returncode == 0 and "nothing committed" in r.stdout, r.stderr)
-            reg_text = open(os.path.join(tree, "projects", "registry.json"), encoding="utf-8").read()
+            reg_text = open(op(tree, "projects", "registry.json"), encoding="utf-8").read()
             reg = json.loads(reg_text)["projects"]
             entry = reg.get("scratch.proj", {})
             like_entry = registry[like]
@@ -272,24 +281,24 @@ def main() -> int:
                   json.dumps(entry)[:300])
             check(f"--like {like}: every other byte of the registry is as it was", reg_text.startswith(original[:-len("\n    }\n  }\n}\n")]))
             check(f"--like {like}: the sibling's integration files are all there, the opt-in ones only when asked",
-                  all(os.path.exists(os.path.join(tree, "projects", "scratch.proj", "integration", os.path.relpath(p, os.path.join(tree, "projects", like, "integration"))))
-                      for p in [os.path.join(b, n) for b, _, ns in os.walk(os.path.join(tree, "projects", like, "integration")) for n in ns]
+                  all(os.path.exists(op(tree, "projects", "scratch.proj", "integration", os.path.relpath(p, op(tree, "projects", like, "integration"))))
+                      for p in [os.path.join(b, n) for b, _, ns in os.walk(op(tree, "projects", like, "integration")) for n in ns]
                       if os.path.basename(p) not in ("compliance.json", "trial.json", "pr-tools.json") or extra))
             if like == LIKE_FULL:
                 check("--like gzapp: the host-check script keeps its mode, whatever the umask",
-                      os.stat(os.path.join(tree, "projects", "scratch.proj", "integration", "provisioning", "host-check.sh")).st_mode & 0o777
-                      == os.stat(os.path.join(tree, "projects", like, "integration", "provisioning", "host-check.sh")).st_mode & 0o777)
+                      os.stat(op(tree, "projects", "scratch.proj", "integration", "provisioning", "host-check.sh")).st_mode & 0o777
+                      == os.stat(op(tree, "projects", like, "integration", "provisioning", "host-check.sh")).st_mode & 0o777)
             else:
                 check("--like interweave: no opt-in file was written",
                       not any(n in ("compliance.json", "trial.json", "pr-tools.json")
-                              for _, _, ns in os.walk(os.path.join(tree, "projects", "scratch.proj")) for n in ns))
-            snippet = open(os.path.join(tree, "projects", "scratch.proj", "integration", "gzcoord", "CLAUDE.snippet.md"), encoding="utf-8").read()
-            sibling_snippet = open(os.path.join(tree, "projects", like, "integration", "gzcoord", "CLAUDE.snippet.md"), encoding="utf-8").read()
+                              for _, _, ns in os.walk(op(tree, "projects", "scratch.proj")) for n in ns))
+            snippet = open(op(tree, "projects", "scratch.proj", "integration", "gzcoord", "CLAUDE.snippet.md"), encoding="utf-8").read()
+            sibling_snippet = open(op(tree, "projects", like, "integration", "gzcoord", "CLAUDE.snippet.md"), encoding="utf-8").read()
             check(f"--like {like}: the id is replaced where it is the project (a file that names {like}'s directory now names the new one)",
                   f"projects/{like}/integration/gzcoord/" in sibling_snippet
                   and "projects/scratch.proj/integration/gzcoord/" in snippet and f"projects/{like}/" not in snippet)
             check(f"--like {like}: the registry keeps its mode under umask 077",
-                  os.stat(os.path.join(tree, "projects", "registry.json")).st_mode & 0o777 == reg_mode)
+                  os.stat(op(tree, "projects", "registry.json")).st_mode & 0o777 == reg_mode)
             tax = json.load(open(os.path.join(wcopy, ".agent-fabric", "taxonomy.json")))
             check(f"--like {like}: a taxonomy of this project, one rule per role",
                   tax["project"] == "scratch.proj" and [x["id"] for x in tax["roles"]] == ["python-dev", "devex-tooling"])
@@ -348,21 +357,21 @@ def main() -> int:
         # --- a write that fails part-way names what it made ---------------------
         tree = os.path.join(scratch, "tree-fail")
         shutil.copytree(base, tree, symlinks=True)
-        os.makedirs(os.path.join(tree, "projects", "scratch.proj"))
-        os.chmod(os.path.join(tree, "projects", "scratch.proj"), 0o500)
+        os.makedirs(op(tree, "projects", "scratch.proj"))
+        os.chmod(op(tree, "projects", "scratch.proj"), 0o500)
         try:
             r = imp(tree, *base_args, "--write")
-            reg_now = json.load(open(os.path.join(tree, "projects", "registry.json"), encoding="utf-8"))["projects"]
+            reg_now = json.load(open(op(tree, "projects", "registry.json"), encoding="utf-8"))["projects"]
             check("an unwritable directory: exit 1, a message, and no registry entry",
                   r.returncode == 1 and r.stderr.startswith("fabric-project: ") and "scratch.proj" not in reg_now and "Traceback" not in r.stderr,
                   f"exit {r.returncode}: {r.stderr[:300]}")
         finally:
-            os.chmod(os.path.join(tree, "projects", "scratch.proj"), 0o700)
+            os.chmod(op(tree, "projects", "scratch.proj"), 0o700)
 
         # No live project keeps a moved_from the remotes lack, so the registry is edited to one that does.
         tree = os.path.join(scratch, "tree-moved")
         shutil.copytree(base, tree, symlinks=True)
-        regp = os.path.join(tree, "projects", "registry.json")
+        regp = op(tree, "projects", "registry.json")
         text = open(regp, encoding="utf-8").read()
         doc = json.loads(text)
         doc["projects"][LIKE]["moved_from"] = ["git@github.com:old-org/legacy-name.git"]
@@ -381,11 +390,11 @@ def main() -> int:
         tree = os.path.join(scratch, "tree-link")
         shutil.copytree(base, tree, symlinks=True)
         real = os.path.join(scratch, "real-registry.json")
-        shutil.move(os.path.join(tree, "projects", "registry.json"), real)
-        os.symlink(real, os.path.join(tree, "projects", "registry.json"))
+        shutil.move(op(tree, "projects", "registry.json"), real)
+        os.symlink(real, op(tree, "projects", "registry.json"))
         r = imp(tree, *base_args, "--write")
         check("a symlinked registry stays a symlink and its target gets the entry",
-              r.returncode == 0 and os.path.islink(os.path.join(tree, "projects", "registry.json"))
+              r.returncode == 0 and os.path.islink(op(tree, "projects", "registry.json"))
               and "scratch.proj" in json.load(open(real, encoding="utf-8"))["projects"], r.stderr)
         r = sh(base, PY, "-c", "import sys; sys.path.insert(0, %r); import project; project.run = lambda argv: (_ for _ in ()).throw(BrokenPipeError()); sys.exit(project.main())" % os.path.join(base, "tools", "fabric"),
                env=env_run)
