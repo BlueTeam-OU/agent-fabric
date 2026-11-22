@@ -88,6 +88,8 @@ import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tests"))
+sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import roots  # noqa: E402
 from instance_fixtures import ROUTING_OPERATOR_IGNORE, own_instance_tree, write_routing_overlay  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -175,7 +177,10 @@ class Fixture(unittest.TestCase):
         # write resolve to, whoever runs this suite.
         routing = os.path.join(self.fabric, "routing")
         shutil.copytree(os.path.join(HERE, "routing"), routing, ignore=shutil.ignore_patterns(*ROUTING_OPERATOR_IGNORE))
-        write_routing_overlay(routing)
+        # The operator half sits where roots.py reads it (operator/routing since step B), not beside the engine's.
+        operator_routing = os.path.dirname(roots.routing_profiles(engine=self.fabric, environ={}))
+        os.makedirs(operator_routing)
+        write_routing_overlay(operator_routing)
         shutil.copy(os.path.join(cc, "aliases.json"), os.path.join(self.fabric, "runtime", "claude-code"))
         # The entry sits in the fixture where it sits in the checkout (a .py
         # entry finds its sibling modules from its own location); a script
@@ -202,7 +207,7 @@ class Fixture(unittest.TestCase):
         ws = os.path.join(self.fabric, "runtime", "mcp", "websearch-locale")
         os.makedirs(ws)
         shutil.copy(os.path.join(HERE, "runtime", "mcp", "websearch-locale", "install.py"), ws)
-        self.worker = os.path.join(self.fabric, "identities", "roles", "language-culture", "locale", SUFFIX, "worker.md")
+        self.worker = os.path.join(roots.locale_dir("language-culture", SUFFIX, engine=self.fabric, environ={}), "worker.md")
         write(self.worker, WORKER_BODY)
         self.dest = os.path.join(self.home, ".claude", "agents", "locale-worker.md")
         self.agents = os.path.join(self.home, ".claude", "agents")
@@ -387,7 +392,7 @@ class RoleChange(Fixture):
         self.run_install()
         self.assertTrue(os.path.isfile(self.dest))
         shutil.rmtree(os.path.dirname(self.worker))
-        other = os.path.join(self.fabric, "identities", "roles", "language-culture", "locale", f"{SUFFIX}-other")
+        other = roots.locale_dir("language-culture", f"{SUFFIX}-other", engine=self.fabric, environ={})
         write(os.path.join(other, "worker.md"), WORKER_BODY)
         out = self.run_install()
         self.assertFalse(os.path.exists(self.dest), out)
