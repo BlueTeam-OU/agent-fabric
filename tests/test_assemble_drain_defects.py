@@ -661,8 +661,7 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
     assert proc.returncode == 0, proc.stderr
     index = ta.read(ta.proj(out, "alpha", "INDEX.md"))
     assert "— Compose the sections of a message\n" in index, index
-    lint = subprocess.run([sys.executable, ta.LINT, "--fabric", out, "--working-copy", f"{ta.PROJECT}={ta.working_copy(out)}"],
-                          capture_output=True, text=True)
+    lint = ta.lint_run(out)
     assert lint.returncode == 0 and "describes it as" not in lint.stderr, lint.stderr
 
     # A slice written before titles were made one line holds the break in its frontmatter: its entry is one line too.
@@ -676,8 +675,7 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
     index_path = ta.proj(out, "alpha", "INDEX.md")
     with open(index_path, "w", encoding="utf-8") as fh:
         fh.write(index.replace("— Double  space stays\n", "— Older break\n"))
-    lint = subprocess.run([sys.executable, ta.LINT, "--fabric", out, "--working-copy", f"{ta.PROJECT}={ta.working_copy(out)}"],
-                          capture_output=True, text=True)
+    lint = ta.lint_run(out)
     assert lint.returncode == 0 and "describes it as" not in lint.stderr, lint.stderr
     import lint as lint_module
     from assembler.core import LINE_BREAK_RE
