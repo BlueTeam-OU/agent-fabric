@@ -120,6 +120,13 @@ Why these choices:
      and its worktree;
    - it allows nothing once the session worked a job that has since
      left `active`.
+   A request closed `done` with `--no-artifact` and no artifact is no
+   work of the session's: its log entries keep the session id and carry
+   `unfenced`. The guard (`records.session_worked`) and the fresh
+   verdict of `switch` skip a flagged entry, so the session still commits
+   its own job's change. `switch` settles that job and counts the replies
+   owed since its start (`last_worked`, `session_start`), which read the
+   id and not the flag (A 2026-11-22).
    When in doubt it judges a directory to be outside. Reading any
    working copy stays allowed, as does a session that has worked no
    job and has none active. A delivered REQUEST for another copy is
@@ -437,3 +444,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-11-17 | start and switch decide on a fresh blocker check | §5 rule 8: the ten-minute re-check bound is `list`'s, `next`'s and `block`'s; `start` and `switch <id>` decide on a fresh check; built in #537 |
 | 2026-11-19 | A conflicting merge goes to the fresh session | §5 rule 10 step 3: a default branch that conflicts with the job's existing branch is undone and handed to the job's fresh session, which merges it first; `switch` no longer refuses it; built in #662 |
 | 2026-11-21 | start --despite; an own job: blocker read from the own list | §5 rule 8 and the rule-14 row into `active`: `start --despite` waives a peer's unmet `job:` blocker with a reason, logged, `switch` never; `job:<me>/j<n>` is read from this login's own list; built in #553 and #543 |
+| 2026-11-22 | A request closed with no artifact is not work | §5 rule 3: its log entries are flagged `unfenced`; the job copy guard and the fresh verdict skip them, `switch`'s settling and reply count read them |

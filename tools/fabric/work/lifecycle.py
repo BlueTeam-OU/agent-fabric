@@ -98,8 +98,21 @@ def transition(doc: dict, job: dict, to: str, who: str, proof: Proof | None, *, 
     job["state"] = to
     job["updated"] = now
     entry = {"at": now, "state": to, **({"note": fields["note"]} if fields.get("note") else {})}
+    # A request closed `--no-artifact` is no work of this session's to fence: the job-copy guard (ADR-037 rule 3) reads the session ids
+    # in a log as "this session worked a job" (records.session_worked), so keeping them locked the session out of committing its own
+    # job's change (j178). The ids stay, flagged `unfenced`: `switch` still settles the job just left and counts the replies owed
+    # since its start (verbs.last_worked, session_start), which read the ids and not the flag. The artifacts are those the job will
+    # hold after this change, the verb's included: a request that landed one was worked.
+    unworked = (to == "done" and bool(fields.get("no_artifact")) and not (fields.get("artifacts") or job.get("artifacts"))
+                and (job.get("source") or {}).get("kind") == "request")
+    if unworked and session:
+        for earlier in job.get("log", []):
+            if earlier.get("session") == session:
+                earlier["unfenced"] = True
     if touches_active and session:
         entry["session"] = session
+        if unworked:
+            entry["unfenced"] = True
     job.setdefault("log", []).append(entry)
     for key, value in fields.items():
         if key != "note" and value is not None:

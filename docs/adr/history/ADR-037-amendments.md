@@ -193,3 +193,10 @@ Two built behaviours the record did not say. Rule 8 and rule 14's row into `acti
 
 Rejected: letting `switch` take `--despite`. `switch` is the session's move to the next job; a waiver read from it would let a session start work its own check said was still waited on, without anyone saying why.
 
+### Amendment 2026-11-22 — A request closed with no artifact is not work
+
+Rule 3 read every log entry that carries this session's id as work done, so a session that closed a request with `--no-artifact` was fenced out of committing its own job's change (python-dev-02's j178, #687, REQUEST 01a20372).
+
+A request moved to `done` with `--no-artifact`, whose job holds no artifact, now writes its session ids in the log flagged `unfenced`. This covers the entry of the move and the session's earlier entries in that job (`tools/fabric/work/lifecycle.py`). `records.session_worked` skips a flagged entry. The job copy guard asks it, and so does the fresh verdict of `switch` (`decide`). `last_worked` and `session_start` do not look at the flag: `switch` still settles the job just left and counts the replies owed since its start.
+
+Rejected: dropping the session id from the entry. `switch` needs it to find the job and the start.
