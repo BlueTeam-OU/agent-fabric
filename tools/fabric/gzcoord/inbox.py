@@ -26,7 +26,7 @@ CONTRACT, frozen from the Node:
                                 session only at exit): 2 a control
                                 channel named, 3 not configured
                                 or no token, 4 a refused token, 5 a relay
-                                unreachable for 15 minutes, 6 a delivery
+                                unreachable for 15 minutes (a carrier primary never gives up: it retries to the deadline), 6 a delivery
                                 the journal cannot keep, 7 an internal
                                 error or a transport mode that cannot be read. The session runs it again only
                                 after exit 0 or its own timeout, except
@@ -157,7 +157,7 @@ CONTRACT, frozen from the Node:
             journal, the --held "not held"; 2 a control channel named,
             replay not addressed (--json too); 3 a keyword hit, and under
             --until-delivery not configured or no token; 4 a refused
-            token; 5 --until-delivery's relay unreachable for 15 minutes;
+            token; 5 --until-delivery's relay unreachable for 15 minutes (a carrier primary retries to the deadline instead);
             6 --until-delivery's delivery held by the journal; 7
             --until-delivery's last resort. Anything unforeseen is
             `gzcoord inbox: <why>`, exit 0 for every mode but
@@ -697,6 +697,7 @@ def main(argv: list[str]) -> int:
         # (reset after an arm returns) outlives a recovery: without this the next restart is measured from the first
         # failure of the previous outage and the watch gives up at once (j169, every fleet upgrade).
         answered = {"at": 0.0}
+        carrier_bound_said = {"v": False}
 
         def fetch_noting(slice_s: int, abort: threading.Event) -> Any:
             page = tp.fetch_page(slice_s, abort)
@@ -743,6 +744,9 @@ def main(argv: list[str]) -> int:
             # deadline, or a hold that outlasted it, ends the watch as a quiet one.
             left = deadline - time.monotonic()
             if until_delivery and left <= 0:
+                if down:
+                    # Still down at the deadline: said before the quiet line, so the session that re-runs the watch knows why it was quiet.
+                    print(primary_down_line("down"), flush=True)
                 print(QUIET_LINE.format(minutes=int((time.monotonic() - started) // 60)), flush=True)
                 return ended("quiet", 0)
             try:
@@ -764,11 +768,21 @@ def main(argv: list[str]) -> int:
                     # It answered after the outage began: that outage is over and this failure is a new one. Only the give-up
                     # bound reads the clock, so --follow, which has none, keeps its lines exactly as they were.
                     down = False
+                    carrier_bound_said["v"] = False
                 if not down:
                     if not until_delivery:
                         print(primary_down_line("down"), flush=True)
                     down = True
                     down_since = time.monotonic()
+                elif until_delivery and primary.name == CARRIER_NAME:
+                    # The carrier is a local daemon that comes back by itself (a restart, an upgrade, an outage like 2026-11-20 22:30Z
+                    # that deafened eight idle sessions): exiting 5 left a session that waits to be re-run, deaf until someone restarted
+                    # it. The watch keeps retrying to its --deadline and ends quiet (exit 0, run it again) if the carrier never returns;
+                    # only the relay, which an operator may stop on purpose, still gives up (watch-on-stop's relay-down marker).
+                    if not carrier_bound_said["v"] and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
+                        carrier_bound_said["v"] = True
+                        print(f"gzcoord-inbox: the {CARRIER_LABEL} carrier has not answered for {UNTIL_DELIVERY_DOWN_S / 60:g} minutes; "
+                              "the watch keeps retrying until its deadline", file=sys.stderr, flush=True)
                 elif until_delivery and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
                     print(primary_down_line("gave-up"), flush=True)
                     mark_relay_down(who["agent"], time.time())
@@ -776,7 +790,8 @@ def main(argv: list[str]) -> int:
                 # The RETRY_S between tries, shortened to the time left before the give-up bound and, under --until-delivery,
                 # before the --deadline (never negative: sleep refuses that): a relay that refuses connections must not
                 # carry the watch past the deadline it promised, and a shorter bound (a test's) is not slept through twice.
-                time.sleep(max(0.0, min(RETRY_S, UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since), deadline - time.monotonic())) if until_delivery else RETRY_S)
+                to_give_up = UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since) if primary.name != CARRIER_NAME else RETRY_S
+                time.sleep(max(0.0, min(RETRY_S, to_give_up, deadline - time.monotonic())) if until_delivery else RETRY_S)
                 continue
             if r.get("relayAnswered"):
                 clear_relay_down(who["agent"])

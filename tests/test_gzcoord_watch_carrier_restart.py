@@ -123,12 +123,31 @@ class Restart(unittest.TestCase):
         self.assertEqual(self.proc.wait(timeout=30), 0, "".join(self.out + self.err))
         self.assertIn("after-restart", "".join(self.out), "a message listed after the restart is delivered")
 
-    def test_a_carrier_silent_past_the_bound_ends_the_watch_with_exit_5(self):
-        # The positive control: the bound is still enforced, counted from the first failure after the carrier's last answer.
+    def test_a_carrier_silent_past_the_bound_is_waited_out_and_delivers_when_it_returns(self):
+        # 2026-11-20: a carrier silent past the bound ended the watch with exit 5 and the session stayed deaf. The watch now says it
+        # on stderr and keeps retrying; the carrier's return delivers the next message without anyone running the watch again.
         self.start()
         self.down()
-        self.assertEqual(self.proc.wait(timeout=DOWN_S + 20), 5, "".join(self.out + self.err))
-        self.assertIn("did not answer", "".join(self.out))
+        end = time.monotonic() + DOWN_S + 20
+        while time.monotonic() < end and "has not answered" not in "".join(self.err):
+            time.sleep(0.1)
+        self.assertIn("has not answered", "".join(self.err), "the bound is said, loudly")
+        self.assertIsNone(self.proc.poll(), "the watch did not exit: " + "".join(self.out + self.err))
+        self.pending.append(record())
+        self.up()
+        self.assertEqual(self.proc.wait(timeout=30), 0, "".join(self.out + self.err))
+        self.assertIn("after-restart", "".join(self.out), "the message listed after the carrier returned is delivered")
+
+    def test_a_carrier_silent_to_the_deadline_ends_quiet_and_says_why(self):
+        # The positive control of the above: the watch is not endless. Past its deadline it ends exit 0, the "run it again" ending.
+        self.proc = subprocess.Popen([P.INBOX_CMD, "--until-delivery", "--deadline", "4"], env=self.env, text=True,
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(self.stop)
+        self.down()
+        out, err = self.proc.communicate(timeout=30)
+        self.assertEqual(self.proc.returncode, 0, out + err)
+        self.assertIn("not answering", out)
+        self.assertIn("run the watch again", out)
 
 
 def tearDownModule():
