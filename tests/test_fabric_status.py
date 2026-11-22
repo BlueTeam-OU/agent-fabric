@@ -544,6 +544,24 @@ def main() -> int:
               status.agent_file_routing_drift(HERE, "anthropic", snapshot("agrees", False)) == [])
         check("no managed file: no line", status.agent_file_routing_drift(HERE, "anthropic", os.path.join(tmp, "nothing")) == [])
 
+        def managed_etc(name: str, snap: str) -> str:
+            etc = os.path.join(tmp, name + "-etc")
+            entry = snap + "/runtime/claude-code/managed/hook_entry.py"
+            put(os.path.join(etc, "managed-settings.json"), json.dumps({"hooks": {"PreToolUse": [{"hooks": [
+                {"type": "command", "args": ["-I", "-S", entry, "agent-dispatch-guard"]}]}]}}))
+            return etc
+
+        lines = status.agent_file_routing_drift(HERE, "anthropic", managed_etc("gone", os.path.join(tmp, "absent-tree")))
+        check("a managed file naming a tree that is not there: one cannot-compare line, never a silent agree",
+              len(lines) == 1 and "agent files  cannot compare" in lines[0] and "absent-tree" in lines[0])
+        slow = os.path.join(tmp, "slow")
+        put(os.path.join(slow, "tools", "fabric", "routing.py"), "import time\ntime.sleep(30)\n")
+        os.symlink(os.path.join(HERE, "runtime"), os.path.join(slow, "runtime"))
+        status.ROUTING_PROBE_TIMEOUT_S = 1
+        lines = status.agent_file_routing_drift(HERE, "anthropic", managed_etc("slow", slow))
+        check("a snapshot whose routing.py does not answer in time: the cannot-compare line too",
+              len(lines) == 1 and "agent files  cannot compare" in lines[0])
+
     print("ok" if not fails else f"{fails} FAILED")
     return 1 if fails else 0
 

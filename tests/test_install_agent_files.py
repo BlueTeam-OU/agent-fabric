@@ -31,7 +31,7 @@ ROUTING_STUB = """\
 import json, os, sys
 d = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(d, "calls.log"), "a") as f:
-    f.write(json.dumps({"tool": "routing", "argv": sys.argv[1:], "root": os.environ.get("AGENT_FABRIC_ROOT")}) + "\\n")
+    f.write(json.dumps({"tool": "routing", "argv": sys.argv[1:], "root": os.environ.get("AGENT_FABRIC_ROOT"), "E": sys.flags.ignore_environment, "s": sys.flags.no_user_site}) + "\\n")
 if os.path.exists(os.path.join(d, "fail-" + sys.argv[1])):
     sys.exit(3)
 sys.stdout.write(open(os.path.join(d, sys.argv[1] + ".txt")).read())
@@ -519,8 +519,9 @@ def main() -> int:
         r = run(root, home, cfg)
         check("no managed file: the checkout's pin, and no effort where it names none",
               r.returncode == 0 and "model: claude-pinned-model" in agent("code-review") and "effort:" not in agent("code-low"), r.stdout + r.stderr)
-        check("…routed from the checkout, as before: no --fabric, no -E -s",
-              [c["argv"] for c in calls(root) if c["tool"] == "routing"] == [["pins", "--me", "--provider", "anthropic"], ["efforts", "--me", "--provider", "anthropic"]])
+        check("…routed from the checkout, as before: no --fabric, no -E -s (argv and the interpreter's flags)",
+              [c["argv"] for c in calls(root) if c["tool"] == "routing"] == [["pins", "--me", "--provider", "anthropic"], ["efforts", "--me", "--provider", "anthropic"]]
+              and all(c["E"] == 0 and c["s"] == 0 for c in calls(root) if c["tool"] == "routing"), str(calls(root)))
 
         for label, body in (("no dispatch guard", {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "args": ["-I", "-S", "/x/runtime/claude-code/managed/hook_entry.py", "pipe-status-guard"]}]}]}}),
                             ("no hooks", {"env": {}}), ("a list for a document", [])):
