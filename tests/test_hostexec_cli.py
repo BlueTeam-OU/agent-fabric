@@ -208,9 +208,6 @@ def main() -> int:
         with open(engine_registry, "w", encoding="utf-8") as fh:
             json.dump({"version": 1, "hosts": {"engine-host": {"platform": "debian", "ssh": None, "operator": ME, "fabric": engine}},
                        "placement": {"zz-engine-login": "engine-host"}}, fh)
-        # hostexec alone reads <checkout>/runtime/hosts/registry.json, not roots.py's tree: since step B that
-        # path is the shim to operator/, which the copy gets as the checkout has it.
-        os.symlink(os.path.join("..", "..", os.path.relpath(engine_registry, engine)), os.path.join(engine, "runtime", "hosts", "registry.json"))
         FH_E, HX_E = os.path.join(engine, "bin", "fabric-host"), os.path.join(engine, "runtime", "hostexec", "hostexec")
 
         def run_with(extra: dict[str, str], drop: tuple[str, ...], *argv: str) -> tuple[int, str]:

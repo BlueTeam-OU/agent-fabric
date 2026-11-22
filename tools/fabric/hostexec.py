@@ -32,7 +32,8 @@ names the ssh to use (a test puts a fake here).
 
 Contract (ADR-040 Wave 9; ported from the bash hostexec, which this keeps):
   registry  AGENT_FABRIC_HOSTS_REGISTRY, else this checkout's
-            runtime/hosts/registry.json. Deliberately not roots.py's
+            operator/runtime/hosts/registry.json (ADR-045 step B).
+            Deliberately not roots.py's
             operator tree: hostexec is the host executor and fabric-host,
             which does consult it, exports the answer.
   output    stdout/stderr and the exit status of the worker (local) or of
@@ -134,7 +135,10 @@ def main(argv: list[str]) -> int:
         host, as_login, cwd, tty, resolve, command = parsed
         if not host:
             raise Refused("no host named (an id in runtime/hosts/registry.json; fabric-host list)")
-        registry = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(ROOT, "runtime", "hosts", "registry.json")
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import roots  # noqa: E402 — beside this file
+        # The checkout's own operator/, never the exported AGENT_FABRIC_OPERATOR (environ={}): see the contract.
+        registry = os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or roots.hosts_registry(environ={}, engine=ROOT)
         backend, dest, operator, fabric = load_host(registry, host)
         if resolve:
             print(f"host {host}: backend {backend}, destination {dest}, operator {operator}, fabric {fabric}")
@@ -145,7 +149,6 @@ def main(argv: list[str]) -> int:
         print(f"hostexec: {e}", file=sys.stderr)
         return 2
     worker_args = (["--as", as_login] if as_login else []) + (["--cwd", cwd] if cwd else []) + ["--", *command]
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import hostworker  # noqa: E402 — beside this file; the same exec, signals and messages as the worker's own
     if backend == "local":
         # The worker as a program, as before: its own argv, its own exec.
