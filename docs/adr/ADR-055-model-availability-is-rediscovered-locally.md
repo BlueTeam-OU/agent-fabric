@@ -10,8 +10,9 @@
 ## 1. Context and Problem
 
 On 2026-10-13 every pull request needed a Claude and a Codex review
-(ADR-053 rule 6; since rule 8 the Codex one is additional). On 2026-10-13 a Codex review from
-python-dev-01's login ran once and then failed twice within minutes:
+(ADR-053 rule 6; since this record's rule 8, the Codex one is
+additional). That day a Codex review from python-dev-01's login ran
+once and then failed twice within minutes:
 the ChatGPT backend answered "Selected model is at capacity" — the
 provider's model was full for everyone, not our allowance spent. With
 the review required, such a spell stops every merge in the fleet.

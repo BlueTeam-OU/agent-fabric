@@ -206,8 +206,8 @@ its order the route's order is what keeps the shared route lawful.
 Another endpoint of the same account serving the same model, if one
 appears, would be an alternative with no model change, taken first; it
 needs this record amended, rules 1, 4 and 8 and §2 at least, since
-today an alternative is a later model on the route's own backend. Widening the failure class a further attempt follows is the
-gateway's. If the gateway's log shows a model set aside for long, the
+today an alternative is a later model on the route's own backend.
+Widening the failure class a further attempt follows is the gateway's. If the gateway's log shows a model set aside for long, the
 owner notice of ADR-055 rule 6 may read it.
 
 ## 8. Decision Status
