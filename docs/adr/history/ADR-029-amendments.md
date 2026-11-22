@@ -532,13 +532,20 @@ down stopped a send and every queue read even with InterWeave running.
 python-dev-01's BlueTeam-OU/agent-fabric#586 (merged ce5991a7) keeps the
 relay post first and, under `control_carrier` `dual`, hands the same
 request to the asking account's own agentd over the 0600 socket
-`fabric-ctl` already uses; a reply on either carrier answers, attributed
-to the roster's address for its PeerId, and the record must claim that
-sender, as rule 18 requires of every control reply. A failed relay post
-is made up for by the socket; when both fail, the error names both and
-keeps the relay's classification. An account asking itself is reached by
-the relay alone, as before: the socket could loop the ask back, as it
-does `fabric-ctl`'s own row, but this ask has not chosen to; an account
-with no socket asks by the relay alone, said once. `waits`, a read of
-the state stream, stays on the relay. Not yet read back live: a
-two-account run with the relay stopped.
+`fabric-ctl` already uses. The first reply read answers. One by InterWeave
+is attributed to the roster's address for its PeerId and must claim it;
+one by the relay is taken on the `from` it claims, as before, and the
+relay is polled first, so the answer is no more authenticated than the
+relay is: this is availability, not authentication. When the relay post
+and the socket's opening both fail, the error names both, keeping the
+relay's classification unless the socket may already have taken the
+request; a carrier lost later is said on stderr. An account asking
+itself, or one with no socket, asks by the relay alone (the socket could
+loop a self-ask back, as it does `fabric-ctl`'s own row, but these asks
+have not chosen to), except presence in the transport mode `carrier-only`
+(#623, #638): there it posts nothing on the relay and asks every expected
+address, its own included, through the socket, and fails with no socket.
+`waits`, a read of the state stream, stays on the relay. ADR-030 §6, which
+said a relay that is down leaves a send's addressee unknown, is amended
+the same day. Not yet read back live: a two-account run with the relay
+stopped.

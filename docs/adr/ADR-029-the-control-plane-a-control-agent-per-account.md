@@ -345,17 +345,22 @@ with Doppler (ADR-038 §5 rule 8).
     - `fabric-ctl` holds no lease: it hands its sends to the operator's
       own agentd over a socket in its runtime directory, mode 0600, and
       `all` is one direct send per placed account's roster row;
-    - the presence check (ADR-030) and the job queue's asks of a holder
-      (`pool-list`, `pool-claim`, `job-state`) post on the relay as
-      before and also hand the same request to the asking account's
-      own agentd over that socket (A 2026-11-22), so a relay that is
-      down stops neither; a reply on either carrier answers, attributed
-      to the address the roster maps its PeerId to, and the record
-      must claim that sender. Only when both legs fail is the ask
-      failed, and the error names both. An account asking itself
-      reaches itself by the relay alone, and one with no socket asks by
-      the relay alone; `waits`, a read of the state stream, stays on the
-      relay;
+    - under `dual`, the presence check (ADR-030) and the job queue's
+      asks of a holder (`pool-list`, `pool-claim`, `job-state`) post on
+      the relay as before and also hand the same request to the asking
+      account's own agentd over that socket (A 2026-11-22), so a relay
+      that is down stops neither. The first reply read answers: one by
+      InterWeave is attributed to the address the roster maps its PeerId
+      to and must claim it; one by the relay, as before, to the `from`
+      it claims, and the relay is read first, so an answer is no more
+      authenticated than the relay. When the relay post and the
+      socket's opening both fail, the error names both; a carrier lost
+      later is said on stderr. An account asking itself, or one with
+      no socket, asks by the relay alone, but in the transport mode
+      `carrier-only` (ADR-064 §7) presence posts nothing on the relay
+      and asks every expected address, itself included, through the
+      socket, and with no socket it fails. `waits`, a read of the state
+      stream, stays on the relay;
     - while a session is open on an agentd's socket (`fabric-ctl`'s,
       or a presence or job-queue leg's), that agentd's restart for new
       code waits for it as for a running action, for at most
@@ -530,4 +535,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-11-14 | The transport mode is a signed action | §2 table: `interweave-mode`, the account's GZCoord transport mode, `carrier-only` refused by `fabric-ctl` while any placed account is on `relay-record` (#584) |
 | 2026-11-15 | The parity evidence carries each account's watch log | §2 table: `interweave-evidence` takes a sixth section, `watch` (#620) |
 | 2026-11-18 | fabric-op admits the signed InterWeave read | §5 rule 19: the `interweave` read, ADR-064 rule 14's fallback under `control_carrier` naming InterWeave alone, admitted under an action's ttl cap, no replay-floor claim (#656) |
-| 2026-11-22 | Presence and the queue's holder asks also go through the account's own agentd on dual | §5 rule 18: the presence check and `pool-list`, `pool-claim` and `job-state` hand the request to the asking account's own socket beside the relay post; a reply on either answers, attributed by PeerId; an account asking itself or with no socket by the relay alone; `waits` relay-only (#586, j832) |
+| 2026-11-22 | Presence and the queue's holder asks also go through the account's own agentd on dual | §5 rule 18: under `dual`, the presence check and `pool-list`, `pool-claim` and `job-state` hand the request to the asking account's own socket beside the relay post; the first reply read answers, an InterWeave one attributed by PeerId, a relay one by its claimed `from`; a self-ask or no socket by the relay alone, except presence in `carrier-only`, socket only; `waits` relay-only (#586, j832) |
