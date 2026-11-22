@@ -16,6 +16,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             and is exported to the modules it loads — identity.py takes its
             FABRIC_ROOT from it), AGENT_FABRIC_STATE_DIR (identity.py),
             AGENT_FABRIC_HOSTS_REGISTRY, AGENT_FABRIC_FALLBACK_DIR,
+            AGENT_FABRIC_MANAGED_ETC (where the managed settings file is, for a
+            non-root run; install_agent_files.dispatch_guard_tree),
             AGENT_FABRIC_LAUNCH_{PROVIDER,SESSION_MODEL,ROLE,PROMPT_DIGEST,
             PROFILE,EFFORT,STORE_SHA,ADDENDA_COMMIT}, ANTHROPIC_BASE_URL, ANTHROPIC_DEFAULT_{HAIKU,
             SONNET,OPUS,FABLE}_MODEL (the pins), every other ANTHROPIC_*,
@@ -30,10 +32,14 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             binding, job list and launch-prompt.md of the login, the
             working copy's and the control plane's last-drain-report.json and
             the harness's memory directory for the working copy; the control agent's installed unit
-            ($XDG_CONFIG_HOME/systemd/user/agent-fabric-agentd.service).
+            ($XDG_CONFIG_HOME/systemd/user/agent-fabric-agentd.service); the
+            managed-settings.json in /etc/claude-code (or AGENT_FABRIC_MANAGED_ETC)
+            and, when it names the dispatch guard, that snapshot's routing files,
+            through its tools/fabric/routing.py (ADR-043 §5 rule 10).
   stdout    the human report (below), or with --json one object, indent 2,
             ensure_ascii. Nothing on stderr by design; a module this file
-            loads that fails writes its own traceback there.
+            loads that fails writes its own traceback there. The snapshot's
+            routing.py probes have their stderr discarded and a timeout.
   exit      0. A crash in a loaded module or an unreadable fallback
             directory is an uncaught exception: exit 1 and a traceback,
             as in the bash (replicated, not fixed). A closed stdout
@@ -46,7 +52,9 @@ launch role stamp), one `DRIFT` line per drift, `project`, `session`,
 asked or stamped), `launch profile` (only when stamped), `pins`,
 `credentials`, `claude sign-in`, a blank line, `capabilities on <provider>`
 and one line per class, one `review engine <provider> <class>` line per
-class an engine provider serves (the Codex engine's openai column), `routing`, `memory` (only when there is something
+class an engine provider serves (the Codex engine's openai column), `routing`, `agent files` (one line per class whose
+routing the guard's snapshot reads otherwise than this checkout, or one "cannot compare" line; only when there is something
+to say), `memory` (only when there is something
 to count), `obsolete` (one line per memory of this agent a drain report names as replaced, or one "unknown" line when a
 report cannot be read), `moveto` (only when installed), `journal`, `python`, `agentd`
 (what the account's installed control agent unit runs), `control plane`.
@@ -79,6 +87,9 @@ import time
 from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+# One routing.py probe, as long as the dispatch guard allows its own (dispatch_guard.PROBE_TIMEOUT_S): a snapshot that
+# does not answer in that time is a "cannot compare" line, never an agreement.
+ROUTING_PROBE_TIMEOUT_S = 20
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import roots  # noqa: E402
 
@@ -640,12 +651,13 @@ def agent_file_routing_drift(root, provider, etc=None):
     for where, name in ((None, "checkout"), (tree, "snapshot")):
         for sub, parse in (("pins", install.parse_pins), ("efforts", install.parse_efforts)):
             try:
-                r = install.routing_run(sub, provider, root, where)
-            except OSError:
+                r = install.routing_run(sub, provider, root, where, stderr=subprocess.DEVNULL,
+                                        timeout=ROUTING_PROBE_TIMEOUT_S)
+            except (OSError, subprocess.TimeoutExpired):
                 r = None
             if r is None or r.returncode != 0:
                 return [f"agent files  cannot compare the {name}'s {sub} with the managed snapshot {tree}: "
-                        "routing.py failed there"]
+                        "routing.py failed or did not answer there"]
             answers[(name, sub)] = parse(r.stdout)
     lines = []
     for klass in sorted({k for v in answers.values() for k in v}):

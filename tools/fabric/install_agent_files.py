@@ -26,8 +26,16 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
                which the launcher writes), else launch-holder.json's
                holder.locale for a session that predates it, CLAUDE_CONFIG_DIR (else ~/.claude for the agent
                files and the user settings; else $HOME for .claude.json),
-               HOME. AGENT_FABRIC_ROOT is SET for the children, to this
-               checkout (the module's own location), never read.
+               HOME. AGENT_FABRIC_MANAGED_ETC (the directory of the managed
+               settings file for a non-root run; /etc/claude-code for root and
+               without it) and that directory's managed-settings.json, read
+               for the dispatch guard's tree (ADR-043 §5 rule 10).
+               AGENT_FABRIC_ROOT is SET for the children and never read: to
+               this checkout (the module's own location), except for the two
+               routing children of a managed snapshot, which get the
+               environment hook_entry.py gives the guard (the snapshot's KEEP
+               variables from this one, AGENT_FABRIC_ROOT=<snapshot>,
+               AGENT_FABRIC_PYTHON, PATH).
   stdout       one line per file: "  =  dest" (already current),
                "  +  dest" (written; "  +  dest (would write)" on a dry
                run), "     (kept the previous file as ...)", "  -  dest
@@ -171,22 +179,25 @@ def snapshot_environment(tree: str) -> dict[str, str] | None:
     return env
 
 
-def routing_run(sub: str, provider: str, root: str, tree: str | None) -> subprocess.CompletedProcess:
+def routing_run(sub: str, provider: str, root: str, tree: str | None, *, stderr=None,
+                timeout: float | None = None) -> subprocess.CompletedProcess:
     """`routing.py <sub> --me --provider P`. From the guard's tree where there is one, exactly as
     dispatch_guard.routing_map runs it under hook_entry.py: `-E -s ... --fabric <tree>`, and the environment
     snapshot_environment builds, so an exported AGENT_FABRIC_OPERATOR or PYTHONPATH reaches neither answer. Else from
     the checkout as before, with this process's environment and AGENT_FABRIC_ROOT=<checkout>. A snapshot whose
-    hook_entry.py cannot be read is a failed run, never the checkout's answer."""
+    hook_entry.py cannot be read is a failed run, never the checkout's answer. `stderr` and `timeout` are
+    subprocess.run's (a caller that must print nothing and not wait for ever: status's probe); the installer
+    passes neither, so routing.py's own stderr reaches its caller as it always did."""
     if tree is None:
         cmd = [sys.executable, os.path.join(root, "tools", "fabric", "routing.py"), sub, "--me", "--provider", provider]
         return subprocess.run(cmd, stdout=subprocess.PIPE, text=True, env={**os.environ, "AGENT_FABRIC_ROOT": root},
-                              check=False)
+                              stderr=stderr, timeout=timeout, check=False)
     cmd = [sys.executable, "-E", "-s", os.path.join(tree, "tools", "fabric", "routing.py"), "--fabric", tree, sub,
            "--me", "--provider", provider]
     env = snapshot_environment(tree)
     if env is None:
         return subprocess.CompletedProcess(cmd, 1, "", "")
-    return subprocess.run(cmd, stdout=subprocess.PIPE, text=True, env=env, check=False)
+    return subprocess.run(cmd, stdout=subprocess.PIPE, text=True, env=env, stderr=stderr, timeout=timeout, check=False)
 
 
 def parse_pins(text: str) -> dict[str, str]:

@@ -22,6 +22,11 @@ from fabric_launcher.base import _load, HERE, INSTALL_TIMEOUT_S, RESTART_WAIT_S,
 _record = _load("fabric_launch_provider_record", os.path.join(HERE, "launch_provider_record.py"))
 
 
+def _install_agent_files():
+    # By path, as _record above: the installer reads the managed settings file, and a fixture fabric on sys.path cannot answer for it.
+    return _load("fabric_install_agent_files", os.path.join(HERE, "install_agent_files.py"))
+
+
 def require_files(*paths: str) -> None:
     for path in paths:
         if not os.path.isfile(path):
@@ -195,7 +200,17 @@ def print_report(d: dict, routing, *, label: str, agent: str, role: str, provide
     # to stderr, and leave --print exiting 0 with the lines around it intact
     # — measured. A crash here is exit 1.
     try:
+        # ADR-043 rule 10: under managed settings the agent files carry the routing of the snapshot the dispatch guard
+        # reads, not this checkout's, so the file-pinned model and every effort printed are that snapshot's.
+        tree = _install_agent_files().dispatch_guard_tree()
+        if tree is not None:
+            print(f"  (the agent files' model and effort below come from the managed snapshot {tree}, "
+                  "which the dispatch guard reads; ADR-043 rule 10)")
         for klass, res in d["classes"].items():
+            if tree is not None:
+                snap = routing.resolve(klass, provider, role, agent, root=tree)
+                res = {**res, "effort": snap.get("effort"),
+                       **({"model": snap["model"], "source": snap["source"]} if res["via"] == "file" else {})}
             if res["via"] == "harness":
                 how = "(harness default for its tier)"
             elif res["via"] == "file":

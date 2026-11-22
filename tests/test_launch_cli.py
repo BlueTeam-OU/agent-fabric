@@ -293,6 +293,29 @@ def main() -> int:
             check("a level the model does not admit prints asked -> served, never served alone",
                   has(r"code-medium .* effort high \(asked medium\)", r.stdout), r.stdout)
 
+            # ADR-043 rule 10: with a managed snapshot the agent files carry ITS routing, and --print says so.
+            snap = f"{sandbox}/snap"
+            rm(snap)
+            shutil.copytree(f"{fabric}/routing", f"{snap}/routing")
+            os.makedirs(f"{snap}/runtime/claude-code")
+            shutil.copy(f"{fabric}/runtime/claude-code/aliases.json", f"{snap}/runtime/claude-code/")
+            with open(f"{snap}/routing/effort.json") as fh:
+                eff = json.load(fh)
+            eff["classes"]["code-low"] = "high" if eff["classes"]["code-low"] != "high" else "low"
+            with open(f"{snap}/routing/effort.json", "w") as fh:
+                json.dump(eff, fh)
+            etc = f"{sandbox}/managed-etc"
+            os.makedirs(etc, exist_ok=True)
+            with open(f"{etc}/managed-settings.json", "w") as fh:
+                json.dump({"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "args": [
+                    "-I", "-S", f"{snap}/runtime/claude-code/managed/hook_entry.py", "agent-dispatch-guard"]}]}]}}, fh)
+            plain = out_of("--print")
+            managed_rc, managed = run("--print", AGENT_FABRIC_MANAGED_ETC=etc)
+            low = lambda o: (re.search(r"^  code-low  *:.*$", o, re.M) or re.search("$", "")).group(0)
+            check("no managed file: --print names no snapshot", "managed snapshot" not in plain, plain)
+            check("a managed snapshot: --print says the agent files' values come from it, and prints its effort",
+                  managed_rc == 0 and low(managed) != "" and f"managed snapshot {os.path.realpath(snap)}" in managed and low(managed) != low(plain), managed)
+
             print("launch: a non-GLM override receives no shim; a GLM override keeps it")
             mkfabric()
             profile("roles", "backend-dev", '{"capabilities":{"code-high":"anthropic/claude-sonnet-5"}}')
