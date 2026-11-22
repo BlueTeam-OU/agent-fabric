@@ -743,6 +743,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-14 — interweave-mode: the transport mode by signed action (§2).
 - A 2026-11-15 — evidence takes a sixth section, watch: the watch log's starts and ends (§2).
 - A 2026-11-18 — fabric-op admits one read, the signed `interweave` read, ADR-064 rule 14's fallback; action ttl cap (rule 19).
+- A 2026-11-22 — on dual, presence and pool/job-state holder asks also by the account's own agentd socket; the first reply read answers; self-asks by the relay, but presence in carrier-only by the socket alone (r18).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, HOLD_MAX_S, interweave-mode.
@@ -762,6 +763,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   changed, when presence shows a session (§5 rule 8).
 - A 2026-09-27 — HELLO and GOODBYE are retired from GZCOORD/1; a parser rejects
   them (§5 rule 7).
+- A 2026-11-22 — under dual, a relay that is down no longer leaves presence unknown (§6; ADR-029 r18).
 - Keywords: presence, online, HELLO, GOODBYE, announcement, process table,
   send, --force, exit 4, fabric-ctl presence, planning, re-send.
 
