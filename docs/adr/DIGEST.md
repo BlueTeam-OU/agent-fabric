@@ -1673,7 +1673,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Split from ADR-056, which keeps the persona mechanism under rules 3, 5, 7.
 - Keywords: persona, surnames, scientists, weapons test, avatar, house style, anime, first name, culture.
 
-### ADR-072 — A route's failover alternatives are authored per model, held by a live continuity check, and declared wherever the model is served (Proposed)
+### ADR-072 — A route's failover alternatives are authored per model, held by a live continuity check, and declared wherever the model is served (Accepted)
 
 - A session, a subagent and a review may be served by another model of the
   same provider and account when the gateway sets the routed one aside (§2).

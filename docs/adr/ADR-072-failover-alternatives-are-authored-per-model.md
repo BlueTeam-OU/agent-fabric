@@ -1,7 +1,8 @@
 # ADR-072 — A route's failover alternatives are authored per model, held by a live continuity check, and declared wherever the model is served
 
 **Date:** 2026-11-22
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-11-22, in architect-cto-01's session ("adr 072 accepted") and confirmed in the coordinator's, carried by the pull request that marks it Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** which failover alternatives the session plan compiler (`tools/fabric/gateway_plan.py`) declares on a route, and from which data: the authored file `routing/policies/failover.json` and its lint; when a plan is written as plan schema 2; session-level failover, which ADR-055 §7 left out; a review served by an alternative and how its posted review names it (ADR-055 rule 3); the Codex review's own plan; what is the gateway's and stays there (agent-fabric-gateway ADR-006, ADR-007, the plan contract's "Schema 2")
 **Pillar:** P1
@@ -212,7 +213,7 @@ owner notice of ADR-055 rule 6 may read it.
 
 ## 8. Decision Status
 
-Proposed. The owner chose, in the coordinator's session, that
+Accepted. The owner chose, in the coordinator's session, that
 failover between models is decided for every route, session and review
 included, over declaring none or only on routes no session or review uses.
 Until rule 5 is built, the review's route carries nothing, and with it
@@ -222,7 +223,7 @@ first check of rule 2 for its model lands. ADR-002 needs no amendment: a
 session's model fixed at exec is the harness's, which keeps it; the
 gateway answering from another is this record's.
 
-What waits on acceptance: the file, its lint and the compiler change
+What acceptance starts: the file, its lint and the compiler change
 (rules 1, 3, 6, 8), the review's reading of the models that answered
 (rule 5), and the first live check with its entry (rule 2). Two live
 checks rule 5 rests on: a review-subagent transcript records each
