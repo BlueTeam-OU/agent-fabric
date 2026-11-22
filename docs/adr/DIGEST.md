@@ -1136,9 +1136,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — until stage 4 the engine root honours AGENT_FABRIC_ROOT; instance fixtures use AGENT_FABRIC_OPERATOR (§5 rule 1).
 - A 2026-11-11 — the operator repository is BlueTeam-OU/blueteam-fabric; the move list and order are docs/split/move-plan.md; settings repositories stay apart (§8); an organisation's record moves with its number, a mixed one is amended or split (rule 4).
 - A 2026-11-11 — rule 2: personas, the clients registry and routing/policies are instance; the guards' exception lists are engine (§5 rule 2).
+- A 2026-11-22 — from step B the operator root falls back to operator/ in the engine tree, until step D (§5 rule 1); the forge keys signing.json lists move with it (rule 2, the owner's choice).
 - Keywords: split, engine, operator, client, engagement, roots, open
   source, publish, instance data, Blueteam, Gzapi,
-  operator repository, blueteam-fabric, move plan, extraction.
+  operator repository, blueteam-fabric, move plan, extraction,
+  step B, operator/, forge keys, fallback.
 
 ### ADR-046 — Fleet views: the fleet's state read on demand, read-only (Accepted)
 

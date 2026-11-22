@@ -22,6 +22,7 @@ Counts are tracked files on main at 6fa97620 (2026-11-11).
 | `projects/registry.json`, `projects/clients.json`, `projects/<id>/` | 62 | `projects_registry`, `clients_registry`, `projects_dir`, `project_integration` |
 | `runtime/hosts/registry.json` | 1 | `hosts_registry` |
 | `policies/` instance files: `arming`, `authority`, `auto-mode`, `host-load`, `hygiene`, `signing` (`.json`) | 6 | `policy` |
+| `policies/forge-keys/`, the keys `signing.json` lists (added 2026-11-22, precondition 5) | 1 | `policy` |
 | `routing/profiles.json` | 1 | `routing_profiles` |
 | `routing/policies/` (`account-switch`, `availability`, `review-grade`) | 3 | `routing_policy` |
 | `memory/domains/`, `memory/shared/`, `memory/agents/` | 618 | `memory_dir` |
@@ -128,10 +129,12 @@ operator tree. Each one needs a design before it moves:
    steps ask main's `roots`, the copy inside the `tools/fabric` they archive from
    `origin/main`, for the paths and for the operator prefix that `AGENT_FABRIC_OPERATOR`
    names under `$base`. The branch's `roots` would name `operator/` in step B's own pull
-   request, before main has it. Needed before step B. Open after the readers moved:
-   `policies/forge-keys/` is not on the move list, yet `ban_unsigned_commits.py` reads it
-   through `roots.policy`, the operator's tree. Either the keys move or the reader asks the
-   engine, before step B.
+   request, before main has it. Needed before step B. `policies/forge-keys/` was left open
+   after the readers moved: `ban_unsigned_commits.py` and the signing lint read it beside
+   `signing.json`, through the operator's tree. The owner chose on 2026-11-22 that the keys
+   move with `signing.json` (ADR-045 A 2026-11-22): §1 lists the folder, `roots` names it, and
+   CI's signing step archives `<main's prefix>policies/forge-keys` beside what `git_path`
+   names, since main's `roots` does not know the folder until step B is on main.
 6. **The authority guards read the operator's `main`, or refuse.** After step D, agent-fabric
    has no `policies/authority.json`. `is_fabric_itself` would then answer False, and the
    authority check would narrow to `.agent-fabric/**` without a word, letting every other
@@ -174,7 +177,7 @@ mkdir -p operator/identities operator/projects operator/runtime/hosts operator/p
 git mv identities/roles identities/personas identities/keys identities/agents identities/recovery.asc operator/identities/
 git mv projects/registry.json projects/clients.json operator/projects/   # then each projects/<id>/ but schemas/
 git mv runtime/hosts/registry.json operator/runtime/hosts/
-git mv policies/{arming,authority,auto-mode,host-load,hygiene,signing}.json operator/policies/
+git mv policies/{arming,authority,auto-mode,host-load,hygiene,signing}.json policies/forge-keys operator/policies/
 git mv routing/profiles.json routing/policies operator/routing/
 git mv memory/domains memory/shared memory/agents operator/memory/
 git mv docs/live-checks docs/legal operator/docs/

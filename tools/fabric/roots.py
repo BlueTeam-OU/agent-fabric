@@ -231,6 +231,9 @@ _MOVING = (
     ("identities", "agents", "README.md"), ("identities", "recovery.asc"),
     ("projects", "registry.json"), ("projects", "clients.json"), ("runtime", "hosts", "registry.json"),
     *(("policies", f"{name}.json") for name in _POLICY_FILES),
+    # The forge keys signing.json lists sit beside it: the list and the keys it
+    # names are one trust decision, so they live in one repository (precondition 5).
+    ("policies", "forge-keys"),
     ("routing", "profiles.json"), ("routing", "policies"),
     ("memory", "domains"), ("memory", "shared"), ("memory", "agents"),
     ("docs", "live-checks"),
