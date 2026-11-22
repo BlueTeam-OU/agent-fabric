@@ -70,6 +70,10 @@ last-drain-report.json that cannot be read as a JSON object is refused the same 
 file; an absent one is no refusal. Any other role refuses the
 run before anything is written (exit 1), naming the claim, its role and the project: no fallback. A claim some bound role
 co-owns (shared_with) stays; a project with no taxonomy, the fabric's own project and domain claims are not judged.
+When the project has a taxonomy that does not bind fabric-coordinator (and is not the control plane), the role's earlier
+directory under the project's memory (the copies of drains before the re-home) is removed after every refusal, named in the
+report's `retired_copies`, on stderr and in the commit body. A shared slice the role co-owns with a bound role stays under
+shared/; the role gets an index again only where a claim of its own (a domain claim) still brings it into the run.
 
 Merge mode is the default: existing slices are read, and a claim whose
 `merge_target` names an existing section updates it instead of appending
@@ -116,7 +120,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import Run, layout, in_report  # noqa: E402
-from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, rehome_unbound, note_unbound_owners, rehomed_row, load_hygiene, load_decisions  # noqa: E402
+from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, rehome_unbound, note_unbound_owners, rehomed_row, retire_rehomed_copies, retires_rehomed_copy, REHOME_ROLE, load_hygiene, load_decisions  # noqa: E402
 from assembler.targets import plan_classes, held_files, resolve_all_targets, point_disk  # noqa: E402
 from assembler.anchorkeep import keep_resolving_anchors  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
@@ -213,9 +217,13 @@ def assemble_project(run: Run) -> int | None:
     if check_collisions(run):
         return 1
     # Refused before anything is written, as a broken taxonomy is.
-    held_roles = roles_with_project_directory(run)
-    for role in held_roles:
+    for role in roles_with_project_directory(run):
+        if role == REHOME_ROLE and retires_rehomed_copy(run):
+            continue
         read_crossref_index(os.path.join(layout.project_dir(run.project, role), "crossref.json"))
+    # After every refusal above, so a refused run has deleted nothing it would not name on the rerun.
+    retire_rehomed_copies(run)
+    held_roles = roles_with_project_directory(run)
     point_disk(run)
     write_shared(run)
     # Every role that owns anything gets a project directory and an index —

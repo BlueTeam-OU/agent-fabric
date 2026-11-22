@@ -19,7 +19,8 @@ import roots
 from assembler.core import CLASS_FILES
 from assembler.slices import parse_slice, without_code, cited_outside_code
 
-LINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
+# The same reading as harvest_memory.WIKILINK_RE: a terminal escape written `^[[` is no link.
+LINK_RE = re.compile(r"(?<![\^\x1b])\[\[([^\]\n]+)\]\]")
 REFERENCES_RE = re.compile(r"^\*References: (.*)\*$", re.M)
 CLASS_PREFIX = tuple(f"{k}-" for k in CLASS_FILES)
 
