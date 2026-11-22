@@ -2,9 +2,10 @@
 
 *Host develop-qzapp, account `user` (fabric-coordinator), job j1015, with
 python-dev-01's measurement for j266 (BlueTeam-OU/agent-fabric#686). Every
-account ran fabric `4f5b61d5` (`fabric-ctl all fabric`) when this was read.
-The claim covers the watch logs as `fabric-ctl all interweave-evidence`
-returned them on this date, and the panes as they stood.*
+account ran fabric `4f5b61d5` (`fabric-ctl all fabric`) when this was read,
+on 11-22 and again on 11-23. The claim covers the watch logs as `fabric-ctl
+all interweave-evidence` returned them on 11-22, and for the fourth window
+on 11-23, and the panes as they stood.*
 
 ## What the job said, and what the logs say instead
 
