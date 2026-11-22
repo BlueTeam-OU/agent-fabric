@@ -26,6 +26,11 @@ class RunPinsTheRelay(unittest.TestCase):
             env = run.run_environment(dict(outside), "/nonexistent-scratch")
             self.assertEqual(env["FABRIC_CONTROL_CARRIER"], "relay", outside)
 
+    def test_the_run_points_the_managed_directory_at_its_scratch(self) -> None:
+        for outside in ({}, {"AGENT_FABRIC_MANAGED_ETC": "/etc/claude-code"}):
+            env = run.run_environment(dict(outside), "/the-scratch")
+            self.assertEqual(env["AGENT_FABRIC_MANAGED_ETC"], "/the-scratch/no-managed-etc", outside)
+
     def test_the_pin_outranks_a_config_that_says_dual(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with open(os.path.join(HERE, "runtime", "control", "config.json"), encoding="utf-8") as fh:
