@@ -113,7 +113,7 @@ def main() -> int:
             """One job per (state, artifacts), j1.. in order, written as the list keeps them."""
             ids = []
             for n, (state, arts) in enumerate(entries, 1):
-                rc, out, err = run("add", f"job {n}", "--working-copy", repo, *(["--project", project] if project else []))
+                rc, out, err = run("add", f"job {n}", "--working-copy", repo)     # the project is written below: an id that is no registry's is what some cases need
                 assert rc == 0, err
                 ids.append(out.split()[1])
             doc = json.load(open(path, encoding="utf-8"))
