@@ -664,11 +664,12 @@ class Pieces(Scratch):
         self.assertEqual(done, [1], "positive control: a thread is joined")
         leave = agentd.leaver(inflight, exit=lambda code: None, log=lambda m: None)
         self.assertIsNotNone(agentd.ctl_hold(leave, inflight), "a held session puts a token in the set")
+        token, = (m for m in inflight if not isinstance(m, threading.Thread))   # the one ctl_hold added
         late = threading.Thread(target=lambda: (time.sleep(0.2), done.append(2)))
         late.start()
         # A list, not the set: a set's order is by id hash, and only a token met first makes a raise-at-first-token join fail.
         with self.assertRaises(TypeError):
-            agentd.join_inflight([object(), late])
+            agentd.join_inflight([token, late])
         self.assertEqual(done, [1, 2], "every thread was joined before the refusal, the token meets it first")
 
     def test_ctl_hold_for_refuses_under_once_and_holds_on_a_serving_daemon(self):
