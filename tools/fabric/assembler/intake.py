@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from typing import Any
 import anchors
@@ -461,6 +462,41 @@ def rehome_unbound(run: Run) -> list[dict[str, Any]]:
             # A role with no claim left owns nothing here: not a project directory, index or crossref (assemble.main owning_roles).
             del run.all_claims[role]
     return [c for claims in moved.values() for c in claims]
+
+
+def retires_rehomed_copy(run: Run) -> bool:
+    """Whether this run retires the project's copy of the re-homed role (retire_rehomed_copies says why). Asked before the
+    deletion too, by the refusal loop: a crossref.json inside a copy about to be removed is no reason to refuse the run."""
+    bound = bound_role_ids(run.project)
+    if bound is None or run.project == layout.FABRIC_PROJECT_ID or REHOME_ROLE in bound:
+        return False
+    # A project-class claim the role keeps in its own directory: one a bound role co-owns is a shared slice, under shared/,
+    # and a domain claim lives in the fabric; neither needs the directory, which is written afresh (index only) if the role
+    # still owns anything here.
+    return not any(klass in layout.PROJECT_CLASSES for klass, _topic in run.per_role.get(REHOME_ROLE, {}))
+
+
+def retire_rehomed_copies(run: Run) -> None:
+    """Remove the project's copy of the re-homed role when this project no longer homes it. Its slices were written here by
+    drains before the re-home (a project half carried the coordinator's bundle; since agent-fabric #658 it does not), and a
+    directory left in place was only re-indexed, so a session read six retired slices as the project's (drain of 2026-11-21).
+    Retired: the directory of REHOME_ROLE under the project's memory, when the project has a taxonomy that does not bind it, the
+    project is not the control plane, and this run keeps no project-class claim of the role in its own directory (a shared slice a bound role co-owns is
+    under shared/, which is never touched, and a domain claim is the fabric's). Nothing else: another unbound role's directory is not re-homed, so it is not ours to
+    judge, and a project with no taxonomy binds every role. The knowledge itself is in the control plane's corpus."""
+    if not retires_rehomed_copy(run):
+        return
+    directory = layout.project_dir(run.project, REHOME_ROLE)
+    if os.path.islink(directory):
+        sys.exit(f"assemble: {directory} is a symlink; the retired {REHOME_ROLE} copy is not removed through one")
+    if not os.path.isdir(directory):
+        return
+    count = sum(len(files) for _d, _s, files in os.walk(directory))
+    try:
+        shutil.rmtree(directory)
+    except OSError as exc:
+        sys.exit(f"assemble: {directory}: the retired {REHOME_ROLE} copy cannot be removed ({exc})")
+    run.retired_copies.append(f"{REHOME_ROLE}: {count} file(s) of {os.path.relpath(directory, layout.project_memory_root(run.project))}")
 
 
 def rehomed_row(run: Run, claim: dict[str, Any]) -> dict[str, Any]:
