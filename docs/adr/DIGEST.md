@@ -1354,7 +1354,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   absent: the arm proceeds on the required reviews and says so, and the gate reads the same.
 - A 2026-11-12 — rules 7, 8 point at the policy data; the principle stays.
 - A 2026-11-13 — codex never blocks: one cheap gateway call before it starts; any failure to launch or finish (gateway, probe, allowance, capacity, binary, timeout, crash, no review) posts the marker with its reason; the caller's errors post nothing (§5 rule 8).
-- A 2026-11-22 — session-level failover is ADR-072's (§7); a divert may be the session's own gateway serving the review from the review order, named, not run under a second required engine (§2, §5 rules 1, 3).
+- A 2026-11-22 — session-level failover is ADR-072's (§7); a divert may be the session's own gateway serving the review from the review order, named, not run under a second required engine; a gateway set-aside is reported in its log until built (§2, §5 rules 1, 3, 4).
 
 ### ADR-056 — Agent personas: "AI <Name> <Surname>", a surname from the operator's list each, an avatar the agent accepts, always marked as AI (Accepted)
 

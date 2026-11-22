@@ -45,8 +45,11 @@ the session's next requests are served by another model. That is
 session-level failover, which ADR-055 §7 left outside its record. On the
 routes in use it also reaches the review: the plan has one route per
 distinct model, and the Claude review class resolves to the same model
-as the session and code-high (`claude-opus-5-5` on the anthropic column,
-`deepseek/deepseek-v4-pro-0813` with its shim on openrouter). A review
+as the default session and code-high (`claude-opus-5-5` on the anthropic
+column, `deepseek/deepseek-v4-pro-0813` with its shim on openrouter,
+where code-plan rides it too). A role or agent whose session is routed
+elsewhere (`routing/profiles.json`: python-dev on Sonnet 5.5,
+architect-cto-01 on Fable 5.2) has a session route of its own. A review
 served by another model is a divert, which ADR-055 rule 3 allows only when
 its engine is the only one required and only when the posted review says
 so.
@@ -77,10 +80,11 @@ model would still fail every request of every session riding it. The
 owner chose failover.
 
 **Model alternatives only on routes no session and no review uses.** It
-keeps the session's model fixed and the review out of it, but today that
-is the haiku, sonnet and fable routes only, the ones least likely to need
-it; the session's own model, the one the owner watches stall, would get
-none.
+keeps the session's model fixed and the review out of it, but on the
+anthropic column that leaves the haiku, sonnet and fable routes, and the
+default session's model, the one the owner watches stall, would get none
+(the sessions routed to sonnet or fable would be cut off again by their
+own rule).
 
 **Derive the alternatives from ADR-055 rule 7's ordered lists.** Those
 lists are a run's divert order for the review capability, not a claim that
@@ -90,9 +94,12 @@ Rule 18 of the gateway makes each alternative an assertion of continuity,
 so each is authored and checked. The review route is the exception: its
 order is rule 7's, because a divert must follow it.
 
-**Alternatives across accounts or providers.** The gateway refuses the
-first by obligation and the second by validation, and ADR-055 rule 3
-forbids a review falling back onto another engine's provider.
+**Alternatives across accounts or providers.** The gateway validates
+only the protocol: both providers' backends speak `anthropic`, and an
+account is no plan fact (gateway ADR-006 §2.8), so provider and account
+confinement are the controller's, held by rule 1 and rule 8's lint.
+ADR-055 rule 3 forbids, besides, a review falling back onto another
+engine's provider.
 
 ## 4. Rationale
 
@@ -123,18 +130,22 @@ its order the route's order is what keeps the shared route lawful.
    such as `[1m]` is no model.
 2. **Each pair is checked live.** An alternative is admitted only with a
    live check under `docs/live-checks/` that began a conversation on the
-   routed model, tools and thinking included, and continued it on the
-   alternative through the gateway, sent in the shape the harness sends
-   for the routed model: its context length, its thinking and effort
-   parameters, its beta headers. The entry names that file. A model
+   routed model, tools and thinking included, continued it on the
+   alternative through the gateway, and then back on the routed model,
+   as the gateway's probe moves it; an entry with more than one
+   alternative is checked between every two of its candidates, both
+   ways. Every hop is sent in the shape the harness sends for the routed
+   model: its context length, its thinking and effort parameters, its
+   beta headers. The entry names that file. A model
    change on either side, or a harness pin that changes the request
    shape, re-opens the check.
 3. **Declared wherever the model is served.** The compiler writes a
    route's `failover` from the entry of its target model, for the session's
    route and every class's alike, with `max_attempts` one more than the
    number of alternatives. A model without an entry gets no `failover`.
-4. **The review's route follows its divert order.** On a route the review
-   class's routed model uses, the alternatives are taken from the models
+4. **The review's route follows its divert order.** On the route of the
+   model the login's routing resolves the review class to when the plan
+   is compiled (profile layers included), the alternatives are taken from the models
    after it in `routing/policies/availability.json`'s order for
    `code-review` (ADR-055 rule 7), in that order, each inside the
    review-grade set and an upstream model under rule 1, and the entry
@@ -161,7 +172,9 @@ its order the route's order is what keeps the shared route lawful.
 8. **Lint holds the file.** Every key is a model the provider column
    routes; every alternative is unique, not the key, at most three, inside
    the provider, and names an existing live check; rule 4's order holds
-   for the review's model. The gateway's own refusals (a candidate twice,
+   for the review's model. The compiler refuses to write an alternative
+   whose backend or credential profile is not the route's own: nothing in
+   the gateway would. The gateway's own refusals (a candidate twice,
    a cap over its ceiling) stay the gateway's.
 9. **The gateway decides the rest.** Which failure moves a request, the
    health thresholds and times, and the failure class a further attempt
@@ -201,9 +214,10 @@ owner notice of ADR-055 rule 6 may read it.
 Proposed. The owner chose, in the coordinator's session, that
 failover between models is decided for every route, session and review
 included, over declaring none or only on routes no session or review uses.
-Until rule 5 is built and the first check of rule 2 lands, the session's
-route, which the review shares, carries nothing, and when it does it takes
-only the review order's successors. ADR-002 needs no amendment: a
+Until rule 5 is built, the review's route carries nothing, and with it
+the default session's, which shares it; when it does, it takes only the
+review order's successors. Any other route carries nothing until the
+first check of rule 2 for its model lands. ADR-002 needs no amendment: a
 session's model fixed at exec is the harness's, which keeps it; the
 gateway answering from another is this record's.
 

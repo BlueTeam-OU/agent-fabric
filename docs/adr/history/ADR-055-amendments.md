@@ -85,4 +85,7 @@ posted review; §2 and rule 3 now say a divert may also come from the
 session's gateway, and that such a review is not run while the policy
 requires another engine. Rule 1 says why that is no breach of it: each
 launch has its own gateway, which keeps its health in-process, so what it
-sets aside is what that session's own attempts met.
+sets aside is what that session's own attempts met. Rule 4 says where such a set-aside is
+reported: in the gateway's log events, until the gateway's report reaches
+the control agent, which is not built; §6 says the same of a diverted
+review.

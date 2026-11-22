@@ -36,11 +36,10 @@ it can be served.
 Each run rediscovers availability for itself, locally: it tries its
 model, retries a capacity failure (10 s, 20 s, 60 s), and decides from
 what it saw — never from a record another run left. When its model is
-unavailable after the retries and its engine is the only one the
-pull request's policy requires, a review diverts to the next model of
-its provider's ordered list, by its own retries or by its session's
-gateway serving it from that list (ADR-072); otherwise it reports and
-the pull request waits. The
+unavailable after its retries, or its session's gateway serves it from
+its provider's ordered list (ADR-072), and its engine is the only one
+the pull request's policy requires, a review diverts to the next model
+of that list; otherwise it reports and the pull request waits. The
 control plane keeps what runs observed — which model, which kind, when
 — only to tell people: `fabric-ctl` and the Board show it, and the owner
 is told of a long or total outage. Nothing in routing or in a run reads
@@ -105,7 +104,10 @@ fleet reports (ADR-029), so it carries that view.
 4. Every unavailability a run meets is reported to the control plane —
    model, seat, kind, time, the provider's words — through the
    account's control agent. The report is for people: `fabric-ctl
-   <login|all> availability` and the Board show it.
+   <login|all> availability` and the Board show it. A model the
+   session's gateway sets aside (rule 1, ADR-072) is reported in the
+   gateway's log events until the gateway's report reaches the control
+   agent; that path is not built (A 2026-11-22).
 5. Nothing reads the report to choose a model: not routing, not an
    engine, not the launcher.
 6. A model reported unavailable for longer than an hour, or every model
@@ -155,7 +157,8 @@ fleet reports (ADR-029), so it carries that view.
 - Routing gains an order for the review capability; a model added to
   the review-grade set must also be placed in it.
 - A diverted review is a different reviewer by construction; it is
-  visible on the review and in the report, never silent.
+  visible on the review, and in the report or the gateway's log, never
+  silent.
 
 ## 7. Future Evolution
 
@@ -185,7 +188,8 @@ the probe and the marker on every failure to launch or finish (rule 8,
 
 - ADR-002 (fixed at launch), ADR-005 (routing), ADR-029 (the control
   plane), ADR-031 (accounts and windows), ADR-052 (the account switch),
-  ADR-053 (the second review engine, rule 6 as amended 2026-10-13).
+  ADR-053 (the second review engine, rule 6 as amended 2026-10-13),
+  ADR-072 (failover alternatives, the gateway-served divert).
 - `routing/capabilities.json`, `routing/policies/review-grade.json`,
   `tools/fabric/review_codex.py`, `policies/arming.json`.
 
@@ -199,4 +203,4 @@ The body above reads current; each change's full note is in [history/ADR-055-ame
 | 2026-10-14 | An absent additional review does not stop an arm | §5 rule 8: neither review nor marker on the head is "absent"; the arm proceeds and says so; the gate reads the same |
 | 2026-11-12 | rule 7 and rule 8 point at the policy data, not today's seats and lists | §5 rule 7: the closing example of one seat against two is gone; rule 8: the policy names the required and additional engines |
 | 2026-11-13 | Codex never blocks: probe first, every failure to launch or finish posts the marker | §5 rule 8: one cheap gateway call before codex starts; the gateway, the probe, allowance, capacity, the binary, a timeout, a crash and a run that is no review each post the unavailable marker with its reason; what is the caller's to fix posts nothing (#577) |
-| 2026-11-22 | Session-level failover is ADR-072's | §7 points at ADR-072, which decides it; §2 and §5 rule 3: a divert is also the session's gateway serving the review from the review order, named, and not run while another engine is required; rule 1: the session's own gateway is that session trying |
+| 2026-11-22 | Session-level failover is ADR-072's | §7 points at ADR-072, which decides it; §2 and §5 rule 3: a divert is also the session's gateway serving the review from the review order, named, and not run while another engine is required; rule 1: the session's own gateway is that session trying; rule 4: until its report path is built, a gateway set-aside is reported in the gateway's log |
