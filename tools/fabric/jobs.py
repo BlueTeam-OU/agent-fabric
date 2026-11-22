@@ -241,7 +241,8 @@ cleared first, then queued and paused by priority, paused first, then the oldest
 A session that has worked no job has nothing to settle and takes the job in place, from inside the job's copy (below); "worked" is read from the list: a
 transition whose old or new state is `active` (a start, a block, a delivery, a finish or a drop of the active job) writes
 the harness session id (CLAUDE_CODE_SESSION_ID), when the environment has one, into the job's log entry, and a session is one
-that appears in any entry, so a session launched with its job already active is known once it finishes it.
+that appears in any entry, so a session launched with its job already active is known once it finishes it. A request closed
+with no artifact flags its entries `unfenced`: they still name the session for `switch`, and the job copy guard does not count them.
 With no session id in the environment (an unlaunched shell) the job that last left `active` counts, so `switch` says fresh.
 "Inside the job's copy" (the job copy guard's own, job-copy-guard.py): the real path of the current directory's git toplevel (the
 directory itself outside a checkout) equal to, or under, the job's `working_copy` or `worktree`, read before the list is locked.

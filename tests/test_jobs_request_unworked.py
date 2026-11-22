@@ -7,6 +7,7 @@ the cases that must still be refused: a job of its own closed the same way, and 
 from __future__ import annotations
 
 import glob
+import importlib.util
 import json
 import os
 import subprocess
@@ -81,7 +82,9 @@ def main() -> int:
         check("the request starts", r.returncode == 0, (r.stdout, r.stderr))
         r = run("done", req, "--no-artifact", "answered by REPLY")
         check("and closes with a reason", r.returncode == 0 and job(req)["state"] == "done", (r.stdout, r.stderr))
-        check("no log entry of the request names this session", not any(e.get("session") for e in job(req)["log"]), job(req)["log"])
+        marks = [e for e in job(req)["log"] if e.get("session")]
+        check("every log entry of the request that names this session is flagged unfenced (switch still reads the ids)",
+              len(marks) == 2 and all(e.get("unfenced") for e in marks), job(req)["log"])
         r = run("start", own, cwd=wt)
         check("the own job starts again", r.returncode == 0, (r.stdout, r.stderr))
         check("the guard allows its commit", commit_decision(wt) == "allow", commit_decision(wt))
@@ -94,6 +97,19 @@ def main() -> int:
         run("start", own, cwd=wt)
         check("a job of its own closed with --no-artifact keeps the session's mark", any(e.get("session") for e in job(self_job)["log"]), job(self_job)["log"])
         check("  and the guard denies the commit", commit_decision(wt) == "deny", commit_decision(wt))
+    print("(c) the same close with an artifact named on the verb: lifecycle.transition as the done verb calls it")
+    spec = importlib.util.spec_from_file_location("by_path_under_test", os.path.join(ROOT, "tools", "fabric", "by_path.py"))
+    by_path = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(by_path)
+    work = by_path.load_package("fabric_work", os.path.join(ROOT, "tools", "fabric", "work"))
+    for label, held in (("a request closed with an artifact", ["o/r#4"]), ("a request closed with none", None)):
+        doc = {"jobs": [{"id": "j1", "title": "t", "state": "active", "source": {"kind": "request"}, "artifacts": [], "log": [{"at": "x", "state": "active", "session": "s"}]}]}
+        j = doc["jobs"][0]
+        need = "done_test_or_no_artifact_reason"
+        proof = work.Proof(job="j1", seal=work.seal(j), held={need: ["x"]})
+        work.transition(doc, j, "done", "done", proof, now="y", session="s", no_artifact="answered", **({"artifacts": held} if held else {}))
+        flagged = [bool(e.get("unfenced")) for e in j["log"] if e.get("session")]
+        check(f"{label}: " + ("the session stays fenced" if held else "the session is unfenced"), flagged == ([False, False] if held else [True, True]), j["log"])
     print(f"\ntest_jobs_request_unworked: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 
