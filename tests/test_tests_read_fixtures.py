@@ -44,7 +44,6 @@ DELIBERATE = {
     "tests/test_arm_fabric_config.py": "every project's committed arm.json loads and holds the rules the fabric relies on: the operator's own files",
     "tests/test_session_commands.py": "no session-facing text, the projects' CLAUDE files included, calls a fabric command through a path: the operator's own texts",
     "tests/memory_expand_measure.py": "the linked-sections measurement (ADR-049 follow-up) reads the operator's own committed corpus on purpose: not a test, a report of that corpus",
-    "tests/test_memory_expected_hits.py": "the offline expected-hit set (ADR-049 rule 7) is run against the operator's own committed corpus: the hits are a fact of that corpus",
     "tests/test_arm_policy.py": "the operator's fleet default arming policy loads through arm_policy and is the built-in default, and agrees with its schema: the operator's own file",
     "tests/test_contributors.py": "one case reads what the committed authority.json grants devex-tooling (j574): the operator's own policy; skipped on a stripped copy",
     "tests/test_arming_schema.py": "the committed policies/arming.json validates against the schema and loads through arm_policy.validate (j133): the operator's own file",
@@ -66,6 +65,9 @@ DELIBERATE = {
 # case of each other reads a registry or the roles as the operator keeps them).
 STRIPPED_RED = {
     **DELIBERATE,
+    # Reads the operator's committed corpus through roots.memory_dir, which the source scan follows to no live path: not an
+    # allowance, but a stripped copy has no corpus, so it is red there on purpose (ADR-049 rule 7: the hits are a fact of that corpus).
+    "tests/test_memory_expected_hits.py": "the offline expected-hit set is run against the operator's own committed corpus",
     "tests/test_adr.py": "the decision records are checked as the corpus they are (the records are instance data, ADR-045 §5 rule 2)",
     "tests/test_workingcopy.py": "the moved BlueTeam projects resolve under both organizations: a fact of the operator's registry",
     "tests/test_roots_readers.py": "lint over a copy of the operator's data prints what it prints without one: the operator's roles",
