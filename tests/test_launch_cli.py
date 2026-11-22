@@ -297,8 +297,9 @@ def main() -> int:
             snap = f"{sandbox}/snap"
             rm(snap)
             shutil.copytree(f"{fabric}/routing", f"{snap}/routing")
-            os.makedirs(f"{snap}/runtime/claude-code")
-            shutil.copy(f"{fabric}/runtime/claude-code/aliases.json", f"{snap}/runtime/claude-code/")
+            # The installer runs the snapshot's own routing.py and reads its hook_entry.py: the snapshot carries both.
+            for d in ("tools", "runtime", "identities", "policies", "projects"):
+                os.symlink(f"{ROOT}/{d}", f"{snap}/{d}")
             with open(f"{snap}/routing/effort.json") as fh:
                 eff = json.load(fh)
             eff["classes"]["code-low"] = "high" if eff["classes"]["code-low"] != "high" else "low"
@@ -315,6 +316,41 @@ def main() -> int:
             check("no managed file: --print names no snapshot", "managed snapshot" not in plain, plain)
             check("a managed snapshot: --print says the agent files' values come from it, and prints its effort",
                   managed_rc == 0 and low(managed) != "" and f"managed snapshot {os.path.realpath(snap)}" in managed and low(managed) != low(plain), managed)
+
+            # The values --print attributes to the agent files are the installer's own: the snapshot's routing under
+            # the login's local layer, run as the installer runs it. With a snapshot whose review model differs from
+            # the checkout's and a local layer that moves the review class, re-resolving in --print's process lost
+            # the local layer (and ran the checkout's code), printing a model no agent file carried.
+            with open(f"{snap}/routing/capabilities.json") as fh:
+                caps = json.load(fh)
+            caps["providers"]["openrouter"]["models"]["code-review"] = "z-ai/glm-5.2"
+            with open(f"{snap}/routing/capabilities.json", "w") as fh:
+                json.dump(caps, fh)
+            local('{"capabilities":{"code-review":"anthropic/claude-opus-5"}}')
+            snap_rc, snap_out = run("--print", AGENT_FABRIC_MANAGED_ETC=etc)
+            probe = ("import json, sys\n"
+                     f"sys.path.insert(0, {ROOT + '/tools/fabric'!r})\n"
+                     "import install_agent_files as i\n"
+                     "r = [i.routing_run(s, 'openrouter', sys.argv[1], sys.argv[2]) for s in ('pins', 'efforts')]\n"
+                     "print(json.dumps([i.parse_pins(r[0].stdout), i.parse_efforts(r[1].stdout)]))\n")
+            pr = subprocess.run([sys.executable, "-c", probe, fabric, os.path.realpath(snap)], text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
+                                env={**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_STATE_DIR": state})
+            inst_pins, inst_efforts = json.loads(pr.stdout)
+            cline = lambda o, k: (re.search(rf"^  {k}  *:.*$", o, re.M) or re.search("$", "")).group(0)
+            check("the installer's own pin for the review class is the local layer's, not the snapshot's",
+                  inst_pins.get("code-review") == "anthropic/claude-opus-5" and len(inst_efforts) >= 4, pr.stdout + pr.stderr)
+            check("--print under a managed snapshot: the review class line carries the installer's pin",
+                  snap_rc == 0 and re.search(rf"^  code-review  *: {re.escape(inst_pins['code-review'])}  .*=> {re.escape(inst_pins['code-review'])}  ",
+                                             cline(snap_out, "code-review")) is not None, snap_out)
+            check("--print under a managed snapshot: every class's effort is the installer's",
+                  all(f"effort {lvl}" in cline(snap_out, k) for k, lvl in inst_efforts.items()), snap_out)
+            # A snapshot whose routing cannot run: one line saying so, and --print goes on.
+            os.remove(f"{snap}/routing/capabilities.json")
+            bad_rc, bad_out = run("--print", AGENT_FABRIC_MANAGED_ETC=etc)
+            check("a snapshot whose routing cannot be read: --print says so and does not crash",
+                  bad_rc == 0 and "routing could not be read" in bad_out and "Traceback" not in bad_out, bad_out)
+            local("{}")
 
             print("launch: a non-GLM override receives no shim; a GLM override keeps it")
             mkfabric()
