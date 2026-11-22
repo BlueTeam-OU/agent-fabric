@@ -308,6 +308,8 @@ def main() -> int:
     # the file from the checkout again and cannot clear it. The reason names that cause and its remedy.
     behind = "fabric-managed check"
     check("…and its reason names a managed snapshot behind the checkout, with its remedy", behind in out, out)
+    check("…and its reason names the reinstall of the snapshot after the file was written, with both remedies",
+          "reinstalled the managed snapshot" in out and "fabric-model apply" in out and "fabric-ctl all upgrade fabric" in out, out)
 
     # THE SAME STALENESS, FOR EFFORT. A level is written into every class's
     # file, not just the reviewer's model, so the cross-provider rewrite

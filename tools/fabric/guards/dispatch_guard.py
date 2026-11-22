@@ -204,17 +204,18 @@ class Malformed(Exception):
 
 def stale_file(file: str) -> str:
     """The causes of an agent file that disagrees with this guard's routing, each with its remedy (j810)."""
-    # Three causes, and the third is the one fabric-model apply cannot clear. The file is routed from the login's
-    # checkout (install_agent_files.py, at launch and on apply); this guard routes from FABRIC, the tree it runs from,
-    # which under managed settings is the root-owned snapshot (ADR-043 rule 2). A routing merge the snapshot predates
-    # therefore denies every dispatch of the class on the host until it is reinstalled (8d38edf2, 2026-11-12: every
-    # review denied; the old text sent agents to fabric-model apply, which rewrote the file from the checkout again).
+    # Four causes. Since ADR-043 rule 10 the installer routes a file from the tree this guard reads (the managed
+    # snapshot, else the checkout), so fabric-model apply clears the first, second and fourth. The third survives
+    # only for a file an installer older than rule 10 wrote from the checkout (8d38edf2, 2026-11-12: every review
+    # denied; the old text sent agents to fabric-model apply, which rewrote the file from the checkout again).
     return (f"Either another launch of this account (the other provider) has rewritten {file} since this session "
-            "started, or the fabric checkout moved under this session and now routes it differently: re-run "
-            "agent-fabric/bin/fabric-model apply from this session, or relaunch. Or the routing this guard reads, "
-            f"{FABRIC}, is behind the checkout the file was written from, which neither of those clears: run "
-            "fabric-managed check, and if it says drifted, ask the owner to install main's sha "
-            "(sudo agent-fabric/bin/fabric-managed install --sha <sha>). ")
+            "started, or the fabric checkout moved under this session and now routes it differently, or the operator "
+            "reinstalled the managed snapshot after this session wrote its agent files and this guard now routes "
+            "ahead of the file: re-run agent-fabric/bin/fabric-model apply from this session (it writes from the "
+            "snapshot), or relaunch, or the fleet's `fabric-ctl all upgrade fabric`, which reruns bootstrap. Or the "
+            f"file was written by an installer older than ADR-043 rule 10 from a checkout ahead of {FABRIC}, which "
+            "apply cannot clear: run fabric-managed check, and if it says drifted, ask the owner to install main's "
+            "sha (sudo agent-fabric/bin/fabric-managed install --sha <sha>). ")
 
 
 def decision(kind: str, reason: str, **extra) -> dict:
