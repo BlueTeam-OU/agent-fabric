@@ -178,8 +178,8 @@ Proposed. The owner set its shape in the coordinator's session:
 retries of 10 s, 20 s and 60 s; a report naming capacity or allowance;
 availability rediscovered locally, tracked centrally only to let people
 know; a divert only when the engine is the pull request's only required
-reviewer, so under the fleet's two-engine policy a pull request waits
-out an outage; and a divert never onto the other engine's provider.
+reviewer, so under a policy that requires two engines a pull request
+waits out an outage; and a divert never onto the other engine's provider.
 The engine's retries and report (rule 2) are built (#235), and so are
 the probe and the marker on every failure to launch or finish (rule 8,
 #577); the report to the control plane and the divert follow acceptance.

@@ -204,8 +204,9 @@ its order the route's order is what keeps the shared route lawful.
 ## 7. Future Evolution
 
 Another endpoint of the same account serving the same model, if one
-appears, is admitted under rule 1 without a model change, and would be
-taken first. Widening the failure class a further attempt follows is the
+appears, would be an alternative with no model change, taken first; it
+needs rule 1 and rule 8 amended to admit a second backend of the same
+account, since today an alternative is the route's own backend. Widening the failure class a further attempt follows is the
 gateway's. If the gateway's log shows a model set aside for long, the
 owner notice of ADR-055 rule 6 may read it.
 
