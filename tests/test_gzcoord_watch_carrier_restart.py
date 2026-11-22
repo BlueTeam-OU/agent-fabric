@@ -22,7 +22,7 @@ import test_gzcoord_protocol as P  # noqa: E402 — its scratch and command envi
 from gzcoord.carrier import server  # noqa: E402
 from gzcoord.transport import mode  # noqa: E402
 
-DOWN_S = 6.0      # the give-up bound the watch is given; a restart below it is ridden out, a silence past it ends the watch
+DOWN_S = 6.0      # the bound after which the watch says the carrier is silent (stderr); it never ends the watch for it
 RETRY_S = 0.5
 
 
@@ -59,6 +59,8 @@ class Restart(unittest.TestCase):
     def handler(self, req: dict) -> dict:
         if req["op"] == "wait":
             self.waits += 1
+            if getattr(self, "hang", False):
+                self.release.wait(150)
             # A real carrier holds a wait for tens of seconds. The arm lasts `waited >= wait_total` in NOMINAL slice seconds, so a
             # fake that answers at once would end the arm (which resets the watch's down state) within the case; this one does not.
             time.sleep(1.0)
@@ -119,17 +121,52 @@ class Restart(unittest.TestCase):
         self.restart(1.0)
         self.assertTrue(self.answered_more(self.waits), "the watch rode out the second restart: " + "".join(self.out + self.err))
         self.assertIsNone(self.proc.poll())
+        # The first outage is over: counting the second from its first failure would say the bound at once (j169's reset).
+        self.assertNotIn("has not answered", "".join(self.err))
         self.pending.append(record())
         self.assertEqual(self.proc.wait(timeout=30), 0, "".join(self.out + self.err))
         self.assertIn("after-restart", "".join(self.out), "a message listed after the restart is delivered")
 
-    def test_a_carrier_silent_past_the_bound_ends_the_watch_with_exit_5(self):
-        # The positive control: the bound is still enforced, counted from the first failure after the carrier's last answer.
+    def test_a_carrier_silent_past_the_bound_is_waited_out_and_delivers_when_it_returns(self):
+        # 2026-11-20: a carrier silent past the bound ended the watch with exit 5 and the session stayed deaf. The watch now says it
+        # on stderr and keeps retrying; the carrier's return delivers the next message without anyone running the watch again.
         self.start()
         self.down()
-        self.assertEqual(self.proc.wait(timeout=DOWN_S + 20), 5, "".join(self.out + self.err))
-        self.assertIn("did not answer", "".join(self.out))
+        end = time.monotonic() + DOWN_S + 20
+        while time.monotonic() < end and "has not answered" not in "".join(self.err):
+            time.sleep(0.1)
+        self.assertIn("has not answered", "".join(self.err), "the bound is said, loudly")
+        self.assertIsNone(self.proc.poll(), "the watch did not exit: " + "".join(self.out + self.err))
+        self.pending.append(record())
+        self.up()
+        self.assertEqual(self.proc.wait(timeout=30), 0, "".join(self.out + self.err))
+        self.assertIn("after-restart", "".join(self.out), "the message listed after the carrier returned is delivered")
 
+    def test_a_carrier_silent_to_the_deadline_ends_quiet_and_says_why(self):
+        # The positive control of the above: the watch is not endless. Past its deadline it ends exit 0, the "run it again" ending.
+        self.proc = subprocess.Popen([P.INBOX_CMD, "--until-delivery", "--deadline", "4"], env=self.env, text=True,
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(self.stop)
+        self.down()
+        out, err = self.proc.communicate(timeout=30)
+        self.assertEqual(self.proc.returncode, 0, out + err)
+        self.assertIn("is not running", out, "the failure, not the \"waiting for it\" line of a watch that goes on")
+        self.assertIn("run the watch again", out)
+
+    def test_a_carrier_that_accepts_and_never_answers_still_says_why_at_the_deadline(self):
+        # A hung carrier is not a refusing one: its last arm is cut by the deadline, not by an error, and must not read as an answer.
+        # The first arm (55 s asked) times out at 60 s, which is the failure; the second is cut by the deadline, which is no answer.
+        self.hang = True
+        self.release = threading.Event()
+        self.addCleanup(self.release.set)
+        self.proc = subprocess.Popen([P.INBOX_CMD, "--until-delivery", "--deadline", "75"], env=self.env, text=True,
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(self.stop)
+        out, err = self.proc.communicate(timeout=120)
+        self.assertEqual(self.proc.returncode, 0, out + err)
+        self.assertIn("run the watch again", out)
+        self.assertIn("carrier failed", out)
+        self.assertFalse(out.startswith("gzcoord inbox: quiet"), "the failure comes before the quiet line: " + out)
 
 def tearDownModule():
     for d in P.SCRATCH:

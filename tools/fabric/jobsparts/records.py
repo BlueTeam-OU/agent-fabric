@@ -36,11 +36,12 @@ def session_worked(doc: dict, session: str | None) -> str | None:
     of a job that was never active is no work done and records none. Without
     a session id (an unlaunched shell) nothing can be told apart, so any job
     that has left `active` counts: such a session always says "fresh", even
-    when just launched, which is the safe error."""
+    when just launched, which is the safe error. An entry flagged `unfenced` (a request closed with no artifact, work/lifecycle.py)
+    is no work: neither this fence nor `switch`'s fresh verdict counts it (switch still settles the job through last_worked)."""
     for job in doc["jobs"]:
         if session is None and doc.get("last") == job["id"]:
             return job["id"]
-        if session and any(e.get("session") == session for e in job.get("log", [])):
+        if session and any(e.get("session") == session and not e.get("unfenced") for e in job.get("log", [])):
             return job["id"]
     return None
 
@@ -91,6 +92,26 @@ def working_copy_of(project: str) -> str | None:
             if os.path.isdir(os.path.join(path, ".git")) and own_project(identity.resolve_context(cwd=path)) == project:
                 return path
     return None
+
+
+def registered(project: str | None) -> bool | None:
+    """Whether the registry holds `project` as an id: None when the registry cannot say (unreadable), so only a registry that was read
+    and does not list the id refuses it. A typo or a retired name stored on a job is a record nothing can repair by matching remotes."""
+    if not project:
+        return None
+    wc = _load("fabric_workingcopy", os.path.join(FABRIC_ROOT, "tools", "fabric", "workingcopy.py"))
+    try:
+        held = wc.load_registry().get("projects") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    # A registry that lists no project is a stripped tree (ADR-045 §5 rule 3), not a verdict on the id.
+    return project in held if held else None
+
+
+def require_registered(project: str | None) -> None:
+    """An id given by hand (`add --project`, `project`) must be one the registry holds; the ids a message's headers name are not held to it."""
+    if project and registered(project) is False:
+        raise Refused(f"{project} is not a project id in the registry (projects/registry.json): name a registered one")
 
 
 def named_working_copy(project: str | None, working_copy: str | None) -> str | None:

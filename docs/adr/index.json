@@ -139,7 +139,7 @@
       "date": "2026-09-13",
       "pillar": "P2",
       "class": "engine",
-      "amendments": 5
+      "amendments": 6
     },
     {
       "number": "014",
@@ -199,7 +199,7 @@
       "date": "2026-09-18",
       "pillar": "P3",
       "class": "engine",
-      "amendments": 17
+      "amendments": 20
     },
     {
       "number": "020",
@@ -209,7 +209,7 @@
       "date": "2026-09-20",
       "pillar": "P3",
       "class": "engine",
-      "amendments": 11
+      "amendments": 12
     },
     {
       "number": "021",
@@ -299,7 +299,7 @@
       "date": "2026-09-17",
       "pillar": "P5",
       "class": "engine",
-      "amendments": 39
+      "amendments": 40
     },
     {
       "number": "030",
@@ -309,7 +309,7 @@
       "date": "2026-09-25",
       "pillar": "P5",
       "class": "engine",
-      "amendments": 1
+      "amendments": 2
     },
     {
       "number": "031",
@@ -379,7 +379,7 @@
       "date": "2026-09-28",
       "pillar": "P3",
       "class": "engine",
-      "amendments": 25
+      "amendments": 27
     },
     {
       "number": "038",
@@ -409,7 +409,7 @@
       "date": "2026-09-30",
       "pillar": "P1",
       "class": "engine",
-      "amendments": 21
+      "amendments": 22
     },
     {
       "number": "041",
@@ -559,7 +559,7 @@
       "date": "2026-10-13",
       "pillar": "P1",
       "class": "engine",
-      "amendments": 4
+      "amendments": 5
     },
     {
       "number": "056",
@@ -719,6 +719,16 @@
       "date": "",
       "pillar": "",
       "class": "",
+      "amendments": 0
+    },
+    {
+      "number": "072",
+      "file": "ADR-072-failover-alternatives-are-authored-per-model.md",
+      "title": "A route's failover alternatives are authored per model, held by a live continuity check, and declared wherever the model is served",
+      "status": "Proposed",
+      "date": "2026-11-22",
+      "pillar": "P1",
+      "class": "engine",
       "amendments": 0
     }
   ]

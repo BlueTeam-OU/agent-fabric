@@ -16,7 +16,9 @@ from instance_fixtures import write_operator_policy
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(HERE, "runtime", "claude-code", "user-settings.py")
-HOOK = f'python3 "{HERE}/runtime/claude-code/hooks/session-state.py"'
+# The rendered hooks run on the fleet's pin, never the host's python3 (ADR-040 rule 1, A 2026-11-11).
+PIN = "/usr/local/bin/fabric-python"
+HOOK = f'{PIN} "{HERE}/runtime/claude-code/hooks/session-state.py"'
 EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "Notification", "Stop", "SessionEnd")
 
 
@@ -65,7 +67,7 @@ def main() -> int:
         # The freshness hook (hooks/freshness.py) rides UserPromptSubmit: one
         # entry, at this checkout's path, beside the account's own; an old
         # checkout's entry replaced (review of the carried-109 branch, 5).
-        fresh = f'python3 "{HERE}/runtime/claude-code/hooks/freshness.py"'
+        fresh = f'{PIN} "{HERE}/runtime/claude-code/hooks/freshness.py"'
         doc = json.load(open(settings))
         doc["hooks"]["UserPromptSubmit"] = doc["hooks"].get("UserPromptSubmit", []) + [
             {"hooks": [{"type": "command", "command": "mine.sh"}]},
@@ -82,7 +84,7 @@ def main() -> int:
         # The PR-counts guard (hooks/pr-counts.py) rides Stop: one entry, at
         # this checkout's path, beside the account's own Stop hook and the
         # session-state one; an old checkout's entry replaced.
-        counts = f'python3 "{HERE}/runtime/claude-code/hooks/pr-counts.py"'
+        counts = f'{PIN} "{HERE}/runtime/claude-code/hooks/pr-counts.py"'
         doc = json.load(open(settings))
         doc["hooks"]["Stop"] = doc["hooks"]["Stop"] + [
             {"hooks": [{"type": "command", "command": 'python3 "/old/runtime/claude-code/hooks/pr-counts.py"'}]}]
@@ -97,13 +99,13 @@ def main() -> int:
         check("pr-counts: a second run changes nothing", r.stdout.startswith("  =  "), r.stdout + r.stderr)
 
         # The watch-on-stop guard rides Stop beside pr-counts, once, at this path.
-        watch = f'python3 "{HERE}/runtime/claude-code/hooks/watch-on-stop.py"'
+        watch = f'{PIN} "{HERE}/runtime/claude-code/hooks/watch-on-stop.py"'
         stops = [h["command"] for e in json.load(open(settings))["hooks"]["Stop"] for h in e["hooks"]]
         check("watch-on-stop: one entry on Stop, this checkout's", [c for c in stops if "watch-on-stop.py" in c] == [watch], stops)
         check("watch-on-stop: pr-counts kept beside it", any("pr-counts.py" in c for c in stops), stops)
 
         # The subagent ledger rides SubagentStop, once, at this path.
-        ledger = f'python3 "{HERE}/runtime/claude-code/hooks/subagent-ledger.py"'
+        ledger = f'{PIN} "{HERE}/runtime/claude-code/hooks/subagent-ledger.py"'
         subs = [h["command"] for e in json.load(open(settings))["hooks"]["SubagentStop"] for h in e["hooks"]]
         check("subagent-ledger: one entry on SubagentStop, this checkout's", subs == [ledger], subs)
         doc = json.load(open(settings))

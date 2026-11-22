@@ -10,7 +10,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3), its argv amended
 since (agent-fabric #92): a boundary is waived only on the waiver role
 holder's message, so --no-boundary alone — the bash's form — is now a
 usage error, on a PR with no boundary file too, where a waiver of
-nothing wrote a false record.
+nothing wrote a false record; and --basis may be left out of a --dry-run
+(agent-fabric #676), which then says whom to ask or that a basis is all
+a real arm still needs, and shows no comment.
   argv      <pr-number> --basis "<one line>"
             [--boundary | --no-boundary "<why>" --waiver <message-id|seq>]
             [--authorization <message-id|seq>]
@@ -369,7 +371,7 @@ A PR that reads open, or cannot be read, while its head is in the base branch
 just fetched (git merge-base --is-ancestor) has merged, and the PR API is lagging.
 
 Options:
-  --basis "<text>"      required: the one-line arming basis
+  --basis "<text>"      the one-line arming basis; required, but for --dry-run
   --boundary            treat as a security-boundary change regardless of paths
   --no-boundary "<why>" waive the boundary gate, with --waiver; the reason goes in the comment
   --waiver <id|seq>     the waiver role holder's message (MESSAGE-ID or relay seq)
@@ -377,11 +379,12 @@ Options:
   --any-owner           arm a PR whose branch is not this session's
   --defer "<head8>:F<n>" "<why>"  lift one open finding of gate 4c (repeatable); recorded in the comment
   --defer-job j<n> "<why>"  lift one blocked job of gate 4c whose wait is not this PR's (repeatable); recorded in the comment
-  --dry-run             evaluate every gate, arm nothing, post nothing
+  --dry-run             evaluate every gate, arm nothing, post nothing; --basis may be
+                        left out, and the count gate then says the minimum and whom to ask
   --repo <owner/name|project>  the PR's repository, whose arm.json and policy apply, not the cwd checkout's
 
 Exit codes:
-  0  armed or merged (or, with --dry-run, would arm)
+  0  armed or merged (or, with --dry-run, would arm — given a --basis, when none was)
   1  refused — the reason is the last line
   2  gh / pr-gate / pr-review-status / arm.json / the relay / fabric-ctl /
      fabric-whoami / the role catalogue / fabric-jobs could not answer, or usage
@@ -604,16 +607,18 @@ OWNER_WORD = "ask the owner: their word (\"arm <n>\", relayed to you) goes in th
 
 
 def authority_known(role: str) -> bool:
-    """Whether the policy's authority role is a role of the catalogue (False when the catalogue cannot be read)."""
-    try:
-        return bool(SLUG.fullmatch(role)) and role in catalogue_roles("authority")
-    except Unanswered:
-        return False
+    """Whether the policy's authority role is a role of the catalogue. An unreadable catalogue is Unanswered, not
+    False: "not a role" sends the agent to the owner, which an unanswered read does not justify (review 0b3aece7)."""
+    return bool(SLUG.fullmatch(role)) and role in catalogue_roles("authority")
 
 
-def lift_hint(authority: str | None, key: str, repo: str, num: str, head: str, session: str, author: str, own_prs: bool) -> str:
+def lift_hint(authority: str | None, key: str, repo: str, num: str, head: str, session: str, author: str, own_prs: bool,
+              *, another_holder: bool = False) -> str:
     """Whom to ask for the word a count gate wants: the policy's authority role with the holders running now, the
-    line to ask for and the basis a holder arms on, then the owner; the owner alone where the policy names none."""
+    line to ask for and the basis a holder arms on; the owner only where the policy names no authority, or one that is
+    not a role. another_holder: the session asking is the PR's author, refused under authority_own_prs false before
+    its role is read, so the arming route is offered to another holder only — offered to this session, it would be
+    the refusal again."""
     if not authority:
         return OWNER_WORD
     if not authority_known(authority):
@@ -623,7 +628,11 @@ def lift_hint(authority: str | None, key: str, repo: str, num: str, head: str, s
     # authority_own_prs lets the author hold the role can that PR be the holder's own.
     flag = f"--basis \"{authority}'s word\" (and --any-owner, on a PR not its own)" if own_prs \
         else f"--any-owner --basis \"{authority}'s word\""
-    return f"{ask}; or, in a session that holds {authority}, {flag}; or {OWNER_WORD}"
+    # No owner fallback here: where the policy names an authority the agent asks it, never the owner (ADR-019 rule 4,
+    # A 2026-11-21); ask_a_holder says who knows the holders when none is running.
+    if another_holder:
+        return f"{ask}; that holder arms it from its own session, {flag}"
+    return f"{ask}; or, in a session that holds {authority}, {flag}"
 
 
 def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: str, refuse, *, word: str, field: str,
@@ -1031,8 +1040,13 @@ def arm(argv: list[str]) -> int:
         i += 1
     if not num:
         raise Unanswered("the PR number is required")
-    if not basis:
-        raise Unanswered('--basis "<one line>" is required — the arming comment is the record')
+    no_basis = not basis
+    if no_basis:
+        if not dry:
+            raise Unanswered('--basis "<one line>" is required — the arming comment is the record')
+        # A dry run posts no comment, so it needs no record: without a basis it carries no word, and the count gate
+        # says the minimum and whom to ask (team.md and the pull-requests skill cite a bare `fabric-pr arm --dry-run`).
+        basis = "(dry run: no basis given)"   # carries no word; never shown as a comment (no_basis below)
     if boundary and no_boundary:
         raise Unanswered("--boundary and --no-boundary contradict")
     if bool(no_boundary) != bool(waiver):
@@ -1336,7 +1350,8 @@ def arm(argv: list[str]) -> int:
                 login = session.split("/", 1)[-1]
                 if login == author and not own_prs:
                     raise refuse(f"the basis gives {authority}'s word, and {login} is the pull request's own author: an authority"
-                                 f" never arms its own PR here (commits.authority_own_prs is false) — {OWNER_WORD}")
+                                 f" never arms its own PR here (commits.authority_own_prs is false) —"
+                                 f" {lift_hint(authority, authority_key, repo, num, head, session, author, own_prs, another_holder=True)}")
                 held = session_role(session)
                 if held != role_held:
                     raise refuse(f"the basis gives {authority}'s word, and this session holds {held or 'no role'} by its binding,"
@@ -1456,6 +1471,10 @@ def arm(argv: list[str]) -> int:
         raise refuse(f"its head is now {now[:8] or 'unknown'}, not {head[:8]}, the head the gates read: a push landed"
                      f" while they ran; review the new range, then arm again")
     armed_status = arm_policy.armed_status(policy)
+    if dry and no_basis:
+        # The placeholder is no record a real run would post: say what a real arm still needs instead (#676 F11).
+        say(f"DRY RUN — the gates pass on {head[:8]}; a real arm needs --basis \"<one line>\", the comment it posts")
+        return 0
     if dry:
         if armed_status:
             say(f"DRY RUN — would post {armed_status} on {head[:8]}")

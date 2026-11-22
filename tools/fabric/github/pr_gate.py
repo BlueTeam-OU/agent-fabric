@@ -60,7 +60,8 @@ mergeable?" needed four tools and a head count by hand: fabric-pr sessions
 for the list, git rev-list for the commits, gh pr checks for the
 checks, fabric-pr review-status for the review, and the owner's arming rule
 applied on top — eight or more WORK commits arm at the gate, a security
-boundary too; under eight the owner is asked;
+boundary too; under eight the arming authority the policy names is
+asked by REQUEST, the owner where it names none;
 sixteen is batch-size advice for the next batch, never a block. One line
 per PR now carries all of it, and a verdict.
 
@@ -104,7 +105,10 @@ WHAT A ROW SAYS
          requires every engine; ? is a reader that could not answer
   verdict one of:
     MERGEABLE — arm (8–16 work commits, gate met: post the basis, arm)
-    MERGEABLE — ask the owner (under 8 work commits, gate met)
+    MERGEABLE — ask <authority> by REQUEST (under 8 work commits, gate met;
+    the policy names commits.below_min_authority)
+    MERGEABLE — ask the owner (under 8 work commits, gate met; the policy
+    names no authority)
     MERGEABLE — N work commits, over 16: smaller batches next time (advice, never a block)
     MERGEABLE — commits unknown (the base is not fetched; count by hand)
     MERGEABLE — record (owner's ruling): on a direct repository, a PR whose every
@@ -478,6 +482,12 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
         return f"MERGEABLE — arm: post the basis ({work} work commits, each engine's review on head) and gh pr merge {num} {flag}"
     if rule["below_min"] == "refuse":
         return f"MERGEABLE — {work} work commits < {rule['min']}: this repository's policy refuses below the minimum, arm will not arm it"
+    # ADR-019 rule 4: where the policy names an arming authority, it is asked, never the owner; the gate does not judge
+    # the boundary (arm does), so only below_min_authority is read here.
+    authority = rule.get("below_min_authority")
+    if authority:
+        return (f"MERGEABLE — ask {authority} by REQUEST ({work} work commits < {rule['min']}; fabric-pr arm {num} --dry-run"
+                f" names its holders), then arm")
     return f"MERGEABLE — ask the owner ({work} work commits < {rule['min']}), then arm"
 
 

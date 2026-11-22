@@ -665,6 +665,12 @@ class PrGate(unittest.TestCase):
         self.assertIn("arm: post the basis (3 work commits", self.v(3, p))
         self.assertIn("6 work commits, over 5", self.v(6, p))
 
+    def test_below_the_minimum_a_named_authority_is_asked_never_the_owner(self):
+        # ADR-019 rule 4: the gate's verdict agrees with arm's hint (#676 review 0b3aece7 §2)
+        text = self.v(3, arm_policy.validate({"commits": {"min": 8, "below_min_authority": "architect-cto"}}))
+        self.assertIn("ask architect-cto by REQUEST (3 work commits < 8", text)
+        self.assertNotIn("ask the owner", text)
+
     def test_a_policy_that_could_not_be_read_is_said_and_no_number_is_assumed(self):
         text = self.v(9, "o/settings repos/R.json could not be read (HTTP 500)")
         self.assertIn("the arming policy cannot be read (o/settings repos/R.json could not be read (HTTP 500))", text)
@@ -894,7 +900,7 @@ class ArmRun(unittest.TestCase):
             st.enter_context(contextlib.redirect_stdout(out))
             st.enter_context(contextlib.redirect_stderr(err))
             try:
-                rc = arm.arm(["7", "--basis", basis, *extra])
+                rc = arm.arm(["7", *(("--basis", basis) if basis is not None else ()), *extra])
             except arm.Refused as e:
                 rc = f"refused: {e}"
             except arm.Unanswered as e:
@@ -1192,7 +1198,7 @@ class ArmRun(unittest.TestCase):
         self.assertIn(f"`AUTHORIZES: O/R#7@{self.HEAD[:8]}`", text)
         self.assertIn("--authorization <id>", text)
         self.assertNotIn("dev", text.split("running now")[1].split(")")[0])
-        self.assertIn("or ask the owner", text)
+        self.assertNotIn("ask the owner", text)   # ADR-019 rule 4: a named authority is asked, never the owner
 
     def test_with_no_holder_running_the_refusal_says_so_and_who_knows(self):
         policy = claude_only({"commits": {"min": 1, "boundary_authority": "architect-cto"}})
@@ -1723,9 +1729,9 @@ class ArmRun(unittest.TestCase):
 
     def test_the_hint_to_a_holder_carries_any_owner_and_where_it_may_be_the_holders_own_pr_says_when(self):
         text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",))
-        self.assertIn("in a session that holds architect-cto, --any-owner --basis \"architect-cto's word\"; or", text)
+        self.assertTrue(text.endswith("in a session that holds architect-cto, --any-owner --basis \"architect-cto's word\""), text)
         text = self.refusal(claude_only({"commits": {**self.BM, "authority_own_prs": True}}), files=("docs/a.md",))
-        self.assertIn("in a session that holds architect-cto, --basis \"architect-cto's word\" (and --any-owner, on a PR not its own); or", text)
+        self.assertTrue(text.endswith("in a session that holds architect-cto, --basis \"architect-cto's word\" (and --any-owner, on a PR not its own)"), text)
 
     def test_a_policy_with_only_boundary_authority_lets_its_holder_arm_a_boundary_change_by_the_binding_and_nothing_else(self):
         policy = claude_only({"commits": {"min": 8, "boundary_authority": "architect-cto"}})
@@ -1761,6 +1767,12 @@ class ArmRun(unittest.TestCase):
             rc, _ = self.below(basis=basis, extra=extra, branch=branch, **kw)
             self.assertTrue(str(rc).startswith("refused"), (basis, rc))
             self.assertIn("own author", str(rc))
+            if "--any-owner" not in extra:   # ADR-019 rule 4: another holder of the authority is asked, never the owner
+                self.assertIn("architect-cto holder", str(rc))
+                self.assertNotIn("ask the owner", str(rc))
+                # the route offered is another holder's, never this refused session's own (#676 F6)
+                self.assertNotIn("in a session that holds", str(rc))
+                self.assertIn("from its own session", str(rc))
             rc, out = self.below({"authority_own_prs": True}, basis=basis, extra=extra, branch=branch, **kw)
             self.assertEqual(rc, 0, (basis, out))
         # the boundary path keeps the same constant
@@ -1780,12 +1792,27 @@ class ArmRun(unittest.TestCase):
         rc, out = self.below({"authority_own_prs": True}, basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="fix-x")
         self.assertEqual(rc, 0, out)
 
-    def test_the_refusal_names_the_authority_its_running_holder_and_the_basis_before_the_owner(self):
+    def test_a_dry_run_without_a_basis_names_the_minimum_and_whom_to_ask(self):
+        # pr_gate's verdict and team.md cite a bare `fabric-pr arm N --dry-run` for this (#676 F9)
+        rc, _ = self.below(basis=None, extra=("--dry-run",), fleet=fleet_of(("arch1", "architect-cto", True)))
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertIn("under 8", str(rc))
+        self.assertIn("ask an architect-cto holder with a session running now (arch1)", str(rc))
+        rc, _ = self.below(basis=None, fleet=fleet_of(("arch1", "architect-cto", True)))   # a real arm still needs its record
+        self.assertIn("unanswered: --basis", str(rc))
+        # at the floor the gates pass: it says a basis is all a real arm needs, and shows no comment (#676 F11)
+        rc, out = self.run_arm(arm_policy.default(), 9, basis=None, extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("a real arm needs --basis", out)
+        self.assertNotIn("would post", out)
+        self.assertNotIn("no basis given", out)
+
+    def test_the_refusal_names_the_authority_its_running_holder_and_the_basis_and_never_the_owner(self):
         text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",), fleet=fleet_of(("arch1", "architect-cto", True), ("dev", "web-dev", True)))
         self.assertIn("ask an architect-cto holder with a session running now (arch1)", text)
         self.assertIn(f"`AUTHORIZES: O/R#7@{self.HEAD[:8]}`", text)
         self.assertIn("--basis \"architect-cto's word\"", text)
-        self.assertLess(text.index("architect-cto's word"), text.index("ask the owner"))
+        self.assertNotIn("ask the owner", text)   # ADR-019 rule 4: a named authority is asked, never the owner
         text = self.refusal(claude_only({"commits": {**self.BM, "classes": {"big": {"paths": r"^docs/", "min": 10}}}}), files=("docs/a.md",),
                             body="Class: big", work=9, classes={"big": r"^docs/"},
                             fleet=fleet_of(("arch1", "architect-cto", True)))
@@ -1804,6 +1831,14 @@ class ArmRun(unittest.TestCase):
         self.assertIn("the policy names the below_min_authority 'no-such-role', which is not a role of identities/roles/catalog.json", text)
         rc, _ = self.below({"below_min_authority": "no-such-role"}, basis="no-such-role's word", extra=("--dry-run",), whoami=whoami_of(role="no-such-role"))
         self.assertTrue(str(rc).startswith("unanswered"), rc)
+
+    def test_an_unreadable_catalogue_is_unanswered_not_a_role_to_ask_the_owner_about(self):
+        policy = claude_only({"commits": {"min": 8, "below_min_authority": "architect-cto"}})
+        with mock.patch.object(arm, "catalogue_roles", side_effect=arm.Unanswered("the role catalogue could not be read to check authority")):
+            rc, _ = self.run_arm(policy, 3, files=("docs/a.md",))
+        self.assertTrue(str(rc).startswith("unanswered"), rc)
+        self.assertIn("role catalogue could not be read", str(rc))
+        self.assertNotIn("ask the owner", str(rc))
 
     def test_the_owners_word_still_arms_and_the_authority_is_not_read(self):
         rc, out = self.below(basis="the owner's word", extra=("--dry-run",))

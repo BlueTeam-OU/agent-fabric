@@ -211,6 +211,9 @@ def commit_message(report: dict[str, Any], built_against: str | None) -> str:
     rehomed = report.get("rehomed") or []
     if rehomed:
         lines.append(f"Re-homed to the control plane's corpus: {len(rehomed)} ({', '.join(r['slice'] for r in rehomed)}).")
+    retired = report.get("retired_copies") or []
+    if retired:
+        lines.append(f"Retired (re-homed role, earlier project copy removed): {len(retired)} ({'; '.join(retired)}).")
     held = report.get("held_back") or []
     if held:
         lines.append(f"Held back: {len(held)} ({', '.join(held)}).")
@@ -299,6 +302,51 @@ def record_rehomed(other: Run) -> int:
         json.dump(written, fh, ensure_ascii=False, indent=2, sort_keys=True)
         fh.write("\n")
     return 0
+
+
+OBSOLETE_KEYS = ("memory", "agent", "host", "content_hash", "slice", "heading")
+# The stamp of the earliest drain that named the memory (a renewal keeps it): what lets a re-run of one stamp under --hold drop its own rows and
+# keep those carried from an earlier stamp. A row of an older report has none and is never taken for this stamp's.
+STAMP_KEY = "stamp"
+# The merge_target the claim named when the row was written (absent: none). Read again under another one, the author has acted on the
+# notice, e.g. restored the text by naming the replacing section; the hash cannot show it, it covers name and body only.
+TARGET_KEY = "merge_target"
+OPTIONAL_KEYS = (STAMP_KEY, TARGET_KEY)
+
+
+def carry_obsolete(earlier: Any, run: Run) -> list[dict[str, str]]:
+    """`obsolete_memories` for the report this run writes: this run's rows, and the earlier report's rows still true.
+
+    A report holds only its last drain, and the harvest reads a memory again only when the author wrote it since the
+    store's watermark, so a memory nobody touches is never named by a later drain. Dropping its row then would end the
+    notice while the file still sits in the author's home (and a full harvest brings its text back as a collision). A carried
+    row ends when this run read that memory (agent, host, name) under another content hash (the author has updated it) or
+    under another merge_target (the author restored its text; the hash covers name and body only). Read
+    again unchanged it stays, flagged again or not (the ledger that replaced its text may have been pruned since). The drain cannot see a
+    deleted file, so such a row stays until fabric-status finds no file to match; it is a few lines, not a leak.
+    Rows that are not the record's shape (an older report has none; a hand edit) are dropped, never guessed at."""
+    kept: dict[tuple[str, str, str], dict[str, str]] = {}
+    for row in earlier if isinstance(earlier, list) else []:
+        if not (isinstance(row, dict) and all(isinstance(row.get(k), str) and row[k] for k in OBSOLETE_KEYS)):
+            continue
+        if any(k in row and not isinstance(row[k], str) for k in OPTIONAL_KEYS):
+            continue   # present but not a string: not the record's shape; reading it as "none" would be a guess
+        # Ended only by another hash or another merge_target of the same memory: read again unchanged and not flagged this run
+        # (the ledger that replaced its text may have been pruned) the file is still the obsolete text, so its row stays.
+        read = run.seen_memories.get((row["agent"], row["host"], row["memory"]))
+        targets = run.seen_targets.get(row["content_hash"])
+        # Only when the row's own memory was read: seen_targets is keyed by hash, which two owners of one text share.
+        retargeted = read is not None and bool(targets) and row.get(TARGET_KEY, "") not in targets
+        if (read is None or row["content_hash"] in read) and not retargeted:
+            kept[(row["agent"], row["host"], row["content_hash"])] = {k: row[k] for k in (*OBSOLETE_KEYS, *(k for k in OPTIONAL_KEYS if isinstance(row.get(k), str)))}
+    for row in run.obsolete_memories:
+        key = (row["agent"], row["host"], row["content_hash"])
+        # Renewed, not new: the stamp stays the earliest that named it, so a held re-run of this stamp cannot take a row
+        # an earlier drain named for one of its own.
+        if STAMP_KEY in kept.get(key, {}):
+            row = {**row, STAMP_KEY: kept[key][STAMP_KEY]}
+        kept[key] = row
+    return list(kept.values())
 
 
 def report(run: Run) -> int:
@@ -399,6 +447,7 @@ def report(run: Run) -> int:
         "retitles": run.retitles,
         "merge_target_unresolved": run.unresolved_targets,
         "superseded_harvests": run.superseded_harvests,
+        "obsolete_memories": run.obsolete_memories,
         "reharvested_replaced": run.reharvested_replaced,
         "harvest": harvest_meta,
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
@@ -406,6 +455,7 @@ def report(run: Run) -> int:
         "held_back": sorted(run.held_back),
         "rehomed": run.rehomed,
         "rehomed_files": run.rehomed_files,
+        "retired_copies": run.retired_copies,
         "anchors_kept": run.anchors_kept,
         "anchors_lost": run.anchors_lost,
         "titles_one_lined": run.titles_one_lined,
@@ -426,6 +476,7 @@ def report(run: Run) -> int:
         roots = [layout.working_copy_for(run.project), layout.FABRIC_ROOT]
         return any(root and os.path.exists(os.path.join(root, rel)) for root in roots)
     report = merge_reports(previous, report, still_there)
+    report["obsolete_memories"] = carry_obsolete(previous.get("obsolete_memories"), run)
     # Derived from the corpus and the drain's reads each time, like the collisions: never carried from an earlier report.
     report["review_horizons"] = review_horizons(run, memory_use)
     # After the merge: the sources of earlier runs of this stamp are in memory_use by now.
@@ -433,6 +484,11 @@ def report(run: Run) -> int:
     report["memory_helpful"] = helpful_counts(report.get("memory_marks") or {})
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
+        # Not in REPORT_LISTS: drop_held ends what an earlier run of this stamp said of a held slice, but this list is the one
+        # that carries rows across stamps, and a row of an earlier drain is still true while its memory is unchanged: only
+        # a row this stamp itself named goes.
+        report["obsolete_memories"] = [r for r in report["obsolete_memories"]
+                                       if not (r["slice"] in run.held_back and r.get(STAMP_KEY) == run.args.stamp)]
     # After drop_held: a held slice's claim is not this drain's to report.
     report["oversized_by_origin"] = oversized_by_origin(report.get("oversized_claim_details") or [])
     # A correction stays listed only while its slice still holds the text it applied: a later correction, a revert or a hand
@@ -517,6 +573,11 @@ def report(run: Run) -> int:
               file=sys.stderr)
         for note in run.unresolved_targets:
             print(f"  {note}", file=sys.stderr)
+    if run.retired_copies:
+        print(f"\nRETIRED ({len(run.retired_copies)}: the role is re-homed to {layout.FABRIC_PROJECT_ID}, which {run.project}'s taxonomy does not bind; "
+              "its earlier copy here is removed):", file=sys.stderr)
+        for row in run.retired_copies:
+            print(f"  {row}", file=sys.stderr)
     if run.rehomed:
         print(f"\nRE-HOMED ({len(run.rehomed)}: the role is not bound by {run.project}'s taxonomy, so the claim went to agent-fabric's "
               "own corpus, which that role's remit covers):", file=sys.stderr)

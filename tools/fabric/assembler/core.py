@@ -404,6 +404,15 @@ class Run:
     # A claim whose text is the section a correction of the same run replaces: the correction's predecessor, harvested
     # again. Not written; each entry names its memory and the correcting memory so the author can update or delete it.
     superseded_harvests: list[str] = field(default_factory=list)
+    # The same claims as `superseded_harvests`, as records a reader can match to a file in an agent's home: one per owner and memory text,
+    # {memory, agent, host, content_hash, slice, heading, stamp (the earliest drain that named it), merge_target (when the claim named one)}. The report carries them past the next drain (report.carry_obsolete).
+    obsolete_memories: list[dict[str, str]] = field(default_factory=list)
+    # (agent, host, memory name) -> the content hashes of that memory this run read: a memory read again under another hash
+    # was updated by its author, which ends its obsolete row.
+    seen_memories: dict[tuple[str, str, str], set[str]] = field(default_factory=lambda: defaultdict(set))
+    # content hash -> the merge_targets ("" for none) of the claims this run read it under. The hash covers name and body only, so an author
+    # who adds or changes a merge_target (a revert of the replacing section) leaves the hash alone: the target is what tells that apart.
+    seen_targets: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
     # A claim written under a heading an earlier correction replaced: a revert, or other text than the replaced section's (j82).
     reharvested_replaced: list[str] = field(default_factory=list)
     applied_decisions: list[dict[str, str]] = field(default_factory=list)
@@ -454,6 +463,7 @@ class Run:
     # source}, and the files that pass wrote, as the report names them. A role other than fabric-coordinator is refused, so only that role appears here.
     rehomed: list[dict[str, Any]] = field(default_factory=list)
     rehomed_files: list[str] = field(default_factory=list)
+    retired_copies: list[str] = field(default_factory=list)   # a re-homed role's earlier project copy removed: dir, file count
     # The anchors a claim brought that did not resolve, kept out for the corpus's that does (anchorkeep): {slice, heading,
     # dropped, kept, agent, host, memory}, the author named so the memory can be repaired.
     anchors_kept: list[dict[str, Any]] = field(default_factory=list)
@@ -514,3 +524,30 @@ def base_for(run: Run, role: str, klass: str) -> str:
 
 def in_report(run: Run, path: str) -> str:
     return report_rel(path, run.project)
+
+
+def owners_of(run: Run, claim: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """(agent, host, content_hash) of each memory file behind a claim. An origin the harvest could not attribute is left out:
+    a row naming "unresolved" would tell no one whose memory it is."""
+    found = []
+    for h in claim.get("evidence") or []:
+        o = run.origins.get(h) or {}
+        if o.get("agent") and o["agent"] != "unresolved":
+            found.append((o["agent"], o.get("host") or "unknown", h))
+    return found
+
+
+def memory_ref(run: Run, claim: dict[str, Any]) -> str:
+    """The memory as a report row names it: `'name' (agent@host)`, so whoever reads the row knows whose file it is."""
+    owners = sorted({f"{a}@{h}" for a, h, _ in owners_of(run, claim)})
+    return f"{claim['topic']!r} ({', '.join(owners) if owners else 'owner unknown'})"
+
+
+def note_superseded(run: Run, claim: dict[str, Any], slice_key: str, heading: str, note: str) -> None:
+    """One `superseded_harvests` row and the record that lets an agent be shown its own obsolete memory (fabric-status)."""
+    run.superseded_harvests.append(note)
+    for agent, host, h in owners_of(run, claim):
+        target = claim["merge_target"].strip() if isinstance(claim.get("merge_target"), str) else ""
+        run.obsolete_memories.append({"memory": claim["topic"], "agent": agent, "host": host, "content_hash": h,
+                                      "slice": slice_key, "heading": heading, "stamp": run.args.stamp,
+                                      **({"merge_target": target} if target else {})})

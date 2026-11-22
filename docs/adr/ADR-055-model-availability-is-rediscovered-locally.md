@@ -9,9 +9,10 @@
 
 ## 1. Context and Problem
 
-Every pull request now needs a Claude and a Codex review (ADR-053 rule
-6, `policies/arming.json`). On 2026-10-13 a Codex review from
-python-dev-01's login ran once and then failed twice within minutes:
+On 2026-10-13 every pull request needed a Claude and a Codex review
+(ADR-053 rule 6; since this record's rule 8, the Codex one is
+additional). That day a Codex review from python-dev-01's login ran
+once and then failed twice within minutes:
 the ChatGPT backend answered "Selected model is at capacity" — the
 provider's model was full for everyone, not our allowance spent. With
 the review required, such a spell stops every merge in the fleet.
@@ -36,10 +37,10 @@ it can be served.
 Each run rediscovers availability for itself, locally: it tries its
 model, retries a capacity failure (10 s, 20 s, 60 s), and decides from
 what it saw — never from a record another run left. When its model is
-unavailable after the retries and its engine is the only one the
-pull request's policy requires, a review diverts to the next model of
-its provider's ordered list; otherwise it reports and the pull request
-waits. The
+unavailable after its retries, or its session's gateway serves it from
+its provider's ordered list (ADR-072), and its engine is the only one
+the pull request's policy requires, a review diverts to the next model
+of that list; otherwise it reports and the pull request waits. The
 control plane keeps what runs observed — which model, which kind, when
 — only to tell people: `fabric-ctl` and the Board show it, and the owner
 is told of a long or total outage. Nothing in routing or in a run reads
@@ -80,7 +81,9 @@ fleet reports (ADR-029), so it carries that view.
 ## 5. Binding Rules
 
 1. A run learns availability by trying: it never skips or picks a model
-   because of what another run observed.
+   because of what another run observed. The gateway of its own session,
+   setting a model aside on that session's own attempts, is that session
+   trying, not another run (ADR-072) (A 2026-11-22).
 2. An engine retries a capacity failure after 10 s, 20 s and 60 s, then
    reports "the chosen model is unavailable" with its kind: at capacity
    (the provider's) or over the allowance (ours, with the reset time
@@ -88,19 +91,24 @@ fleet reports (ADR-029), so it carries that view.
    past what can help; any other failure is not retried.
 3. A review diverts to the next model of its provider's ordered list
    for the review capability (`routing/policies/availability.json`,
-   rule 7, inside the review-grade set) when its own model is unavailable after the retries and it is
-   the only engine the policy requires for that pull request. When the
+   rule 7, inside the review-grade set) when its own model is unavailable after the retries, or when
+   its session's gateway serves it from that list (ADR-072), and it is
+   the only engine the policy requires for that pull request (A 2026-11-22). When the
    policy requires another engine as well, there is no divert: the
    review reports and the pull request waits for the engine to return.
    A divert never lands on a model of a provider whose engine the
    policy also names — the Codex review never falls back to a Claude
    model — so a second review stays a different reviewer. The posted
    review names the model that ran and that it was a divert; it counts
-   for the engine that was required.
+   for the engine that was required. A review the gateway served from
+   another model while another engine is required is not run.
 4. Every unavailability a run meets is reported to the control plane —
    model, seat, kind, time, the provider's words — through the
    account's control agent. The report is for people: `fabric-ctl
-   <login|all> availability` and the Board show it.
+   <login|all> availability` and the Board show it. A model the
+   session's gateway sets aside (rule 1, ADR-072) is reported in the
+   gateway's log events until the gateway's report reaches the control
+   agent; that path is not built (A 2026-11-22).
 5. Nothing reads the report to choose a model: not routing, not an
    engine, not the launcher.
 6. A model reported unavailable for longer than an hour, or every model
@@ -150,7 +158,8 @@ fleet reports (ADR-029), so it carries that view.
 - Routing gains an order for the review capability; a model added to
   the review-grade set must also be placed in it.
 - A diverted review is a different reviewer by construction; it is
-  visible on the review and in the report, never silent.
+  visible on the review, and in the report or the gateway's log, never
+  silent.
 
 ## 7. Future Evolution
 
@@ -160,9 +169,9 @@ same subscription — would make the reviewer provider-neutral and the
 divert of rule 3 a model choice rather than an engine swap; Codex stays
 the engine while it serves. If the report shows retries costing real time across the fleet, a
 shared hint could be revisited — as advice a run may read, never a rule
-it must follow. Session-level failover, moving a running session to
-another model, is outside this record. The one-hour owner notice is a
-first number.
+it must follow. Session-level failover, a running session served by
+another model when the gateway sets its own aside, is ADR-072's. The
+one-hour owner notice is a first number.
 
 ## 8. Decision Status
 
@@ -170,8 +179,8 @@ Proposed. The owner set its shape in the coordinator's session:
 retries of 10 s, 20 s and 60 s; a report naming capacity or allowance;
 availability rediscovered locally, tracked centrally only to let people
 know; a divert only when the engine is the pull request's only required
-reviewer, so under the fleet's two-engine policy a pull request waits
-out an outage; and a divert never onto the other engine's provider.
+reviewer, so under a policy that requires two engines a pull request
+waits out an outage; and a divert never onto the other engine's provider.
 The engine's retries and report (rule 2) are built (#235), and so are
 the probe and the marker on every failure to launch or finish (rule 8,
 #577); the report to the control plane and the divert follow acceptance.
@@ -180,7 +189,8 @@ the probe and the marker on every failure to launch or finish (rule 8,
 
 - ADR-002 (fixed at launch), ADR-005 (routing), ADR-029 (the control
   plane), ADR-031 (accounts and windows), ADR-052 (the account switch),
-  ADR-053 (the second review engine, rule 6 as amended 2026-10-13).
+  ADR-053 (the second review engine, rule 6 as amended 2026-10-13),
+  ADR-072 (failover alternatives, the gateway-served divert).
 - `routing/capabilities.json`, `routing/policies/review-grade.json`,
   `tools/fabric/review_codex.py`, `policies/arming.json`.
 
@@ -194,3 +204,4 @@ The body above reads current; each change's full note is in [history/ADR-055-ame
 | 2026-10-14 | An absent additional review does not stop an arm | §5 rule 8: neither review nor marker on the head is "absent"; the arm proceeds and says so; the gate reads the same |
 | 2026-11-12 | rule 7 and rule 8 point at the policy data, not today's seats and lists | §5 rule 7: the closing example of one seat against two is gone; rule 8: the policy names the required and additional engines |
 | 2026-11-13 | Codex never blocks: probe first, every failure to launch or finish posts the marker | §5 rule 8: one cheap gateway call before codex starts; the gateway, the probe, allowance, capacity, the binary, a timeout, a crash and a run that is no review each post the unavailable marker with its reason; what is the caller's to fix posts nothing (#577) |
+| 2026-11-22 | Session-level failover is ADR-072's | §7 points at ADR-072, which decides it; §2 and §5 rule 3: a divert is also the session's gateway serving the review from the review order, named, and not run while another engine is required; rule 1: the session's own gateway is that session trying; rule 4: until its report path is built, a gateway set-aside is reported in the gateway's log |

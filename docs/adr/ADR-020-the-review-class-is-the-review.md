@@ -196,8 +196,11 @@ outage procedure.
     branch, or a patch the caller commits) is reviewed once, by the
     caller: it folds every supply, runs the full suite, and dispatches one
     blind review of the whole head, then a re-review of each fix range; a
-    finding on a supplied hunk goes back to its supplier, who answers it
-    with another supply. The supplier keeps its own checks (the test that
+    finding on a supplied hunk is the caller's to fix, in its own
+    `Answers:` commit re-reviewed by its own review class, and is never
+    sent back to the supplier (A 2026-11-21) — unless a fence keeps the
+    hunk's path from the caller (a locale's translations), when the
+    supplier supplies the fix. The supplier keeps its own checks (the test that
     fails before the change and passes after it, the mutations that should
     kill it, the full suite) and names them in the hand-off: the
     `SUPPLIER-REVIEW` section and `Supplier-Review:` trailer carry those
@@ -270,3 +273,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | 2026-11-02 | The guard passes its own answer | §5 rule 2: under a fabric launch that resolves a `code-review` pin, a review dispatch with no `model` passes, the agent file still held to routing; the harness runs the managed hook again on its `updatedInput` when the dispatch sets `run_in_background`; elsewhere an unset model is denied |
 | 2026-11-03 | On an app's PR the push account posts the review | §5 rule 7: on a PR an app opened, a marked review from the account `gh` acts as is coverage in review-status, the checkpoint, arm's gate 4c and pr-counts; an account it cannot read stops the reader |
 | 2026-11-05 | A record PR is not reviewed | §5 rule 1: a record PR on a direct project arms on the owner's ruling with no review-class review, as ADR-019 §5 rule 1 (A 2026-11-05) decided; the rule names the exception |
+| 2026-11-21 | A finding on a supplied hunk is the integrator's to fix | §5 rule 11: the caller fixes it in its own `Answers:` commit and re-reviews it; never sent back to the supplier, but where a fence keeps the path from the caller; the owner's word on #652 |

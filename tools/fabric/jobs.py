@@ -17,7 +17,7 @@ behind bin/fabric-jobs.
     fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
     fabric-jobs tidy [--dry-run]                                 build output (target, node_modules) of every checkout under ~/projects no open job holds
     fabric-jobs drop <id> "<why>"
-    fabric-jobs project <id> <project> [--working-copy W] [--forget-checkout]        re-point a job that has no branch or worktree yet (or sync it to its own worktree); logged on the job; --forget-checkout clears a branch and worktree recorded from another repository than W (j164), refused for any other
+    fabric-jobs project <id> <project> [--working-copy W] [--forget-checkout]        re-point a job that has no branch or worktree yet (or sync it to its own worktree; or, when its recorded project is no registry id, one whose worktree is the repository of the checkout named); an id the registry does not hold is refused; logged on the job; --forget-checkout clears a branch and worktree recorded from another repository than W (j164), refused for any other
     fabric-jobs show <id> [--json]
     fabric-jobs export                                           this login's whole list, every state, as one versioned JSON document on stdout
     fabric-jobs import                                           that document on stdin into this login's EMPTY list; ids kept
@@ -57,7 +57,7 @@ REPOSITORY is absent, unregistered, registered by two projects, or the registry 
 REQUEST carries is a reason not to queue it.
 The working copy is this login's of that project; when there is none the job is still listed, with none, and `start` refuses
 by name until `project <id> <project> --working-copy DIR` names one, unless the job has no branch (`start` takes it: its work may be a REPLY, which changes no repository, j754); `switch` refuses a job with no working copy as before.
-`project` re-points a job whose headers were both wrong; it is refused while the job has a branch or a worktree, but for naming that worktree and its own project (the one-job guard
+`project` re-points a job whose headers were both wrong; it is refused while the job has a branch or a worktree, but for naming that worktree and its own project, or for a job whose recorded project is no registry id when --working-copy is the target project's checkout and the repository its worktree is in (the one-job guard
 and the sweep key on them) or is closed, and the old and new project are logged on the job. `show` prints "project from": the
 --project, REPOSITORY, PROJECT or re-pointing that decided it (a job added before it was recorded, from the pool, or in a working copy with no --project shows none; one the sending side added
 through the control plane says so, until the receiving side, which reads REPOSITORY, replaces that label while the job is queued and its project is the one the receiving side resolves).
@@ -108,7 +108,7 @@ a REPLY does not deliver the work, so the job the request became on the answerer
 the one job of the sender the body names, as job:<login>/j<n> or a bare j<n>) replaces the blocker, `request:<id> answered; now waiting on
 job:<login>/j<n>` is said once and the job stays blocked; with no such job it clears, and with the board unreadable and no body match it is unknown,
 never cleared, except for a message this login sent as anything but a REQUEST (an OBSERVATION, a QUESTION), which any answer clears without a board (j751); `block` refuses an id the journal does not hold (j746); blockers.py has the whole) or a peer's job (`job:<login>/j<n>`, cleared
-when it is delivered, or closed after it was seen open; read through fabric-ctl for a host operator, through the peer's public `job-state` op for any other login: blockers.py, PEER READS) or a
+when it is delivered, or closed after it was seen open; read from this login's own list for job:<me>/j<n>, through fabric-ctl for a host operator, through the peer's public `job-state` op for any other login: blockers.py, PEER READS) or a
 time of your own (`clock:<YYYY-MM-DDTHH:MM[:SS]Z>`, UTC with the Z, cleared once now is at or after it; `block`
 refuses one already past; it reads only the clock, so it is evaluated on every look, `--stored` and `--cached`
 included), several
@@ -238,10 +238,12 @@ with any tree under ~/projects is exit 1, nothing removed, the path named (an em
 Each switch appends one line to the old and one to the new job's log: the outcome and its evidence, and the branch.
 `switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
 cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued settles the job being left and clears its build output, as under a hold, then offers the pool's.
-A session that has worked no job has nothing to settle and takes the job in place, from inside the job's copy (below); "worked" is read from the list: a
+A session that has worked no job (a request closed with no artifact is none) has nothing to fence and takes the job in place, from inside the job's copy (below); "worked" is read from the list: a
 transition whose old or new state is `active` (a start, a block, a delivery, a finish or a drop of the active job) writes
 the harness session id (CLAUDE_CODE_SESSION_ID), when the environment has one, into the job's log entry, and a session is one
-that appears in any entry, so a session launched with its job already active is known once it finishes it.
+that appears in any entry, so a session launched with its job already active is known once it finishes it. A request closed
+with no artifact flags its entries `unfenced`: `switch` still settles that request and counts the replies owed since its start,
+but neither its fresh verdict nor the job copy guard counts the entries as work.
 With no session id in the environment (an unlaunched shell) the job that last left `active` counts, so `switch` says fresh.
 "Inside the job's copy" (the job copy guard's own, job-copy-guard.py): the real path of the current directory's git toplevel (the
 directory itself outside a checkout) equal to, or under, the job's `working_copy` or `worktree`, read before the list is locked.
@@ -344,7 +346,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--json", action="store_true")
     s.add_argument("--line", action="store_true", help="one line, for an opening prompt")
     s.add_argument("--field", help="one field's value, for the launcher")
-    rp = sub.add_parser("project", help="re-point a job to another project (and working copy); refused once it has a branch or worktree, but for naming that worktree")
+    rp = sub.add_parser("project", help="re-point a job to another project (and working copy); refused once it has a branch or worktree, but for naming that worktree (or, for a recorded project no registry holds, its own repository's checkout); an unregistered id is refused")
     rp.add_argument("id")
     rp.add_argument("project")
     rp.add_argument("--working-copy")

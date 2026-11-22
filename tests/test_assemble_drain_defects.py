@@ -434,6 +434,144 @@ def test_the_own_project_form_and_the_malformed_working_copy_arguments(tmp: str)
     assert not os.path.exists(os.path.join(other, ".agent-fabric")), "nothing was written to the checkout that was refused"
 
 
+def fabric_registry(out: str) -> None:
+    os.makedirs(os.path.join(out, "projects"), exist_ok=True)
+    with open(os.path.join(out, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+        json.dump({"version": 1, "projects": {"agent-fabric": {}}}, fh)
+
+
+def test_a_stale_bare_agent_fabric_anchor_never_replaces_the_resolving_prefixed_one(tmp: str) -> None:
+    """Drain of 2026-11-21: the memory's `agent-fabric/src/b.py::marker` (a path of the control plane's tree, written bare)
+    names nothing in the project and replaced the corpus's resolving `agent-fabric:src/b.py::marker`. It is written
+    prefixed, so the one anchor stands. Control: a bare one that resolves in the project's own tree
+    stands as written (the project has such a directory), and a bare one that resolves nowhere is left alone."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [anchored(["agent-fabric:src/b.py::marker"])])})
+    ta.with_agents(drain, {"h1": "dev-01"})
+    seed_file(out, "agent-fabric/src/b.py", "a marker\n")
+    fabric_registry(out)
+    assert ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene").returncode == 0
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(ta.claims("alpha", [anchored(["agent-fabric/src/b.py::marker"])]), fh)
+    proc = ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(ta.proj(out, "alpha", "solution.md"))
+    assert "*Anchors: `agent-fabric:src/b.py::marker`*" in text and "`agent-fabric/src" not in text, text
+    seed_file(ta.working_copy(out), "agent-fabric/src/b.py", "a marker\n")     # control: it resolves bare, in the project
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(ta.claims("alpha", [anchored(["agent-fabric/src/b.py::marker"])]), fh)
+    assert ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene").returncode == 0
+    assert "*Anchors: `agent-fabric/src/b.py::marker`*" in ta.read(ta.proj(out, "alpha", "solution.md"))
+
+
+def test_a_bare_agent_fabric_anchor_that_resolves_in_the_control_plane_is_written_prefixed(tmp: str) -> None:
+    """Drain of 2026-11-21, decided: in a project's bundle a bare `agent-fabric/<path>` that names nothing in the project
+    and resolves in the control plane is `agent-fabric:<path>`, in a slice with nothing to pair it with. Controls: one that
+    resolves nowhere stays as written, and the control plane's own bundle never rewrites its bare anchors."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        anchored(["agent-fabric/src/b.py::marker", "agent-fabric/src/none.py::marker"])])})
+    ta.with_agents(drain, {"h1": "dev-01"})
+    seed_file(out, "agent-fabric/src/b.py", "a marker\n")
+    fabric_registry(out)
+    proc = ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(ta.proj(out, "alpha", "solution.md"))
+    assert "`agent-fabric:src/b.py::marker`" in text and "`agent-fabric/src/none.py::marker`" in text \
+        and "`agent-fabric/src/b.py" not in text, text
+    assert [(r["dropped"], r["kept"], r["agent"]) for r in report(out)["anchors_kept"]] == \
+        [("agent-fabric/src/b.py::marker", "agent-fabric:src/b.py::marker", "dev-01")], report(out)["anchors_kept"]
+    assert "agent-fabric/src/b.py::marker -> agent-fabric:src/b.py::marker" in proc.stderr and "ANCHORS REWRITTEN" in proc.stderr \
+        and "ANCHORS KEPT" not in proc.stderr, proc.stderr
+
+
+def test_a_re_homed_roles_earlier_project_copy_is_retired_and_nothing_else_is(tmp: str) -> None:
+    """Drain of 2026-11-21: slices fabric-coordinator's earlier drains left in a project that does not bind it were re-indexed.
+    The directory goes, with its index, and the report names it. Controls: another unbound role's directory, the shared
+    slices, a project that binds the role and a project with no taxonomy keep theirs."""
+    for name, roles, retired in (("unbound", ("alpha",), True), ("binds it", ("alpha", COORD), False), ("no taxonomy", None, False)):
+        with tempfile.TemporaryDirectory() as sub:
+            drain, claims_dir, out = ta.build(sub, {"alpha": ta.claims("alpha", [WF])})
+            ta.with_agents(drain, {"h1": "dev-01"})
+            if roles:
+                bind(out, *roles)
+            seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/workflow.md", "---\ntopic: old\n---\n\n## Old\nx\n")
+            seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/INDEX.md", "# index\n")
+            seed_file(ta.working_copy(out), ".agent-fabric/memory/other/INDEX.md", "# another unbound role\n")
+            proc = ta.run_assemble(drain, claims_dir, out)
+            assert proc.returncode == 0, (name, proc.stderr)
+            assert os.path.isfile(ta.proj(out, "alpha", "workflow.md")), name
+            assert os.path.isdir(ta.proj(out, "other")), (name, "another role is not re-homed, not retired")
+            assert os.path.isdir(ta.proj(out, COORD)) != retired, (name, sorted(ta.tree(out)))
+            rows = report(out).get("retired_copies", [])
+            assert bool(rows) == retired and (not rows or rows[0].startswith(COORD + ": 2 file(s)")), (name, rows)
+            assert ("RETIRED" in proc.stderr) == retired, (name, proc.stderr)
+
+
+def test_the_control_planes_own_bundle_never_rewrites_a_bare_agent_fabric_anchor_and_an_escape_is_no_link(tmp: str) -> None:
+    """The guards of the two defects above that no drain case reaches: prefix_fabric_anchors leaves the control plane's own
+    claim alone (positive control: a project's claim is rewritten, in the case above), and the assembler's link reader skips
+    a `^[[` terminal escape (control: a real link of the same body is read)."""
+    import types
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tools", "fabric"))
+    from assembler import anchorkeep, links
+    claim = {"anchors": ["agent-fabric/src/b.py::marker"], "topic": "t"}
+    anchorkeep.prefix_fabric_anchors(types.SimpleNamespace(project="agent-fabric"), claim, None, "x/solution:t")
+    assert claim["anchors"] == ["agent-fabric/src/b.py::marker"], claim
+    text = "---\ntopic: t\n---\n\n## T\nSee ^[[1;31m red]] and [[real-link]].\n"
+    assert [t for _h, t, _w in links.links_of(text)] == ["real-link"], links.links_of(text)
+
+
+def test_a_re_homed_role_with_a_domain_claim_still_has_its_stale_project_slices_retired(tmp: str) -> None:
+    """Review F1: the role's domain claim (reviews of external tools, learned anywhere) keeps it in the run, but the
+    project-class slices under the project's directory are the retired ones and must neither stay nor be indexed again.
+    The co-owned project-class claim is the next case."""
+    domain = {"class": "domain", "topic": "field", "title": "F", "body": "Field knowledge.", "evidence": ["h1"]}
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [domain])})
+    ta.with_agents(drain, {"h1": "dev-01"})
+    bind(out, "alpha")
+    seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/workflow.md", "---\ntopic: old\n---\n\n## OldStale\nx\n")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(ta.proj(out, COORD, "workflow.md")), sorted(ta.tree(out))
+    index = ta.proj(out, COORD, "INDEX.md")
+    assert "OldStale" not in (ta.read(index) if os.path.isfile(index) else ""), ta.read(index)
+    assert [r.split(":")[0] for r in report(out)["retired_copies"]] == [COORD], report(out)["retired_copies"]
+    assert "Retired" in proc.stderr or "RETIRED" in proc.stderr, proc.stderr
+
+
+def test_a_re_homed_roles_claim_co_owned_by_a_bound_role_does_not_keep_its_stale_copy_and_a_corrupt_crossref_of_it_is_no_refusal(tmp: str) -> None:
+    """Re-review: the role's project-class claim shared with a bound role is a slice under shared/, so it neither keeps the
+    old directory nor re-indexes its stale slices; and a crossref.json inside the copy about to be removed does not refuse
+    the run. Control: the same corrupt file in another role's directory does refuse (test_a_refused_run_deletes_no_retired_copy)."""
+    co = {**WF, "topic": "co", "title": "Co", "evidence": ["h2"], "shared_with": ["alpha"]}
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [co])})
+    ta.with_agents(drain, {"h1": "dev-01", "h2": "dev-02"})
+    bind(out, "alpha")
+    seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/workflow.md", "---\ntopic: old\n---\n\n## OldStale\nx\n")
+    seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/crossref.json", "{not json")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(ta.proj(out, COORD, "workflow.md")), sorted(ta.tree(out))
+    index = ta.proj(out, COORD, "INDEX.md")
+    assert "OldStale" not in (ta.read(index) if os.path.isfile(index) else ""), ta.read(index)
+    assert [r.split(":")[0] for r in report(out)["retired_copies"]] == [COORD], report(out)["retired_copies"]
+
+
+def test_a_refused_run_deletes_no_retired_copy(tmp: str) -> None:
+    """Review F3: another held role's crossref.json cannot be read, which refuses the run; the re-homed role's copy is still
+    there, so the rerun names the deletion in its report (control: the unreadable file is the only thing that differs)."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF])})
+    ta.with_agents(drain, {"h1": "dev-01"})
+    bind(out, "alpha")
+    seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/workflow.md", "---\ntopic: old\n---\n\n## Old\nx\n")
+    seed_file(ta.working_copy(out), ".agent-fabric/memory/other/crossref.json", "{not json")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode != 0 and "crossref.json" in proc.stderr, (proc.returncode, proc.stderr)
+    assert os.path.isfile(ta.proj(out, COORD, "workflow.md")), sorted(ta.tree(out))
+    os.remove(ta.proj(out, "other", "crossref.json"))
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    assert not os.path.exists(ta.proj(out, COORD)) and report(out)["retired_copies"], report(out)
+
+
 def test_a_link_in_a_code_span_is_not_cited(tmp: str) -> None:
     """Drain of 2026-11-08 (j663): the harvest cites every `[[x]]` of a body, code or not, and the section carried it in
     its References line. A code span is literal text. The link written outside code is still cited (the control), and
@@ -864,6 +1002,20 @@ def test_the_commit_body_counts_what_was_rehomed(tmp: str) -> None:
     assert "Re-homed" not in ta.read(msg), "control: bound, nothing re-homed, no line"
 
 
+def test_the_commit_body_names_a_retired_copy(tmp: str) -> None:
+    """Review F7: a drain commit that removes a role's directory says so in its body. Control: a drain that retires nothing has
+    no line."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF])})
+    ta.with_agents(drain, {"h1": "dev-01"})
+    bind(out, "alpha")
+    seed_file(ta.working_copy(out), ".agent-fabric/memory/" + COORD + "/workflow.md", "---\ntopic: old\n---\n\n## Old\nx\n")
+    msg = os.path.join(tmp, "msg.txt")
+    assert ta.run_assemble(drain, claims_dir, out, "--commit-message", msg).returncode == 0
+    assert f"Retired (re-homed role, earlier project copy removed): 1 ({COORD}: 1 file(s) of {COORD})." in ta.read(msg), ta.read(msg)
+    assert ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02", "--commit-message", msg).returncode == 0
+    assert "Retired" not in ta.read(msg), "control: nothing left to retire, no line"
+
+
 def test_a_rehomed_claim_the_control_planes_pass_rejects_is_no_rehomed_row(tmp: str) -> None:
     """F1's other half: the rows are of what the control plane's pass kept. A claim it rejected (non-English prose) was not
     re-homed, and the report, the commit body and stderr must not say it was. Control: the English claim beside it is."""
@@ -900,6 +1052,13 @@ def main() -> int:
         test_a_checkout_given_by_working_copy_project_dir_is_where_the_guard_judges,
         test_a_working_copy_project_dir_that_is_no_directory_is_refused_with_its_name,
         test_the_own_project_form_and_the_malformed_working_copy_arguments,
+        test_a_stale_bare_agent_fabric_anchor_never_replaces_the_resolving_prefixed_one,
+        test_a_bare_agent_fabric_anchor_that_resolves_in_the_control_plane_is_written_prefixed,
+        test_a_re_homed_roles_earlier_project_copy_is_retired_and_nothing_else_is,
+        test_the_control_planes_own_bundle_never_rewrites_a_bare_agent_fabric_anchor_and_an_escape_is_no_link,
+        test_a_re_homed_role_with_a_domain_claim_still_has_its_stale_project_slices_retired,
+        test_a_re_homed_roles_claim_co_owned_by_a_bound_role_does_not_keep_its_stale_copy_and_a_corrupt_crossref_of_it_is_no_refusal,
+        test_a_refused_run_deletes_no_retired_copy,
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,
         test_a_title_made_one_line_is_told_for_a_slice_written_with_an_unbound_co_owner,
@@ -921,6 +1080,7 @@ def main() -> int:
         test_a_rehome_collision_decision_reaches_the_control_planes_own_report,
         test_an_unreadable_report_of_the_drained_project_is_refused_and_left_as_it_is,
         test_the_commit_body_counts_what_was_rehomed,
+        test_the_commit_body_names_a_retired_copy,
         test_a_rehomed_claim_the_control_planes_pass_rejects_is_no_rehomed_row,
     ]
     failures = 0

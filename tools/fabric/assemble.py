@@ -70,6 +70,10 @@ last-drain-report.json that cannot be read as a JSON object is refused the same 
 file; an absent one is no refusal. Any other role refuses the
 run before anything is written (exit 1), naming the claim, its role and the project: no fallback. A claim some bound role
 co-owns (shared_with) stays; a project with no taxonomy, the fabric's own project and domain claims are not judged.
+When the project has a taxonomy that does not bind fabric-coordinator (and is not the control plane), the role's earlier
+directory under the project's memory (the copies of drains before the re-home) is removed after every refusal, named in the
+report's `retired_copies`, on stderr and in the commit body. A shared slice the role co-owns with a bound role stays under
+shared/; the role gets an index again only where a claim of its own (a domain claim) still brings it into the run.
 
 Merge mode is the default: existing slices are read, and a claim whose
 `merge_target` names an existing section updates it instead of appending
@@ -94,6 +98,12 @@ now, is not written and is listed under `superseded_harvests`: the section was e
 review answer), and writing the memory again would undo it. This reads the git history of the slice files, so the tree
 is an input as well as the claims; a tree that is not a repository, or has no commits, has no history and behaves as
 before. A history git cannot read refuses the run before the slices are written, with one line on stderr.
+
+Each `superseded_harvests` row names the memory with its owner, `'name' (agent@host)`, and the report records the same
+claims in `obsolete_memories`: {memory, agent, host, content_hash, slice, heading, stamp, merge_target (only if the claim named one)}, one per owner and memory text (stamp: the earliest
+drain that named it; absent on a row of an older report). The next drain carries
+a row until it reads that memory under another content_hash (an updated memory) or another merge_target (a revert), so fabric-status can show an agent its
+own obsolete memories after the drain that named them. The drain never edits or deletes a file in an agent's home.
 <<< help
 """
 
@@ -110,7 +120,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import Run, layout, in_report  # noqa: E402
-from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, rehome_unbound, note_unbound_owners, rehomed_row, load_hygiene, load_decisions  # noqa: E402
+from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, rehome_unbound, note_unbound_owners, rehomed_row, retire_rehomed_copies, retires_rehomed_copy, REHOME_ROLE, load_hygiene, load_decisions  # noqa: E402
 from assembler.targets import plan_classes, held_files, resolve_all_targets, point_disk  # noqa: E402
 from assembler.anchorkeep import keep_resolving_anchors  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
@@ -177,7 +187,7 @@ def rehome(run: Run, claims: list) -> int:
     run.rehomed = [rehomed_row(run, c) for role in sorted(other.all_claims) for c in other.all_claims[role]]
     run.rehomed_files = [in_report(other, p) for p in other.written]
     for name in ("rejected_hygiene", "redactions", "problems", "oversized", "oversized_details", "clipped_descriptions", "migrated",
-                 "unresolved_targets", "superseded_harvests", "reharvested_replaced", "titles_one_lined", "anchors_kept",
+                 "unresolved_targets", "superseded_harvests", "obsolete_memories", "reharvested_replaced", "titles_one_lined", "anchors_kept",
                  "anchors_lost", "retired_in", "empty_crossrefs", "applied_decisions", "retitles"):
         getattr(run, name).extend(getattr(other, name))
     if not rc:
@@ -207,9 +217,13 @@ def assemble_project(run: Run) -> int | None:
     if check_collisions(run):
         return 1
     # Refused before anything is written, as a broken taxonomy is.
-    held_roles = roles_with_project_directory(run)
-    for role in held_roles:
+    for role in roles_with_project_directory(run):
+        if role == REHOME_ROLE and retires_rehomed_copy(run):
+            continue
         read_crossref_index(os.path.join(layout.project_dir(run.project, role), "crossref.json"))
+    # After every refusal above, so a refused run has deleted nothing it would not name on the rerun.
+    retire_rehomed_copies(run)
+    held_roles = roles_with_project_directory(run)
     point_disk(run)
     write_shared(run)
     # Every role that owns anything gets a project directory and an index —

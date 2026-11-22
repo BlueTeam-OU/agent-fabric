@@ -182,3 +182,21 @@ Rule 8 named the ten-minute bound on re-checking a blocker for `list`, `next` an
 Rule 10 step 3 brought an existing branch up to date with the default branch before the job started, and `switch` refused when that merge conflicted: "merge it by hand, then switch again". The session running `switch` has just ended a job, and the job copy guard (rule 3) refuses its merge in the next job's copy, so the refusal left only `fabric-fresh --job` by hand (j946: j945 to j891 on 2026-11-18, a conflict in docs/proposals/gzcoord-interweave-only-cutover.md). `switch` now undoes the conflicting merge, starts the job on its branch and always answers fresh, reason `conflict`; the job's log note and the fresh session's prompt open with "<ref> conflicts: merge it first". The rule's "no job starts on a branch behind the default branch" keeps one exception, for that merge only; a merge that cannot be undone is refused as before, because a fresh session must never start in a half-merged tree. Built in #662 (python-dev-01's j258).
 
 Rejected: making the merge in `switch` with the guard waived. The conflict needs resolving, which is the job's first work and belongs to the session that will commit it.
+
+### Amendment 2026-11-21 — start --despite; an own job: blocker read from the own list
+
+Two built behaviours the record did not say. Rule 8 and rule 14's row into `active` now say both; no decision changed.
+
+`start --despite job:<login>/j<n>… "<why>"` (python-dev-03's j127, #553, INFO 01a1c496-5a78). A re-pointed job can wait on a peer's job that itself waits on this very start: the requester's push onto the branch the re-pointed job waits for. No check sees that, so out of `blocked` the holder may waive a peer's `job:` blocker that still waits, or reads unknown because the peer cannot be asked, naming each unmet one with a reason. Any other kind of blocker that still waits stays a refusal, a name that is not unmet is refused, and so is a start with nothing unmet (`tools/fabric/jobsparts/needs.py`). The log keeps the reason and each waived blocker's state as read. `switch` never waives: it decides for the agent, and a waiver is the holder's word.
+
+`job:<me>/j<n>` (python-dev-02's j134, #543, REPLY 01a1c44c). The public `job-state` op answers only the sender of the request a job was taken from, so a login asking it about a job of its own that came from someone else's request was refused for ever and the blocker never cleared. Such a blocker is read from this login's own list as stored, done and dropped included (`tools/fabric/jobsparts/blockers.py`, PEER READS). j738, j739.
+
+Rejected: letting `switch` take `--despite`. `switch` is the session's move to the next job; a waiver read from it would let a session start work its own check said was still waited on, without anyone saying why.
+
+### Amendment 2026-11-22 — A request closed with no artifact is not work
+
+Rule 3 read every log entry that carries this session's id as work done, so a session that closed a request with `--no-artifact` was fenced out of committing its own job's change (python-dev-02's j178, #687, REQUEST 01a20372).
+
+A request moved to `done` with `--no-artifact`, whose job holds no artifact, now writes its session ids in the log flagged `unfenced`. This covers the entry of the move and the session's earlier entries in that job (`tools/fabric/work/lifecycle.py`). `records.session_worked` skips a flagged entry. The job copy guard asks it, and so does the fresh verdict of `switch` (`decide`). `last_worked` and `session_start` do not look at the flag: `switch` still settles the job just left and counts the replies owed since its start.
+
+Rejected: dropping the session id from the entry. `switch` needs it to find the job and the start.

@@ -71,6 +71,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
 | one owning module per mechanism; a reimplementation; tools/fabric/mechanisms.json; a checker and its exceptions | ADR-067 |
 | the fabric command; fabric <noun> <verb>; fabric help; one front door for the bin/ commands; a second spelling of a guarded command | ADR-068 |
+| gateway failover alternatives; plan schema 2; session-level failover; a model served in place of the routed one; failover.json | ADR-072 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -366,6 +367,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-21 — hygiene `"scope": "own"` holds an entry in its own
   project's slices only; other projects may say the name; domain slices
   keep every entry (§2, rule 10).
+- A 2026-11-21 — fabric-coordinator's domain slices are listed in
+  agent-fabric's index only, never a project's (§2, rule 8).
 - Keywords: memory, knowledge, slice, drain, harvest, assemble, roles_class,
   domain, solution, rationale, workflow, threads, INDEX, provenance,
   watermark, bundle, hygiene, redacted, tier, hygiene scope, scope own.
@@ -495,6 +498,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-10 — `fabric-pr disarm`: withdrawn with a basis; another's PR on a word (rule 5).
 - A 2026-11-12 — organisation's names and counts out: direct projects, counts, account, access are policy data (rules 1, 4, 6, §6).
 - A 2026-11-14 — under the minimum, bundle queued jobs of any topic first; a word only for what cannot wait (rule 4).
+- A 2026-11-21 — settings and operator repositories name no arming authority; the no-CI word stays the owner's, never an authority's (rule 4).
+- A 2026-11-21 — waiting on a word: REQUEST the arming authority, never the owner; a job in another repository meanwhile (rule 4).
+- A 2026-11-21 — the almalinux:10 leg runs nightly in stripped-nightly.yml, outside `ci-ok`; an EL 10 break merges green; scheduled-red's one job per workflow hides it behind an open stripped job until scheduled-red's marker is scoped per job (§6).
 - Keywords: Answers, armed_status, disarm.
 
 ### ADR-020 — The review class is the review (Accepted)
@@ -524,6 +530,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-02 — under a launch no model passes (rule 2).
 - A 2026-11-03 — Dependabot PRs: push account posts (rule 7).
 - A 2026-11-05 — record PR arms unreviewed (rule 1).
+- A 2026-11-21 — a finding on a supplied hunk is the caller's to fix, never sent back (rule 11).
 - Keywords: blind review, fabric-review, pr-review-status, coverage,
   review card, run_in_background.
 
@@ -733,6 +740,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-14 — interweave-mode: the transport mode by signed action (§2).
 - A 2026-11-15 — evidence takes a sixth section, watch: the watch log's starts and ends (§2).
 - A 2026-11-18 — fabric-op admits one read, the signed `interweave` read, ADR-064 rule 14's fallback; action ttl cap (rule 19).
+- A 2026-11-22 — on dual, presence and pool/job-state holder asks also by the account's own agentd socket; the first reply read answers; self-asks by the relay, but presence in carrier-only by the socket alone (r18).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, HOLD_MAX_S, interweave-mode.
@@ -752,6 +760,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   changed, when presence shows a session (§5 rule 8).
 - A 2026-09-27 — HELLO and GOODBYE are retired from GZCOORD/1; a parser rejects
   them (§5 rule 7).
+- A 2026-11-22 — under dual, a relay that is down no longer leaves presence unknown (§6; ADR-029 r18).
 - Keywords: presence, online, HELLO, GOODBYE, announcement, process table,
   send, --force, exit 4, fabric-ctl presence, planning, re-send.
 
@@ -931,6 +940,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-11 — start without a copy when no branch; fenced pause records its unpushed head; non-REQUEST answer clears; block refuses an unreadable request (r8/r14).
 - A 2026-11-17 — start and switch decide on a fresh blocker check (r8).
 - A 2026-11-19 — a conflicting default-branch merge is undone and handed to the fresh session, never refused (r10).
+- A 2026-11-21 — start --despite waives a peer's unmet job: blocker, logged, never by switch; job:<me>/jN read from the own list (r8/r14).
+- A 2026-11-22 — a request closed with no artifact flags its log entries `unfenced`; the job copy guard and switch's fresh verdict skip them, settling and reply count read them (r3).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker, job-state.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
@@ -1011,6 +1022,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-11 — one Python on every host; host python3 only bootstraps the pin (§5 r1).
 - A 2026-11-12 — rule 10 and §7's Wave 10 rows, the managed projects' Node scripts, moved to the operator's ADR-070; rules 1-9 and waves 0-9 stay (§5 r10, §7, §8).
 - A 2026-11-16 — bootstrap step 7's language-detector venv is made with the pin (rule 4).
+- A 2026-11-21 — `pre-push`, the user-scope hooks and the workspace guard fallbacks run on the pin; no hook keeps host python3 (rule 4).
 - Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
   forwarder.
 
@@ -1339,6 +1351,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   absent: the arm proceeds on the required reviews and says so, and the gate reads the same.
 - A 2026-11-12 — rules 7, 8 point at the policy data; the principle stays.
 - A 2026-11-13 — codex never blocks: one cheap gateway call before it starts; any failure to launch or finish (gateway, probe, allowance, capacity, binary, timeout, crash, no review) posts the marker with its reason; the caller's errors post nothing (§5 rule 8).
+- A 2026-11-22 — session-level failover is ADR-072's (§7); a divert may be the session's own gateway serving the review from the review order, named, not run under a second required engine; a gateway set-aside is reported in its log until built (§2, §5 rules 1, 3, 4).
 
 ### ADR-056 — Agent personas: "AI <Name> <Surname>", a surname from the operator's list each, an avatar the agent accepts, always marked as AI (Accepted)
 
@@ -1600,3 +1613,17 @@ its record disagree, the record wins. Look it up, never read it whole:
   the dispatcher; docs move only after distribution and a read-back
   (§5 r7–r9).
 - Keywords: fabric command, dispatcher, noun, verb, fabric help, commands.json, shim, alias, front door, guard bypass, second spelling.
+
+### ADR-072 — A route's failover alternatives are authored per model, held by a live continuity check, and declared wherever the model is served (Proposed)
+
+- A session, a subagent and a review may be served by another model of the
+  same provider and account when the gateway sets the routed one aside (§2).
+- Alternatives are authored per model in `routing/policies/failover.json`,
+  at most three, each admitted with a live continuity check (§5 rules 1, 2).
+- Every route of that model carries them, cap one more than their number;
+  schema 2 only when used and read (§5 rules 3, 6).
+- The review's route follows ADR-055's divert order, none under a second
+  required engine; a served divert is named on the review (§5 rules 4, 5).
+- The Codex review's plan declares none; failure class and health stay the
+  gateway's (§5 rules 7, 9).
+- Keywords: failover, alternatives, plan schema 2, max_attempts, session-level failover, divert, continuity, live check, failover.json, gateway health.
