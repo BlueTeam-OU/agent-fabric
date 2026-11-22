@@ -17,7 +17,8 @@ repeated the 11-20 date from the request. Its fix does not depend on the date.
 ## What was measured
 
 `fabric-ctl all interweave-evidence` was run over three windows:
-11-15T00Z–11-19T00Z, 11-19T00Z–11-21T12Z and 11-21T12Z–11-22T18:40Z. Each
+11-15T00Z–11-19T00Z, 11-19T00Z–11-21T12Z and 11-21T12Z–11-22T18:40Z, and on
+11-23 over a fourth, 11-22T18:40Z–19:10Z, for the restarts of 19:01–19:03Z. Each
 account's `gzcoord-watch.jsonl` writes a `start` line and an `end` line with a
 code and a reason. A watch killed outright writes no `end`.
 
@@ -53,9 +54,10 @@ shows each give-up seconds after a restart: restart 18:29:43Z, exit 18:29:50Z;
 restart 19:54:13Z, exit 19:54:18Z (its journal reads +04). Each restart falls
 inside the 18:29Z and 19:54Z waves. Which upgrade caused which wave is not
 read here. #659 was reported merged at 18:28Z, and #665's distribution was
-requested at 19:52Z, so the two match. The 19:25Z wave is unmatched. Its daemon had been up since
-11-16 with `NRestarts=0`. My own daemon has been up since 11-15 with
-`NRestarts=0`.
+requested at 19:52Z, so the two match. The 19:25Z wave is unmatched.
+Only the client restarted: language-culture-ru's transport daemon,
+`interweave-daemon@gzcoord`, had been up since 11-16 with `NRestarts=0`, and
+mine has been up since 11-15 with `NRestarts=0`.
 
 The watch measured silence from the first failure of an earlier outage, not
 from the carrier's last answer. One arm runs for up to an hour of slices, so
@@ -77,9 +79,10 @@ relay primary keeps exit 5.
 
 ## What cannot be read: the host journal
 
-The system journal on develop-qzapp holds 1.7 GB and rotates a 56 MB file about
-every 74 minutes, so it covers about 19 hours. Its oldest file ends
-2026-11-22 00:36 CET, and every per-user journal file ends later than that.
+The system journal on develop-qzapp rotates a 56 MB file about every 74
+minutes. Its oldest file ends 2026-11-22 00:36 CET (11-21T23:36Z), so at the
+read, about 18:40Z on 11-22, it covered about 19 hours, and every per-user
+journal file ends later than that.
 No 11-18 or 11-20 entry is left on the host, so no group membership would
 recover one. The watch logs (`gzcoord-watch.jsonl`, collected by
 `interweave-evidence`) were the record that survived. python-dev-01's
@@ -106,7 +109,9 @@ watch:
   rust-services-dev-01, rust-ui-dev-01).
 - **11-22, 06:47–08:47Z:** six accounts, when they were relaunched.
 - **11-22, 19:01–19:03Z:** backend-dev-01, brand-comms-01, devex-tooling,
-  domain-transit and ux-designer-01, after `fabric-ctl <login> restart`.
+  domain-transit and ux-designer-01, after `fabric-ctl <login> restart`; their
+  first `start` lines are 19:01:21Z (ux-designer-01) to 19:03:18Z
+  (domain-transit), in the fourth window.
   These are the five panes. Each session had said it would not restart the
   watch because "memory may still be short", and was waiting for its human.
   They had been deaf for 25 hours.
