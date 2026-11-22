@@ -535,14 +535,16 @@ def main() -> int:
                 {"type": "command", "args": ["-I", "-S", entry, "agent-dispatch-guard"]}]}]}}))
             return etc
 
-        lines = status.agent_file_routing_drift(HERE, "anthropic", snapshot("differs", True))
+        no_files = os.path.join(tmp, "no-agent-files")
+        os.makedirs(no_files)
+        lines = status.agent_file_routing_drift(HERE, "anthropic", snapshot("differs", True), no_files)
         check("a snapshot routing a class otherwise: a line for each such class, both values and the snapshot",
               len(lines) == 2 and any("code-low: effort" in l and "medium (checkout) vs low (snapshot)" in l for l in lines)
               and any("code-review: pin" in l and "claude-sonnet-5-5 (snapshot)" in l for l in lines)
               and all(os.path.join(tmp, "differs") in l for l in lines))
         check("a snapshot that agrees with the checkout: no line (the comparison ran: it is not the checkout itself)",
-              status.agent_file_routing_drift(HERE, "anthropic", snapshot("agrees", False)) == [])
-        check("no managed file: no line", status.agent_file_routing_drift(HERE, "anthropic", os.path.join(tmp, "nothing")) == [])
+              status.agent_file_routing_drift(HERE, "anthropic", snapshot("agrees", False), no_files) == [])
+        check("no managed file: no line", status.agent_file_routing_drift(HERE, "anthropic", os.path.join(tmp, "nothing"), no_files) == [])
 
         def managed_etc(name: str, snap: str) -> str:
             etc = os.path.join(tmp, name + "-etc")
@@ -551,16 +553,37 @@ def main() -> int:
                 {"type": "command", "args": ["-I", "-S", entry, "agent-dispatch-guard"]}]}]}}))
             return etc
 
-        lines = status.agent_file_routing_drift(HERE, "anthropic", managed_etc("gone", os.path.join(tmp, "absent-tree")))
+        lines = status.agent_file_routing_drift(HERE, "anthropic", managed_etc("gone", os.path.join(tmp, "absent-tree")), no_files)
         check("a managed file naming a tree that is not there: one cannot-compare line, never a silent agree",
               len(lines) == 1 and "agent files  cannot compare" in lines[0] and "absent-tree" in lines[0])
         slow = os.path.join(tmp, "slow")
         put(os.path.join(slow, "tools", "fabric", "routing.py"), "import time\ntime.sleep(30)\n")
         os.symlink(os.path.join(HERE, "runtime"), os.path.join(slow, "runtime"))
         status.ROUTING_PROBE_TIMEOUT_S = 1
-        lines = status.agent_file_routing_drift(HERE, "anthropic", managed_etc("slow", slow))
+        lines = status.agent_file_routing_drift(HERE, "anthropic", managed_etc("slow", slow), no_files)
         check("a snapshot whose routing.py does not answer in time: the cannot-compare line too",
               len(lines) == 1 and "agent files  cannot compare" in lines[0])
+
+        # The window after a reinstall: files written from an older snapshot, the guard on the new one.
+        status.ROUTING_PROBE_TIMEOUT_S = 20
+        etc_now = snapshot("now", True)
+        old_files = os.path.join(tmp, "old-agent-files")
+        put(os.path.join(old_files, "code-low.md"), "---\nname: code-low\neffort: medium\n---\n")
+        put(os.path.join(old_files, "code-review.md"), "---\nname: code-review\nmodel: claude-opus-5-5\neffort: high\n---\n")
+        lines = [l for l in status.agent_file_routing_drift(HERE, "anthropic", etc_now, old_files) if "(file)" in l]
+        check("files written before the reinstall: a line per class the guard would refuse, file and snapshot values",
+              len(lines) == 2 and any("code-low: effort medium (file) vs low (snapshot)" in l for l in lines)
+              and any("code-review: model claude-opus-5-5 (file) vs claude-sonnet-5-5 (snapshot)" in l for l in lines)
+              and all("fabric-model apply" in l for l in lines))
+        new_files = os.path.join(tmp, "new-agent-files")
+        put(os.path.join(new_files, "code-low.md"), "---\nname: code-low\neffort: low\n---\n")
+        put(os.path.join(new_files, "code-review.md"), "---\nname: code-review\nmodel: claude-sonnet-5-5\neffort: high\n---\n")
+        check("files written from the installed snapshot: no file line",
+              not [l for l in status.agent_file_routing_drift(HERE, "anthropic", etc_now, new_files) if "(file)" in l])
+        no_effort = os.path.join(tmp, "no-effort-files")
+        put(os.path.join(no_effort, "code-low.md"), "---\nname: code-low\n---\n")
+        check("a file with no effort line is not a difference, as the guard reads it",
+              not [l for l in status.agent_file_routing_drift(HERE, "anthropic", etc_now, no_effort) if "(file)" in l])
 
     print("ok" if not fails else f"{fails} FAILED")
     return 1 if fails else 0

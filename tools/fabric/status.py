@@ -71,7 +71,8 @@ claude_sign_in}), capabilities ({class: line}), engines ({"<provider> <class>":
 line}, the engine providers' classes), routing_check ("clean" or
 a list), agent_file_routing (present only when there is something to say: a
 list of lines, one per class whose pin or effort the guard's snapshot routes
-otherwise than this checkout), host_tools ({moveto, python, journal, agentd, claude, inbox, carrier_journal, account_switch, managed}; carrier_journal's status
+otherwise than this checkout, and one per class whose agent file says what
+the snapshot does not route), host_tools ({moveto, python, journal, agentd, claude, inbox, carrier_journal, account_switch, managed}; carrier_journal's status
 none, ok, journal-refused or unknown, printed only for the last two; agentd's status
 python, refused, drift, none or unknown), control_plane.
 """
@@ -636,19 +637,28 @@ def build_report(root, environ=None, cred_environ=None):
     return report, base
 
 
-def agent_file_routing_drift(root, provider, etc=None):
-    """Lines, one per class whose routed pin or effort differs between this
-    checkout and the tree the dispatch guard reads (ADR-043 §5 rule 10): the
-    agent files carry the snapshot's, so the checkout's merge reaches a
-    dispatch only at the operator's reinstall. [] when no managed file is in
-    force or the two agree; a line saying so when either answer cannot be had,
-    never a silent agree."""
+def agent_file_routing_drift(root, provider, etc=None, agents=None):
+    """Lines about the agent files against the tree the dispatch guard reads
+    (ADR-043 §5 rule 10), [] when no managed file is in force or nothing
+    differs; a line saying so when an answer cannot be had, never a silent
+    agree. Two windows, each with its own line:
+    - the checkout routes a class otherwise than the snapshot: the files carry
+      the snapshot's, so the merge reaches a dispatch at the operator's
+      reinstall;
+    - a file says what the snapshot does not route: it was written before the
+      reinstall (or by an installer older than rule 10), and the guard refuses
+      that class's dispatches until fabric-model apply in the session, or the
+      fleet's fabric-ctl all upgrade fabric, rewrites it.
+    `agents` is the agent-file directory ($CLAUDE_CONFIG_DIR or ~/.claude,
+    then agents/), read as the guard reads it: the review class's model:,
+    every class's effort: where the file carries one."""
     install = load("fabric_install_agent_files", os.path.join(root, "tools", "fabric", "install_agent_files.py"))
     tree = install.dispatch_guard_tree(etc)
-    if tree is None or os.path.realpath(tree) == os.path.realpath(root):
+    if tree is None:
         return []
+    same = os.path.realpath(tree) == os.path.realpath(root)
     answers = {}
-    for where, name in ((None, "checkout"), (tree, "snapshot")):
+    for where, name in (((tree, "snapshot"),) if same else ((None, "checkout"), (tree, "snapshot"))):
         for sub, parse in (("pins", install.parse_pins), ("efforts", install.parse_efforts)):
             try:
                 r = install.routing_run(sub, provider, root, where, stderr=subprocess.DEVNULL,
@@ -660,16 +670,48 @@ def agent_file_routing_drift(root, provider, etc=None):
                         "routing.py failed or did not answer there"]
             answers[(name, sub)] = parse(r.stdout)
     lines = []
-    for klass in sorted({k for v in answers.values() for k in v}):
+    if not same:
+        for klass in sorted({k for v in answers.values() for k in v}):
+            parts = []
+            for sub, label in (("pins", "pin"), ("efforts", "effort")):
+                here, there = answers[("checkout", sub)].get(klass), answers[("snapshot", sub)].get(klass)
+                if here != there:
+                    parts.append(f"{label} {here or '-'} (checkout) vs {there or '-'} (snapshot)")
+            if parts:
+                lines.append(f"agent files  {klass}: {'; '.join(parts)} — written from the snapshot {tree}, "
+                             "so the checkout's routing reaches a dispatch at the operator's reinstall")
+    if agents is None:
+        agents = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude"),
+                              "agents")
+    pins, efforts = answers[("snapshot", "pins")], answers[("snapshot", "efforts")]
+    for klass in sorted(set(pins) | set(efforts)):
         parts = []
-        for sub, label in (("pins", "pin"), ("efforts", "effort")):
-            here, there = answers[("checkout", sub)].get(klass), answers[("snapshot", sub)].get(klass)
-            if here != there:
-                parts.append(f"{label} {here or '-'} (checkout) vs {there or '-'} (snapshot)")
+        # As the guard compares: the review model when the snapshot pins one, an effort only where the file has a line.
+        if klass == "code-review" and pins.get(klass):
+            model = frontmatter_value(os.path.join(agents, f"{klass}.md"), "model")
+            if model is not None and model != pins[klass]:
+                parts.append(f"model {model or '-'} (file) vs {pins[klass]} (snapshot)")
+        effort = frontmatter_value(os.path.join(agents, f"{klass}.md"), "effort")
+        if effort and effort.split()[0] != efforts.get(klass, ""):
+            parts.append(f"effort {effort.split()[0]} (file) vs {efforts.get(klass) or 'none'} (snapshot)")
         if parts:
-            lines.append(f"agent files  {klass}: {'; '.join(parts)} — written from the snapshot {tree}, "
-                         "so the checkout's routing reaches a dispatch at the operator's reinstall")
+            lines.append(f"agent files  {klass}: {'; '.join(parts)} — written before the snapshot {tree} was "
+                         "installed; its dispatches are refused until fabric-model apply in the session, or "
+                         "fabric-ctl all upgrade fabric")
     return lines
+
+
+def frontmatter_value(path, key):
+    """The first `key: value` line's value, "" for an empty one, None when the
+    file or the line is not there."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith(f"{key}: ") or line.rstrip("\n") == f"{key}:":
+                    return line[len(key) + 1:].strip()
+    except OSError:
+        return None
+    return None
 
 
 def pinned_python(root):
