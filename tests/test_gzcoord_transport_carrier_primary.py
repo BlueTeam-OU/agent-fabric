@@ -178,13 +178,14 @@ class Watch(unittest.TestCase):
     def marker(self, w):
         return os.path.join(w.env["XDG_RUNTIME_DIR"], "agent-fabric", f"gzcoord-inbox-{self.login()}.relay-down")
 
-    def test_a_carrier_that_is_not_running_ends_the_watch_with_its_line_and_marker(self):
+    def test_a_carrier_that_is_not_running_is_waited_out_to_the_deadline_with_its_line_and_no_marker(self):
         for operator in (False, True):
             w, fake = self.world("carrier-record", pages=[[C.relay_rec(5)]])
             fake.close()                                          # the socket is gone: no carrier
             w.env["AGENT_FABRIC_HOSTS_REGISTRY"] = self.registry(P.ME["agent"] if operator else None)
-            r = w.watch(deadline=8)
-            self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+            r = w.watch(deadline=8)          # past the 3 s give-up bound: j266, a carrier is retried to the deadline, never given up on
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("run the watch again", r.stdout, "the quiet ending, the one a session re-runs")
             if operator:
                 self.assertIn(f"fabric-ctl {P.ME['agent']} interweave", r.stdout, "an operator is told the command that says why")
                 self.assertNotIn("OBSERVATION", r.stdout)
@@ -193,7 +194,7 @@ class Watch(unittest.TestCase):
                 self.assertNotIn("fabric-ctl", r.stdout)
         self.assertIn("carrier", r.stdout)
         self.assertNotIn("relay unreachable", r.stdout)
-        self.assertTrue(os.path.exists(self.marker(w)), "the Stop hook's marker: it means the carrier here")
+        self.assertFalse(os.path.exists(self.marker(w)), "no give-up, so no Stop-hook marker")
         self.assertNotIn("subject-5", r.stdout, "the relay's copy is not shown by a watch whose record is down")
         self.assertEqual(w.acks, [], "and not acknowledged")
 
