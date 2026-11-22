@@ -512,6 +512,9 @@ def gzcoord_declared_findings(root: str) -> list[str]:
 # or runs is CONTRIBUTOR_SUPPLY below (the owner, 2026-11-07).
 CONTRIBUTOR_NEVER = (
     "identities/", "routing/", "policies/", "communication/gzcoord/protocol/", "docs/adr/", "memory/",
+    # The same instance data where ADR-045 step B moved it (move-plan §3): the fence follows the
+    # files, or a contributor entry naming operator/policies/ would pass as reaching nothing here.
+    "operator/identities/", "operator/routing/", "operator/policies/", "operator/docs/adr/", "operator/memory/",
     ".agent-fabric/", ".github/", "AGENTS.md", "CLAUDE.md",
     "tools/fabric/guards/", "tools/fabric/git.py", "tools/fabric/lint.py", "tools/fabric/lint_rules/",
     # The checkers' exception lists, engine data beside them since ADR-045 step A (move-plan §3), fenced as they were

@@ -107,9 +107,13 @@ NAME = "check_charter_authority"
 # — a translation the locale's holder commits under the carve-out
 # (policies/AUTHORITY.md), which the .agent-fabric/ tripwire and the hooks
 # judge. Judged here too, every locale PR failed CI (#57 blind review F1).
-PROTECTED = (':(glob)identities/roles/*/charter.md', ':(glob)identities/roles/*/brief.md',
-             'identities/roles/catalog.json', '.agent-fabric/taxonomy.json', 'projects/*/taxonomy.json',
-             'routing/policies/*', 'policies/authority.json')
+_DEFINITIONS = (':(glob)identities/roles/*/charter.md', ':(glob)identities/roles/*/brief.md',
+                'identities/roles/catalog.json', 'projects/*/taxonomy.json', 'routing/policies/*', 'policies/authority.json')
+# Each instance path twice: as it stood, and under operator/ where ADR-045 step B moved it
+# (move-plan §3). The old path is a symlink shim from step B on; a guard naming only it would
+# see no change to a charter edited at its new path and pass the commit unchecked.
+PROTECTED = (*_DEFINITIONS, '.agent-fabric/taxonomy.json',
+             *(p.replace(':(glob)', ':(glob)operator/') if p.startswith(':(glob)') else f"operator/{p}" for p in _DEFINITIONS))
 
 REFUSAL = """
 `identities/roles/*/charter.md`, the role catalogue, a project's

@@ -21,7 +21,7 @@
         "runtime/control/",
         "runtime/hostexec/",
         "runtime/interweave/",
-        "projects/gzapp/integration/gh/",
+        "operator/projects/gzapp/integration/gh/",
         "communication/gzcoord/tests/"
       ],
       "excluding": [
@@ -114,8 +114,8 @@
       "role": "devex-tooling",
       "paths": [
         "tools/fabric/github/",
-        "projects/gzapp/integration/gh/",
-        "projects/interweave/integration/gh/",
+        "operator/projects/gzapp/integration/gh/",
+        "operator/projects/interweave/integration/gh/",
         "communication/gzcoord/tests/",
         "tests/test_arm_cli.py",
         "tests/arm_mocks.py",
@@ -216,7 +216,7 @@
       "role": "legal-expert",
       "note": "agent-fabric ADR-018 \u00a75 rule 8: the legal opinions and the drafts of legal text the fleet asks of it, under docs/legal/, on its own branch; fabric-coordinator folds and merges. Nothing else of the control plane. Added with the role, 2026-10-15.",
       "paths": [
-        "docs/legal/"
+        "operator/docs/legal/"
       ],
       "excluding": []
     }
