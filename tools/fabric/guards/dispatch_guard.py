@@ -205,8 +205,8 @@ class Malformed(Exception):
 def stale_file(file: str) -> str:
     """The causes of an agent file that disagrees with this guard's routing, each with its remedy (j810)."""
     # Four causes. Since ADR-043 rule 10 the installer routes a file from the tree this guard reads (the managed
-    # snapshot, else the checkout), so fabric-model apply clears the first, second and fourth. The third survives
-    # only for a file an installer older than rule 10 wrote from the checkout (8d38edf2, 2026-11-12: every review
+    # snapshot, else the checkout), so fabric-model apply clears the first three. The fourth survives only for a
+    # file an installer older than rule 10 wrote from the checkout (8d38edf2, 2026-11-12: every review
     # denied; the old text sent agents to fabric-model apply, which rewrote the file from the checkout again).
     return (f"Either another launch of this account (the other provider) has rewritten {file} since this session "
             "started, or the fabric checkout moved under this session and now routes it differently, or the operator "
