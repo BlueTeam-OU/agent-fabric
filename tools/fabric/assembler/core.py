@@ -463,6 +463,7 @@ class Run:
     # source}, and the files that pass wrote, as the report names them. A role other than fabric-coordinator is refused, so only that role appears here.
     rehomed: list[dict[str, Any]] = field(default_factory=list)
     rehomed_files: list[str] = field(default_factory=list)
+    retired_copies: list[str] = field(default_factory=list)   # a re-homed role's earlier project copy removed: dir, file count
     # The anchors a claim brought that did not resolve, kept out for the corpus's that does (anchorkeep): {slice, heading,
     # dropped, kept, agent, host, memory}, the author named so the memory can be repaired.
     anchors_kept: list[dict[str, Any]] = field(default_factory=list)

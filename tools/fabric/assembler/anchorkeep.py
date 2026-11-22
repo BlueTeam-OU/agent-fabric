@@ -9,6 +9,9 @@ each incoming anchor that does not resolve is replaced by the corpus's anchor of
 the report names the one dropped, with its author. An incoming anchor of another file or string is left as the claim has it,
 and the report names the corpus anchor that resolves and the one that is gone (anchors_lost).
 
+A bare `agent-fabric/<path>` that names nothing in the project and resolves in the control plane's tree is written
+`agent-fabric:<path>` first (prefix_fabric_anchors), so it pairs with the corpus's prefixed anchor and a stale one never replaces it.
+
 Judged the way memory_check judges (judge_anchor, in the checkouts the slice's origin names): only an incoming anchor that
 is gone (stale-hard) is replaced, and only by a corpus anchor that is there. An anchor that cannot be looked at (no checkout
 beside the tree, none given by --working-copy PROJECT=DIR) is unknown, never gone, and stands as the claim wrote it. An anchor of another file or string is another
@@ -26,6 +29,36 @@ import roots
 from assembler.core import layout, Run
 from assembler.slices import anchors_of, claim_heading, read_existing_slice
 from assembler.targets import slice_candidates
+
+FABRIC_PREFIX = layout.FABRIC_PROJECT_ID + "/"
+
+
+def prefix_fabric_anchors(run: Run, claim: dict[str, Any], history: Any, slice_name: str) -> None:
+    """Normalise to `agent-fabric:<path>` each bare `agent-fabric/<path>` of a project's claim that names nothing in the
+    project's own tree and resolves in the control plane's (a memory copies the path from a checkout beside the project;
+    Drain of 2026-11-21: such a stale anchor replaced the resolving prefixed one in four slices). Only a project's bundle: the control plane's own bare anchors
+    are its own. One that resolves bare stays as written, and one that resolves nowhere is left to the pairing and the report. The
+    rewrite is the author's text changed, so it is named like any anchor kept over the memory's (anchors_kept): the memory keeps
+    the bare form and every drain rewrites it again until it is repaired."""
+    if run.project == layout.FABRIC_PROJECT_ID or not claim.get("anchors"):
+        return
+    path = os.path.join(layout.project_memory_root(run.project), "x")
+    out: list[str] = []
+    for anchor in claim["anchors"]:
+        if anchors.split(anchor)[0] is None and anchor.startswith(FABRIC_PREFIX):
+            named = layout.FABRIC_PROJECT_ID + ":" + anchor[len(FABRIC_PREFIX):]
+            if anchors.problem(named) is None and verdict(run, anchor, path, {}, history) == GONE \
+                    and verdict(run, named, path, {}, history) in RESOLVES:
+                origin = run.origins.get((claim.get("evidence") or [""])[0]) or {}
+                run.anchors_kept.append({
+                    "slice": slice_name, "heading": claim_heading(claim), "dropped": anchor, "kept": named,
+                    "agent": origin.get("agent") or "unresolved", **({"host": origin["host"]} if origin.get("host") else {}),
+                    "memory": claim["topic"], "rewritten": True})
+                anchor = named
+        if anchor not in out:
+            out.append(anchor)
+    claim["anchors"] = out
+
 
 # memory_check.judge_anchor's verdicts: an anchor that resolves, and one that names something that is gone.
 RESOLVES = ("exists", "maybe-stale")
@@ -63,6 +96,7 @@ def settle_topic(run: Run, role: str | None, label: str, klass: str, topic: str,
         for heading, text in sections.items():
             held[heading] = (path, meta, text)
     for claim in group:
+        prefix_fabric_anchors(run, claim, history, f"{label}/{klass}:{topic}")
         wanted = claim.get("anchors")
         target = (claim.get("merge_target") or "").strip()
         heading = target if target in held else claim_heading(claim)
@@ -111,9 +145,17 @@ def keep_resolving_anchors(run: Run) -> None:
         for row in run.anchors_lost:
             print(f"  {row['slice']}#{row['heading']} ({row['agent']}, memory {row['memory']}): {row['lost']} -> {row['gained']}",
                   file=sys.stderr)
-    if run.anchors_kept:
+    rewritten = [r for r in run.anchors_kept if r.get("rewritten")]
+    if rewritten:
+        print("ANCHORS REWRITTEN (the memory's bare agent-fabric/<path> names nothing in this project and resolves in the control "
+              "plane's tree; written agent-fabric:<path> — fix the memory so the next harvest needs none):", file=sys.stderr)
+        for row in rewritten:
+            print(f"  {row['slice']}#{row['heading']} ({row['agent']}, memory {row['memory']}): "
+                  f"{row['dropped']} -> {row['kept']}", file=sys.stderr)
+    kept = [r for r in run.anchors_kept if not r.get("rewritten")]
+    if kept:
         print("ANCHORS KEPT (the corpus's anchor resolves, the memory's does not; the memory's was dropped — "
               "fix the memory so the next harvest needs none):", file=sys.stderr)
-        for row in run.anchors_kept:
+        for row in kept:
             print(f"  {row['slice']}#{row['heading']} ({row['agent']}, memory {row['memory']}): "
                   f"{row['dropped']} -> {row['kept']}", file=sys.stderr)
