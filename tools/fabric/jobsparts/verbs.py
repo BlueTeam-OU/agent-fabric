@@ -15,7 +15,7 @@ from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
 from fabric_jobs.base import MESSAGE_ID, Job, hold_view, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate, work
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
-from fabric_jobs.records import active, fetch_message, find, listed_request, named_working_copy, new_job, request_id_of, request_job, SENDER_ADD_LABEL, session_id, session_worked, transition
+from fabric_jobs.records import active, fetch_message, find, listed_request, named_working_copy, new_job, registered, require_registered, request_id_of, request_job, SENDER_ADD_LABEL, session_id, session_worked, transition
 from fabric_jobs.queue import stream_waits
 from fabric_jobs.pool import Unanswered, ask_pool, claim_generation, claimed_job, pool_job, pool_line, pool_offer, printable
 from fabric_jobs import needs
@@ -61,6 +61,10 @@ held_refusal = needs.held_refusal
 
 def add(args) -> int:
     """add: a queued job, or one made from a GZCoord request (--request)."""
+    # The sender's add of a REQUEST carries the id the message's headers named, which is no one's to refuse: nothing a REQUEST carries is a
+    # reason not to queue it (jobs.py), and the receiver's half queues the same message whatever the id.
+    if not (args.owner and request_id_of(args.title or "")):
+        require_registered(args.project)
     if args.request:
         if args.title:
             raise Refused("--request takes its title from the message; give one or the other")
@@ -428,6 +432,7 @@ def repoint(args) -> int:
             raise Refused(f"{job['id']} is {job['state']}; a closed job is not re-pointed")
         # The one-job guard and the sweep key on these: a job with work in a checkout is that checkout's.
         held = [f"{k} {job[k]}" for k in ("branch", "worktree") if job.get(k)]
+        require_registered(args.project)
         if args.forget_checkout:
             # The one repair of a record that holds another repository's branch (j164): the worktree must be shown to be of another
             # repository than DIR, and DIR not shown to be of another repository than the project it is named with, so a job's own
@@ -447,7 +452,12 @@ def repoint(args) -> int:
                    and os.path.realpath(os.path.expanduser(args.working_copy)) == os.path.realpath(job["worktree"]))
         # …but only to sync those fields: a different project would leave the record at odds with the repository its branch is in.
         own = own and args.project == job.get("project")
-        if held and not own:
+        # A recorded id the registry does not hold (a typo or a retired name) names no repository, so what the work sits in is judged by
+        # the remote alone: re-pointed when the worktree and the working copy named are one repository that the target's registry entry lists.
+        unnamed = (held and not own and registered(job.get("project")) is False and args.working_copy
+                   and vcs.same_repo(job.get("worktree"), named_working_copy(args.project, args.working_copy)) is True
+                   and branching.checkout_of_project(named_working_copy(args.project, args.working_copy), args.project) is True)
+        if held and not own and not unnamed:
             raise Refused(f"{job['id']} has {' and '.join(held)}: its work is in that project's checkout, so it is not re-pointed")
         old = job.get("project")
         now = identity.now_iso()

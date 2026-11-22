@@ -93,6 +93,26 @@ def working_copy_of(project: str) -> str | None:
     return None
 
 
+def registered(project: str | None) -> bool | None:
+    """Whether the registry holds `project` as an id: None when the registry cannot say (unreadable), so only a registry that was read
+    and does not list the id refuses it. A typo or a retired name stored on a job is a record nothing can repair by matching remotes."""
+    if not project:
+        return None
+    wc = _load("fabric_workingcopy", os.path.join(FABRIC_ROOT, "tools", "fabric", "workingcopy.py"))
+    try:
+        held = wc.load_registry().get("projects") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    # A registry that lists no project is a stripped tree (ADR-045 §5 rule 3), not a verdict on the id.
+    return project in held if held else None
+
+
+def require_registered(project: str | None) -> None:
+    """An id given by hand (`add --project`, `project`) must be one the registry holds; the ids a message's headers name are not held to it."""
+    if project and registered(project) is False:
+        raise Refused(f"{project} is not a project id in the registry (projects/registry.json): name a registered one")
+
+
 def named_working_copy(project: str | None, working_copy: str | None) -> str | None:
     """The working copy a job is stored with: the one given, else this login's of `project`, else None."""
     if working_copy:

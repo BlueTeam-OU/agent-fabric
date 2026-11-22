@@ -1832,6 +1832,14 @@ class ArmRun(unittest.TestCase):
         rc, _ = self.below({"below_min_authority": "no-such-role"}, basis="no-such-role's word", extra=("--dry-run",), whoami=whoami_of(role="no-such-role"))
         self.assertTrue(str(rc).startswith("unanswered"), rc)
 
+    def test_an_unreadable_catalogue_is_unanswered_not_a_role_to_ask_the_owner_about(self):
+        policy = claude_only({"commits": {"min": 8, "below_min_authority": "architect-cto"}})
+        with mock.patch.object(arm, "catalogue_roles", side_effect=arm.Unanswered("the role catalogue could not be read to check authority")):
+            rc, _ = self.run_arm(policy, 3, files=("docs/a.md",))
+        self.assertTrue(str(rc).startswith("unanswered"), rc)
+        self.assertIn("role catalogue could not be read", str(rc))
+        self.assertNotIn("ask the owner", str(rc))
+
     def test_the_owners_word_still_arms_and_the_authority_is_not_read(self):
         rc, out = self.below(basis="the owner's word", extra=("--dry-run",))
         self.assertEqual(rc, 0, out)

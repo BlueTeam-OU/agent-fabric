@@ -18,3 +18,15 @@ reader still accepts every message a current sender emits. The inbox
 keeps acknowledging one from an old session without delivering it. Rule 6 follows the inbox: a replay by seq of a retired type shows its
 metadata line only, since the type carries no addressing field. §2, §7,
 the Scope, the References and the DIGEST say the types are retired.
+
+### Amendment 2026-11-22 — A relay that is down no longer leaves presence unknown under dual
+
+§6 said presence was only as available as the relay and the control
+agents. Since BlueTeam-OU/agent-fabric#586 (merged ce5991a7), under
+`control_carrier` `dual`, the presence check also hands its request to the
+asking account's own agentd, which carries it over InterWeave, so a relay
+that is down no longer makes every addressee unknown; control agents that
+are down still do. With `control_carrier` naming InterWeave alone the check
+never touched the relay (since e494899a), which the old sentence also
+missed; a send's own address is still asked by the relay alone under
+`dual`, outside the transport mode `carrier-only` (ADR-029 rule 18). ADR-029 rule 18 (A 2026-11-22) has the mechanism.

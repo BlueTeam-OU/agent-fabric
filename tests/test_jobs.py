@@ -160,7 +160,10 @@ def main() -> int:
         # projects/registry.json finds neither.
         env["AGENT_FABRIC_OPERATOR"] = write_operator_projects(
             os.path.join(tmp, "operator"), {"fixture-proj": ["git@example.org:fixture-org/fixture-proj.git"],
-                                            "fixture-nowhere": ["git@example.org:fixture-org/fixture-nowhere.git"]})
+                                            "fixture-nowhere": ["git@example.org:fixture-org/fixture-nowhere.git"],
+                                            # `project` takes only registered ids (j154); these are the ones its cases name.
+                                            "fixture": ["git@example.org:fixture-org/fixture.git"],
+                                            "another": ["git@example.org:fixture-org/another.git"]})
         # The world `switch` settles against (ADR-037 rule 10): every checkout has a bare origin with main pushed, gh says every
         # pull request is merged and none is this login's, and the memory directory changes before each switch. A case about
         # the settling itself builds the world it needs instead (below).
