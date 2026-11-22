@@ -29,6 +29,9 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from git_env import scrub_process_env  # noqa: E402
 scrub_process_env()
 import bootstrap  # noqa: E402
+import roots  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()   # the fixture fabric is read at its own operator/, never an exported one
 
 T = tempfile.mkdtemp(prefix="bsign.")
 FABRIC = os.path.join(T, "fabric")
@@ -64,7 +67,7 @@ def put(path: str, content: str, mode: int | None = None) -> None:
 
 
 def policy(repos: dict) -> None:
-    put(os.path.join(FABRIC, "policies", "signing.json"),
+    put(roots.policy("signing.json", engine=FABRIC),
         json.dumps({"default": {"format": "ssh", "since": None}, "repositories": repos}))
 
 
@@ -107,7 +110,7 @@ def main() -> None:
         'echo "$*" >> "$FAKE_SIGN_LOG"\n'
         '[ "$FAKE_SIGN_FAIL" = 1 ] && { echo "fabric-sign key: no store key for this account" >&2; exit 1; }\n'
         f'[ "$2" = ssh ] && echo "{SSH_KEY}" || echo "{PGP_KEY}"\n', 0o755)
-    put(os.path.join(FABRIC, "projects", "registry.json"), json.dumps(REGISTRY))
+    put(roots.projects_registry(engine=FABRIC), json.dumps(REGISTRY))
     os.makedirs(LOCAL_BIN)
     os.symlink(os.path.join(FABRIC, "bin", "fabric-sign"), LINK)
     policy({"acme/widget": {"format": "ssh", "since": None}, "oldorg/thing": {"format": "openpgp"}})
@@ -186,7 +189,7 @@ def main() -> None:
           and cfg(fresh, "gpg.ssh.program") is None and "left as they were" in err and b.failed == 1,
           ({k: cfg(fresh, k) for k in SETTINGS}, out, err))
 
-    put(os.path.join(FABRIC, "policies", "signing.json"), "{broken")
+    put(roots.policy("signing.json", engine=FABRIC), "{broken")
     b = bootstrap.Bootstrap(PROJECTS, False, root=FABRIC)
     b, out1, err1 = run(fresh, "widget", b=b)
     b, out2, err2 = run(wc, "widget", b=b)

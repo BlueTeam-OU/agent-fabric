@@ -38,6 +38,8 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 import section_groups  # noqa: E402 — tests/, the script's own directory
+sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import roots  # noqa: E402
 from instance_fixtures import strip_instance  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
@@ -237,6 +239,7 @@ def make_pristine(script: str) -> str:
     # HEAD's engine, never its instance data (ADR-045 §5 rule 3): taken out
     # here, and the fixtures this suite's runs read written below.
     strip_instance(d)
+    shutil.rmtree(f"{d}/operator", ignore_errors=True)   # step B's instance data sits there; the fixtures below replace it
     shutil.copyfile(script, f"{d}/runtime/claude-code/bootstrap.sh")
     os.chmod(f"{d}/runtime/claude-code/bootstrap.sh", 0o755)
     # The port's module beside the script under test, from the same tree
@@ -277,8 +280,8 @@ def make_pristine(script: str) -> str:
         "    store = sys.argv[sys.argv.index('--store') + 1]\n"
         "    subprocess.run(['git', '-C', store, 'config', 'agent-fabric.trustedbase', 'HEAD'], check=True)\n"
         "sys.exit(rc)\n")
-    put(f"{d}/projects/registry.json", json.dumps(REGISTRY, indent=2) + "\n")
-    put(f"{d}/policies/auto-mode.json", json.dumps({"environment": {"Organization": "a fixture organization"},
+    put(roots.projects_registry(environ={}, engine=d), json.dumps(REGISTRY, indent=2) + "\n")
+    put(roots.policy("auto-mode.json", environ={}, engine=d), json.dumps({"environment": {"Organization": "a fixture organization"},
                                                      "allow": [], "soft_deny": [], "hard_deny": []}) + "\n")
     git("init", "-q", d)
     git("-C", d, "add", "-A")
