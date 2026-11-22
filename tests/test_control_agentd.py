@@ -655,6 +655,18 @@ class Pieces(Scratch):
             t.join(10)
         self.assertEqual(got, ["boom"] * 3)
 
+    def test_join_inflight_waits_for_threads_and_refuses_a_ctl_hold_token_never_skips_it(self):
+        done = []
+        t = threading.Thread(target=lambda: (time.sleep(0.2), done.append(1)))
+        inflight: set = {t}
+        t.start()
+        agentd.join_inflight(inflight)
+        self.assertEqual(done, [1], "positive control: a thread is joined")
+        leave = agentd.leaver(inflight, exit=lambda code: None, log=lambda m: None)
+        self.assertIsNotNone(agentd.ctl_hold(leave, inflight), "a held session puts a token in the set")
+        with self.assertRaises(TypeError):
+            agentd.join_inflight(inflight)
+
     def test_leaving_for_new_code_waits_for_every_running_action_to_reply_then_exits_once(self):
         inflight = {"a", "b"}
         exits, logs = [], []

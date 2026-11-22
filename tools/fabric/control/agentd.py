@@ -790,6 +790,8 @@ class Leaver:
     too (BESIDE_LOOP_OPS), so a restart also waits for a scan in flight, and
     a fabric-ctl session open on the socket holds a token (ctl_hold), which
     is not a thread: only a daemon that serves the socket, never --once, has one.
+    The invariant is enforced twice, not only stated: hold_for_ctl refuses under --once
+    and join_inflight refuses a member that is no thread (tests pin both).
     `lock` guards `inflight` for everyone who changes it."""
 
     def __init__(self, inflight: set, exit: Callable[[int], None] | None = None,  # noqa: A002 — the Node's word
@@ -823,12 +825,22 @@ class Leaver:
         return self.why
 
 
+def join_inflight(inflight: set) -> None:
+    """Wait for every running action or disk read (--once, before it exits). A member that is no thread is a
+    ctl_hold token: leaving while a session is held is the defect that token exists to prevent, so it is
+    refused loudly, never skipped. Raised, not asserted: `python -O` strips an assert."""
+    for t in list(inflight):
+        if not isinstance(t, threading.Thread):
+            raise TypeError(f"inflight holds a {type(t).__name__}, not a thread: a ctl session is held under --once")
+        t.join()
+
+
 def ctl_hold(leave: Leaver, inflight: set) -> Callable[[], None] | None:
     """A fabric-ctl session on the socket is in flight for the leaver, as an action is: the operator's own
     `upgrade fabric` moves this daemon's code while its command still waits for the others' replies, and
     leaving then closes the only carrier-alone path they come by. release() leaves, if asked to, once none is left.
-    Not a thread, unlike the other members: finish_inflight() joins them, and only runs under --once, where no
-    socket is served. A session that opens once a leave is pending holds nothing, so sessions that follow one
+    Not a thread, unlike the other members: join_inflight() joins them and raises on this token, so a
+    --once run, which joins and serves no socket, must never hold one (main's hold_for_ctl refuses it). A session that opens once a leave is pending holds nothing, so sessions that follow one
     another (presence checks, the queue's holder asks) cannot keep the daemon on old code past one session's cap.
     None says nothing was held, so the caller can say so."""
     token = object()
@@ -1307,8 +1319,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         thread.start()
 
     def finish_inflight() -> None:
-        for t in list(inflight):
-            t.join()
+        join_inflight(inflight)
 
     decide_lock = threading.Lock()   # accept + remember: one decision for a request, whichever carrier brought it first
 
@@ -1356,7 +1367,8 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         _stderr(f"agentd: answered {request['op']} for {request['from']} ({request['id'][:8]}){tag}{control_link.id_tail(request['id'])}")
 
     def hold_for_ctl() -> Callable[[], None] | None:
-        assert not once, "a ctl token is no thread: finish_inflight() would join it"
+        if once:
+            raise RuntimeError("a ctl token is no thread: --once joins its inflight set and must never hold a session")
         return ctl_hold(leave, inflight)
 
     # `not once`: finish_inflight() joins every member of `inflight`, and a ctl session's token is not a thread.
