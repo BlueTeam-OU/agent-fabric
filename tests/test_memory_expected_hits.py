@@ -15,6 +15,7 @@ import sys
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import memory_index  # noqa: E402
+import roots  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "tests", "fixtures", "memory-expected-hits.json")
 ORDER = {"none": 0, "weak": 1, "strong": 2}
@@ -52,7 +53,9 @@ def main() -> int:
 
     with open(FIXTURE, encoding="utf-8") as fh:
         queries = json.load(fh)["queries"]
-    index = memory_index.build(os.path.join(HERE, "memory"), HERE)
+    # The fabric's corpus where the server finds it (roots.memory_dir), not HERE/memory: since move-plan step B that is
+    # operator/memory, and the committed tree at HERE/memory holds only the shims, which git does not follow.
+    index = memory_index.build(roots.memory_dir(engine=HERE), HERE)
     check("the corpus at HEAD is readable (both roots served)", index.unread == [] and len(index.sections) > 100,
           f"{index.unread} {len(index.sections)} sections")
     print("the set, against the corpus committed at HEAD")
