@@ -245,6 +245,8 @@ def main() -> int:
             running this suite (python-dev-03 declares anthropic, and every
             restart case then moved provider, j438): it reads the fixture's."""
             e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state,
+                 # No managed file: the host's real one names a snapshot the agent files would be routed from.
+                 "AGENT_FABRIC_MANAGED_ETC": f"{sandbox}/no-managed-etc",
                  "AGENT_FABRIC_RESUME_PROFILES": f"{fabric}/routing/profiles.json", **(plant or {}), **env}
             e.pop("TMPDIR", None)
             if keep_tmpdir is not None:
@@ -280,7 +282,7 @@ def main() -> int:
             # The class lines and the effort beside them, and nothing on stderr:
             # the launcher has no `set -e`, so a traceback there costs the caller
             # nothing but the output it came for.
-            e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state}
+            e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_MANAGED_ETC": f"{sandbox}/no-managed-etc"}
             r = subprocess.run(["bash", LAUNCHER, "--print"], cwd=repo, env=e, stdin=subprocess.DEVNULL,
                                capture_output=True, text=True, timeout=300)
             check("a line per capability class, from the python block",
