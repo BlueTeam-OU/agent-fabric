@@ -171,11 +171,18 @@ if not ENTRY.endswith(".py"):
 if not os.access(DEFAULT_PIN, os.X_OK):
     outcome("default pin path", run("list", python=None), 127, "", INSTALL % DEFAULT_PIN)
 else:
+    # `list` reads the operator's roles, which a stripped tree does not hold (ADR-045 §5 rule 3): the operator is a fixture with one role.
+    operator = os.path.join(tmp, "operator")
+    os.makedirs(os.path.join(operator, "identities", "roles", "fixture-role"))
+    with open(os.path.join(operator, "identities", "roles", "fixture-role", "charter.md"), "w") as fh:
+        fh.write("# fixture\n")
+    with_roles = {"AGENT_FABRIC_OPERATOR": operator}
     direct = subprocess.run([DEFAULT_PIN, os.path.join(ROOT, "tools", "fabric", "role_cli.py"), "list"],
-                            env={k: v for k, v in os.environ.items() if k not in GUARDS + ("AGENT_FABRIC_ROOT", "AGENT_FABRIC_PYTHON")},
+                            env={**{k: v for k, v in os.environ.items() if k not in GUARDS + ("AGENT_FABRIC_ROOT", "AGENT_FABRIC_PYTHON")},
+                                 **with_roles},
                             capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    check("default pin path: the installed pin answers the verb", direct.returncode, 0)
-    outcome("default pin path: the entry reaches it", run("list", python=None),
+    check("default pin path: the installed pin answers the verb", (direct.returncode, direct.stdout), (0, "available roles: fixture-role\n"))
+    outcome("default pin path: the entry reaches it", run("list", python=None, env=with_roles),
             direct.returncode, direct.stdout, direct.stderr)
 # Mutation: the root taken from the symlink's directory instead of the real path.
 if not ENTRY.endswith(".py"):
