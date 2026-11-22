@@ -19,6 +19,8 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "fabric"))
+import roots  # noqa: E402
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
@@ -66,7 +68,8 @@ def main() -> int:
     t = tempfile.mkdtemp()
     try:
         fab = f"{t}/fabric"
-        for d in (f"{fab}/identities/keys", f"{t}/remotes", f"{t}/bin"):
+        keys = roots.keys_dir(engine=fab)     # step B: published under the fabric's operator/
+        for d in (f"{keys}", f"{t}/remotes", f"{t}/bin"):
             os.makedirs(d)
         # The fabric is a checkout: a store's writers are read at its
         # origin/main (ADR-042 rule 2); what enrolment certifies counts once
@@ -148,7 +151,7 @@ def main() -> int:
 
         def lid(login: str) -> str:
             try:
-                d = json.loads(read(f"{fab}/identities/keys/lineage.json"))
+                d = json.loads(read(f"{keys}/lineage.json"))
                 return next((a for a, r in d.items() if r.get("login") == login), "")
             except (ValueError, AttributeError):
                 return ""
@@ -174,7 +177,7 @@ def main() -> int:
         rc, out = P(sys.executable, ENROLL, "--self")
         pid = lid(LOGIN)
         try:
-            first_parent = list(json.loads(read(f"{fab}/identities/keys/lineage.json")).values())[0].get("parent", "x")
+            first_parent = list(json.loads(read(f"{keys}/lineage.json")).values())[0].get("parent", "x")
         except (ValueError, IndexError, AttributeError):
             first_parent = "x"
         check("--self: the parent's repository, named by its agent id, its store and root key",
@@ -195,7 +198,7 @@ def main() -> int:
         put(aid_file, keep)
         check("--self with a malformed .agent-id: exit 1, nothing made",
               rc == 1 and "agent id could not be read" in out and "repo create" not in read(calls), f"rc={rc}\n{out}")
-        lin = f"{fab}/identities/keys/lineage.json"
+        lin = f"{keys}/lineage.json"
         keep = read(lin)
         put(lin, "{ not json\n")
         clear_calls()
@@ -304,7 +307,7 @@ def main() -> int:
         rc, out = P(sys.executable, ENROLL, "--rename", "kid", "kiddo")
         check("--rename changes the login and the description; the id, key, repository and mirror stay",
               rc == 0 and lid("kiddo") == kid and not lid("kid") and os.path.isdir(f"{t}/remotes/fabric-agent-{kid}.git")
-              and os.path.isfile(f"{fab}/identities/keys/{kid}.asc")
+              and os.path.isfile(f"{keys}/{kid}.asc")
               and os.path.isdir(f"{t}/parent/.local/share/agent-fabric/children/{kid}/.git")
               and f"repo edit BlueTeam-OU/fabric-agent-{kid} --description agent-fabric agent repository: "
                   "secrets and settings. Agent kiddo on far-host. (ADR-038, ADR-039)" in read(calls), f"rc={rc}\n{out}")
