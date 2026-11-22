@@ -23,6 +23,7 @@ TOOL = os.path.join(ROOT, "tools", "fabric", "secret_selftest.py")
 STORE_TOOL = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
 sys.path.insert(0, os.path.dirname(STORE_TOOL))
 import secret_store  # noqa: E402 — the id helpers
+import roots  # noqa: E402 — where the fixture's instance data sits under its fabric tree
 from instance_fixtures import write_secrets_instance  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
@@ -41,9 +42,9 @@ def main() -> int:
         store = os.path.join(home, "store")
         os.makedirs(home)
         os.makedirs(gnupg, mode=0o700)
-        os.makedirs(os.path.join(fabric, "projects"))
-        os.makedirs(os.path.join(fabric, "identities", "keys"))
-        write_secrets_instance(fabric)
+        os.makedirs(roots.projects_dir(engine=fabric))
+        os.makedirs(roots.keys_dir(engine=fabric))
+        write_secrets_instance(roots.operator_root(engine=fabric))
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "GNUPGHOME": gnupg, "LANG": "C.UTF-8",
                "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_SECRET_STORE": store, "AGENT_FABRIC_PYTHON": sys.executable,
                "GIT_CONFIG_GLOBAL": os.path.join(home, ".gitconfig"), "GIT_CONFIG_NOSYSTEM": "1"}
