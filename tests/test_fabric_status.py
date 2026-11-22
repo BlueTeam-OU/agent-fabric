@@ -15,6 +15,7 @@ import pwd
 import socket
 import subprocess
 import sys
+import shutil
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -33,6 +34,8 @@ def clean_env(**extra) -> dict:
     """What a fabric process sees in CI: nothing of this session's launch."""
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "ANTHROPIC_", "CLAUDE_", "OPENROUTER_", "MOVETO_"))}
+    # An empty managed directory: this host's real /etc/claude-code names a snapshot, which the report would compare.
+    env.setdefault("AGENT_FABRIC_MANAGED_ETC", os.path.join(tempfile.gettempdir(), "no-managed-etc-for-tests"))
     env.update(extra)
     return env
 
@@ -509,6 +512,37 @@ def main() -> int:
               and creds.get("CLAUDE_CODE_EFFORT_LEVEL") == "set")
         check("…and their values are never echoed", "zq-effort-value" not in json.dumps(with_eff)
               and "zq-level-value" not in json.dumps(with_eff))
+
+        # ADR-043 §5 rule 10: a class whose routing the guard's snapshot reads otherwise than the checkout.
+        def snapshot(name: str, differ: bool) -> str:
+            snap = os.path.join(tmp, name)
+            os.makedirs(snap)
+            for d in ("tools", "runtime", "policies", "projects", "identities"):
+                os.symlink(os.path.join(HERE, d), os.path.join(snap, d))
+            shutil.copytree(os.path.join(HERE, "routing"), os.path.join(snap, "routing"))
+            if differ:
+                eff = os.path.join(snap, "routing", "effort.json")
+                doc = json.load(open(eff))
+                doc["classes"]["code-low"] = "low"
+                json.dump(doc, open(eff, "w"))
+                caps = os.path.join(snap, "routing", "capabilities.json")
+                doc = json.load(open(caps))
+                doc["providers"]["anthropic"]["models"]["code-review"] = "claude-sonnet-5-5"
+                json.dump(doc, open(caps, "w"))
+            etc = os.path.join(tmp, name + "-etc")
+            entry = snap + "/runtime/claude-code/managed/hook_entry.py"
+            put(os.path.join(etc, "managed-settings.json"), json.dumps({"hooks": {"PreToolUse": [{"hooks": [
+                {"type": "command", "args": ["-I", "-S", entry, "agent-dispatch-guard"]}]}]}}))
+            return etc
+
+        lines = status.agent_file_routing_drift(HERE, "anthropic", snapshot("differs", True))
+        check("a snapshot routing a class otherwise: a line for each such class, both values and the snapshot",
+              len(lines) == 2 and any("code-low: effort" in l and "medium (checkout) vs low (snapshot)" in l for l in lines)
+              and any("code-review: pin" in l and "claude-sonnet-5-5 (snapshot)" in l for l in lines)
+              and all(os.path.join(tmp, "differs") in l for l in lines))
+        check("a snapshot that agrees with the checkout: no line (the comparison ran: it is not the checkout itself)",
+              status.agent_file_routing_drift(HERE, "anthropic", snapshot("agrees", False)) == [])
+        check("no managed file: no line", status.agent_file_routing_drift(HERE, "anthropic", os.path.join(tmp, "nothing")) == [])
 
     print("ok" if not fails else f"{fails} FAILED")
     return 1 if fails else 0

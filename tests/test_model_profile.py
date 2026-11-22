@@ -61,7 +61,9 @@ class Fixture:
             shutil.copy2(os.path.join(HERE, "fixtures", "routing-distinct", name), os.path.join(root, "routing", name))
         instance_fixtures.write_routing_overlay(os.path.join(root, "routing"))
         self.env = {**os.environ, "AGENT_FABRIC_ROOT": root, "AGENT_FABRIC_STATE_DIR": self.state,
-                    "CLAUDE_CONFIG_DIR": self.claude}
+                    "CLAUDE_CONFIG_DIR": self.claude,
+                    # No managed file: this host's names a snapshot the agent files would be routed from.
+                    "AGENT_FABRIC_MANAGED_ETC": os.path.join(root, "no-managed-etc")}
         self.env.pop("AGENT_FABRIC_LAUNCH_PROVIDER", None)  # an unlaunched session, whatever the runner is
         self.login = subprocess.run([sys.executable, os.path.join(ROOT, "runtime", "identity.py")],
                                     capture_output=True, text=True, env=self.env).stdout.strip() or os.getlogin()

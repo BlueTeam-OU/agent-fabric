@@ -111,7 +111,10 @@ def main() -> int:
                 f.write(text)
 
         def env_for(home: str, cfg: str | None, **extra: str) -> dict:
-            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home}
+            # An empty managed directory: this host's real /etc/claude-code names a snapshot, and a run that
+            # read it would route from that tree, not from the fixture's stub.
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home,
+                   "AGENT_FABRIC_MANAGED_ETC": os.path.join(scratch, "no-managed-etc")}
             if cfg is not None:
                 env["CLAUDE_CONFIG_DIR"] = cfg
             env.update(extra)
@@ -466,6 +469,96 @@ def main() -> int:
         r = run(root, home, cfg)
         check("a removed worker counts as written", not os.path.exists(w) and r.stdout.splitlines()[-1] == "agent files (anthropic): 6 written, 0 already current.", r.stdout)
         check("…and the reason says the role is unbound when identity.py gives none", "role is unbound" in r.stdout, r.stdout)
+
+
+        # ADR-043 §5 rule 10: routed from the tree the dispatch guard reads.
+        def snapshot(base: str) -> str:
+            """A managed snapshot whose routing differs from the checkout stub's: the real routing.py and
+            identity beside it, routing/ copied with code-low at `low` and code-review's anthropic model changed."""
+            snap = os.path.join(base, "snap")
+            os.makedirs(snap)
+            for d in ("tools", "runtime", "policies", "projects", "identities"):
+                os.symlink(os.path.join(HERE, d), os.path.join(snap, d))
+            shutil.copytree(os.path.join(HERE, "routing"), os.path.join(snap, "routing"))
+            eff = os.path.join(snap, "routing", "effort.json")
+            doc = json.loads(read(eff))
+            doc["classes"]["code-low"] = "low"
+            with open(eff, "w") as f:
+                json.dump(doc, f)
+            caps = os.path.join(snap, "routing", "capabilities.json")
+            doc = json.loads(read(caps))
+            doc["providers"]["anthropic"]["models"]["code-review"] = "claude-sonnet-5-5"
+            with open(caps, "w") as f:
+                json.dump(doc, f)
+            return snap
+
+        def managed_for(base: str, snap: str, body: dict | None = None) -> str:
+            """A managed-settings.json in its own directory, naming the dispatch guard under a `current` link."""
+            etc = os.path.join(base, "etc")
+            os.makedirs(etc)
+            link = os.path.join(base, "current")
+            os.symlink(snap, link)
+            entry = link + "/runtime/claude-code/managed/hook_entry.py"
+            doc = body if body is not None else {"hooks": {"PreToolUse": [{"matcher": "Agent", "hooks": [
+                {"type": "command", "command": "/usr/local/bin/fabric-python",
+                 "args": ["-I", "-S", entry, "agent-dispatch-guard"]}]}]}}
+            put(etc, "managed-settings.json", json.dumps(doc))
+            return etc
+
+        root, home, cfg = fixture()
+        snap = snapshot(os.path.dirname(root))
+        etc = managed_for(os.path.dirname(root), snap)
+        r = run(root, home, cfg, AGENT_FABRIC_MANAGED_ETC=etc)
+        agent = lambda k: read(os.path.join(cfg, "agents", k + ".md"))
+        check("a managed file naming the guard: the agent files carry the snapshot's pin and effort",
+              r.returncode == 0 and "model: claude-sonnet-5-5\neffort: high" in agent("code-review")
+              and "effort: low" in agent("code-low"), r.stdout + r.stderr)
+        check("…the checkout's routing.py is never asked", not calls(root) or all(c["tool"] != "routing" for c in calls(root)), str(calls(root)))
+
+        root, home, cfg = fixture()
+        r = run(root, home, cfg)
+        check("no managed file: the checkout's pin, and no effort where it names none",
+              r.returncode == 0 and "model: claude-pinned-model" in agent("code-review") and "effort:" not in agent("code-low"), r.stdout + r.stderr)
+        check("…routed from the checkout, as before: no --fabric, no -E -s",
+              [c["argv"] for c in calls(root) if c["tool"] == "routing"] == [["pins", "--me", "--provider", "anthropic"], ["efforts", "--me", "--provider", "anthropic"]])
+
+        for label, body in (("no dispatch guard", {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "args": ["-I", "-S", "/x/runtime/claude-code/managed/hook_entry.py", "pipe-status-guard"]}]}]}}),
+                            ("no hooks", {"env": {}}), ("a list for a document", [])):
+            root, home, cfg = fixture()
+            snap = snapshot(os.path.dirname(root))
+            etc = managed_for(os.path.dirname(root), snap, body)
+            r = run(root, home, cfg, AGENT_FABRIC_MANAGED_ETC=etc)
+            check(f"a managed file with {label}: the checkout's routing",
+                  r.returncode == 0 and "model: claude-pinned-model" in agent("code-review"), r.stdout + r.stderr)
+        root, home, cfg = fixture()
+        etc = os.path.join(os.path.dirname(root), "etc")
+        put(etc, "managed-settings.json", "{not json")
+        r = run(root, home, cfg, AGENT_FABRIC_MANAGED_ETC=etc)
+        check("an unreadable managed file: the checkout's routing", r.returncode == 0 and "model: claude-pinned-model" in agent("code-review"), r.stdout + r.stderr)
+        root, home, cfg = fixture()
+        etc = managed_for(os.path.dirname(root), os.path.join(os.path.dirname(root), "gone"))
+        r = run(root, home, cfg, AGENT_FABRIC_MANAGED_ETC=etc)
+        check("a snapshot that is not there: routing fails visibly, nothing written (never the checkout's)",
+              r.returncode == 1 and "routing.py pins failed" in r.stderr and not os.path.exists(os.path.join(cfg, "agents")), r.stderr)
+
+        # The snapshot's routing.py is called as the guard calls it: the tree named by --fabric, -E and -s on.
+        root, home, cfg = fixture()
+        base = os.path.dirname(root)
+        stub_snap = os.path.join(base, "stub-snap")
+        put(stub_snap, "tools/fabric/routing.py", (
+            "import json, os, sys\n"
+            "open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'argv.log'), 'a').write(json.dumps("
+            "{'argv': sys.argv[1:], 'E': sys.flags.ignore_environment, 's': sys.flags.no_user_site}) + '\\n')\n"
+            "sub = sys.argv[sys.argv.index('--fabric') + 2]\n"
+            "sys.stdout.write('code-review fable m-snap\\n' if sub == 'pins' else ''.join(f'{k} high ok\\n' for k in "
+            + repr(list(CLASSES)) + "))\n"))
+        etc = managed_for(base, stub_snap)
+        r = run(root, home, cfg, AGENT_FABRIC_MANAGED_ETC=etc)
+        seen = [json.loads(x) for x in read(os.path.join(stub_snap, "tools", "fabric", "argv.log")).splitlines()]
+        check("a snapshot's routing.py runs with --fabric <tree>, -E and -s",
+              r.returncode == 0 and [c["argv"] for c in seen] == [["--fabric", os.path.realpath(stub_snap), "pins", "--me", "--provider", "anthropic"],
+                                                                  ["--fabric", os.path.realpath(stub_snap), "efforts", "--me", "--provider", "anthropic"]]
+              and all(c["E"] == 1 and c["s"] == 1 for c in seen), r.stderr + str(seen))
 
         # A routing failure writes nothing and says which subcommand.
         for sub in ("pins", "efforts"):
