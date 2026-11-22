@@ -229,7 +229,9 @@ class Fixture(unittest.TestCase):
         # rule 3) and send the reads to data this suite did not build.
         return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": self.home, "LANG": "C.UTF-8",
                 "TMPDIR": self.sandbox, "AGENT_FABRIC_ROOT": self.fabric, "AGENT_FABRIC_STATE_DIR": self.state,
-                "AGENT_FABRIC_PYTHON": self.pin, "PYTHONPATH": self.login_dir, "PYTHONDONTWRITEBYTECODE": "1"}
+                "AGENT_FABRIC_PYTHON": self.pin, "PYTHONPATH": self.login_dir, "PYTHONDONTWRITEBYTECODE": "1",
+                # No managed file: this host's real one names a snapshot the fixture's routing would be bypassed for.
+                "AGENT_FABRIC_MANAGED_ETC": os.path.join(self.sandbox, "no-managed-etc")}
 
     def run_raw(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
         return subprocess.run([PYTHON if IS_PY else "bash", self.entry, *args],

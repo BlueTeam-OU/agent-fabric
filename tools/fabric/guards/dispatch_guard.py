@@ -202,6 +202,22 @@ class Malformed(Exception):
     pass
 
 
+def stale_file(file: str) -> str:
+    """The causes of an agent file that disagrees with this guard's routing, each with its remedy (j810)."""
+    # Four causes. Since ADR-043 rule 10 the installer routes a file from the tree this guard reads (the managed
+    # snapshot, else the checkout), so fabric-model apply clears the first three. The fourth survives only for a
+    # file an installer older than rule 10 wrote from the checkout (8d38edf2, 2026-11-12: every review
+    # denied; the old text sent agents to fabric-model apply, which rewrote the file from the checkout again).
+    return (f"Either another launch of this account (the other provider) has rewritten {file} since this session "
+            "started, or the fabric checkout moved under this session and now routes it differently, or the operator "
+            "reinstalled the managed snapshot after this session wrote its agent files and this guard now routes "
+            "ahead of the file: re-run agent-fabric/bin/fabric-model apply from this session (it writes from the "
+            "snapshot), or relaunch, or the fleet's `fabric-ctl all upgrade fabric`, which reruns bootstrap. Or the "
+            f"file was written by an installer older than ADR-043 rule 10 from a checkout ahead of {FABRIC}, which "
+            "apply cannot clear: run fabric-managed check, and if it says drifted, ask the owner to install main's "
+            "sha (sudo agent-fabric/bin/fabric-managed install --sha <sha>). ")
+
+
 def decision(kind: str, reason: str, **extra) -> dict:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": kind,
                                    "permissionDecisionReason": reason, **extra}}
@@ -400,19 +416,14 @@ def decide(call) -> dict | None:
                         "runs no git writes. " + SKILL)
         if pin != "" and file_model != pin:
             return deny(f'Review dispatch under a fabric launch, but the agent file of the reviewer says model '
-                        f'"{file_model}" while this launch resolves code-review to "{pin}". Either another launch of '
-                        "this account (the other provider) has rewritten ~/.claude/agents/code-review.md since this "
-                        "session started, or the fabric checkout moved under this session and now routes the review "
-                        "class to a different model; either way a reviewer would run on a model nothing chose for "
-                        "this session. Re-run agent-fabric/bin/fabric-model apply from this session, or relaunch. "
+                        f'"{file_model}" while this launch resolves code-review to "{pin}"; a reviewer would run on a '
+                        "model nothing chose for this session. " + stale_file("~/.claude/agents/code-review.md")
                         + SKILL)
         if "code-review" in file_effort and alt(routed_effort.get("code-review"), "") != file_effort["code-review"]:
             return deny(f'Review dispatch under a fabric launch, but the agent file of the reviewer says effort '
                         f'"{file_effort["code-review"]}" while this launch resolves code-review to '
-                        f'"{alt(routed_effort.get("code-review"), "none")}". Either another launch of this account has '
-                        "rewritten it since this session started, or the fabric checkout moved under this session and "
-                        "now routes the review class differently. Re-run agent-fabric/bin/fabric-model apply from "
-                        "this session, or relaunch. " + SKILL)
+                        f'"{alt(routed_effort.get("code-review"), "none")}". '
+                        + stale_file("~/.claude/agents/code-review.md") + SKILL)
         if pin != "":
             # The rules held; under a fabric launch the reviewer file carries the pin.
             return decision("allow", "Review dispatch under a fabric launch: model fable checked, then removed so "
@@ -454,11 +465,8 @@ def decide(call) -> dict | None:
         if kind in file_effort and alt(routed_effort.get(kind), "") != file_effort[kind]:
             return deny(f'Dispatch of "{kind}" under a fabric launch, but its agent file says effort '
                         f'"{file_effort[kind]}" while this launch resolves {kind} to '
-                        f'"{alt(routed_effort.get(kind), "none")}". Either another launch of this account (the other '
-                        f"provider) has rewritten ~/.claude/agents/{kind}.md since this session started, or the fabric "
-                        f"checkout moved under this session and now routes {kind} differently; either way the agent "
-                        "would think at a level nothing chose for this session. Re-run agent-fabric/bin/fabric-model "
-                        "apply from this session, or relaunch. " + SKILL)
+                        f'"{alt(routed_effort.get(kind), "none")}"; the agent would think at a level nothing chose '
+                        "for this session. " + stale_file(f"~/.claude/agents/{kind}.md") + SKILL)
         if kind in ("code-high", "code-plan"):
             return ask(f"Agent dispatch names {kind}, a premium class ({alias}). Per the subagent-dispatch skill, the "
                        "premium tier is for a subagent only when you explicitly asked for it -- the task looking hard "

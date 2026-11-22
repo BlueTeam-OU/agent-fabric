@@ -812,7 +812,8 @@ def launch(argv: list[str]) -> int:
     if print_only:
         print_report(resolved, routing, label=label, agent=agent, role=role, provider=routing_provider, session=session,
                      effective_session=effective_session, session_effort=session_effort,
-                     caller_effort=caller_effort, prompt_file=prompt_file, prompt_flag=prompt_flag)
+                     caller_effort=caller_effort, prompt_file=prompt_file, prompt_flag=prompt_flag,
+                     fabric_root=fabric_root)
         if provider == "gateway":
             print("  (launched through the gateway: the harness gets its loopback listener and a local key, "
                   "and no upstream credential)")

@@ -303,6 +303,13 @@ def main() -> int:
     out = launched("openrouter", R)
     check("a reviewer file that disagrees with this launch's resolution is denied, not run",
           dec(out) == "deny" and "rewritten" in out, out)
+    # j810: the guard routes from the managed snapshot, the file was routed from the checkout; a snapshot behind a
+    # routing merge denied every review on the host, and the reason sent agents to fabric-model apply, which rewrites
+    # the file from the checkout again and cannot clear it. The reason names that cause and its remedy.
+    behind = "fabric-managed check"
+    check("…and its reason names a managed snapshot behind the checkout, with its remedy", behind in out, out)
+    check("…and its reason names the reinstall of the snapshot after the file was written, with both remedies",
+          "reinstalled the managed snapshot" in out and "fabric-model apply" in out and "fabric-ctl all upgrade fabric" in out, out)
 
     # THE SAME STALENESS, FOR EFFORT. A level is written into every class's
     # file, not just the reviewer's model, so the cross-provider rewrite
@@ -326,11 +333,13 @@ def main() -> int:
     out = vanilla(HIGH)
     check("a class file another launch rewrote to a different level is denied, not run",
           dec(out) == "deny" and stranded in out, out)
+    check("…and its reason names a managed snapshot behind the checkout", behind in out, out)
     os.remove(f"{SCRATCH_HOME}/agents/code-high.md")
     with open(f"{SCRATCH_HOME}/agents/code-review.md", "w", encoding="utf-8") as f:
         f.write("---\nname: code-review\nmodel: claude-opus-5[1m]\neffort: low\n---\n")
     out = vanilla(R)
     check("…and the review class is checked the same way", dec(out) == "deny" and "effort" in out, out)
+    check("…with the same reason: the snapshot's routing, not only another launch's file", behind in out, out)
     reviewer_file("claude-opus-5[1m]")
 
     # The runner may itself be a fabric-launched session; "unlaunched" is the variable absent, not inherited.

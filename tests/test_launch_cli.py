@@ -245,6 +245,8 @@ def main() -> int:
             running this suite (python-dev-03 declares anthropic, and every
             restart case then moved provider, j438): it reads the fixture's."""
             e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state,
+                 # No managed file: the host's real one names a snapshot the agent files would be routed from.
+                 "AGENT_FABRIC_MANAGED_ETC": f"{sandbox}/no-managed-etc",
                  "AGENT_FABRIC_RESUME_PROFILES": f"{fabric}/routing/profiles.json", **(plant or {}), **env}
             e.pop("TMPDIR", None)
             if keep_tmpdir is not None:
@@ -280,7 +282,7 @@ def main() -> int:
             # The class lines and the effort beside them, and nothing on stderr:
             # the launcher has no `set -e`, so a traceback there costs the caller
             # nothing but the output it came for.
-            e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state}
+            e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_MANAGED_ETC": f"{sandbox}/no-managed-etc"}
             r = subprocess.run(["bash", LAUNCHER, "--print"], cwd=repo, env=e, stdin=subprocess.DEVNULL,
                                capture_output=True, text=True, timeout=300)
             check("a line per capability class, from the python block",
@@ -290,6 +292,106 @@ def main() -> int:
                   len(re.findall(r"^  code-[a-z]*  *:.* effort ", r.stdout, re.M)) == 5, r.stdout)
             check("a level the model does not admit prints asked -> served, never served alone",
                   has(r"code-medium .* effort high \(asked medium\)", r.stdout), r.stdout)
+
+            # ADR-043 rule 10: with a managed snapshot the agent files carry ITS routing, and --print says so.
+            snap = f"{sandbox}/snap"
+            rm(snap)
+            shutil.copytree(f"{fabric}/routing", f"{snap}/routing")
+            # The installer runs the snapshot's own routing.py and reads its hook_entry.py: the snapshot carries both.
+            for d in ("tools", "runtime", "identities", "policies", "projects"):
+                os.symlink(f"{ROOT}/{d}", f"{snap}/{d}")
+            with open(f"{snap}/routing/effort.json") as fh:
+                eff = json.load(fh)
+            eff["classes"]["code-low"] = "high" if eff["classes"]["code-low"] != "high" else "low"
+            with open(f"{snap}/routing/effort.json", "w") as fh:
+                json.dump(eff, fh)
+            etc = f"{sandbox}/managed-etc"
+            os.makedirs(etc, exist_ok=True)
+            with open(f"{etc}/managed-settings.json", "w") as fh:
+                json.dump({"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "args": [
+                    "-I", "-S", f"{snap}/runtime/claude-code/managed/hook_entry.py", "agent-dispatch-guard"]}]}]}}, fh)
+            plain = out_of("--print")
+            managed_rc, managed = run("--print", AGENT_FABRIC_MANAGED_ETC=etc)
+            low = lambda o: (re.search(r"^  code-low  *:.*$", o, re.M) or re.search("$", "")).group(0)
+            check("no managed file: --print names no snapshot", "managed snapshot" not in plain, plain)
+            check("a managed snapshot: --print says the agent files' values come from it, and prints its effort",
+                  managed_rc == 0 and low(managed) != "" and f"managed snapshot {os.path.realpath(snap)}" in managed and low(managed) != low(plain), managed)
+
+            # The values --print attributes to the agent files are the installer's own: the snapshot's routing under
+            # the login's local layer, run as the installer runs it. With a snapshot whose review model differs from
+            # the checkout's and a local layer that moves the review class, re-resolving in --print's process lost
+            # the local layer (and ran the checkout's code), printing a model no agent file carried.
+            with open(f"{snap}/routing/capabilities.json") as fh:
+                caps = json.load(fh)
+            caps["providers"]["openrouter"]["models"]["code-review"] = "z-ai/glm-5.2"
+            with open(f"{snap}/routing/capabilities.json", "w") as fh:
+                json.dump(caps, fh)
+            local('{"capabilities":{"code-review":"anthropic/claude-opus-5"}}')
+            snap_rc, snap_out = run("--print", AGENT_FABRIC_MANAGED_ETC=etc)
+            probe = ("import json, sys\n"
+                     f"sys.path.insert(0, {ROOT + '/tools/fabric'!r})\n"
+                     "import install_agent_files as i\n"
+                     "r = [i.routing_run(s, 'openrouter', sys.argv[1], sys.argv[2]) for s in ('pins', 'efforts')]\n"
+                     "print(json.dumps([i.parse_pins(r[0].stdout), i.parse_efforts(r[1].stdout)]))\n")
+            pr = subprocess.run([sys.executable, "-c", probe, fabric, os.path.realpath(snap)], text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
+                                env={**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_STATE_DIR": state})
+            inst_pins, inst_efforts = json.loads(pr.stdout)
+            cline = lambda o, k: (re.search(rf"^  {k}  *:.*$", o, re.M) or re.search("$", "")).group(0)
+            check("the installer's own pin for the review class is the local layer's, not the snapshot's",
+                  inst_pins.get("code-review") == "anthropic/claude-opus-5" and len(inst_efforts) >= 4, pr.stdout + pr.stderr)
+            check("--print under a managed snapshot: the review class line carries the installer's pin",
+                  snap_rc == 0 and re.search(rf"^  code-review  *: {re.escape(inst_pins['code-review'])}  .*=> {re.escape(inst_pins['code-review'])}  ",
+                                             cline(snap_out, "code-review")) is not None, snap_out)
+            check("--print under a managed snapshot: every class's effort is the installer's",
+                  all(f"effort {lvl}" in cline(snap_out, k) for k, lvl in inst_efforts.items()), snap_out)
+            # The snapshot's `efforts` rows keep the outcome column and its `-` rows, and a broker pin keeps its shim's
+            # `@`: print_report is driven with a stubbed installer so every outcome and a bare preset pin are exercised.
+            rprobe = ("import io, contextlib, json, os, sys, tempfile, types\n"
+                      f"sys.path.insert(0, {ROOT + '/tools/fabric'!r})\n"
+                      "import launch, routing\n"
+                      "from fabric_launcher import session\n"
+                      "class R: returncode = 0\n"
+                      "def run(out):\n"
+                      "    r = R(); r.stdout = out; return r\n"
+                      "iaf = session._install_agent_files()\n"
+                      "iaf.dispatch_guard_tree = lambda: '/snap'\n"
+                      "iaf.routing_run = lambda sub, *a, **k: run({'pins': PINS, 'efforts': EFFORTS}[sub])\n"
+                      "session._install_agent_files = lambda: iaf\n"
+                      "PINS = 'code-review opus z-ai/glm-5.2@preset/glm2claude-shim\\ncode-plan fable @preset/bare\\n'\n"
+                      "EFFORTS = 'code-low - unexpressible\\ncode-medium high raised\\ncode-high high approximated\\ncode-plan high applied\\ncode-review high applied\\n'\n"
+                      "ef = lambda lvl, i: {'level': lvl, 'intent': i, 'outcome': 'applied', 'how': '', 'source': ''}\n"
+                      "mk = lambda via: {'model': 'm', 'shim': None, 'composite': 'm', 'via': via, 'source': 'x', 'effort': ef('low', 'low')}\n"
+                      "d = {'session': {'source': 'x'}, 'provider': 'openrouter', 'exports': {},\n"
+                      "     'classes': {k: mk('file' if k in ('code-review', 'code-plan') else 'export') for k in ('code-low', 'code-medium', 'code-high', 'code-plan', 'code-review')}}\n"
+                      "d['classes']['code-low']['effort'] = ef(None, 'low'); d['classes']['code-medium']['effort'] = ef('high', 'medium')\n"
+                      "d['classes']['code-high']['effort'] = ef('high', 'xhigh')\n"
+                      "pf = tempfile.NamedTemporaryFile(delete=False); pf.write(b'x\\n'); pf.close()\n"
+                      "try:\n"
+                      "    session.print_report(d, routing, label='l', agent='a', role='r', provider='openrouter', session='s', effective_session='s',\n"
+                      "                         session_effort='', caller_effort=False, prompt_file=pf.name, prompt_flag='f')\n"
+                      "finally:\n"
+                      "    os.unlink(pf.name)\n")
+            rr = subprocess.run([sys.executable, "-c", rprobe], text=True, capture_output=True, timeout=120,
+                                env={**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_STATE_DIR": state})
+            rl = lambda k: cline(rr.stdout, k)
+            check("a managed snapshot's raised class prints asked -> served, not the served level alone",
+                  "effort high (asked medium)" in rl("code-medium"), rr.stdout + rr.stderr)
+            check("a managed snapshot's approximated class prints asked -> served",
+                  "effort high (asked xhigh)" in rl("code-high"), rr.stdout + rr.stderr)
+            check("a managed snapshot's unexpressible class (a `-` row) prints the expresses-none form, never nothing",
+                  "effort - (asked low; this model expresses none)" in rl("code-low"), rr.stdout + rr.stderr)
+            check("a managed snapshot's broker pin keeps its shim's @",
+                  "shim @preset/glm2claude-shim  => z-ai/glm-5.2@preset/glm2claude-shim" in rl("code-review"), rr.stdout + rr.stderr)
+            check("a managed snapshot's bare @preset pin prints the composite as its model, never an empty one",
+                  re.search(r"code-plan  *: @preset/bare  shim @preset/bare  => @preset/bare  ", rl("code-plan")) is not None,
+                  rr.stdout + rr.stderr)
+            # A snapshot whose routing cannot run: one line saying so, and --print goes on.
+            os.remove(f"{snap}/routing/capabilities.json")
+            bad_rc, bad_out = run("--print", AGENT_FABRIC_MANAGED_ETC=etc)
+            check("a snapshot whose routing cannot be read: --print says so and does not crash",
+                  bad_rc == 0 and "routing could not be read" in bad_out and "Traceback" not in bad_out, bad_out)
+            local("{}")
 
             print("launch: a non-GLM override receives no shim; a GLM override keeps it")
             mkfabric()

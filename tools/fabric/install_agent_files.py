@@ -26,8 +26,16 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
                which the launcher writes), else launch-holder.json's
                holder.locale for a session that predates it, CLAUDE_CONFIG_DIR (else ~/.claude for the agent
                files and the user settings; else $HOME for .claude.json),
-               HOME. AGENT_FABRIC_ROOT is SET for the children, to this
-               checkout (the module's own location), never read.
+               HOME. AGENT_FABRIC_MANAGED_ETC (the directory of the managed
+               settings file for a non-root run; /etc/claude-code for root and
+               without it) and that directory's managed-settings.json, read
+               for the dispatch guard's tree (ADR-043 §5 rule 10).
+               AGENT_FABRIC_ROOT is SET for the children and never read: to
+               this checkout (the module's own location), except for the two
+               routing children of a managed snapshot, which get the
+               environment hook_entry.py gives the guard (the snapshot's KEEP
+               variables from this one, AGENT_FABRIC_ROOT=<snapshot>,
+               AGENT_FABRIC_PYTHON, PATH).
   stdout       one line per file: "  =  dest" (already current),
                "  +  dest" (written; "  +  dest (would write)" on a dry
                run), "     (kept the previous file as ...)", "  -  dest
@@ -64,6 +72,11 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
                <claude.json> set|remove, <settings.json>
                deny-websearch|allow-websearch; fabric-memory/install.py and
                fabric-review/install.py <claude.json> set
+               The two routing calls run from the tree the dispatch guard
+               reads (dispatch_guard_tree: the installed managed settings'
+               agent-dispatch-guard hook, ADR-043 §5 rule 10) as
+               `-E -s <tree>/tools/fabric/routing.py --fabric <tree> ...`;
+               with no managed file in force, from this checkout.
   relied on    launcher (tools/fabric/launch.py): exit status only, stdout
                discarded; bootstrap.sh: plain and --dry-run, stdout shown;
                bin/fabric-model (tools/fabric/model_profile.py): stdout
@@ -86,6 +99,7 @@ different providers would rewrite it in turn, which the guard catches.
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import pwd
@@ -103,9 +117,105 @@ import fabric_writes  # noqa: E402
 import launch_locale  # noqa: E402
 import roots  # noqa: E402
 
+# managed_settings.py's own: ENTRY, and ETC with its non-root override. Not imported: it is a root installer's
+# module, and the fixture trees that copy this file's siblings would each have to carry it.
+MANAGED_ENTRY = "runtime/claude-code/managed/hook_entry.py"
+MANAGED_ETC_OVERRIDE = "AGENT_FABRIC_MANAGED_ETC"
 CLASS_FILES = ("code-low.md", "code-medium.md", "code-high.md", "code-plan.md", "code-review.md")
 MARKER = b"agent-fabric"
 MODEL_LINE = re.compile(rb"^model: .*", re.M)
+
+
+def dispatch_guard_tree(etc: str | None = None) -> str | None:
+    """The tree the dispatch guard runs from, read from the installed managed
+    settings (ADR-043 §5 rule 10): the agent-dispatch-guard hook's
+    hook_entry.py path minus that file's place in the tree, resolved (the
+    `current` link is the snapshot the operator last installed). None when
+    the file is absent, unreadable, not an object or names no such hook: no
+    managed file is in force, and the checkout is the only tree there is.
+    `etc` is where the file lives (/etc/claude-code, overridable by
+    AGENT_FABRIC_MANAGED_ETC for a non-root test, never for root, as
+    managed_settings.py has it)."""
+    if etc is None:
+        etc = "/etc/claude-code" if os.geteuid() == 0 else os.environ.get(MANAGED_ETC_OVERRIDE, "/etc/claude-code")
+    path = os.path.join(etc, "managed-settings.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            settings = json.load(f)
+    except (OSError, ValueError):
+        return None
+    hooks = settings.get("hooks") if isinstance(settings, dict) else None
+    if not isinstance(hooks, dict):
+        return None
+    for groups in hooks.values():
+        for group in groups if isinstance(groups, list) else []:
+            for hook in group.get("hooks", []) if isinstance(group, dict) else []:
+                args = hook.get("args") if isinstance(hook, dict) else None
+                if not isinstance(args, list) or not args or args[-1] != "agent-dispatch-guard":
+                    continue
+                for arg in args:
+                    if isinstance(arg, str) and arg.endswith("/" + MANAGED_ENTRY):
+                        return os.path.realpath(arg[:-len(MANAGED_ENTRY)])
+    return None
+
+
+def snapshot_environment(tree: str) -> dict[str, str] | None:
+    """The environment hook_entry.main gives the guard: only the KEEP variables from this one, AGENT_FABRIC_ROOT=tree,
+    AGENT_FABRIC_PYTHON and PATH. KEEP and PATH are read from the SNAPSHOT'S OWN hook_entry.py, parsed and never run:
+    a copy here would drift from the file the guard actually runs under (a KEEP that grows is the guard's environment
+    changing), and an older snapshot has the older list. None when that file does not say them."""
+    try:
+        with open(os.path.join(tree, MANAGED_ENTRY), encoding="utf-8") as f:
+            module = ast.parse(f.read())
+        found = {t.id: ast.literal_eval(n.value) for n in module.body if isinstance(n, ast.Assign)
+                 for t in n.targets if isinstance(t, ast.Name) and t.id in ("KEEP", "PATH")}
+    except (OSError, SyntaxError, ValueError):
+        return None
+    keep, path = found.get("KEEP"), found.get("PATH")
+    if not isinstance(keep, tuple) or not isinstance(path, str):
+        return None
+    env = {k: os.environ[k] for k in keep if k in os.environ}
+    env.update(AGENT_FABRIC_ROOT=tree, AGENT_FABRIC_PYTHON=sys.executable, PATH=path)
+    return env
+
+
+def routing_run(sub: str, provider: str, root: str, tree: str | None, *, stderr=None,
+                timeout: float | None = None) -> subprocess.CompletedProcess:
+    """`routing.py <sub> --me --provider P`. From the guard's tree where there is one, exactly as
+    dispatch_guard.routing_map runs it under hook_entry.py: `-E -s ... --fabric <tree>`, and the environment
+    snapshot_environment builds, so an exported AGENT_FABRIC_OPERATOR or PYTHONPATH reaches neither answer. Else from
+    the checkout as before, with this process's environment and AGENT_FABRIC_ROOT=<checkout>. A snapshot whose
+    hook_entry.py cannot be read is a failed run, never the checkout's answer. `stderr` and `timeout` are
+    subprocess.run's (a caller that must print nothing and not wait for ever: status's probe); the installer
+    passes neither, so routing.py's own stderr reaches its caller as it always did."""
+    if tree is None:
+        cmd = [sys.executable, os.path.join(root, "tools", "fabric", "routing.py"), sub, "--me", "--provider", provider]
+        return subprocess.run(cmd, stdout=subprocess.PIPE, text=True, env={**os.environ, "AGENT_FABRIC_ROOT": root},
+                              stderr=stderr, timeout=timeout, check=False)
+    cmd = [sys.executable, "-E", "-s", os.path.join(tree, "tools", "fabric", "routing.py"), "--fabric", tree, sub,
+           "--me", "--provider", provider]
+    env = snapshot_environment(tree)
+    if env is None:
+        return subprocess.CompletedProcess(cmd, 1, "", "")
+    return subprocess.run(cmd, stdout=subprocess.PIPE, text=True, env=env, stderr=stderr, timeout=timeout, check=False)
+
+
+def parse_pins(text: str) -> dict[str, str]:
+    pins: dict[str, str] = {}
+    for line in text.splitlines():
+        parts = line.split(None, 2)
+        if parts:
+            pins[parts[0]] = parts[2] if len(parts) > 2 else ""
+    return pins
+
+
+def parse_efforts(text: str) -> dict[str, str]:
+    efforts: dict[str, str] = {}
+    for line in text.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) >= 2 and parts[1] != "-":
+            efforts[parts[0]] = parts[1]
+    return efforts
 
 
 def say(line: str) -> None:
@@ -138,8 +248,13 @@ def login() -> str:
 
 
 class Installer:
-    def __init__(self, provider: str, dry_run: bool, root: str = FABRIC_ROOT, locale: str | None = None) -> None:
+    def __init__(self, provider: str, dry_run: bool, root: str = FABRIC_ROOT, locale: str | None = None,
+                 etc: str | None = None) -> None:
         self.provider, self.dry_run, self.root = provider, dry_run, root
+        # Where routing is read from: the tree the dispatch guard holds these
+        # files to, or None (the checkout). Read once, so the pins and the
+        # efforts of one run cannot come from two snapshots.
+        self.tree = dispatch_guard_tree(etc)
         # The holder's locale as the launcher resolved it (holder.json,
         # agent-fabric ADR-060 §5 rule 8), passed as --locale. Bootstrap runs
         # outside a launch and passes none: it reads the locale the last
@@ -200,9 +315,7 @@ class Installer:
             self.changed += 1
 
     def route(self, sub: str) -> str:
-        r = subprocess.run([sys.executable, os.path.join(self.root, "tools", "fabric", "routing.py"), sub, "--me",
-                            "--provider", self.provider], stdout=subprocess.PIPE, text=True,
-                           env={**os.environ, "AGENT_FABRIC_ROOT": self.root}, check=False)
+        r = routing_run(sub, self.provider, self.root, self.tree)
         # Captured whole and its status checked, NOT streamed through a
         # reader: a routing.py that raised once left the map empty, every
         # class lost its pin or its level, and the script still printed
@@ -218,11 +331,7 @@ class Installer:
         return r.stdout
 
     def run(self) -> int:
-        pins: dict[str, str] = {}
-        for line in self.route("pins").splitlines():
-            parts = line.split(None, 2)
-            if parts:
-                pins[parts[0]] = parts[2] if len(parts) > 2 else ""
+        pins = parse_pins(self.route("pins"))
         # ONE LAUNCH OF AN ACCOUNT AT A TIME, now for every class. Before effort,
         # only code-review.md differed between providers, and agent-dispatch-guard.sh
         # catches that one by comparing its `model:` with the launch's resolution.
@@ -243,11 +352,7 @@ class Installer:
         # its frontmatter here, exactly as the review class's model is.
         # A class whose model expresses no effort gets NO line — absent is not the
         # same as a default, and writing one would claim a decision nobody made.
-        efforts: dict[str, str] = {}
-        for line in self.route("efforts").splitlines():
-            parts = line.split(None, 2)
-            if len(parts) >= 2 and parts[1] != "-":
-                efforts[parts[0]] = parts[1]
+        efforts = parse_efforts(self.route("efforts"))
         claude_home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home(), ".claude")
         for f in CLASS_FILES:
             klass = f[:-3]

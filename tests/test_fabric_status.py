@@ -15,6 +15,7 @@ import pwd
 import socket
 import subprocess
 import sys
+import shutil
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -33,6 +34,8 @@ def clean_env(**extra) -> dict:
     """What a fabric process sees in CI: nothing of this session's launch."""
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "ANTHROPIC_", "CLAUDE_", "OPENROUTER_", "MOVETO_"))}
+    # An empty managed directory: this host's real /etc/claude-code names a snapshot, which the report would compare.
+    env.setdefault("AGENT_FABRIC_MANAGED_ETC", os.path.join(tempfile.gettempdir(), "no-managed-etc-for-tests"))
     env.update(extra)
     return env
 
@@ -509,6 +512,89 @@ def main() -> int:
               and creds.get("CLAUDE_CODE_EFFORT_LEVEL") == "set")
         check("…and their values are never echoed", "zq-effort-value" not in json.dumps(with_eff)
               and "zq-level-value" not in json.dumps(with_eff))
+
+        # ADR-043 §5 rule 10: a class whose routing the guard's snapshot reads otherwise than the checkout.
+        def snapshot(name: str, differ: bool) -> str:
+            snap = os.path.join(tmp, name)
+            os.makedirs(snap)
+            for d in ("tools", "runtime", "policies", "projects", "identities"):
+                os.symlink(os.path.join(HERE, d), os.path.join(snap, d))
+            shutil.copytree(os.path.join(HERE, "routing"), os.path.join(snap, "routing"))
+            if differ:
+                eff = os.path.join(snap, "routing", "effort.json")
+                doc = json.load(open(eff))
+                doc["classes"]["code-low"] = "low"
+                json.dump(doc, open(eff, "w"))
+                caps = os.path.join(snap, "routing", "capabilities.json")
+                doc = json.load(open(caps))
+                doc["providers"]["anthropic"]["models"]["code-review"] = "claude-sonnet-5-5"
+                json.dump(doc, open(caps, "w"))
+            etc = os.path.join(tmp, name + "-etc")
+            entry = snap + "/runtime/claude-code/managed/hook_entry.py"
+            put(os.path.join(etc, "managed-settings.json"), json.dumps({"hooks": {"PreToolUse": [{"hooks": [
+                {"type": "command", "args": ["-I", "-S", entry, "agent-dispatch-guard"]}]}]}}))
+            return etc
+
+        no_files = os.path.join(tmp, "no-agent-files")
+        os.makedirs(no_files)
+        lines = status.agent_file_routing_drift(HERE, "anthropic", snapshot("differs", True), no_files)
+        check("a snapshot routing a class otherwise: a line for each such class, both values and the snapshot",
+              len(lines) == 2 and any("code-low: effort" in l and "medium (checkout) vs low (snapshot)" in l for l in lines)
+              and any("code-review: pin" in l and "claude-sonnet-5-5 (snapshot)" in l for l in lines)
+              and all(os.path.join(tmp, "differs") in l for l in lines))
+        check("a snapshot that agrees with the checkout: no line (the comparison ran: it is not the checkout itself)",
+              status.agent_file_routing_drift(HERE, "anthropic", snapshot("agrees", False), no_files) == [])
+        check("no managed file: no line", status.agent_file_routing_drift(HERE, "anthropic", os.path.join(tmp, "nothing"), no_files) == [])
+
+        def managed_etc(name: str, snap: str) -> str:
+            etc = os.path.join(tmp, name + "-etc")
+            entry = snap + "/runtime/claude-code/managed/hook_entry.py"
+            put(os.path.join(etc, "managed-settings.json"), json.dumps({"hooks": {"PreToolUse": [{"hooks": [
+                {"type": "command", "args": ["-I", "-S", entry, "agent-dispatch-guard"]}]}]}}))
+            return etc
+
+        lines = status.agent_file_routing_drift(HERE, "anthropic", managed_etc("gone", os.path.join(tmp, "absent-tree")), no_files)
+        check("a managed file naming a tree that is not there: one cannot-compare line, never a silent agree",
+              len(lines) == 1 and "agent files  cannot compare" in lines[0] and "absent-tree" in lines[0])
+        slow = os.path.join(tmp, "slow")
+        put(os.path.join(slow, "tools", "fabric", "routing.py"), "import time\ntime.sleep(30)\n")
+        os.symlink(os.path.join(HERE, "runtime"), os.path.join(slow, "runtime"))
+        status.ROUTING_PROBE_TIMEOUT_S = 1
+        lines = status.agent_file_routing_drift(HERE, "anthropic", managed_etc("slow", slow), no_files)
+        check("a snapshot whose routing.py does not answer in time: the cannot-compare line too",
+              len(lines) == 1 and "agent files  cannot compare" in lines[0] and "snapshot's" in lines[0])
+
+        # The window after a reinstall: files written from an older snapshot, the guard on the new one.
+        status.ROUTING_PROBE_TIMEOUT_S = 20
+        etc_now = snapshot("now", True)
+        old_files = os.path.join(tmp, "old-agent-files")
+        put(os.path.join(old_files, "code-low.md"), "---\nname: code-low\neffort: medium\n---\n")
+        put(os.path.join(old_files, "code-review.md"), "---\nname: code-review\nmodel: claude-opus-5-5\neffort: high\n---\n")
+        lines = [l for l in status.agent_file_routing_drift(HERE, "anthropic", etc_now, old_files) if "(file)" in l]
+        check("files written before the reinstall: a line per class the guard would refuse, file and snapshot values",
+              len(lines) == 2 and any("code-low: effort medium (file) vs low (snapshot)" in l for l in lines)
+              and any("code-review: model claude-opus-5-5 (file) vs claude-sonnet-5-5 (snapshot)" in l for l in lines)
+              and all("fabric-model apply" in l for l in lines))
+        new_files = os.path.join(tmp, "new-agent-files")
+        put(os.path.join(new_files, "code-low.md"), "---\nname: code-low\neffort: low\n---\n")
+        put(os.path.join(new_files, "code-review.md"), "---\nname: code-review\nmodel: claude-sonnet-5-5\neffort: high\n---\n")
+        check("files written from the installed snapshot: no file line",
+              not [l for l in status.agent_file_routing_drift(HERE, "anthropic", etc_now, new_files) if "(file)" in l])
+        # A class the snapshot routes no effort: in neither of its maps, and still refused by the guard for its file's line.
+        unexpressible = snapshot("unexpressible", False)
+        caps = os.path.join(tmp, "unexpressible", "routing", "capabilities.json")
+        doc = json.load(open(caps))
+        doc["providers"]["anthropic"]["models"]["code-low"] = "claude-haiku-4-5"
+        json.dump(doc, open(caps, "w"))
+        stale_low = os.path.join(tmp, "stale-low-files")
+        put(os.path.join(stale_low, "code-low.md"), "---\nname: code-low\neffort: medium\n---\n")
+        lines = [l for l in status.agent_file_routing_drift(HERE, "anthropic", unexpressible, stale_low) if "(file)" in l]
+        check("a class the snapshot routes no effort, whose file still carries one: named, as the guard refuses it",
+              len(lines) == 1 and "code-low: effort medium (file) vs none (snapshot)" in lines[0])
+        no_effort = os.path.join(tmp, "no-effort-files")
+        put(os.path.join(no_effort, "code-low.md"), "---\nname: code-low\n---\n")
+        check("a file with no effort line is not a difference, as the guard reads it",
+              not [l for l in status.agent_file_routing_drift(HERE, "anthropic", etc_now, no_effort) if "(file)" in l])
 
     print("ok" if not fails else f"{fails} FAILED")
     return 1 if fails else 0

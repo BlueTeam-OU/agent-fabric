@@ -16,6 +16,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             and is exported to the modules it loads — identity.py takes its
             FABRIC_ROOT from it), AGENT_FABRIC_STATE_DIR (identity.py),
             AGENT_FABRIC_HOSTS_REGISTRY, AGENT_FABRIC_FALLBACK_DIR,
+            AGENT_FABRIC_MANAGED_ETC (where the managed settings file is, for a
+            non-root run; install_agent_files.dispatch_guard_tree),
             AGENT_FABRIC_LAUNCH_{PROVIDER,SESSION_MODEL,ROLE,PROMPT_DIGEST,
             PROFILE,EFFORT,STORE_SHA,ADDENDA_COMMIT}, ANTHROPIC_BASE_URL, ANTHROPIC_DEFAULT_{HAIKU,
             SONNET,OPUS,FABLE}_MODEL (the pins), every other ANTHROPIC_*,
@@ -30,10 +32,16 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             binding, job list and launch-prompt.md of the login, the
             working copy's and the control plane's last-drain-report.json and
             the harness's memory directory for the working copy; the control agent's installed unit
-            ($XDG_CONFIG_HOME/systemd/user/agent-fabric-agentd.service).
+            ($XDG_CONFIG_HOME/systemd/user/agent-fabric-agentd.service); the
+            managed-settings.json in /etc/claude-code (or AGENT_FABRIC_MANAGED_ETC)
+            and, when it names the dispatch guard, that snapshot's routing files,
+            through its tools/fabric/routing.py (ADR-043 §5 rule 10), and the
+            five class files in $CLAUDE_CONFIG_DIR/agents (or ~/.claude/agents),
+            their model: and effort: lines, as the dispatch guard reads them.
   stdout    the human report (below), or with --json one object, indent 2,
             ensure_ascii. Nothing on stderr by design; a module this file
-            loads that fails writes its own traceback there.
+            loads that fails writes its own traceback there. The snapshot's
+            routing.py probes have their stderr discarded and a timeout.
   exit      0. A crash in a loaded module or an unreadable fallback
             directory is an uncaught exception: exit 1 and a traceback,
             as in the bash (replicated, not fixed). A closed stdout
@@ -46,7 +54,9 @@ launch role stamp), one `DRIFT` line per drift, `project`, `session`,
 asked or stamped), `launch profile` (only when stamped), `pins`,
 `credentials`, `claude sign-in`, a blank line, `capabilities on <provider>`
 and one line per class, one `review engine <provider> <class>` line per
-class an engine provider serves (the Codex engine's openai column), `routing`, `memory` (only when there is something
+class an engine provider serves (the Codex engine's openai column), `routing`, `agent files` (one line per class whose
+routing the guard's snapshot reads otherwise than this checkout, one per class whose agent file differs from that
+snapshot's routing, or one "cannot compare" line; only when there is something to say), `memory` (only when there is something
 to count), `obsolete` (one line per memory of this agent a drain report names as replaced, or one "unknown" line when a
 report cannot be read), `moveto` (only when installed), `journal`, `python`, `agentd`
 (what the account's installed control agent unit runs), `control plane`.
@@ -61,7 +71,10 @@ replaced by a correction and not written; "update or delete" each, and it leaves
 base_url_host, session_model, launch_profile, pins, credentials,
 claude_sign_in}), capabilities ({class: line}), engines ({"<provider> <class>":
 line}, the engine providers' classes), routing_check ("clean" or
-a list), host_tools ({moveto, python, journal, agentd, claude, inbox, carrier_journal, account_switch, managed}; carrier_journal's status
+a list), agent_file_routing (present only when there is something to say: a
+list of lines, one per class whose pin or effort the guard's snapshot routes
+otherwise than this checkout, and one per class whose agent file says what
+the snapshot does not route), host_tools ({moveto, python, journal, agentd, claude, inbox, carrier_journal, account_switch, managed}; carrier_journal's status
 none, ok, journal-refused or unknown, printed only for the last two; agentd's status
 python, refused, drift, none or unknown), control_plane.
 """
@@ -77,6 +90,9 @@ import time
 from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+# One routing.py probe, as long as the dispatch guard allows its own (dispatch_guard.PROBE_TIMEOUT_S): a snapshot that
+# does not answer in that time is a "cannot compare" line, never an agreement.
+ROUTING_PROBE_TIMEOUT_S = 20
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import roots  # noqa: E402
 
@@ -592,6 +608,7 @@ def build_report(root, environ=None, cred_environ=None):
 
     jobs = jobs_summary(identity, ctx["agent"])
 
+    file_routing = agent_file_routing_drift(root, provider)
     report = {
         "agent": ctx["agent"], "host": ctx["host"], "placement": placement,
         "role": binding.role, "project": ctx["project"], "working_copy": ctx["working_copy"],
@@ -614,11 +631,93 @@ def build_report(root, environ=None, cred_environ=None):
         "capabilities": classes,
         "engines": engines,
         "routing_check": "clean" if not checks else checks,
+        **({"agent_file_routing": file_routing} if file_routing else {}),
         "host_tools": {"moveto": moveto, "python": python, "journal": journal, "agentd": agentd, "claude": claude, "inbox": inbox,
                        "carrier_journal": carrier_refusals, "account_switch": switch, "managed": managed},
         "control_plane": root,
     }
     return report, base
+
+
+def agent_file_routing_drift(root, provider, etc=None, agents=None):
+    """Lines about the agent files against the tree the dispatch guard reads
+    (ADR-043 §5 rule 10), [] when no managed file is in force or nothing
+    differs; a line saying so when an answer cannot be had, never a silent
+    agree. Two windows, each with its own line:
+    - the checkout routes a class otherwise than the snapshot: the files carry
+      the snapshot's, so the merge reaches a dispatch at the operator's
+      reinstall;
+    - a file says what the snapshot does not route: it was written before the
+      reinstall (or by an installer older than rule 10), and the guard refuses
+      that class's dispatches until fabric-model apply in the session, or the
+      fleet's fabric-ctl all upgrade fabric, rewrites it.
+    `agents` is the agent-file directory ($CLAUDE_CONFIG_DIR or ~/.claude,
+    then agents/), read as the guard reads it: the review class's model:,
+    every class's effort: where the file carries one."""
+    install = load("fabric_install_agent_files", os.path.join(root, "tools", "fabric", "install_agent_files.py"))
+    tree = install.dispatch_guard_tree(etc)
+    if tree is None:
+        return []
+    same = os.path.realpath(tree) == os.path.realpath(root)
+    answers = {}
+    for where, name in (((tree, "snapshot"),) if same else ((None, "checkout"), (tree, "snapshot"))):
+        for sub, parse in (("pins", install.parse_pins), ("efforts", install.parse_efforts)):
+            try:
+                r = install.routing_run(sub, provider, root, where, stderr=subprocess.DEVNULL,
+                                        timeout=ROUTING_PROBE_TIMEOUT_S)
+            except (OSError, subprocess.TimeoutExpired):
+                r = None
+            if r is None or r.returncode != 0:
+                return [f"agent files  cannot compare the {name}'s {sub} with the managed snapshot {tree}: "
+                        "routing.py failed or did not answer there"]
+            answers[(name, sub)] = parse(r.stdout)
+    lines = []
+    if not same:
+        for klass in sorted({k for v in answers.values() for k in v}):
+            parts = []
+            for sub, label in (("pins", "pin"), ("efforts", "effort")):
+                here, there = answers[("checkout", sub)].get(klass), answers[("snapshot", sub)].get(klass)
+                if here != there:
+                    parts.append(f"{label} {here or '-'} (checkout) vs {there or '-'} (snapshot)")
+            if parts:
+                lines.append(f"agent files  {klass}: {'; '.join(parts)} — written from the snapshot {tree}, "
+                             "so the checkout's routing reaches a dispatch at the operator's reinstall")
+    if agents is None:
+        agents = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude"),
+                              "agents")
+    pins, efforts = answers[("snapshot", "pins")], answers[("snapshot", "efforts")]
+    # Every class file the guard reads, not the snapshot's keys: a class the snapshot now routes no effort is in
+    # neither map, and the guard still refuses its file's effort line (#688 round 3 F7).
+    for klass in [f[:-3] for f in install.CLASS_FILES]:
+        parts = []
+        # As the guard compares: the review model when the snapshot pins one, an effort only where the file has a line.
+        if klass == "code-review" and pins.get(klass):
+            model = frontmatter_value(os.path.join(agents, f"{klass}.md"), "model")
+            if model is not None and model != pins[klass]:
+                parts.append(f"model {model or '-'} (file) vs {pins[klass]} (snapshot)")
+        effort = frontmatter_value(os.path.join(agents, f"{klass}.md"), "effort")
+        if effort and effort.split()[0] != efforts.get(klass, ""):
+            parts.append(f"effort {effort.split()[0]} (file) vs {efforts.get(klass) or 'none'} (snapshot)")
+        if parts:
+            # Named by its effect: a reinstall since the file was written, or this account's launch on the other
+            # provider, gives the same line, and the guard's denial lists the causes (#688 round 3 F9).
+            lines.append(f"agent files  {klass}: {'; '.join(parts)} — the file differs from the routing of the "
+                         f"snapshot {tree}; the guard refuses its dispatches until fabric-model apply in the "
+                         "session, or fabric-ctl all upgrade fabric")
+    return lines
+
+
+def frontmatter_value(path, key):
+    """The first `key: value` line's value, "" for an empty one, None when the
+    file or the line is not there."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith(f"{key}: ") or line.rstrip("\n") == f"{key}:":
+                    return line[len(key) + 1:].strip()
+    except OSError:
+        return None
+    return None
 
 
 def pinned_python(root):
@@ -905,6 +1004,8 @@ def render(report, base):
         p(f"review engine {k} {v}  (fabric-review --engine codex)")
     checks = report["routing_check"]
     p(f"routing      {checks if isinstance(checks, str) else str(len(checks)) + ' finding(s): ' + '; '.join(checks)}")
+    for line in report.get("agent_file_routing") or []:
+        p(line)
     if undrained:
         p(f"memory       {undrained['drainable']} drainable (roles_class set) and {undrained['no_roles_class']} private "
           f"(none) written since {undrained['since']}"
