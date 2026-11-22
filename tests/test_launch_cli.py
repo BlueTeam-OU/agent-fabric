@@ -345,6 +345,47 @@ def main() -> int:
                                              cline(snap_out, "code-review")) is not None, snap_out)
             check("--print under a managed snapshot: every class's effort is the installer's",
                   all(f"effort {lvl}" in cline(snap_out, k) for k, lvl in inst_efforts.items()), snap_out)
+            # The snapshot's `efforts` rows keep the outcome column and its `-` rows, and a broker pin keeps its shim's
+            # `@`: print_report is driven with a stubbed installer so every outcome and a bare preset pin are exercised.
+            rprobe = ("import io, contextlib, json, os, sys, tempfile, types\n"
+                      f"sys.path.insert(0, {ROOT + '/tools/fabric'!r})\n"
+                      "import launch, routing\n"
+                      "from fabric_launcher import session\n"
+                      "class R: returncode = 0\n"
+                      "def run(out):\n"
+                      "    r = R(); r.stdout = out; return r\n"
+                      "iaf = session._install_agent_files()\n"
+                      "iaf.dispatch_guard_tree = lambda: '/snap'\n"
+                      "iaf.routing_run = lambda sub, *a, **k: run({'pins': PINS, 'efforts': EFFORTS}[sub])\n"
+                      "session._install_agent_files = lambda: iaf\n"
+                      "PINS = 'code-review opus z-ai/glm-5.2@preset/glm2claude-shim\\ncode-plan fable @preset/bare\\n'\n"
+                      "EFFORTS = 'code-low - unexpressible\\ncode-medium high raised\\ncode-high high approximated\\ncode-plan high applied\\ncode-review high applied\\n'\n"
+                      "ef = lambda lvl, i: {'level': lvl, 'intent': i, 'outcome': 'applied', 'how': '', 'source': ''}\n"
+                      "mk = lambda via: {'model': 'm', 'shim': None, 'composite': 'm', 'via': via, 'source': 'x', 'effort': ef('low', 'low')}\n"
+                      "d = {'session': {'source': 'x'}, 'provider': 'openrouter', 'exports': {},\n"
+                      "     'classes': {k: mk('file' if k in ('code-review', 'code-plan') else 'export') for k in ('code-low', 'code-medium', 'code-high', 'code-plan', 'code-review')}}\n"
+                      "d['classes']['code-low']['effort'] = ef(None, 'low'); d['classes']['code-medium']['effort'] = ef('high', 'medium')\n"
+                      "d['classes']['code-high']['effort'] = ef('high', 'xhigh')\n"
+                      "pf = tempfile.NamedTemporaryFile(delete=False); pf.write(b'x\\n'); pf.close()\n"
+                      "try:\n"
+                      "    session.print_report(d, routing, label='l', agent='a', role='r', provider='openrouter', session='s', effective_session='s',\n"
+                      "                         session_effort='', caller_effort=False, prompt_file=pf.name, prompt_flag='f')\n"
+                      "finally:\n"
+                      "    os.unlink(pf.name)\n")
+            rr = subprocess.run([sys.executable, "-c", rprobe], text=True, capture_output=True, timeout=120,
+                                env={**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_STATE_DIR": state})
+            rl = lambda k: cline(rr.stdout, k)
+            check("a managed snapshot's raised class prints asked -> served, not the served level alone",
+                  "effort high (asked medium)" in rl("code-medium"), rr.stdout + rr.stderr)
+            check("a managed snapshot's approximated class prints asked -> served",
+                  "effort high (asked xhigh)" in rl("code-high"), rr.stdout + rr.stderr)
+            check("a managed snapshot's unexpressible class (a `-` row) prints the expresses-none form, never nothing",
+                  "effort - (asked low; this model expresses none)" in rl("code-low"), rr.stdout + rr.stderr)
+            check("a managed snapshot's broker pin keeps its shim's @",
+                  "shim @preset/glm2claude-shim  => z-ai/glm-5.2@preset/glm2claude-shim" in rl("code-review"), rr.stdout + rr.stderr)
+            check("a managed snapshot's bare @preset pin prints the composite as its model, never an empty one",
+                  re.search(r"code-plan  *: @preset/bare  shim @preset/bare  => @preset/bare  ", rl("code-plan")) is not None,
+                  rr.stdout + rr.stderr)
             # A snapshot whose routing cannot run: one line saying so, and --print goes on.
             os.remove(f"{snap}/routing/capabilities.json")
             bad_rc, bad_out = run("--print", AGENT_FABRIC_MANAGED_ETC=etc)
