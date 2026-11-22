@@ -101,11 +101,28 @@ def doc_path_findings(root: str | None = None) -> list[str]:
         files = subprocess.run(["git", "-C", root, "ls-files"], capture_output=True, text=True, check=True).stdout.split()
     except (OSError, subprocess.CalledProcessError):
         return []
-    adr_dir = roots.adr_dir(engine=root)
-    numbers = {f[4:7] for f in os.listdir(adr_dir) if f.startswith("ADR-") and f[4:7].isdigit()} if os.path.isdir(adr_dir) else set()
+    # "agent-fabric ADR-NNN" is one numbering held by two trees (ADR-045 rule 4): the operator's records, the
+    # engine's, and the numbers the engine keeps reserved for the ones that moved. Either tree alone calls the
+    # other's citations dangling.
+    numbers: set[str] = set()
+    for adr_dir in {roots.adr_dir(engine=root), roots.engine_adr_dir(engine=root)}:
+        if os.path.isdir(adr_dir):
+            numbers |= {f[4:7] for f in os.listdir(adr_dir) if f.startswith("ADR-") and f[4:7].isdigit()}
+            try:
+                with open(os.path.join(adr_dir, "reserved.json"), encoding="utf-8") as fh:
+                    numbers |= set(json.load(fh).get("reserved", {}))
+            except (OSError, ValueError, AttributeError):
+                pass
+    # The exemptions name instance paths as the repository stores them, and since move-plan step B those sit
+    # under the operator's prefix (operator/memory/..., operator/docs/live-checks/...), not only at the shims.
+    try:
+        prefix = roots.operator_prefix(root)
+    except ValueError:
+        prefix = ""
+    exempt = DOC_PATH_EXEMPT + tuple(prefix + p for p in DOC_PATH_EXEMPT) if prefix else DOC_PATH_EXEMPT
     out: list[str] = []
     for rel in files:
-        if rel.startswith(DOC_PATH_EXEMPT) or "/test_" in f"/{rel}" or "/tests/" in f"/{rel}":
+        if rel.startswith(exempt) or "/test_" in f"/{rel}" or "/tests/" in f"/{rel}":
             continue
         if not rel.endswith((".md", ".py", ".sh", ".mjs", ".js", ".json", ".service")) and "/" in rel and not rel.startswith("bin/"):
             continue
