@@ -1101,8 +1101,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   each install (upgrade, new-agent) is the gate after it (§5 rule 6, §8).
 - A 2026-11-21 — agent files' routed model and effort come from the
   installed snapshot the dispatch guard reads, so a routing merge reaches
-  dispatches at the reinstall instead of denying them; fabric-status names
-  the classes that differ meanwhile (§5 rule 10).
+  dispatches at the reinstall; running sessions are refused the changed
+  classes until upgrade fabric or apply rewrites their files, and
+  fabric-status names both windows (§5 rule 10).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
   MCP server, sandbox, fabric-managed, hook_entry.py, session seal,
