@@ -539,7 +539,9 @@ relay is polled first, so the answer is no more authenticated than the
 relay is: this is availability, not authentication. When the relay post
 and the socket's opening both fail, the error names both, keeping the
 relay's classification unless the socket may already have taken the
-request; a carrier lost later is said on stderr. An account asking
+request; a carrier lost later is said on stderr while the other still
+carries, and the last one lost fails the ask with the relay's error, or
+leaves it unanswered when it is the socket. An account asking
 itself, or one with no socket, asks by the relay alone (the socket could
 loop a self-ask back, as it does `fabric-ctl`'s own row, but these asks
 have not chosen to), except presence in the transport mode `carrier-only`

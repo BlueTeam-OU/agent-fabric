@@ -118,9 +118,11 @@ something asked once, when it matters.
   account is silent (`PRESENCE_WAIT_MS`).
 - Presence is only as available as the control plane: with the control
   agents down, a send says "unknown" and refuses without `--force`; so
-  it does with the relay down, except under `control_carrier` `dual`,
-  where the check also goes through the account's own agentd and
-  InterWeave (ADR-029 rule 18) (A 2026-11-22).
+  it does with the relay down, unless `control_carrier` names the
+  second carrier (`dual`, or InterWeave alone), where the check also,
+  or only, goes through the account's own agentd and InterWeave
+  (ADR-029 rule 18) (A 2026-11-22); a send's own address is still
+  asked by the relay alone under `dual`.
 - The watches are quieter: the announcements had been most of what every
   watch printed.
 

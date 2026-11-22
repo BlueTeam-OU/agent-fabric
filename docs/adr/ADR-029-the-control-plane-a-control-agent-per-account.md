@@ -355,7 +355,9 @@ with Doppler (ADR-038 §5 rule 8).
       it claims, and the relay is read first, so an answer is no more
       authenticated than the relay. When the relay post and the
       socket's opening both fail, the error names both; a carrier lost
-      later is said on stderr. An account asking itself, or one with
+      later is said on stderr while the other still carries, and the
+      last one lost fails the ask with the relay's error, or leaves it
+      unanswered when it is the socket. An account asking itself, or one with
       no socket, asks by the relay alone, but in the transport mode
       `carrier-only` (ADR-064 §7) presence posts nothing on the relay
       and asks every expected address, itself included, through the

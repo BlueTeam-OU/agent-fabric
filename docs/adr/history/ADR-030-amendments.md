@@ -26,4 +26,7 @@ agents. Since BlueTeam-OU/agent-fabric#586 (merged ce5991a7), under
 `control_carrier` `dual`, the presence check also hands its request to the
 asking account's own agentd, which carries it over InterWeave, so a relay
 that is down no longer makes every addressee unknown; control agents that
-are down still do. ADR-029 rule 18 (A 2026-11-22) has the mechanism.
+are down still do. With `control_carrier` naming InterWeave alone the check
+never touched the relay (since e494899a), which the old sentence also
+missed; a send's own address is still asked by the relay alone under
+`dual`. ADR-029 rule 18 (A 2026-11-22) has the mechanism.
