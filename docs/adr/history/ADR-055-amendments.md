@@ -70,3 +70,22 @@ BlueTeam-OU/agent-fabric-settings, six in
 gzapi-org/agent-fabric-settings) names codex anywhere, so none puts it
 in `reviews` or `boundary_reviews`; all take the fleet's
 `additional_reviews`.
+
+### Amendment 2026-11-22 — Session-level failover is ADR-072's
+
+§7 said that session-level failover, moving a running session to another
+model, was outside this record. The gateway's plan schema 2 now lets a
+route declare alternatives the gateway takes when it sets a model aside,
+and the owner chose on 2026-11-22, in the coordinator's session, that
+failover between models is decided for every route, session and review
+included. ADR-072 decides it; the sentence now points there. Rule 3's
+divert order is what ADR-072 rule 4 gives the review's route, so a review
+served by an alternative is a divert under rule 3 and is named on the
+posted review; §2 and rule 3 now say a divert may also come from the
+session's gateway, and that such a review is not run while the policy
+requires another engine. Rule 1 says why that is no breach of it: each
+launch has its own gateway, which keeps its health in-process, so what it
+sets aside is what that session's own attempts met. Rule 4 says where such a set-aside is
+reported: in the gateway's log events, until the gateway's report reaches
+the control agent, which is not built; §6 says the same of a diverted
+review.

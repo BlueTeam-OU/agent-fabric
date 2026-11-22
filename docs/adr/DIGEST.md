@@ -75,6 +75,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | this organisation's decentralization inventory: host, relay, key, observer, providers, undrained memory | ADR-069 |
 | this organisation's porting programme: Wave 10, its projects' Node scripts, mjs | ADR-070 |
 | this organisation's persona naming theme: which surnames, a first name's culture, the avatar house style | ADR-071 |
+| gateway failover alternatives; plan schema 2; session-level failover; a model served in place of the routed one; failover.json | ADR-072 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1353,6 +1354,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   absent: the arm proceeds on the required reviews and says so, and the gate reads the same.
 - A 2026-11-12 — rules 7, 8 point at the policy data; the principle stays.
 - A 2026-11-13 — codex never blocks: one cheap gateway call before it starts; any failure to launch or finish (gateway, probe, allowance, capacity, binary, timeout, crash, no review) posts the marker with its reason; the caller's errors post nothing (§5 rule 8).
+- A 2026-11-22 — session-level failover is ADR-072's (§7); a divert may be the session's own gateway serving the review from the review order, named, not run under a second required engine; a gateway set-aside is reported in its log until built (§2, §5 rules 1, 3, 4).
 
 ### ADR-056 — Agent personas: "AI <Name> <Surname>", a surname from the operator's list each, an avatar the agent accepts, always marked as AI (Accepted)
 
@@ -1664,3 +1666,17 @@ its record disagree, the record wins. Look it up, never read it whole:
   anime, never a named studio's (§5 rule 3).
 - Split from ADR-056, which keeps the persona mechanism under rules 3, 5, 7.
 - Keywords: persona, surnames, scientists, weapons test, avatar, house style, anime, first name, culture.
+
+### ADR-072 — A route's failover alternatives are authored per model, held by a live continuity check, and declared wherever the model is served (Proposed)
+
+- A session, a subagent and a review may be served by another model of the
+  same provider and account when the gateway sets the routed one aside (§2).
+- Alternatives are authored per model in `routing/policies/failover.json`,
+  at most three, each admitted with a live continuity check (§5 rules 1, 2).
+- Every route of that model carries them, cap one more than their number;
+  schema 2 only when used and read (§5 rules 3, 6).
+- The review's route follows ADR-055's divert order, none under a second
+  required engine; a served divert is named on the review (§5 rules 4, 5).
+- The Codex review's plan declares none; failure class and health stay the
+  gateway's (§5 rules 7, 9).
+- Keywords: failover, alternatives, plan schema 2, max_attempts, session-level failover, divert, continuity, live check, failover.json, gateway health.
