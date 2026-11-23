@@ -22,7 +22,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             the fabric is the fabric. Every other repository is a managed project, whose guarded set is .agent-fabric/.
   hidden    pre-commit also refuses, for EVERY committer (the coordinator, both carve-outs, an unbound session), a staged
             file that tools/fabric/agent_text.py calls text an agent reads (in agent-fabric itself: any *.md, *.md/*.json
-            under identities/ and .agent-fabric/; in a managed project: .agent-fabric/ only) whose STAGED blob holds
+            under identities/, operator/identities/ and .agent-fabric/; in a managed project: .agent-fabric/ only) whose STAGED blob holds
             a character tools/fabric/hidden_unicode.py refuses. Exit 1, one `<path>:<line>:<col>: U+XXXX NAME (kind)` per
             character.
   card      pre-commit also refuses, for EVERY committer, a commit that stages .agent-fabric/review-card.md over

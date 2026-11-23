@@ -6,6 +6,7 @@ make_base, makes it a git repository (the rule reads `git ls-files`) and runs li
 
   charter_is_judged        <- hidden_unicode_findings not wired into lint.main; the scan skipped
   skill_is_judged          <- agent_text.is_agent_text narrowed to identities/roles/*/charter.md
+  moved_json_is_judged     <- is_agent_text keeps only the identities/ prefix: JSON under operator/identities/ skipped
   project_slice_is_labelled <- the working copies not walked; the `<pid>:` label dropped
   cr_is_refused            <- the file opened in text mode with universal newlines (a CR becomes an LF)
   emoji_zwj_passes         <- the scan replaced by a bare Cf test
@@ -77,6 +78,13 @@ def case_skill_is_judged() -> None:
     assert code == 1 and any(h.startswith("operator/identities/roles/web-dev/skills/x/SKILL.md:6:6: U+202E") for h in hits(out)), out
 
 
+def case_moved_json_is_judged() -> None:
+    fabric = fresh()
+    write(os.path.join(fabric, "operator", "identities", "personas", "x.json"), f'{{"name": "a{ZWSP}b"}}\n')
+    code, out = lint(fabric)
+    assert any(h.startswith("operator/identities/personas/x.json:1:12: U+200B ") for h in hits(out)), out
+
+
 def case_project_slice_is_labelled() -> None:
     fabric = fresh()
     write(proj(fabric, "INDEX.md"), f"# Index\n{TAG_A}\n")
@@ -132,7 +140,7 @@ def case_locale_value_is_judged() -> None:
         assert code == 1 and "inbox.head carries a control character (U+" in out, f"{bad!r} passed:\n{out}"
 
 
-CASES = [case_charter_is_judged, case_skill_is_judged, case_project_slice_is_labelled, case_cr_is_refused, case_emoji_zwj_passes,
+CASES = [case_charter_is_judged, case_skill_is_judged, case_moved_json_is_judged, case_project_slice_is_labelled, case_cr_is_refused, case_emoji_zwj_passes,
          case_only_agent_text_is_judged, case_not_utf8_is_one_finding, case_locale_value_is_judged]
 
 
