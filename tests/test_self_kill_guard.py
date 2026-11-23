@@ -392,18 +392,52 @@ def main() -> int:
                        # operator and runs the kill. Kills: each new alternative of UNREADABLE_LINE.
                        ("a << inside \"${…}\" with nested quotes", "echo \"${x/\"<<'t'\"/y}\"\npkill -f claude-fable\nt/y}"),
                        ("a << inside \"$[…]\" with nested quotes", "echo \"$[1\"<<'n'\"]\"\npkill -f claude-fable\nn]"),
-                       # Round 4, pre-existing: a block piped into a shell from its closing line. Kills: the open
-                       # bracket test ({, () and BLOCK_RUNNER in drop_heredoc_bodies (if, for).
+                       # Round 4, pre-existing: a block piped into a shell from its closing line. A shell by name is
+                       # caught twice, by the still-open test in heredoc_operators ({, () and by _runs_a_shell (any
+                       # block), so these pin neither alone.
                        ("{ … } | sh", "{\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
                        ("( … ) | sh", "(\ncat <<'n'\npkill -f claude-fable\nn\n) | sh"),
+                       # Only _runs_a_shell: a keyword compound leaves nothing open on its line.
                        ("if … fi | sh", "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
                        ("for … done | bash", "for i in 1; do\ncat <<'n'\npkill -f claude-fable\nn\ndone | bash"),
+                       ("if … fi | sudo -u root sh", "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sudo -u root sh"),
+                       # Review of #694, round 1 F4: only the still-open test, each arm alone (a shell in a variable
+                       # is no command word _runs_a_shell can read, and a substitution's output runs as a command
+                       # with no shell named). Kills: dropping that arm from still_open.
+                       ("{ … } | \"sh\"", "{\ncat <<'n'\npkill -f claude-fable\nn\n} | \"sh\""),
+                       ("{ … } | $SHELL", "{\ncat <<'n'\npkill -f claude-fable\nn\n} | $SHELL"),
+                       ("( … ) | $SHELL", "(\ncat <<'n'\npkill -f claude-fable\nn\n) | $SHELL"),
+                       ("a block's output run from an open backtick", "`\ncat <<'n'\npkill -f claude-fable\nn\n`"),
+                       # Review of #694, round 1 F1: a `$` word, which may be the shell, outside a data reader on the
+                       # opening line (main denies each by its `$`). Kills: _expands_outside_reader -> False.
+                       ("ionice -c3 $SHELL <<X", "ionice -c3 $SHELL <<'X'\npkill -f claude-fable\nX"),
+                       ("cat <<X | ionice -c3 $SHELL", "cat <<'X' | ionice -c3 $SHELL\npkill -f claude-fable\nX"),
+                       ("cat <<X | flock /tmp/l $SHELL", "cat <<'X' | flock /tmp/l $SHELL\npkill -f claude-fable\nX"),
+                       ("taskset -c 0 $BASH -s <<X", "taskset -c 0 $BASH -s <<'X'\npkill -f claude-fable\nX"),
+                       ("./cat $SHELL <<X, a reader's basename only", "./cat $SHELL <<'X'\npkill -f claude-fable\nX"),
                        ("an unquoted body joined over its delimiter",
                         "cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\npkill -f claude-fable\nY"),
                        ("a here-document inside a shell's body", "bash <<'EOF'\ncat <<'Y'\nEOF\npkill -f claude-fable\nY")):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a pattern kill the broad here-document drop must keep denies: {label}",
               d is not None and d[0] == "deny", d)
+    # Review of #694, round 1 F2: a shell's name that runs nothing, as an argument or in a comment, keeps a data
+    # reader's quoted kill a quotation (main passes each). Kills: matching the names anywhere in the rest.
+    for label, cmd in (("a comment naming sh after the body", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\n# then sh"),
+                       ("grep sh after the body", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\ncat notes | grep sh"),
+                       ("grep bash before the body", "grep bash notes.txt\ngzcoord-send - <<'X'\npkill -f claude-fable was refused\nX"),
+                       ("grep sh behind timeout", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\ntimeout 5 grep sh notes")):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a data reader's quoted kill beside a shell's name that runs nothing passes: {label}", d is None, d)
+    # Review of #694, round 1 F3: a regex from every line start crossed every blank line after it, quadratic, past the
+    # hook's 5 s budget where no decision is a pass (4.5 s of CPU here at 40000 lines, 0.5 s fixed). CPU time, since
+    # this host runs loaded; the bound is four times the fixed cost. Kills: a pattern that spans newlines per line.
+    started = time.process_time()
+    d = g.decision("gzcoord-send - <<'X'\npkill -f claude-fable\nX\n" + "\n" * 40000 + "pkill -f claude-fable",
+                   CLAUDE, shell=False)
+    spent = time.process_time() - started
+    check("a dropped body before 40000 blank lines decides in linear time", spent < 2.0 and d and d[0] == "deny",
+          (round(spent, 2), d))
     # Review of #612, fix round 1d6d87fa: a body stored in a file the same command runs is code. Each shape, for the
     # pattern reading (the broad drop) and for the pid reading (the data drop). Kills: _runs_what_it_writes -> False.
     stored = (("cat > k.sh, then bash it", "cat > k.sh <<'X'\n{kill}\nX\nbash k.sh"),

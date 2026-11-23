@@ -284,10 +284,13 @@ WORD_END = " \t;&|()<>"
 UNREADABLE_LINE = re.compile(r"\$'|\(\(|\$\[|\$\{")
 # What a line that opens a here-document may not hold outside plain quotes for its body to be dropped: a
 # substitution, a subscript, a subshell or a group can each make a `<<` something bash does not read as an operator.
-# Not `$`: a bare `$name` changes nothing about a `<<` (`gzcoord-send --to $P - <<'X'` is a data reader's body; review
-# of #612, round 4 F15), and what a `$` opens is caught all the same, `$'`, `$((`, `$[` and `${` by UNREADABLE_LINE on
-# the raw line (raw, because the quotes nested in `"${x/"<<'t'"/y}"` hide it from a quote scan) and the `(`, `[` and
-# `{` it is followed by here.
+# Not `$`: a bare `$name` changes nothing about where a `<<` is (`gzcoord-send --to $P - <<'X'` is a data reader's
+# body; review of #612, round 4 F15). Who reads the body is another question, and drop_heredoc_bodies asks it
+# (_expands_outside_reader: `ionice -c3 $SHELL <<'X'` runs it; review of #694, round 1 F1). What a `$` opens is caught
+# where the scan sees it: `$'`, `$((`, `$[` and `${` by UNREADABLE_LINE on the raw line (raw, because the quotes nested
+# in `"${x/"<<'t'"/y}"` hide it from a quote scan), and an unquoted `$(` by its `(` here. Not covered: a `$(` inside
+# double quotes whose own nested quotes the scan reads as closing them (`echo "$(cat "<<'X'")"` NL the kill NL `X)`
+# reads as an operator with the delimiter `X)`; bash reads no operator and runs the kill; review of #694, round 1 F5).
 OPENS_SYNTAX = frozenset("`[({")
 CLOSES = {"]": "[", ")": "(", "}": "{"}
 
@@ -392,7 +395,8 @@ def _strip_bodies(text: str, takes, opened: list[str] | None = None) -> str:
        ends is bash's to say: `cat <<A` / `x\\` / `A` / `cat <<Y` / `A` / `kill N` / `Y` runs the kill. An unquoted
        operator keeps its body and every line after it.
     2. The data-reader drop (drop_data_heredoc_bodies) drops anything only when the whole input outside the bodies
-       is data readers (_data_only); the broad drop (drop_heredoc_bodies) only when no shell reads the body. An
+       is data readers (_data_only); the broad drop (drop_heredoc_bodies) only when no shell may read the body,
+       a `$` word outside a data reader counted as one (_expands_outside_reader), and no shell runs a block. An
        opening line `takes(line)` refuses keeps its body and every line after it: the body is code, and its lines are
        not read again for here-documents of their own.
     3. A command line heredoc_operators cannot read surely (None: `$'…'`, `((`, `$[`, `${`, a quote, bracket or
@@ -424,20 +428,79 @@ def _strip_bodies(text: str, takes, opened: list[str] | None = None) -> str:
 
 def drop_heredoc_bodies(text: str) -> str:
     """A here-document's body is data for the command that reads it — a commit message quoting a kill is not a
-    kill — so it is dropped when _drop_bodies is sure of it. Unless a shell reads it (`bash <<'EOF'`, `cat <<'EOF' |
-    sh`, eval): then the body is code, and it and what follows are kept to be judged. A shell anywhere else in the
-    command keeps every body too: a compound command's closing line pipes its whole block, here-documents included,
-    into the shell (`if true; then` NL `cat <<'n'` NL `kill N` NL `n` NL `fi | sh` runs the kill; review of #612,
-    round 4, pre-existing), and which closer ends which block is bash's to say. A commit message quoting a kill
-    beside a later `bash x.sh` is then a rephrase."""
-    rest = _drop_bodies(text, lambda line: not SHELLS.search(line))
-    return text if rest != text and BLOCK_RUNNER.search(rest) else rest
+    kill — so it is dropped when _drop_bodies is sure of it. Unless a shell may read it (`bash <<'EOF'`, `cat <<'EOF' |
+    sh`, eval, or a word the guard cannot read behind a program it does not know: _expands_outside_reader): then the
+    body is code, and it and what follows are kept to be judged. A shell run as a command anywhere else in the command
+    keeps every body too: a compound command's closing line pipes its whole block, here-documents included, into the
+    shell (`if true; then` NL `cat <<'n'` NL `kill N` NL `n` NL `fi | sh` runs the kill; review of #612, round 4,
+    pre-existing), and which closer ends which block is bash's to say (_runs_a_shell). A commit message quoting a
+    kill beside a later `bash x.sh` is then a rephrase."""
+    rest = _drop_bodies(text, lambda line: not SHELLS.search(line) and not _expands_outside_reader(line))
+    return text if rest != text and _runs_a_shell(rest) else rest
 
 
-# SHELLS, except that `.` counts only as a command word: as an operand it is a directory (`find . -name x`), and the
-# rest of a command is searched here, not just an opening line, so the argument is common.
-BLOCK_RUNNER = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source)(?=$|[\s;&|)])"
-                          r"|(?:^|[;&|(])\s*\.(?=$|[\s;&|)])", re.M)
+def _blank_quoted(text: str) -> str:
+    """The text with what bash does not split or expand blanked to `_`: comments gone (strip_non_arguments), and each
+    quoted span and backslash-escaped character replaced, read the way heredoc_operators reads quotes, so a `$` or a
+    word this leaves is one the shell sees unquoted."""
+    s, out, i, quote = strip_non_arguments(text), [], 0, None
+    while i < len(s):
+        c = s[i]
+        if quote:
+            if c == "\\" and quote == '"':
+                i += 1
+            elif c == quote:
+                quote = None
+            out.append("_")
+        elif c == "\\":
+            i += 1
+            out.append("_")
+        elif c in "'\"":
+            quote = c
+            out.append("_")
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _expands_outside_reader(line: str) -> bool:
+    """Whether an opening line holds an unquoted `$` (or backtick) in a simple command that is no data reader by its
+    exact name. Such a word may be the shell that reads the body behind a wrapper the guard knows nothing of
+    (`ionice -c3 $SHELL <<'X'`, `cat <<'X' | flock /tmp/l $SHELL`), which the `$` in OPENS_SYNTAX refused until a data
+    reader's `--to $P` had to pass (review of #694, round 1 F1). The exact name, not the basename: `./cat` is any
+    program. Quoted, the `$` was hidden from that scan too (`ionice -c3 "$SHELL"`, not covered)."""
+    return any(re.search(r"[$`]", piece) and piece.split()[0] not in DATA_READERS
+               for piece in re.split(r"[|;&\n]", _blank_quoted(line)) if piece.split())
+
+
+# What runs a block it is piped or handed as a command: the shells of SHELLS, `.` as a command word only (`find .` is a
+# directory).
+BLOCK_SHELLS = NESTED | {"source", "."}
+# A wrapper's operand that is no command: a duration (`timeout 5`) or an assignment (`env A=1`).
+WRAPPER_OPERAND = re.compile(r"\d[\d.]*[smhd]?|[A-Za-z_][A-Za-z0-9_]*=.*")
+
+
+def _runs_a_shell(rest: str) -> bool:
+    """Whether a shell is the command word of any simple command in `rest` (the command with its dropped bodies left
+    out), behind compound keywords, assignments and the prefixes the guard knows with their options. Command words
+    only, on the quote-blanked, comment-free text: `grep sh notes`, `# then sh` and a quoted "bash" in an argument
+    run nothing, and searching the raw text for the names denied data-only commands main passes (review of #694,
+    round 1 F2). A quoted or variable shell (`fi | "bash"`, `fi | $SHELL`) is not seen here; a `{` or `(` left open
+    on its line is caught by heredoc_operators instead. Linear in the text: a regex here once crossed every blank line
+    from every line start (review of #694, round 1 F3)."""
+    for words in segments(_blank_quoted(rest)):
+        i = 0
+        while i < len(words) and (words[i] in COMPOUND or WRAPPER_OPERAND.fullmatch(words[i])):
+            i += 1
+        while i < len(words) and os.path.basename(words[i]) in PREFIXES:
+            takes = VALUE_OPTIONS.get(os.path.basename(words[i]), set())
+            i += 1
+            while i < len(words) and (words[i].startswith("-") or WRAPPER_OPERAND.fullmatch(words[i])):
+                i += 2 if words[i] in takes else 1
+        if i < len(words) and os.path.basename(words[i]) in BLOCK_SHELLS:
+            return True
+    return False
 
 
 # Who may take a here-document whose body is then no command for the raw-text searches (kills, pid_candidates,
