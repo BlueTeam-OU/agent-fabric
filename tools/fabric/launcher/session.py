@@ -276,7 +276,11 @@ def print_report(d: dict, routing, *, label: str, agent: str, role: str, provide
                         res.update(model=model or pin, shim=at + shim if shim and not bare else None, composite=pin,
                                    source="the managed snapshot")
                     else:
-                        res["via"] = "harness"
+                        # Nothing pinned in the snapshot: the agent file carries no model for the class, so the
+                        # harness's tier decides, spelled as the alias, as routing.resolve does on the unmanaged path;
+                        # this checkout's pin is not what the agent file says.
+                        alias = res.get("alias") or "-"
+                        res.update(model=alias, shim=None, composite=alias, source="harness", via="harness")
             if res["via"] == "harness":
                 how = "(harness default for its tier)"
             elif res["via"] == "file":

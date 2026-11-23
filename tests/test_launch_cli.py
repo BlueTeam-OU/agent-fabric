@@ -363,7 +363,8 @@ def main() -> int:
                       "ef = lambda lvl, i, o='applied': {'level': lvl, 'intent': i, 'outcome': o, 'how': '', 'source': ''}\n"
                       "mk = lambda via: {'model': 'm', 'shim': None, 'composite': 'm', 'via': via, 'source': 'x', 'effort': ef('low', 'low')}\n"
                       "d = {'session': {'source': 'x'}, 'provider': 'openrouter', 'exports': {},\n"
-                      "     'classes': {k: mk('file' if k in ('code-review', 'code-plan') else 'export') for k in ('code-low', 'code-medium', 'code-high', 'code-plan', 'code-review', 'code-extra')}}\n"
+                      "     'classes': {k: mk('file' if k in ('code-review', 'code-plan', 'code-nopin') else 'export') for k in ('code-low', 'code-medium', 'code-high', 'code-plan', 'code-review', 'code-extra', 'code-nopin')}}\n"
+                      "d['classes']['code-nopin'].update(model='CHECKOUT-MODEL', composite='CHECKOUT-MODEL', alias='opus')\n"
                       "d['classes']['code-low']['effort'] = ef(None, 'low', 'unexpressible'); d['classes']['code-medium']['effort'] = ef('high', 'medium', 'raised')\n"
                       "d['classes']['code-high']['effort'] = ef('low', 'xhigh', 'approximated')\n"
                       "d['classes']['code-extra']['effort'] = ef('low', 'xhigh', 'approximated')\n"
@@ -387,6 +388,9 @@ def main() -> int:
                   "effort low (approximated; the asked level is not known here)" in rl("code-plan"), rr.stdout + rr.stderr)
             check("a managed snapshot row with the checkout's outcome and another level prints no asked level (F11)",
                   "effort high (approximated; the asked level is not known here)" in rl("code-extra"), rr.stdout + rr.stderr)
+            check("a file-pinned class the snapshot pins nothing for prints the tier alias, never this checkout's model",
+                  re.search(r"code-nopin  *: opus  shim -  => opus  \(harness default for its tier\)", rl("code-nopin")) is not None
+                  and "CHECKOUT-MODEL" not in rr.stdout, rr.stdout + rr.stderr)
             check("a managed snapshot's unknown-model row prints no asked level (F11)",
                   "effort - (no model pinned, the harness's tier decides)" in rl("code-review")
                   and "asked" not in rl("code-review"), rr.stdout + rr.stderr)
