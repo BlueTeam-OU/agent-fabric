@@ -2794,6 +2794,11 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
             assert os.path.exists(os.path.join(ROOT, s)), f"{s}: a supply rule names a path the tree lacks"
         got = findings({**good, "paths": good["paths"] + ["policies/"]})
         assert any("rule 'policies/' reaches policies/" in f for f in got), got
+        # Step B's operator/ twin of the never-list: without it a contributor claiming the moved
+        # files passes as reaching nothing fenced.
+        os.makedirs(os.path.join(root, "operator", "policies"), exist_ok=True)
+        got = findings({**good, "paths": good["paths"] + ["operator/policies/"]})
+        assert any("rule 'operator/policies/' reaches operator/policies/" in f for f in got), got
         # The carrier's pin and roster and GitHub's host keys: held by lint,
         # not only by the entry's own exclusions (review of #376, §2).
         host_keys = ("runtime/provisioning/github-host-keys", "runtime/provisioning/github-host-keys.fingerprints")

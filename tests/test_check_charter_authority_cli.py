@@ -137,6 +137,16 @@ def main() -> int:
     is_rc("allowed for a listed holder (exit 0)", "develop-qzapp/coord-01/feat/x", 0)
     is_rc("refused for an unlisted account merely named for the role", "develop-qzapp/fabric-coordinator-02/feat/x", 1)
 
+    print("the same charter where step B moved it, under operator/")
+    new_repo()
+    put("operator/identities/roles/flutter-dev/charter.md", "scope\n")
+    git("add", "-A")
+    git("commit", "-qm", "operator charter")
+    git("branch", "-qf", "base-ref")
+    commit_change("operator/identities/roles/flutter-dev/charter.md")
+    is_rc("refused for another role (exit 1)", "develop-qzapp/flutter-dev-01/feat/thing", 1)
+    is_rc("allowed for a listed holder (exit 0)", "develop-qzapp/coord-01/feat/x", 0)
+
     print("an authority.json the base cannot show: refused, naming why (exit 2)")
     new_repo()
     git("rm", "-q", AUTHORITY)
