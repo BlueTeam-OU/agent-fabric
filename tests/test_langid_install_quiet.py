@@ -47,7 +47,8 @@ class Quiet(unittest.TestCase):
             with open(self.pidfile, encoding="utf-8") as fh:
                 pid = int(fh.read())
             if alive(pid):
-                os.kill(pid, signal.SIGKILL)
+                with contextlib.suppress(ProcessLookupError):   # alive() then kill: it can exit between the two
+                    os.kill(pid, signal.SIGKILL)
 
     @staticmethod
     def reap_group(parent: subprocess.Popen) -> None:
