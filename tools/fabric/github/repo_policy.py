@@ -24,9 +24,10 @@ so, so verify still differs after it. What is read is the repository, its rulese
 organisation's) and, for an App named in a required check that arm_policy does not know, apps/<slug>.
 
 Every verb says where the policy came from. A registered project whose own file (repos/<name>.json in its
-client's settings repository) is not there yet, or sets no policy key (arm_policy.sets_policy: a description is no
-policy), gets the fleet's policy from arm_policy.load, which would drop its queue and required checks if written:
-plan and verify report it and go on, apply refuses (exit 2, nothing written). A repository that is no registered project's is applied only with --fleet-default.
+client's settings repository) is not there yet gets the fleet's policy from arm_policy.load, which would drop its
+queue and required checks if written: plan and verify report it and go on, apply refuses (exit 2, nothing written).
+A file there that sets no policy key (arm_policy.sets_policy: a description is no policy) is refused by apply the same
+way, while plan and verify name the file as the source, as for any file there. A repository that is no registered project's is applied only with --fleet-default.
 
 What is compared, and what is not: the repository fields allow_auto_merge, allow_merge_commit, allow_squash_merge,
 allow_rebase_merge, delete_branch_on_merge; the ruleset's presence, target, enforcement, conditions and bypass
