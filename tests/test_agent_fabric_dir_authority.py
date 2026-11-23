@@ -165,8 +165,8 @@ def main() -> int:
         sh(old, "add", "-A")
         sh(old, "commit", "-q", "-m", "base, the old layout")
         check("unexported, a file only at the toplevel path: not the fabric", not da.is_fabric_itself(old, "main", {}))
-        check("an operator outside the repository: the repository's own path",
-              authority_path(nest, {"AGENT_FABRIC_OPERATOR": tmp}) == "policies/authority.json")
+        check("an operator outside the repository: the checkout's own operator path",
+              authority_path(nest, {"AGENT_FABRIC_OPERATOR": tmp}) == "operator/policies/authority.json")
 
         print("the run, end to end in a scratch managed project")
         rr = os.path.join(tmp, "p")

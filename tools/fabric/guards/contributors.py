@@ -64,13 +64,14 @@ def authority_git_path(top: str, environ: Mapping[str, str] | None = None) -> st
     operator is exported inside that repository (docs/split/move-plan.md
     §2 precondition 5). A symlink shim cannot serve a git-object read.
     An operator outside `top` keeps no tree in this repository, so the
-    path is the repository's own: what a guard does when the fabric's
-    authority lives in another repository is precondition 6, never a
-    guess made here."""
+    path is the checkout's own operator tree: the old top-level path is a
+    symlink blob since the move, whose content is the link text. What a
+    guard does when the fabric's authority lives in another repository is
+    precondition 6, never a guess made here."""
     try:
         return roots.git_path("policies", "authority.json", base=top, environ=environ)
     except ValueError:
-        return PRE_MOVE_AUTHORITY
+        return roots.git_path("policies", "authority.json", base=top, environ={})
 
 
 PRE_MOVE_AUTHORITY = "policies/authority.json"

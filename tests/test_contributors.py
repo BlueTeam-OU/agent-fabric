@@ -132,6 +132,14 @@ def main() -> int:
         check("an operator equal to the toplevel: the old path, asked of no rev",
               co.authority_git_path_at(tmp, "HEAD", environ={"AGENT_FABRIC_OPERATOR": tmp})
               == co.PRE_MOVE_AUTHORITY)
+        outside = tempfile.mkdtemp()
+        try:
+            check("an operator outside the checkout: the checkout's own operator path, never the old symlink blob's",
+                  co.authority_git_path(tmp, {"AGENT_FABRIC_OPERATOR": outside}) == "operator/policies/authority.json")
+            check("a base from before the move is still read at the old place, the operator being outside",
+                  co.authority_git_path_at(tmp, pre, environ={"AGENT_FABRIC_OPERATOR": outside}) == co.PRE_MOVE_AUTHORITY)
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
