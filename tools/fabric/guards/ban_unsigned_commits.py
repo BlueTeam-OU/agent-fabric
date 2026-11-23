@@ -99,8 +99,8 @@ AGENT_FABRIC_SIGNATURES_BASE naming the base ref of a hand run; the
 repository the policy is read for is AGENT_FABRIC_SIGNING_REPOSITORY, else
 GITHUB_REPOSITORY, else origin's owner/name; the keys, the lineage, the
 roles, the holders, the policy and its forge keys are the operator root's
-(roots.py: AGENT_FABRIC_OPERATOR, else AGENT_FABRIC_ROOT, else this
-checkout). Exit 0
+(roots.py: AGENT_FABRIC_OPERATOR, else <root>/operator, <root> being
+AGENT_FABRIC_ROOT, else this checkout). Exit 0
 every commit passes (or, `since` null, no range could be shown: said as NOT
 ENFORCED, never as OK), 1 a commit refused or, `since` set, no range, with
 one line per refusal on stderr."""

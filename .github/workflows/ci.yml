@@ -98,7 +98,10 @@ jobs:
       # (docs/split/move-plan.md §2 precondition 5): `git archive` stores a
       # symlink shim and not its target, and the branch's roots would name
       # a layout main has not got yet. The prefix is the one
-      # AGENT_FABRIC_OPERATOR names under the checkout, "" while unset.
+      # AGENT_FABRIC_OPERATOR names under the checkout; unset it is
+      # "operator/", where operator_root() falls back. Until step B is on
+      # main the prefix is "" (the pre-move layout); `moved` is read from
+      # main's roots, so it follows whichever layout main has.
       - name: the branch's authority, judged by main's own guards
         run: |
           base="$(mktemp -d)"

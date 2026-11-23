@@ -13,7 +13,9 @@ CONTRACT
   env       AGENT_FABRIC_OPERATOR (through roots, to find the sibling's checkout
             beside this one), PATH (git). GIT_* is dropped at the start: a hook's
             GIT_DIR would aim every git call, the sibling lookup's included, at
-            another repository. The tree it edits is the one this file sits in.
+            another repository. The registry and the project's integration
+            files are written where roots.py puts the operator's, so an exported
+            operator takes them; the tree this file sits in is the engine.
   stdin     not read
   stdout    the plan (each file, with its size), a diff of projects/registry.json,
             and what was written; --help
