@@ -356,31 +356,46 @@ class History:
             return stored
         return path
 
-    def log_scope(self, tree: str, path: str) -> list[str]:
-        """The `git log` arguments that bound a file's history to what changed it. At a moved path the history is
-        asked under both names, and the commit that only moved it (ADR-045 step B's `split: move the instance data`)
-        is no change: under the stored name alone it is an add, and every anchor into the moved data read as changed
-        after its section was observed. A file whose old name became a symlink shim is not a rename to git (that
-        side is a typechange), so -B first breaks the pair into a copy and the typechange, and both are dropped;
-        -M100% keeps a move that also edited the file counted, as the edit it is."""
+    def _since(self, day: str) -> str:
+        end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
+        return f"--since={int(end.timestamp())} +0000"
+
+    def _blob(self, tree: str, rev: str, paths: tuple[str, ...]) -> str | None:
+        """The blob the first of `paths` names at `rev` that is a regular file there, or None. A symlink shim is
+        mode 120000 and is never the anchor's content."""
+        for p in paths:
+            r = self._git(tree, "ls-tree", rev, "--", p)
+            fields = r.stdout.split() if r.returncode == 0 else []
+            if len(fields) >= 3 and fields[0] != "120000" and fields[1] == "blob":
+                return fields[2]
+        return None
+
+    def changing_commits(self, tree: str, path: str, day: str) -> list[tuple[str, str, str]]:
+        """(commit, date, subject) of the commits after the end of `day` that changed the anchor's file, newest
+        first. At a moved path (ADR-045 step B) the history is asked under both names, and a commit is a change
+        only when the file's content differs from its parent's: the commit that only moved it is no change. Judged
+        by blob, not by git's rename and break detection, whose answer for a file turned into a symlink shim beside
+        its copy differed between the git releases CI runs (#692 F14, platform-smoke debian)."""
         stored = self.stored_path(tree, path)
-        if stored == path:
-            return ["--", path]
-        return ["-B", "-M100%", "--diff-filter=rct", "--", path, stored]
+        names = (path,) if stored == path else (stored, path)
+        r = self._git(tree, "log", "--format=%h%x09%cs%x09%s", self._since(day), "--", *names)
+        if r.returncode != 0:
+            raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
+        out = []
+        for line in r.stdout.splitlines():
+            commit, date, subject = (line.split("\t", 2) + ["", ""])[:3]
+            if stored != path and self._blob(tree, commit, names) == self._blob(tree, f"{commit}^", names):
+                continue
+            out.append((commit, date, subject))
+        return out
 
     def changed_after(self, tree: str, path: str, day: str) -> dict | None:
         """The newest commit that touched `path` after the end of `day` (YYYY-MM-DD, UTC), or None."""
         self.ready(tree)
-        scope = self.log_scope(tree, path)
-        end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
-        r = self._git(tree, "log", "-1", "--format=%h%x09%cs%x09%s", f"--since={int(end.timestamp())} +0000", *scope)
-        if r.returncode != 0:
-            raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
-        line = r.stdout.strip().split("\n")[0]
-        if not line:
+        commits = self.changing_commits(tree, path, day)
+        if not commits:
             return None
-        commit, _, rest = line.partition("\t")
-        date, _, subject = rest.partition("\t")
+        commit, date, subject = commits[0]
         return {"commit": commit, "date": date, "subject": subject[:100]}
 
     def diff_since(self, tree: str, path: str, day: str, limit: int) -> str:
@@ -388,13 +403,15 @@ class History:
         its patch, oldest first, cut to `limit` characters (a cut says so). Read-only, like the rest. Raises
         NoHistory when git cannot say."""
         self.ready(tree)
-        scope = self.log_scope(tree, path)
-        end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
-        r = self._git(tree, "log", "--reverse", "-p", "--no-color", "--no-ext-diff", "--format=commit %h %cs %s",
-                      f"--since={int(end.timestamp())} +0000", *scope)
-        if r.returncode != 0:
-            raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
-        out = r.stdout
+        stored = self.stored_path(tree, path)
+        names = (path,) if stored == path else (stored, path)
+        parts = []
+        for commit, _, _ in reversed(self.changing_commits(tree, path, day)):
+            r = self._git(tree, "show", "-p", "--no-color", "--no-ext-diff", "--format=commit %h %cs %s", commit, "--", *names)
+            if r.returncode != 0:
+                raise NoHistory("git show failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
+            parts.append(r.stdout)
+        out = "".join(parts)
         return out if len(out) <= limit else out[:limit] + f"\n[the diff is cut here: {len(out) - limit} more characters]"
 
 
