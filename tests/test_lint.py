@@ -2860,6 +2860,10 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         os.makedirs(os.path.join(root, "operator", "policies"), exist_ok=True)
         got = findings({**good, "paths": good["paths"] + ["operator/policies/"]})
         assert any("rule 'operator/policies/' reaches operator/policies/" in f for f in got), got
+        # Each never-list instance tree has its operator/ twin since step B (#692 F8): a twin dropped would let a
+        # contributor entry reach the moved definitions with no finding.
+        for moved in ("identities/", "routing/", "policies/", "docs/adr/", "memory/"):
+            assert moved in lint.CONTRIBUTOR_NEVER and "operator/" + moved in lint.CONTRIBUTOR_NEVER, moved
         # The carrier's pin and roster and GitHub's host keys: held by lint,
         # not only by the entry's own exclusions (review of #376, §2).
         host_keys = ("runtime/provisioning/github-host-keys", "runtime/provisioning/github-host-keys.fingerprints")

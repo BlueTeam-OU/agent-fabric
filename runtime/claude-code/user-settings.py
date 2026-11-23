@@ -352,7 +352,7 @@ def with_fabric_hooks(hooks: dict) -> dict:
 # The environment override is for a test, which must never write the
 # checkout's own policy (re-review of #74). Otherwise the policy is
 # instance data (ADR-045 §5 rule 2), read from the operator's tree
-# (AGENT_FABRIC_OPERATOR, else this checkout) through roots.
+# (AGENT_FABRIC_OPERATOR, else this checkout's operator/) through roots.
 AUTO_MODE_POLICY = os.environ.get("AGENT_FABRIC_AUTO_MODE_POLICY") or roots.policy("auto-mode.json", engine=FABRIC_ROOT)
 
 

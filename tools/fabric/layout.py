@@ -419,8 +419,10 @@ def shared_home(klass: str, project: str | None = None) -> str:
 def fabric_sides() -> list[str]:
     """The trees an index reaches through `../agent-fabric/`: the operator's
     (instance data: slices, charters, briefs; ADR-045 rule 2) first, then
-    this checkout. One tree until an operator is exported, and until stage 4
-    both are named by the one sibling prefix."""
+    this checkout. Two trees since ADR-045 step B, the operator's being this
+    checkout's operator/ unless one is exported; one only for a fixture laid
+    out as the old layout. Until stage 4 both are named by the one sibling
+    prefix."""
     engine = os.path.abspath(FABRIC_ROOT)
     operator = os.path.abspath(roots.operator_root(engine=engine))
     return [operator] if operator == engine else [operator, engine]
