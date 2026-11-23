@@ -612,6 +612,33 @@ def case_range_check_from_the_operator_subdirectory_judges_operator_records(tmp:
         assert len(f) == 1 and "operator/docs/adr/ADR-001" in f[0], (tree, f)
 
 
+def case_staged_and_range_check_judge_the_stored_layout_whatever_operator_is_exported(tmp: str) -> None:
+    """An operator exported outside the checkout changes where the tool reads, not
+    where git stores the records: the hook gates on operator/docs/adr either way (#692 F13)."""
+    root = _moved_fixture(tmp)
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "core.hooksPath", "/dev/null")
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="base")
+    base = _rev(root)
+    outside = os.path.join(tmp, "elsewhere")
+    os.makedirs(outside)
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    os.environ["AGENT_FABRIC_OPERATOR"] = outside
+    try:
+        edit(root, "operator/" + ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+        git(root, "add", "-A")
+        f = adr.staged_check(root, "reword\n")
+        assert len(f) == 1 and "operator/docs/adr/ADR-001" in f[0], f
+        git(root, "commit", "-q", msg="reword")
+        f = adr.range_check(root, base)
+        assert len(f) == 1 and "operator/docs/adr/ADR-001" in f[0], f
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
 def case_range_check_from_the_operator_subdirectory_still_judges_docs_adr(tmp: str) -> None:
     root = fixture(tmp)
     os.makedirs(os.path.join(root, "operator"))

@@ -787,10 +787,9 @@ def _adr_dirs(top: str) -> tuple[str, ...]:
     """Where records sit in a diff's paths: the operator's, and `docs/adr`
     itself, which is where a base from before the move (origin/main until
     ADR-045 step B merges) and the engine's own records keep them."""
-    try:
-        moved = f"{roots.operator_prefix(top)}{ADR_DIR}"
-    except ValueError:  # the operator is another repository: nothing of it in this one's paths
-        return (ADR_DIR,)
+    # `{}`: these are the paths this checkout's git stores, and the hook that calls
+    # gates on operator/docs/adr whatever AGENT_FABRIC_OPERATOR points at (#692 F13).
+    moved = f"{roots.operator_prefix(top, {})}{ADR_DIR}"
     return (ADR_DIR,) if moved == ADR_DIR else (moved, ADR_DIR)
 
 
