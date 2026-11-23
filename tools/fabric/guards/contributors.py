@@ -70,7 +70,27 @@ def authority_git_path(top: str, environ: Mapping[str, str] | None = None) -> st
     try:
         return roots.git_path("policies", "authority.json", base=top, environ=environ)
     except ValueError:
-        return "policies/authority.json"
+        return PRE_MOVE_AUTHORITY
+
+
+PRE_MOVE_AUTHORITY = "policies/authority.json"
+
+
+def authority_git_path_at(top: str, rev: str, environ: Mapping[str, str] | None = None) -> str:
+    """authority_git_path as `rev` stores it. A guard reads the BASE's file,
+    and the base can predate the operator tree: main until ADR-045 step B
+    lands on it, so the branch that makes the move would otherwise be judged
+    by an authority.json "missing" from main and refuse every contributor
+    commit it folds (#692). Only a rev with no operator tree at all is read
+    at the old place; a rev that has the tree is read there alone, so a base
+    that moved and then lost the file still refuses, never falls back."""
+    rel = authority_git_path(top, environ)
+    tree = rel[: -len(PRE_MOVE_AUTHORITY)].rstrip("/")
+    if not tree or not rel.endswith(PRE_MOVE_AUTHORITY):
+        return rel
+    has_tree = subprocess.run(["git", "-C", top, "cat-file", "-e", f"{rev}:{tree}"],
+                              capture_output=True, text=True, timeout=60)
+    return rel if has_tree.returncode == 0 else PRE_MOVE_AUTHORITY
 
 
 def contributors_of(text: str) -> dict[str, dict]:

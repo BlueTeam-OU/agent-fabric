@@ -235,7 +235,7 @@ def run(argv: list[str], env: dict[str, str]) -> int:
     # the same change it uses the list to justify.
     # The path as the base stores it, from the toplevel: `root` may name a
     # subdirectory, and an operator nested in the repository is read there.
-    rel = contributors.authority_git_path(git.toplevel(root) or root, env)
+    rel = contributors.authority_git_path_at(git.toplevel(root) or root, base, env)
     shown = git.run(root, "show", f"{base}:{rel}", check=False)
     if shown.returncode != 0:
         raise Refused(f"cannot read {rel} at {base} -- no holder can be named")

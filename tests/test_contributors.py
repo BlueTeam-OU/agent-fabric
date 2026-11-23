@@ -102,6 +102,34 @@ def main() -> int:
     check("a bad exclusion spoils the entry",
           co.contributors_of('{"contributors": [{"role": "x", "paths": ["a/"], "excluding": "b/"}]}') == {})
 
+    print("authority_git_path_at: a base from before the move is read at the old place, and only that")
+    tmp = tempfile.mkdtemp()
+    try:
+        sh(tmp, "init", "-q")
+        os.makedirs(os.path.join(tmp, "policies"))
+        with open(os.path.join(tmp, co.PRE_MOVE_AUTHORITY), "w") as f:
+            f.write("{}\n")
+        sh(tmp, "add", "-A")
+        sh(tmp, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "pre-move")
+        pre = sh(tmp, "rev-parse", "HEAD").stdout.strip()
+        # Moved, and the authority file lost on the way: the operator tree is there, the file is not.
+        os.makedirs(os.path.join(tmp, "operator", "policies"))
+        with open(os.path.join(tmp, "operator", "policies", "signing.json"), "w") as f:
+            f.write("{}\n")
+        sh(tmp, "add", "-A")
+        sh(tmp, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "moved")
+        moved = AUTH
+        check("the operator's path with no operator exported", moved == "operator/policies/authority.json", moved)
+        check("a rev with no operator tree: the pre-move path",
+              co.authority_git_path_at(tmp, pre, environ={}) == co.PRE_MOVE_AUTHORITY)
+        got = co.authority_git_path_at(tmp, "HEAD", environ={})
+        check("a rev with the operator tree: its path alone, so a lost file still refuses", got == moved, got)
+        check("an operator equal to the toplevel: the old path, asked of no rev",
+              co.authority_git_path_at(tmp, "HEAD", environ={"AGENT_FABRIC_OPERATOR": tmp})
+              == co.PRE_MOVE_AUTHORITY)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
     print("admitted: within the paths, outside the exclusions")
     ok = lambda paths, role="python-dev": co.admitted(text, role, paths)  # noqa: E731
     check("a file under a directory rule", ok(["tools/fabric/x.py"]))

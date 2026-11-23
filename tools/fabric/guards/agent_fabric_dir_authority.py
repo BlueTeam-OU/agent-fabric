@@ -166,11 +166,10 @@ def is_fabric_itself(top: str, base: str, env: dict[str, str] | None = None) -> 
     tree alone, as the bash did, a branch that deleted the file narrowed the
     check to .agent-fabric/** and its other commits passed with no trailer
     (review of #72). A git that cannot say reads as the stricter scope."""
-    rel = contributors.authority_git_path(top, env)
-    if os.path.isfile(os.path.join(top, rel)):
+    if os.path.isfile(os.path.join(top, contributors.authority_git_path(top, env))):
         return True
     try:
-        r = git.run(top, "cat-file", "-e", f"{base}:{rel}", check=False)
+        r = git.run(top, "cat-file", "-e", f"{base}:{contributors.authority_git_path_at(top, base, env)}", check=False)
     except git.GitError:
         return True
     return r.returncode == 0
@@ -179,7 +178,7 @@ def is_fabric_itself(top: str, base: str, env: dict[str, str] | None = None) -> 
 def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
     if is_fabric_itself(top, base, env):
         # agent-fabric itself: the base's file, never the branch's.
-        shown = git.run(top, "show", f"{base}:{contributors.authority_git_path(top, env)}", check=False)
+        shown = git.run(top, "show", f"{base}:{contributors.authority_git_path_at(top, base, env)}", check=False)
         role = common.role_of(shown.stdout) if shown.returncode == 0 else None
         return role or common.DEFAULT_ROLE
     # The guard's own environment, so an exported operator's authority.json is the one read.
@@ -200,7 +199,7 @@ def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
 def base_authority(top: str, base: str, env: dict[str, str] | None = None) -> str:
     """The base's policies/authority.json, "" when it has none: what a
     branch may do is what main says, never what the branch wrote."""
-    shown = git.run(top, "show", f"{base}:{contributors.authority_git_path(top, env)}", check=False)
+    shown = git.run(top, "show", f"{base}:{contributors.authority_git_path_at(top, base, env)}", check=False)
     return shown.stdout if shown.returncode == 0 else ""
 
 
