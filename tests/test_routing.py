@@ -18,6 +18,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+import roots  # noqa: E402
 import instance_fixtures  # noqa: E402 — tests/, this script's own directory
 import routing  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
@@ -43,7 +44,9 @@ def scratch_root(tmp: str, distinct: bool = True) -> str:
                     ignore=shutil.ignore_patterns(*instance_fixtures.ROUTING_OPERATOR_IGNORE))
     for name in ("capabilities.json", "effort.json") if distinct else ():
         shutil.copy2(os.path.join(FIXTURE, name), os.path.join(root, "routing", name))
-    instance_fixtures.write_routing_overlay(os.path.join(root, "routing"))
+    overlay = os.path.dirname(roots.routing_profiles(engine=root))    # step B: the operator's half sits in <root>/operator/routing
+    os.makedirs(overlay)
+    instance_fixtures.write_routing_overlay(overlay)
     os.makedirs(os.path.join(root, "runtime", "claude-code"))
     shutil.copy2(os.path.join(ROOT, "runtime", "claude-code", "aliases.json"),
                  os.path.join(root, "runtime", "claude-code", "aliases.json"))
@@ -122,7 +125,7 @@ def test_native_path_pins_haiku_and_sonnet_5_5_low_and_opus_5_5_above(tmp: str) 
     assert (s["model"], s["source"]) == ("claude-opus-5[1m]", "local"), s
     # An agent layer moves that agent's session and nobody else's (the test
     # replaces the live layers with its own, so it holds whatever they say).
-    prof = os.path.join(root, "routing", "profiles.json")
+    prof = roots.routing_profiles(engine=root)
     doc = json.load(open(prof, encoding="utf-8"))
     doc["agents"] = {"architect-cto-01": {"providers": {"anthropic": {"session": "claude-fable-5-1"}}}}
     json.dump(doc, open(prof, "w", encoding="utf-8"))
@@ -299,7 +302,7 @@ def test_the_session_level_is_judged_like_a_class(tmp: str) -> None:
     # class asks medium; code-low's acknowledgement already says so.
     doc["session"] = "code-low"
     json.dump(doc, open(path, "w", encoding="utf-8"))
-    prof = os.path.join(root, "routing", "profiles.json")
+    prof = roots.routing_profiles(engine=root)
     p = json.load(open(prof, encoding="utf-8"))
     p["defaults"]["providers"]["openrouter"]["session"] = "code-low"
     json.dump(p, open(prof, "w", encoding="utf-8"))
@@ -657,7 +660,7 @@ def test_a_trailing_newline_does_not_make_a_model_id_or_a_preset(tmp: str) -> No
     """`$` matches before a final newline; the committed JSON files carry
     arbitrary strings, so "x/y\\n" must read as the malformed id it is."""
     root = scratch_root(tmp)
-    path = os.path.join(root, "routing", "policies", "review-grade.json")
+    path = roots.routing_policy("review-grade.json", engine=root)
     d = json.load(open(path, encoding="utf-8"))
     d["models"].append("z-ai/glm-5.3\n")
     json.dump(d, open(path, "w", encoding="utf-8"))
@@ -749,7 +752,7 @@ def test_an_exported_operator_outranks_the_handed_tree_for_its_data(tmp: str) ->
     doc["defaults"]["providers"]["anthropic"]["session"] = "claude-haiku-5-5"
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(doc, fh)
-    shutil.rmtree(os.path.join(engine, "routing", "policies"))
+    shutil.rmtree(os.path.dirname(roots.routing_policy("x", engine=engine)))
     assert routing.resolve_session(root=engine, provider="anthropic")["model"] != "claude-haiku-5-5"
     saved = os.environ.get("AGENT_FABRIC_OPERATOR")
     os.environ["AGENT_FABRIC_OPERATOR"] = operator

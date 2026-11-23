@@ -93,8 +93,9 @@ class Scan(unittest.TestCase):
                'OTHER = "policies/x.json"\n'
                'a = os.path.join(root, POLICY)\n'
                'b = os.path.join(root, "identities/roles/catalog.json")\n'
-               'c = os.path.join(root, "memory/domains")\n')
-        self.assertEqual(lines(src), [4, 5, 6])
+               'c = os.path.join(root, "memory/domains")\n'
+               'd = os.path.join(root, "operator/policies/x.json")\n')
+        self.assertEqual(lines(src), [4, 5, 6, 7])
         clean = ('import os\nPOLICY = "policies/x.json"\n'
                  'a = os.path.join(root, "memory")\n'                 # the harness's own memory directory
                  'b = os.path.join(root, "tools", "fabric")\n'

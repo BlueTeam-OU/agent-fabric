@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from guards import agent_fabric_dir_authority as da  # noqa: E402
 from guards import common  # noqa: E402
 from guards.contributors import authority_git_path as authority_path  # noqa: E402
+import roots  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -66,6 +67,8 @@ def main() -> int:
     L = "identities/roles/language-culture/locale/ge/"
     check("one locale", da.locale_carve_out_role([L + "a.md", L + "b.md"]) == ("language-culture", "ge"))
     check("no path", da.locale_carve_out_role([]) is None)
+    check("a role's locale at the operator's tree", da.locale_carve_out_role(["operator/" + L + "a.md"]) == ("language-culture", "ge"))
+    check("the shared prompt pieces did not move", da.locale_carve_out_role(["operator/identities/prompt/locale/ge/a.md"]) is None)
     check("two suffixes", da.locale_carve_out_role([L + "a.md", L.replace("/ge/", "/ru/") + "a.md"]) is None)
     check("two roles", da.locale_carve_out_role([L + "a.md", "identities/roles/x/locale/ge/a.md"]) is None)
     check("deeper than the locale directory", da.locale_carve_out_role([L + "d/a.md"]) is None)
@@ -98,37 +101,39 @@ def main() -> int:
     try:
         top = os.path.join(tmp, "proj")
         sib = os.path.join(tmp, "agent-fabric")
-        os.makedirs(os.path.join(top, "policies"))
-        os.makedirs(os.path.join(sib, "policies"))
+        os.makedirs(roots.policies_dir(environ={}, engine=top))
+        os.makedirs(roots.policies_dir(environ={}, engine=sib))
         check("the default", da.owner_role_of(top, {}, "main") == "fabric-coordinator")
-        with open(os.path.join(sib, "policies", "authority.json"), "w") as f:
+        with open(roots.policy("authority.json", environ={}, engine=sib), "w") as f:
             json.dump({"role_definitions": {"role": "sibling"}}, f)
         check("the sibling checkout", da.owner_role_of(top, {}, "main") == "sibling")
-        os.makedirs(os.path.join(tmp, "elsewhere", "policies"))
-        with open(os.path.join(tmp, "elsewhere", "policies", "authority.json"), "w") as f:
+        elsewhere = os.path.join(tmp, "elsewhere")
+        os.makedirs(roots.policies_dir(environ={}, engine=elsewhere))
+        with open(roots.policy("authority.json", environ={}, engine=elsewhere), "w") as f:
             json.dump({"role_definitions": {"role": "named"}}, f)
         check("$AGENT_FABRIC_ROOT", da.owner_role_of(top, {"AGENT_FABRIC_ROOT": os.path.join(tmp, "elsewhere")}, "main")
               == "named")
 
         print("in agent-fabric itself the owner is the base's, never the branch's")
         fab = os.path.join(tmp, "fab")
-        os.makedirs(os.path.join(fab, "policies"))
+        fab_authority = authority_path(fab, {})   # unexported: operator/policies/authority.json
+        os.makedirs(os.path.dirname(os.path.join(fab, fab_authority)))
         sh(fab, "init", "-q", "-b", "main")
         sh(fab, "commit", "-q", "--allow-empty", "-m", "before the file")
         sh(fab, "tag", "before")
-        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+        with open(os.path.join(fab, fab_authority), "w") as f:
             json.dump({"role_definitions": {"role": "base-owner"}}, f)
         sh(fab, "add", "-A")
         sh(fab, "commit", "-q", "-m", "base")
         sh(fab, "checkout", "-q", "-b", "h/intruder/feat/x")
-        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+        with open(os.path.join(fab, fab_authority), "w") as f:
             json.dump({"role_definitions": {"role": "intruder"}}, f)
         sh(fab, "commit", "-qam", "name myself the owner")
         check("the branch's edit names nobody", da.owner_role_of(fab, {}, "main") == "base-owner")
         check("a base without the file: the default", da.owner_role_of(fab, {}, "before") == "fabric-coordinator")
 
         print("a branch that deletes the file keeps agent-fabric's scope (review of #72)")
-        sh(fab, "rm", "-q", "policies/authority.json")
+        sh(fab, "rm", "-q", fab_authority)
         with open(os.path.join(fab, "other.txt"), "w") as f:
             f.write("x\n")
         sh(fab, "add", "-A")
@@ -153,9 +158,17 @@ def main() -> int:
         check("agent-fabric itself, from the base's nested file", da.is_fabric_itself(nest, "main~1", nested))
         check("the owner is the nested file's", da.owner_role_of(nest, nested, "main~1") == "nested-owner")
         check("the base's authority is the nested file", "nested-owner" in da.base_authority(nest, "main~1", nested))
-        check("unexported, the toplevel path: not the fabric", not da.is_fabric_itself(nest, "main~1", {}))
-        check("an operator outside the repository: the repository's own path",
-              authority_path(nest, {"AGENT_FABRIC_OPERATOR": tmp}) == "policies/authority.json")
+        check("unexported, the operator/ fallback finds the same file", da.is_fabric_itself(nest, "main~1", {}))
+        old = os.path.join(tmp, "old-layout")
+        os.makedirs(os.path.join(old, "policies"))
+        sh(old, "init", "-q", "-b", "main")
+        with open(os.path.join(old, "policies", "authority.json"), "w") as f:
+            json.dump({"role_definitions": {"role": "old-owner"}}, f)
+        sh(old, "add", "-A")
+        sh(old, "commit", "-q", "-m", "base, the old layout")
+        check("unexported, a file only at the toplevel path: not the fabric", not da.is_fabric_itself(old, "main", {}))
+        check("an operator outside the repository: the checkout's own operator path",
+              authority_path(nest, {"AGENT_FABRIC_OPERATOR": tmp}) == "operator/policies/authority.json")
 
         print("the run, end to end in a scratch managed project")
         rr = os.path.join(tmp, "p")
@@ -296,7 +309,7 @@ def main() -> int:
         rr = os.path.join(tmp, "self")
         os.mkdir(rr)
         sh(rr, "init", "-q", "-b", "main")
-        commit("policies/authority.json", "base")
+        commit(authority_path(rr, {}), "base")
         sh(rr, "checkout", "-q", "-b", "work")
         commit("policies/notes.md", "auth\n\nFabric-Role: fabric-coordinator")
         commit("src/b.py", "code")

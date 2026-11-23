@@ -17,6 +17,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from guards import charter_authority as ca  # noqa: E402
 from guards import common  # noqa: E402
+import roots  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -129,8 +130,10 @@ def main() -> int:
         rr = os.path.join(tmp, "w")
         os.mkdir(rr)
         sh(rr, "init", "-q", "-b", "main")
-        os.makedirs(os.path.join(rr, "policies"))
-        with open(os.path.join(rr, "policies", "authority.json"), "w") as f:
+        # The guard reads the base's list where the repository stores it: operator/policies/ with no operator exported.
+        authority = os.path.join(rr, roots.git_path("policies", "authority.json", base=rr, environ={}))
+        os.makedirs(os.path.dirname(authority))
+        with open(authority, "w") as f:
             json.dump({"role_definitions": {"role": "fabric-coordinator", "holders": ["boss"]}}, f)
         sh(rr, "add", "-A")
         sh(rr, "commit", "-q", "-m", "base")
@@ -174,7 +177,7 @@ def main() -> int:
         check("the base is read, not the branch's list", rc == 0)
 
         # The list is read from the BASE: a branch that adds itself is refused.
-        with open(os.path.join(rr, "policies", "authority.json"), "w") as f:
+        with open(authority, "w") as f:
             json.dump({"role_definitions": {"role": "fabric-coordinator", "holders": ["boss", "web-dev-01"]}}, f)
         sh(rr, "add", "-A")
         sh(rr, "commit", "-q", "-m", "add self")

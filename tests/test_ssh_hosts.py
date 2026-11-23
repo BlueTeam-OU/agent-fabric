@@ -22,12 +22,23 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import lint  # noqa: E402
+import roots  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+# The fixture fabrics below hold their own instance data: an exported operator would outrank them (roots.operator_root).
+# The one case that reads the operator's registry on purpose takes the exported one from here.
+EXPORTED_OPERATOR = os.environ.get(roots.ENV_OPERATOR)
+own_instance_tree()
 from lint_rules import schema as lint_schema  # noqa: E402
 
 TOOL = os.path.join(ROOT, "tools", "fabric", "ssh_hosts.py")
 ED = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGb1y2fxD0RkCq3dHn2iN8f3mR1vD0n1QvJx2v0r2X7a"
 EC = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBHx1="
 HERE_HOST = socket.gethostname().split(".")[0]
+
+
+def registry_path(root: str) -> str:
+    """The fixture fabric's own registry: its operator's, with no hosts-registry override."""
+    return roots.hosts_registry(engine=root, environ={})
 
 
 def registry(tmp: str, hosts: dict[str, Any]) -> str:
@@ -37,14 +48,15 @@ def registry(tmp: str, hosts: dict[str, Any]) -> str:
         shutil.copytree(os.path.join(ROOT, "runtime", "hosts", "schema"), os.path.join(root, "runtime", "hosts", "schema"))
     full = {h: {"platform": "fedora", "ssh": None if i == 0 else f"op@{h}", "operator": "user",
                 "fabric": "~/projects/agent-fabric", **extra} for i, (h, extra) in enumerate(hosts.items())}
-    path = os.path.join(root, "runtime", "hosts", "registry.json")
+    path = registry_path(root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump({"version": 1, "description": "fixture", "placement": {"user": next(iter(hosts))}, "hosts": full}, fh)
     return root
 
 
 def tool(root: str, *args: str, etc: str = "") -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "AGENT_FABRIC_HOSTS_REGISTRY": os.path.join(root, "runtime", "hosts", "registry.json"),
+    env = {**os.environ, "AGENT_FABRIC_HOSTS_REGISTRY": registry_path(root),
            "AGENT_FABRIC_SSH_ETC": etc}
     return subprocess.run([sys.executable, TOOL, *args], env=env, capture_output=True, text=True, timeout=30)
 
@@ -160,7 +172,8 @@ def test_the_committed_registry_passes() -> None:
     import importlib.util
     spec = importlib.util.spec_from_file_location("fabric_roots", os.path.join(ROOT, "tools", "fabric", "roots.py"))
     roots = importlib.util.module_from_spec(spec); spec.loader.exec_module(roots)
-    path = roots.hosts_registry(engine=ROOT, environ={k: v for k, v in os.environ.items() if k != roots.ENV_HOSTS_REGISTRY})
+    path = roots.hosts_registry(engine=ROOT, environ={**{k: v for k, v in os.environ.items() if k != roots.ENV_HOSTS_REGISTRY},
+                                                              **({roots.ENV_OPERATOR: EXPORTED_OPERATOR} if EXPORTED_OPERATOR else {})})
     if not os.path.isfile(path):
         print(f"  skip test_the_committed_registry_passes: no hosts registry at {path}")
         return

@@ -24,6 +24,8 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+import roots  # noqa: E402
 HX = os.path.join(ROOT, "runtime", "hostexec", "hostexec")
 FH = os.path.join(ROOT, "bin", "fabric-host")
 ME = pwd.getpwuid(os.geteuid()).pw_name
@@ -201,8 +203,9 @@ def main() -> int:
         engine = os.path.join(sandbox, "engine")
         for part in ("bin", "tools", "runtime"):
             shutil.copytree(os.path.join(ROOT, part), os.path.join(engine, part), ignore=shutil.ignore_patterns("__pycache__", "node_modules", "registry.json"))
-        os.makedirs(os.path.join(engine, "runtime", "hosts"), exist_ok=True)
-        with open(os.path.join(engine, "runtime", "hosts", "registry.json"), "w", encoding="utf-8") as fh:
+        engine_registry = roots.hosts_registry(engine=engine, environ={})
+        os.makedirs(os.path.dirname(engine_registry), exist_ok=True)
+        with open(engine_registry, "w", encoding="utf-8") as fh:
             json.dump({"version": 1, "hosts": {"engine-host": {"platform": "debian", "ssh": None, "operator": ME, "fabric": engine}},
                        "placement": {"zz-engine-login": "engine-host"}}, fh)
         FH_E, HX_E = os.path.join(engine, "bin", "fabric-host"), os.path.join(engine, "runtime", "hostexec", "hostexec")

@@ -13,7 +13,9 @@ CONTRACT
   env       AGENT_FABRIC_OPERATOR (through roots, to find the sibling's checkout
             beside this one), PATH (git). GIT_* is dropped at the start: a hook's
             GIT_DIR would aim every git call, the sibling lookup's included, at
-            another repository. The tree it edits is the one this file sits in.
+            another repository. The registry and the project's integration
+            files are written where roots.py puts the operator's, so an exported
+            operator takes them; the tree this file sits in is the engine.
   stdin     not read
   stdout    the plan (each file, with its size), a diff of projects/registry.json,
             and what was written; --help
@@ -229,18 +231,23 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
         raise Refused("at least one --remote is required")
     if len(set(args.remote)) != len(args.remote) or len(set(args.role)) != len(args.role):
         raise Refused("a --remote or --role is given twice")
-    reg_path = roots.projects_registry(root=root)
+    reg_path = roots.projects_registry(engine=root)
     raw = _decode(_read_bytes(reg_path), reg_path)
     projects = _load_json(reg_path).get("projects") or {}
     if args.id in projects:
         raise Refused(f"--id {args.id}: already registered in projects/registry.json")
     # Whatever else projects/ holds (schemas/, registry.json, clients.json) is not an id;
     # a directory of only integration/ is a half-finished import, left to the per-file refusal.
-    held = os.path.join(roots.projects_dir(root=root), args.id)
+    held = os.path.join(roots.projects_dir(engine=root), args.id)
     # A symlink at either level would carry the writes out of the tree.
     if os.path.lexists(held) and not (os.path.isdir(held) and not os.path.islink(held)
                                       and not os.path.islink(os.path.join(held, "integration"))
                                       and set(os.listdir(held)) <= {"integration"}):
+        raise Refused(f"--id {args.id}: projects/{args.id} exists and is not a registered project")
+    # The engine keeps projects/schemas/ (the shape of a project) apart from the operator's projects/, so an id
+    # naming it is found in the engine's directory, not the operator's.
+    engine_held = os.path.join(root, "projects", args.id)
+    if os.path.lexists(engine_held) and engine_held != held:
         raise Refused(f"--id {args.id}: projects/{args.id} exists and is not a registered project")
     if args.like not in projects:
         raise Refused(f"--like {args.like}: not a registered project")
@@ -255,10 +262,10 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
             raise Refused(f"--remote {r}: not a remote repository URL")
         if key in taken:
             raise Refused(f"--remote {r}: already registered to {taken[key]}")
-    clients = _load_json(roots.clients_registry(root=root)).get("clients") or {}
+    clients = _load_json(roots.clients_registry(engine=root)).get("clients") or {}
     if args.client not in clients:
         raise Refused(f"--client {args.client}: not in projects/clients.json (known: {', '.join(sorted(clients))})")
-    catalog = {r.get("id") for r in _load_json(roots.role_catalog(root=root)).get("roles") or []}
+    catalog = {r.get("id") for r in _load_json(roots.role_catalog(engine=root)).get("roles") or []}
     for role in args.role:
         if role not in catalog:
             raise Refused(f"--role {role}: not in identities/roles/catalog.json")
@@ -269,8 +276,8 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
 
     files: list[dict] = []
     residue: list[str] = []
-    src_dir = roots.project_integration(args.like, root=root)
-    dst_dir = roots.project_integration(args.id, root=root)
+    src_dir = roots.project_integration(args.like, engine=root)
+    dst_dir = roots.project_integration(args.id, engine=root)
     present = set()
     for base, dirs, names in os.walk(src_dir):
         dirs.sort()
@@ -309,7 +316,7 @@ def plan(args: argparse.Namespace, root: str, today: str) -> tuple[list[dict], s
             raise Refused(f"--working-copy {args.working_copy}: not a directory")
         af = os.path.join(wc, ".agent-fabric")
         tax = taxonomy_doc(args.id, args.role)
-        schema = _load_json(os.path.join(roots.projects_dir(root=root), "schemas", "taxonomy.schema.json"))
+        schema = _load_json(os.path.join(root, "projects", "schemas", "taxonomy.schema.json"))
         from lint_rules.schema import validate_json
         bad = validate_json(schema, tax, "taxonomy.json")
         if bad:
@@ -412,7 +419,7 @@ def run(argv: list[str], root: str = ROOT, today: str | None = None) -> int:
         raise Refused("at least one --role is required")
     today = today or datetime.date.today().isoformat()
     files, raw, new_raw, residue = plan(args, root, today)
-    reg_path = roots.projects_registry(root=root)
+    reg_path = roots.projects_registry(engine=root)
     # ROOT is the checkout this file sits in, not the cwd: through a link in
     # ~/.local/bin the writes land there, so the plan has to say where.
     print(("writing" if args.write else "dry run, nothing written; would write") + f" {len(files) + 1} files; the fabric tree is {root}, working-copy files are absolute:")

@@ -20,6 +20,7 @@ TOOL = os.path.join(ROOT, "tools", "fabric", "secret_relay.py")
 STORE_TOOL = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
 sys.path.insert(0, os.path.dirname(STORE_TOOL))
 import secret_store  # noqa: E402 — the id helpers
+import roots  # noqa: E402 — where the fixture's instance data sits under its fabric tree
 from instance_fixtures import write_secrets_instance, own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -85,9 +86,9 @@ def main() -> int:
         for d in (home, scratch, os.path.join(drive, "my-files")):
             os.makedirs(d)
         os.makedirs(gnupg, mode=0o700)
-        os.makedirs(os.path.join(fabric, "projects"))
-        os.makedirs(os.path.join(fabric, "identities", "keys"))
-        write_secrets_instance(fabric)
+        os.makedirs(roots.projects_dir(engine=fabric))
+        os.makedirs(roots.keys_dir(engine=fabric))
+        write_secrets_instance(roots.operator_root(engine=fabric))
         fake = os.path.join(tmp, "bin", "proton-drive")
         os.makedirs(os.path.dirname(fake))
         with open(fake, "w") as fh:
@@ -426,7 +427,7 @@ def main() -> int:
         rfpr = [l.split(":")[9] for l in subprocess.run(["gpg", "--homedir", rhome, "--with-colons", "--list-keys"],
                 capture_output=True, text=True).stdout.splitlines() if l.startswith("fpr:")][0]
         subprocess.run(rg + ["--quick-add-key", rfpr, "cv25519", "encr", "never"], check=True, capture_output=True)
-        with open(os.path.join(fabric, "identities", "recovery.asc"), "w") as fh:
+        with open(roots.recovery_key(engine=fabric), "w") as fh:
             fh.write(subprocess.run(["gpg", "--homedir", rhome, "--armor", "--export", rfpr], capture_output=True, text=True).stdout)
         p = relay("backup", "--db", db)
         opened = subprocess.run(rg + ["--decrypt", blob_path()], capture_output=True)

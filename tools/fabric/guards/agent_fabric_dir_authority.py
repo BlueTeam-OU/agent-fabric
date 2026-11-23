@@ -52,14 +52,17 @@ its tree differs from the clean three-way merge of its parents
 (merge_own_change) — so a fold of main passes and a hand edit carried in
 a merge does not.
 
-RUNS IN ANY REPOSITORY. In agent-fabric ITSELF — recognised by
-policies/authority.json at the toplevel — EVERY commit the branch adds
-must declare the role: the control plane is read-only for every other
+RUNS IN ANY REPOSITORY. In agent-fabric ITSELF — recognised by the
+operator's policies/authority.json (`operator/policies/authority.json` at
+the toplevel, or where the exported operator sits inside it; the old
+top-level path is only a symlink since the move) — EVERY commit the branch
+adds must declare the role: the control plane is read-only for every other
 role (AGENTS.md, policies/AUTHORITY.md). In a managed project only the
-commits touching `.agent-fabric/**` must. The role name comes from
-policies/authority.json when this repository has one, else from
-$AGENT_FABRIC_ROOT/policies/authority.json, else it is
-fabric-coordinator.
+commits touching `.agent-fabric/**` must. The role name comes from the
+base's authority.json in agent-fabric itself (the pre-move path for a base
+from before the move), else, in a project, from the operator's
+policies/authority.json (the exported operator's, else the engine
+checkout's), else it is fabric-coordinator.
 
 guards: .agent-fabric/**
 guards: ** (in agent-fabric itself)
@@ -102,7 +105,7 @@ NAME = "check_agent_fabric_dir_authority"
 # tools/fabric/guards/commit_hooks.py's pattern, which the commit hooks
 # use; tests/test_agent_fabric_dir_authority.py reads that
 # file and fails if the two drift.
-LOCALE_PATH = re.compile(r"identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
+LOCALE_PATH = re.compile(r"(?:operator/(?=identities/roles/))?identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
 # The shared prompt pieces' translations (identities/prompt/locale/<lang>/,
 # ADR-060 stage 3) belong to no one role: every role renders them, and the
 # holder of language-culture named for <lang> writes them, as it did when
@@ -166,6 +169,10 @@ def is_fabric_itself(top: str, base: str, env: dict[str, str] | None = None) -> 
     tree alone, as the bash did, a branch that deleted the file narrowed the
     check to .agent-fabric/** and its other commits passed with no trailer
     (review of #72). A git that cannot say reads as the stricter scope."""
+    # The operator's path on both sides, never the pre-move fallback: a project
+    # with a top-level policies/authority.json is not the fabric (pinned by
+    # test_agent_fabric_dir_authority), and the branch that moves the fabric
+    # has the file at the operator's path in its own tree.
     rel = contributors.authority_git_path(top, env)
     if os.path.isfile(os.path.join(top, rel)):
         return True
@@ -179,7 +186,7 @@ def is_fabric_itself(top: str, base: str, env: dict[str, str] | None = None) -> 
 def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
     if is_fabric_itself(top, base, env):
         # agent-fabric itself: the base's file, never the branch's.
-        shown = git.run(top, "show", f"{base}:{contributors.authority_git_path(top, env)}", check=False)
+        shown = git.run(top, "show", f"{base}:{contributors.authority_git_path_at(top, base, env)}", check=False)
         role = common.role_of(shown.stdout) if shown.returncode == 0 else None
         return role or common.DEFAULT_ROLE
     # The guard's own environment, so an exported operator's authority.json is the one read.
@@ -200,7 +207,7 @@ def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
 def base_authority(top: str, base: str, env: dict[str, str] | None = None) -> str:
     """The base's policies/authority.json, "" when it has none: what a
     branch may do is what main says, never what the branch wrote."""
-    shown = git.run(top, "show", f"{base}:{contributors.authority_git_path(top, env)}", check=False)
+    shown = git.run(top, "show", f"{base}:{contributors.authority_git_path_at(top, base, env)}", check=False)
     return shown.stdout if shown.returncode == 0 else ""
 
 

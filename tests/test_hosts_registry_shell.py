@@ -13,9 +13,12 @@ import os
 import shutil
 import subprocess
 import tempfile
+import sys
 import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import roots  # noqa: E402
 MOVETO = os.path.join(HERE, "runtime", "provisioning", "moveto", "completion.bash")
 CTL = os.path.join(HERE, "tools", "fabric", "control", "completion.bash")
 HOST = "here"
@@ -60,9 +63,16 @@ class Resolution(unittest.TestCase):
             fh.write(f"#!/bin/sh\n{body}\n")
         os.chmod(path, 0o755)
 
+    def registry_of(self, source: str) -> str:
+        """Where roots.py puts a tree's registry: the operator's and the clone's are operator trees (the file at
+        their top), the engine's holds it under operator/ (step B). environ={} so no exported variable moves it."""
+        if source == "engine":
+            return roots.hosts_registry(engine=self.trees[source], environ={})
+        return roots.hosts_registry(root=self.trees[source], environ={})
+
     def have(self, *sources: str) -> None:
         for source in sources:
-            path = self.override if source == "override" else os.path.join(self.trees[source], "runtime", "hosts", "registry.json")
+            path = self.override if source == "override" else self.registry_of(source)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump({"version": 1, "hosts": {}, "placement": {login(source): HOST}}, fh)
@@ -186,7 +196,7 @@ class Resolution(unittest.TestCase):
             with self.subTest(reader=name):
                 logins, err = read(self.env())
                 self.assertEqual(logins, [])
-                self.assertIn("no hosts registry at " + os.path.join(self.trees["engine"], "runtime", "hosts", "registry.json"), err)
+                self.assertIn("no hosts registry at " + self.registry_of("engine"), err)
 
     def test_ssh_operator_refuses_with_exit_1_when_there_is_no_registry(self):
         # The registry used to reach python3 as a missing file and end in a traceback; the exit code is the contract.

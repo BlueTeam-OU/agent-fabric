@@ -18,6 +18,8 @@ own_instance_tree()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(HERE, "tools", "fabric", "history.py")
+sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import roots  # noqa: E402
 SHIM = os.path.join(HERE, "bin", "fabric-history")
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 AGENT = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
@@ -82,8 +84,9 @@ def main() -> int:
         # A hygiene list that cannot be read cannot mask a credential, so
         # nothing is shown at all (B6): one line, exit 1, never the body.
         broken = os.path.join(tmp, "broken-fabric")
-        os.makedirs(os.path.join(broken, "policies"))
-        with open(os.path.join(broken, "policies", "hygiene.json"), "w") as f:
+        broken_list = roots.policy("hygiene.json", engine=broken, environ={})
+        os.makedirs(os.path.dirname(broken_list))
+        with open(broken_list, "w") as f:
             f.write("{not json")
         r = run("token", e={**env, "AGENT_FABRIC_ROOT": broken})
         check("a broken hygiene list: refused in one line, nothing unmasked shown",

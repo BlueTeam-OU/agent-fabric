@@ -18,6 +18,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from guards import agent_fabric_dir_authority as da  # noqa: E402
 from guards import contributors as co  # noqa: E402
+import roots  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import githook_fixtures  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
@@ -37,6 +38,10 @@ LOGIN = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True
 # runtime/identity.py reads a binding only for this host, as test_githooks_cli.py binds.
 HOST = subprocess.run(["hostname", "-s"], capture_output=True, text=True, check=True).stdout.strip()
 
+# Where a scratch fabric keeps its authority.json: the hooks and the CI guard read the base's copy at
+# the path roots.git_path names, operator/policies/ with no operator exported.
+AUTH = roots.git_path("policies", "authority.json", base=HERE, environ={})
+
 ENTRY = {"role": "python-dev", "paths": ["tools/", "bin/fabric-x", "policies/bash-allowlist.json"],
          "excluding": ["tools/fabric/guards/"]}
 AUTHORITY = {"role_definitions": {"role": "fabric-coordinator", "holders": []}, "contributors": [ENTRY]}
@@ -47,6 +52,12 @@ SUPPLY_ENTRY = {**ENTRY, "excluding": ENTRY["excluding"] + ["tools/sup.py"],
                 "supplies": ["tools/sup.py", "runtime/sup.json"]}
 SUPPLY_AUTHORITY = {"role_definitions": {"role": "fabric-coordinator", "holders": ["user"]},
                     "contributors": [SUPPLY_ENTRY]}
+
+
+def auth_file(fabric: str):
+    path = os.path.join(fabric, AUTH)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return open(path, "w")
 
 
 def sh(cwd: str, *args: str, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess:
@@ -91,6 +102,47 @@ def main() -> int:
     check("a bad exclusion spoils the entry",
           co.contributors_of('{"contributors": [{"role": "x", "paths": ["a/"], "excluding": "b/"}]}') == {})
 
+    print("authority_git_path_at: a base from before the move is read at the old place, and only that")
+    tmp = tempfile.mkdtemp()
+    try:
+        sh(tmp, "init", "-q")
+        sh(tmp, "-c", "core.hooksPath=/dev/null", "commit", "-q", "--allow-empty", "-m", "empty")
+        empty = sh(tmp, "rev-parse", "HEAD").stdout.strip()
+        os.makedirs(os.path.join(tmp, "policies"))
+        with open(os.path.join(tmp, co.PRE_MOVE_AUTHORITY), "w") as f:
+            f.write("{}\n")
+        sh(tmp, "add", "-A")
+        sh(tmp, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "pre-move")
+        pre = sh(tmp, "rev-parse", "HEAD").stdout.strip()
+        # Moved, and the authority file lost on the way: the operator tree is there, the file is not.
+        os.makedirs(os.path.join(tmp, "operator", "policies"))
+        with open(os.path.join(tmp, "operator", "policies", "signing.json"), "w") as f:
+            f.write("{}\n")
+        sh(tmp, "add", "-A")
+        sh(tmp, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "moved")
+        moved = AUTH
+        check("the operator's path with no operator exported", moved == "operator/policies/authority.json", moved)
+        check("a rev with no operator tree: the pre-move path",
+              co.authority_git_path_at(tmp, pre, environ={}) == co.PRE_MOVE_AUTHORITY)
+        got = co.authority_git_path_at(tmp, empty, environ={})
+        check("a rev with neither: named by the operator's path, where the refusal says it is missing",
+              got == moved, got)
+        got = co.authority_git_path_at(tmp, "HEAD", environ={})
+        check("a rev with the operator tree: its path alone, so a lost file still refuses", got == moved, got)
+        check("an operator equal to the toplevel: the old path, asked of no rev",
+              co.authority_git_path_at(tmp, "HEAD", environ={"AGENT_FABRIC_OPERATOR": tmp})
+              == co.PRE_MOVE_AUTHORITY)
+        outside = tempfile.mkdtemp()
+        try:
+            check("an operator outside the checkout: the checkout's own operator path, never the old symlink blob's",
+                  co.authority_git_path(tmp, {"AGENT_FABRIC_OPERATOR": outside}) == "operator/policies/authority.json")
+            check("a base from before the move is still read at the old place, the operator being outside",
+                  co.authority_git_path_at(tmp, pre, environ={"AGENT_FABRIC_OPERATOR": outside}) == co.PRE_MOVE_AUTHORITY)
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
     print("admitted: within the paths, outside the exclusions")
     ok = lambda paths, role="python-dev": co.admitted(text, role, paths)  # noqa: E731
     check("a file under a directory rule", ok(["tools/fabric/x.py"]))
@@ -124,7 +176,7 @@ def main() -> int:
     check("…no holder named: refused, saying so", "none named" in (sb(f"h/{LOGIN}/for/user/x", []) or ""))
 
     print("the fabric's own authority.json")
-    real_path = os.path.join(HERE, "policies", "authority.json")
+    real_path = roots.policy("authority.json", environ={}, engine=HERE)
     real = open(real_path, encoding="utf-8").read() if os.path.isfile(real_path) else None
     github_suites = ["tests/test_review_checkpoint.py", "tests/test_review_coverage.py", "tests/test_github_common.py"]
     if real is None:
@@ -195,7 +247,7 @@ def main() -> int:
         # the hooks' modules, every one of tools/fabric/ (ADR-040 rule 5: a fixture that copies the scripts copies their
         # modules); a list kept here went stale when a checker loaded a new module (bf9c1302, j906)
         githook_fixtures.copy_fabric_modules(HERE, fab)
-        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+        with auth_file(fab) as f:
             json.dump(AUTHORITY, f)
         for p in ("src/a.py", "tools/a.py", "bin/fabric-x"):
             os.makedirs(os.path.dirname(os.path.join(fab, p)), exist_ok=True)
@@ -242,13 +294,13 @@ def main() -> int:
         check("one foreign path beside an admitted one: refused", r.returncode != 0, r.stderr)
         r = attempt("tools/fabric/guards/contributors.py")
         check("an excluded path (the guard itself): refused", r.returncode != 0, r.stderr)
-        r = attempt("policies/authority.json")
+        r = attempt(AUTH)
         check("its own entry: refused", r.returncode != 0, r.stderr)
 
         # Review of #75, finding 1: an unstaged edit widening the entry, then
         # a typed owner trailer — each on its own, and together.
         def widened_unstaged(msg: str) -> subprocess.CompletedProcess:
-            with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+            with auth_file(fab) as f:
                 json.dump({**AUTHORITY, "contributors": [{**ENTRY, "paths": ENTRY["paths"] + ["src/"]}]}, f)
             with open(os.path.join(fab, "src", "a.py"), "a") as f:
                 f.write("more\n")
@@ -344,9 +396,9 @@ def main() -> int:
         # in HEAD's authority.json (the hooks read HEAD's), then python-dev
         # commits there.
         bind("fabric-coordinator")
-        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+        with auth_file(fab) as f:
             json.dump({**AUTHORITY, "contributors": [{**ENTRY, "merges": True}]}, f)
-        sh(fab, "add", "policies/authority.json")
+        sh(fab, "add", AUTH)
         r = sh(fab, "commit", "-q", "-m", "merges", env={**GIT_ENV, "AGENT_FABRIC_STATE_DIR": state}, check=False)
         check("(the owner turns merges on)", r.returncode == 0, r.stderr)
         bind("python-dev")
@@ -361,9 +413,9 @@ def main() -> int:
 
         def owner_writes(authority: dict, msg: str) -> None:
             bind("fabric-coordinator")
-            with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+            with auth_file(fab) as f:
                 json.dump(authority, f)
-            sh(fab, "add", "policies/authority.json")
+            sh(fab, "add", AUTH)
             r = sh(fab, "commit", "-q", "-m", msg, env={**GIT_ENV, "AGENT_FABRIC_STATE_DIR": state}, check=False)
             check(f"({msg})", r.returncode == 0, r.stderr)
             bind("python-dev")
@@ -435,7 +487,7 @@ def main() -> int:
         check("with an owner commit in it, the owner's pull request: admitted", rc == 0, o + e)
         sh(fab, "reset", "-q", "--hard", "HEAD~1")
         sh(fab, "checkout", "-q", "main")
-        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+        with auth_file(fab) as f:
             json.dump({**AUTHORITY, "contributors": [{**ENTRY, "merges": True}]}, f)
         sh(fab, "add", "-A")
         sh(fab, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "merges\n\nFabric-Role: fabric-coordinator")
@@ -450,7 +502,7 @@ def main() -> int:
         rc, o, e = ci()
         check("one outside it fails the branch", rc == 1 and "[Fabric-Role: python-dev]" in e, o + e)
         sh(fab, "reset", "-q", "--hard", "HEAD~1")
-        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+        with auth_file(fab) as f:
             json.dump({**AUTHORITY, "contributors": [{**ENTRY, "paths": ENTRY["paths"] + ["src/"]}]}, f)
         sh(fab, "add", "-A")
         sh(fab, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "widen\n\nFabric-Role: fabric-coordinator")
@@ -460,7 +512,7 @@ def main() -> int:
 
         print("the CI tripwire: supply reaches main only in the owner role's pull request")
         sh(fab, "checkout", "-q", "main")
-        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+        with auth_file(fab) as f:
             json.dump({**SUPPLY_AUTHORITY, "contributors": [{**SUPPLY_ENTRY, "merges": True}]}, f)
         sh(fab, "add", "-A")
         sh(fab, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "supplies\n\nFabric-Role: fabric-coordinator")
@@ -483,7 +535,7 @@ def main() -> int:
         # fabric's entry for a project would fail these.
         fab2 = os.path.join(tmp, "fab2")
         shutil.copytree(fab, fab2, ignore=shutil.ignore_patterns(".git"))
-        with open(os.path.join(fab2, "policies", "authority.json"), "w") as f:
+        with auth_file(fab2) as f:
             json.dump({**AUTHORITY, "contributors": [{**ENTRY, "paths": ENTRY["paths"] + [".agent-fabric/"]}]}, f)
         proj = os.path.join(tmp, "proj")
         os.makedirs(os.path.join(proj, ".agent-fabric", "memory"))

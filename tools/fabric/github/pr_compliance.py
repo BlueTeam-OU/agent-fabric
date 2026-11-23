@@ -64,8 +64,8 @@ as `origin_fetched` (true/false).
 #           unknown option '<x>' (try --help)", exit 2.
 #   env     GH_REPO (through gh.this_repo); AGENT_FABRIC_COMPLIANCE_CONFIG
 #           (a compliance.json used instead of the project's);
-#           AGENT_FABRIC_OPERATOR, else AGENT_FABRIC_ROOT (the tree whose
-#           projects/ holds it, as arm reads it); AGENT_FABRIC_OWED_SUPPLY, a TEST SEAM only — a
+#           AGENT_FABRIC_OPERATOR, else AGENT_FABRIC_ROOT's operator/ (the
+#           tree whose projects/ holds it, as arm reads it); AGENT_FABRIC_OWED_SUPPLY, a TEST SEAM only — a
 #           command run as `bash <it> --json` instead of owed-supply in
 #           process (a project's forwarder maps its old name onto it).
 #   config  {workflow, i18n_prefix (null drops the I18N column and its

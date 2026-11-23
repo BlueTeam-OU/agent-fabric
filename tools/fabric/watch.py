@@ -523,7 +523,7 @@ def watch(root: str, projects: str, every: float, prs_every: float, once: bool,
           out=None, deck: Deck | None = None, columns: int = 80, rows: int = 0,
           pane: Callable[[], tuple[int, int]] | None = None) -> int:
     prs, prs_at = "", None
-    deck = deck or Deck(dict(os.environ), os.path.join(root, "identities", "personas", "claims.json"))
+    deck = deck or Deck(dict(os.environ), roots.personas("claims.json", engine=root))
     while True:
         if pane is not None:
             columns, rows = pane()                     # asked on every screen: a pane is resized under a running watch
@@ -591,7 +591,7 @@ def main(argv: list[str]) -> int:
     on_terminal = sys.stdout.isatty()
     root = fabric_root()
     mode = ("kitty" if os.environ.get("TERM_PROGRAM") in kitty_terminals(root) else "blocks") if on_terminal else None
-    deck = Deck(dict(os.environ), os.path.join(root, "identities", "personas", "claims.json"), mode)
+    deck = Deck(dict(os.environ), roots.personas("claims.json", engine=root), mode)
     # --once is a document, not a pane: never cut, and its width is read once.
     columns = pane_size()[0] if on_terminal else 0
     pane = pane_size if on_terminal and not once else None

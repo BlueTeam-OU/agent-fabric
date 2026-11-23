@@ -74,10 +74,14 @@ def main() -> int:
     check("it loads, its cases are boundary (load_config refuses a case the patterns miss)", True)
     for f in ("tools/fabric/guards/agent_fabric_dir_authority.py", "tools/fabric/secretstore/core.py",
               "tools/fabric/control/agentd.py", "runtime/control/agent-fabric-agentd.service",
-              "policies/githooks/pre-commit"):
+              "policies/githooks/pre-commit", "operator/policies/arming.json", "operator/policies/forge-keys/X.asc",
+              "operator/identities/keys/lineage.json", "operator/routing/policies/review-grade.json",
+              "operator/projects/agent-fabric/integration/gh/arm.json"):
         check(f"{f}: boundary", boundary(f))
     for f in ("docs/adr/ADR-018-authority.md", "identities/roles/language-culture/locale/ge/charter.md",
-              "tools/fabric/lint_rules/locales.py", "README.md"):
+              "tools/fabric/lint_rules/locales.py", "README.md",
+              "operator/identities/roles/language-culture/locale/ge/charter.md", "operator/docs/live-checks/README.md",
+              "operator/memory/shared/x.md"):
         check(f"{f}: not boundary", not boundary(f))
     check("no classes", classes == {})
     check("no role waives the boundary: the owner arms it", waiver is None)

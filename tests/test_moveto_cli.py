@@ -20,6 +20,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "fabric"))
+import roots  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -243,7 +245,7 @@ def main() -> int:
         # proposes only ours. It calls `moveto` by name for clones: the tool
         # under test, through the same mocked getent and sudo.
         comp_root = f"{sandbox}/comp-root"
-        put(f"{comp_root}/runtime/hosts/registry.json",
+        put(roots.hosts_registry(engine=comp_root, environ={}),
             f'{{"placement":{{"alpha-01":"{host}","beta-01":"{host}","gamma-01":"elsewhere"}}}}\n')
         os.symlink(UNDER_TEST, f"{bin_}/moveto")
 

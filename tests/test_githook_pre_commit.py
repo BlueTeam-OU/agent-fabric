@@ -320,6 +320,26 @@ class DecisionRecords(PreCommit):
                 self.assertIn("index.json: stale", r.stderr)
                 self.assertNotIn("only the fabric-coordinator role writes", r.stderr)
 
+    def test_a_commit_staging_only_the_operators_records_reaches_the_check(self):
+        # mutation: the pathspec of _check_decision_records back to docs/adr/ alone, so operator/docs/adr/** is never checked.
+        # HEAD holds stale records, so a refusal can only come from the check having run on this commit.
+        self.stale_index()
+        self.repo.git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "records gone stale")
+        self.repo.stage("operator/docs/adr/DIGEST.md", "a note\n")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook()
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("the decision records in this commit are not consistent", r.stderr)
+
+    def test_the_operators_records_are_themselves_checked_not_only_the_engines(self):
+        # #692 F12. mutation: _check_decision_records runs `adr.py --root <scratch> check` alone, which judges only
+        # <scratch>/docs/adr. The engine's records here are clean; only the operator's half is broken.
+        self.repo.stage("operator/docs/adr/index.json", "not the generated index\n")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook()
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("the decision records in this commit are not consistent", r.stderr)
+
     def test_a_consistent_change_goes_on_to_the_role_question(self):
         self.repo.stage("docs/adr/DIGEST.md", "a note\n")
         self.fabric.bind("backend-dev")

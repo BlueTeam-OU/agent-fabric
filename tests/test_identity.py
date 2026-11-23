@@ -29,6 +29,7 @@ WHOAMI = os.path.join(ROOT, "bin", "fabric-whoami")
 sys.path.insert(0, os.path.join(ROOT, "runtime"))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import identity  # noqa: E402
+import roots  # noqa: E402
 import workingcopy  # noqa: E402
 
 
@@ -51,9 +52,10 @@ def git_repo(path: str, remote: str) -> None:
 def fabric_fixture(tmp: str) -> str:
     """A fake agent-fabric root with one registered project."""
     root = os.path.join(tmp, "fabric")
-    os.makedirs(os.path.join(root, "projects"))
+    registry = roots.projects_registry(engine=root, environ={})
+    os.makedirs(os.path.dirname(registry))
     os.makedirs(os.path.join(root, "tools", "fabric"))
-    with open(os.path.join(root, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+    with open(registry, "w", encoding="utf-8") as fh:
         json.dump({"version": 1, "projects": {"demo": {
             "remotes": ["git@example.com:org/demo.git"]}}}, fh)
     os.symlink(os.path.join(ROOT, "tools", "fabric", "workingcopy.py"),
@@ -122,7 +124,7 @@ def test_renaming_the_working_copy_keeps_project_and_agent(tmp: str) -> None:
 
 def test_project_is_matched_by_remote_not_by_directory_name(tmp: str) -> None:
     root = fabric_fixture(tmp)
-    registry = workingcopy.load_registry(os.path.join(root, "projects", "registry.json"))
+    registry = workingcopy.load_registry(roots.projects_registry(engine=root, environ={}))
     for url in ("git@example.com:org/demo.git", "https://example.com/org/demo/",
                 "ssh://git@example.com/org/demo.git", "EXAMPLE.com/org/demo"):
         assert workingcopy.project_for_remote(url, registry) == "demo", url
@@ -137,7 +139,7 @@ def test_project_is_matched_by_remote_not_by_directory_name(tmp: str) -> None:
 
 def test_marker_file_declares_the_project(tmp: str) -> None:
     root = fabric_fixture(tmp)
-    registry = workingcopy.load_registry(os.path.join(root, "projects", "registry.json"))
+    registry = workingcopy.load_registry(roots.projects_registry(engine=root, environ={}))
     repo = os.path.join(tmp, "no-remote")
     git_repo(repo, "git@example.com:org/unregistered.git")
     with open(os.path.join(repo, workingcopy.MARKER), "w", encoding="utf-8") as fh:
@@ -148,7 +150,7 @@ def test_marker_file_declares_the_project(tmp: str) -> None:
 
 def test_a_marker_naming_an_unknown_project_is_an_error_not_a_fallthrough(tmp: str) -> None:
     root = fabric_fixture(tmp)
-    registry = workingcopy.load_registry(os.path.join(root, "projects", "registry.json"))
+    registry = workingcopy.load_registry(roots.projects_registry(engine=root, environ={}))
     repo = os.path.join(tmp, "bad-marker")
     git_repo(repo, "git@example.com:org/demo.git")     # the remote alone would resolve to demo
     for content, word in (("dmeo\n", "'dmeo'"), ("", "empty")):

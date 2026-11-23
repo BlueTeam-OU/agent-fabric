@@ -687,6 +687,32 @@ def main() -> int:
 
         check("env/ is as the first commit left it: no settings write touched it",
               g("ls-tree", "-r", "HEAD", "env") == g("ls-tree", "-r", g("rev-list", "--max-parents=0", "HEAD").split()[0], "env"))
+
+        # #692 F15: the step B layout, no operator exported. The schema is the engine's and stays at its
+        # top level; the operator's tree is <engine>/operator, which holds none. mutation: settings reads
+        # the schema under roots.operator_root(), and the profile "cannot be checked".
+        stepb = os.path.join(tmp, "stepb")
+        os.makedirs(os.path.join(stepb, "identities", "schemas"))
+        os.makedirs(os.path.join(stepb, "operator", "identities"))
+        shutil.copy(schema_dst, os.path.join(stepb, "identities", "schemas", "persona-profile.schema.json"))
+        saved = {k: os.environ.get(k) for k in ("AGENT_FABRIC_ROOT", "AGENT_FABRIC_OPERATOR")}
+        os.environ["AGENT_FABRIC_ROOT"] = stepb
+        os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        try:
+            sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+            from secretstore import settings as settings_mod
+            try:
+                settings_mod._load_profile(profile(), aid)
+                err = ""
+            except Exception as e:  # noqa: BLE001 - the case reports whatever refused
+                err = str(e)
+            check("with the operator at <engine>/operator the schema is read from the engine", "cannot be checked" not in err, err)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
     return 1 if fails else 0
 
 

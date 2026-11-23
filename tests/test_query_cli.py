@@ -7,7 +7,7 @@ files of the shape the assembler writes (tools/fabric/assemble.py:
 The CLI under test is the path in $QUERY_CLI, default bin/fabric-query, so
 one file runs against the shim and against the bash it replaced. The root
 defaults to the script's own checkout, so a copy outside the repository needs
-a memory/ beside its tools/.
+an operator/memory/ beside its tools/.
 
 Exit codes: 0 all assertions passed, 1 one or more failed."""
 from __future__ import annotations
@@ -22,6 +22,8 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import roots  # noqa: E402
 CLI = os.environ.get("QUERY_CLI") or os.path.join(HERE, "bin", "fabric-query")
 if not os.path.isfile(CLI):
     sys.exit(f"test: script under test not found at {CLI}")
@@ -135,6 +137,11 @@ def table(*rows: tuple) -> str:
     return "".join(f"{a:<28} {b:<8} {c:<8} {d}\n" for a, b, c, d in rows)
 
 
+def mem(engine: str) -> str:
+    """The corpus of a fixture checkout: its operator's memory/, as query.py reads it with no operator exported."""
+    return roots.memory_dir(engine=engine, environ={})
+
+
 def resolver(root: str) -> None:
     """identity.resolve_context, which query asks for the binding, loads the working-copy resolver from the root it serves."""
     os.makedirs(f"{root}/tools/fabric")
@@ -145,12 +152,12 @@ def resolver(root: str) -> None:
 def fixtures() -> None:
     os.makedirs(STATE)
     os.makedirs(HOME)
-    os.makedirs(f"{ROOT}/memory")
+    os.makedirs(f"{mem(ROOT)}")
     resolver(ROOT)
-    put(f"{ROOT}/memory/domains/devrole/a.md", "a")
-    put(f"{ROOT}/memory/domains/devrole/b.md", "b")
-    put(f"{ROOT}/memory/domains/devrole/INDEX.md", "index")
-    leg = f"{ROOT}/memory/projects/legacyproj/devrole"
+    put(f"{mem(ROOT)}/domains/devrole/a.md", "a")
+    put(f"{mem(ROOT)}/domains/devrole/b.md", "b")
+    put(f"{mem(ROOT)}/domains/devrole/INDEX.md", "index")
+    leg = f"{mem(ROOT)}/projects/legacyproj/devrole"
     put(f"{leg}/s1.md", "built from deadbeef01 and 11112222")
     put(f"{leg}/sub/s2.md", "nothing")
     put(f"{leg}/INDEX.md", "deadbeef01 in an index is still a mention")
@@ -229,7 +236,7 @@ def main() -> int:
     adr054_all = (head_("root/fabric-coordinator") + hit("ADR-054", 2, "lesson:one")
                   + head_("legacyproj/devrole") + hit("ADR-054", 2, "lesson:a, solution:b") + hit("ADR-0541", 0, "lesson:c")
                   + head_("wc-a/devrole") + hit("ADR-054", 1, "lesson:z"))
-    nocorpus = f"query: no corpus at {T}/empty/memory\n"
+    nocorpus = f"query: no corpus at {mem(T + '/empty')}\n"
     bare = dict(AGENT_FABRIC_ROOT=f"{T}/bare", AGENT_FABRIC_STATE_DIR=f"{T}/nostate")
     nothing = lambda what: f"nothing in the corpus cites {what}\n"  # noqa: E731
 
@@ -250,7 +257,7 @@ def main() -> int:
     # The corpus is checked before the command is read: even the help needs it.
     run("--help", AGENT_FABRIC_ROOT=f"{T}/empty")
     expect("no corpus: the help does not get past it", 2, "", nocorpus)
-    os.makedirs(f"{T}/bare/memory")
+    os.makedirs(mem(f"{T}/bare"))
     resolver(f"{T}/bare")
     run("roles", **bare)
     expect("a corpus with no crossref: the header only", 0, "project/role                 project  domain   citations\n", "")
@@ -457,7 +464,7 @@ def main() -> int:
     os.makedirs(f"{T}/copy/runtime")
     shutil.copy2(os.path.join(HERE, "runtime", "identity.py"), f"{T}/copy/runtime")   # query.py reads the binding through it
     shutil.copy2(CLI, copy_cli_dir)
-    xref(f"{T}/copy/memory/projects/fixtureproj/fixturerole/crossref.json", "fixturerole",
+    xref(f"{mem(T + '/copy')}/projects/fixtureproj/fixturerole/crossref.json", "fixturerole",
          '{"adrs": {"ADR-001": {"observations": [], "slices": ["lesson:a"]}}}')
     cli = os.path.join(copy_cli_dir, os.path.basename(CLI))
     e = clean_env()

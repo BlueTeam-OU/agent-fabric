@@ -23,6 +23,8 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import roots  # noqa: E402
 MODULE = os.path.join(HERE, "tools", "fabric", "install_agent_files.py")
 AGENTS = os.path.join(HERE, "runtime", "claude-code", "agents")
 CLASSES = ("code-low", "code-medium", "code-high", "code-plan", "code-review")
@@ -103,6 +105,10 @@ def main() -> int:
             put(root, "tools/fabric/pins.txt", "code-review fable claude-pinned-model\n")
             put(root, "tools/fabric/efforts.txt", "".join(f"{k} - none\n" for k in CLASSES))
             return root, home, cfg
+
+        def locale_file(root: str, suffix: str, name: str) -> str:
+            """Where roots.py reads a locale's file in a fixture tree: operator/ since step B."""
+            return os.path.join(roots.locale_dir("language-culture", suffix, engine=root, environ={}), name)
 
         def put(root: str, rel: str, text: str) -> None:
             p = os.path.join(root, rel)
@@ -355,11 +361,11 @@ def main() -> int:
         suffix = "qx"
         put(home, f".local/state/agent-fabric/agents/{me}/launch-locale.json", json.dumps({"locale": suffix}) + "\n")
         put(root, "runtime/role.txt", "language-culture\n")
-        put(root, f"identities/roles/language-culture/locale/{suffix}/locale.json", "{}")
+        put(root, locale_file(root, suffix, "locale.json"), "{}")
         put(root, "bin/fabric-websearch-locale", "")
         run(root, home, cfg)
         ic = [c["argv"] for c in calls(root) if c["tool"] == "install"]
-        lf = os.path.join(root, "identities", "roles", "language-culture", "locale", suffix, "locale.json")
+        lf = locale_file(root, suffix, "locale.json")
         check("a language-culture login with a locale file: set <server> <locale.json>, then deny-websearch",
               ic == [[os.path.join(cfg, ".claude.json"), "set", os.path.join(root, "bin/fabric-websearch-locale"), lf],
                      [os.path.join(cfg, "settings.json"), "deny-websearch"]], str(ic))
@@ -372,7 +378,7 @@ def main() -> int:
         # names the locale for a login named otherwise. Kills: reading the login's suffix.
         root, home, cfg = fixture()
         put(root, "runtime/role.txt", "language-culture\n")
-        put(root, "identities/roles/language-culture/locale/ka/worker.md", "---\nname: locale-worker\ndescription: (agent-fabric) ka\n---\n")
+        put(root, locale_file(root, "ka", "worker.md"), "---\nname: locale-worker\ndescription: (agent-fabric) ka\n---\n")
         drv = ("import sys; sys.path.insert(0, sys.argv[1]); import install_agent_files as m; "
                "m.login = lambda: sys.argv[2]; sys.exit(m.main([]))")
         r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "gz-writer-ka"], capture_output=True,
@@ -395,7 +401,7 @@ def main() -> int:
         # --locale (the holder's holder.json, agent-fabric ADR-060 §5 rule 8) installs its locale's worker.
         root, home, cfg = fixture()
         put(root, "runtime/role.txt", "language-culture\n")
-        put(root, "identities/roles/language-culture/locale/ka/worker.md", "---\nname: locale-worker\ndescription: (agent-fabric) ka\n---\n")
+        put(root, locale_file(root, "ka", "worker.md"), "---\nname: locale-worker\ndescription: (agent-fabric) ka\n---\n")
         drv = ("import sys; sys.path.insert(0, sys.argv[1]); import install_agent_files as m; "
                "m.login = lambda: 'gz-writer-renamed'; sys.exit(m.main(sys.argv[2:]))")
         r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "--locale", "ka"], capture_output=True,

@@ -18,6 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import lint  # noqa: E402
+import roots  # noqa: E402
 from control import agentd, ctl, sign  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
@@ -32,7 +33,9 @@ def findings_for(tmp: str, host_extra: dict) -> list[str]:
     shutil.copytree(os.path.join(ROOT, "runtime", "hosts", "schema"), os.path.join(root, "runtime", "hosts", "schema"))
     reg = {"version": 1, "description": "fixture", "placement": {"user": "h"},
            "hosts": {"h": {"platform": "fedora", "ssh": None, "operator": "user", "fabric": "~/projects/agent-fabric", **host_extra}}}
-    with open(os.path.join(root, "runtime", "hosts", "registry.json"), "w", encoding="utf-8") as fh:
+    registry = roots.hosts_registry(engine=root)
+    os.makedirs(os.path.dirname(registry), exist_ok=True)
+    with open(registry, "w", encoding="utf-8") as fh:
         json.dump(reg, fh)
     return lint.host_registry_findings(root)
 

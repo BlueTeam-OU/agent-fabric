@@ -23,6 +23,8 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+import roots  # noqa: E402
 CMD = os.path.join(ROOT, "bin", "fabric-secret-run")
 CANARY = "canary-7f3a\nsecond line, 'quoted' $NOT"
 # What the child is told to print: the SHA-256 of each named variable it
@@ -51,11 +53,11 @@ def main() -> int:
         os.makedirs(home)
         for d in (gnupg, other_gnupg):
             os.makedirs(d, mode=0o700)
-        os.makedirs(os.path.join(fabric, "projects"))
+        os.makedirs(os.path.dirname(roots.projects_registry(engine=fabric)))
         # A fixture registry, never the live one (ADR-045 §5 rule 2): its one
         # agent_env name is one the live registry lacks, so a run that read
         # the checkout's registry could not refuse it.
-        with open(os.path.join(fabric, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+        with open(roots.projects_registry(engine=fabric), "w", encoding="utf-8") as fh:
             json.dump({"version": 1, "agent_env": {"FIXTURE_ENV_KEY": "a fixture's managed name"}, "projects": {}}, fh)
         os.makedirs(os.path.join(store, "env"), mode=0o700)
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "GNUPGHOME": gnupg, "LANG": "C.UTF-8",

@@ -34,7 +34,6 @@ SKIP_PARTS = ("/tests/", "/__pycache__/", "/claude-code/")
 EXEMPT = {
     "tools/fabric/roots.py": "the seam itself",
     "tools/fabric/secretstore/lineage.py": "keys_dir(fabric) takes the tree to check; the module is stdlib-only by fence (tests/test_lineage_fence.py), so it cannot import roots; core.keys_dir passes the operator root",
-    "tools/fabric/hostexec.py": "the host executor's registry default is THIS checkout's, by contract: tests/test_hostexec_cli.py pins that it does not follow the operator tree (fabric-host, which does, exports the answer in AGENT_FABRIC_HOSTS_REGISTRY). Held while it was shell, which could not call roots; whether it follows roots now is the coordinator's to say",
     "tools/fabric/secretstore/trust.py": "git-shows identities/keys/ from the keys' checkout (origin/main), a path inside that repository; moves with the keys (ADR-045 §6)",
 }
 
@@ -296,19 +295,20 @@ def case_readers_that_took_their_own_tree_ignore_agent_fabric_root() -> None:
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     import new_agent
     import results
+    import roots
     from provisioning import config
     import secrets_sync
     import store_enroll
     from github import commit_class
     with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as empty:
         code = os.path.join(tmp, "code")
-        write_secrets_instance(code)
+        write_secrets_instance(roots.operator_root(engine=code, environ={}))    # step B: the code tree's own instance data is its operator/
         with code_tree(code, results, config, store_enroll, secrets_sync), engine_env(empty):
             assert results.registered_repos() == ["fixture-org/agent-fabric", "fixture-org/fixture-proj", "fixture-org/gzapp"], \
                 "results read AGENT_FABRIC_ROOT"
             assert "fixture-proj" in commit_class.known_repos(), "commit_class read AGENT_FABRIC_ROOT"
             assert new_agent.project_remote("fixture-proj"), "new_agent read AGENT_FABRIC_ROOT"
-            assert store_enroll.Enrol(dry=True, born_now=False, host_flag="").hosts == os.path.join(code, "runtime", "hosts", "registry.json")
+            assert store_enroll.Enrol(dry=True, born_now=False, host_flag="").hosts == roots.hosts_registry(engine=code, environ={})
             # an unreadable registry is [] for both, so the code tree's own declarations are the control
             assert "GZAPP_PORT_OFFSET" in secrets_sync.project_agent_env(), "secrets_sync read AGENT_FABRIC_ROOT"
             assert "GZAPP_PORT_OFFSET" in secrets_sync.plain_env_names(), "secrets_sync read AGENT_FABRIC_ROOT"
@@ -347,6 +347,74 @@ def case_a_projects_gh_config_is_found_in_the_operator_tree() -> None:
                 assert pr_compliance.config_path() == os.path.join(gh, "compliance.json")
     finally:
         workingcopy.resolve, local.toplevel = real_resolve, real_toplevel
+
+
+ENGINE_AS_OPERATOR = re.compile(r"\broot=(?:layout\.)?FABRIC_ROOT\b")
+
+
+def case_no_reader_hands_the_engine_root_to_roots_as_the_operator_root() -> None:
+    """An explicit `root=` is the OPERATOR tree: FABRIC_ROOT is the engine's, so `root=FABRIC_ROOT` read <engine>/memory, a path
+    that exists only through step B's shim (assembler/report.py did, until the move plan's seam-callers note found it); the
+    spelling for the engine is `engine=`. Positive control first: the pattern sees both spellings it exists for."""
+    assert ENGINE_AS_OPERATOR.search("roots.memory_dir(root=layout.FABRIC_ROOT)") and ENGINE_AS_OPERATOR.search("x(root=FABRIC_ROOT)")
+    assert not ENGINE_AS_OPERATOR.search("roots.memory_dir(engine=layout.FABRIC_ROOT)")
+    bad = []
+    for path in sources():
+        with open(path, encoding="utf-8") as fh:
+            for n, line in enumerate(fh, 1):
+                if ENGINE_AS_OPERATOR.search(line) and not line.lstrip().startswith("#"):
+                    bad.append(f"{os.path.relpath(path, ROOT)}:{n}")
+    assert not bad, "root=FABRIC_ROOT (the engine) where the operator's root is meant, use engine=: " + ", ".join(bad)
+
+
+# (path, the call as written) -> why that call reads the exported operator. Every other call names what
+# THIS checkout's git stores and so passes `environ={}`, or an explicit environ of its caller (#692 F13: a
+# call that read the environment made an operator exported outside the repository raise or misjudge).
+ENV_READING_CALLS = {
+    ("tools/fabric/lint_rules/docs.py", "roots.operator_prefix(root)"):
+        "the exported operator's own records prefix, checked beside the stored one on the line above",
+    ("tools/fabric/gzcoord/carrier/roster.py", "roots.git_path(*rel.split('/'), base=os.fsdecode(top.stdout).strip())"):
+        "the keys' checkout may itself be the exported operator's repository (step D); a prefix outside raises into a RosterError",
+    ("tools/fabric/secretstore/trust.py", "roots.git_path(*rel.split('/'), base=os.fsdecode(top.stdout).strip())"):
+        "the root handed in may be the exported operator's own repository (step D); a prefix outside raises into a StoreError",
+}
+PREFIX_CALLS = {"operator_prefix": 1, "git_path": None}   # name -> positional index of environ, if it has one
+
+
+def operator_prefix_calls_without_environ(rel: str, src: str) -> list[tuple[int, str]]:
+    out = []
+    for n in ast.walk(ast.parse(src)):
+        if not isinstance(n, ast.Call):
+            continue
+        name = getattr(n.func, "attr", getattr(n.func, "id", ""))
+        if name not in PREFIX_CALLS:
+            continue
+        slot = PREFIX_CALLS[name]
+        if any(k.arg == "environ" for k in n.keywords) or (slot is not None and len(n.args) > slot):
+            continue
+        out.append((n.lineno, ast.unparse(n)))
+    return out
+
+
+def case_a_call_naming_a_stored_path_says_which_environment_it_reads() -> None:
+    """Positive controls first: the scan sees a bare call in each spelling and lets an explicit environ pass."""
+    got = operator_prefix_calls_without_environ(
+        "x.py", "roots.operator_prefix(top)\nroots.git_path('a', base=top)\nx = operator_prefix(top)\n")
+    assert [ln for ln, _ in got] == [1, 2, 3], got
+    assert operator_prefix_calls_without_environ(
+        "x.py", "roots.operator_prefix(top, {})\nroots.operator_prefix(top, environ=e)\nroots.git_path('a', base=top, environ={})\n") == []
+    bad, used = [], set()
+    for rel in sources():
+        if not rel.startswith("tools/fabric/") or not rel.endswith(".py") or rel == "tools/fabric/roots.py":
+            continue
+        with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+            for ln, call in operator_prefix_calls_without_environ(rel, fh.read()):
+                if (rel, call) in ENV_READING_CALLS:
+                    used.add((rel, call))
+                else:
+                    bad.append(f"{rel}:{ln}: {call}")
+    assert not bad, "pass environ={} (what this checkout stores) or list the call in ENV_READING_CALLS:\n  " + "\n  ".join(bad)
+    assert used == set(ENV_READING_CALLS), f"listed, but no longer called: {sorted(set(ENV_READING_CALLS) - used)}"
 
 
 def main() -> int:

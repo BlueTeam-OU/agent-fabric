@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """trust.writers() reads the writers' keys from a git object of the fabric's
 origin/main, at the path tools/fabric/roots.py names for it (move-plan §2
-item 5): today identities/keys/…, operator/identities/keys/… once the
-operator's tree is a directory of the repository. A symlink shim at the
+item 5): operator/identities/keys/… since step B, the operator's tree being a
+directory of the repository. A symlink shim at the
 old path would not serve `git show`, which is why the path is asked for."""
 from __future__ import annotations
 
@@ -48,10 +48,18 @@ def main() -> int:
     saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("AGENT_FABRIC_")}
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            flat = repo(tmp, "flat", "identities/keys", env)
-            check("today: the key is read at identities/keys/", trust.writers(ID, flat) == {FPR: KEY})
-
+            # Step B: with no operator exported, the operator is the repository's operator/, so that is where main holds the keys.
             nested = repo(tmp, "nested", "operator/identities/keys", env)
+            check("by default (no operator exported) the key is read at operator/identities/keys/",
+                  trust.writers(ID, nested) == {FPR: KEY})
+            flat = repo(tmp, "flat", "identities/keys", env)
+            try:
+                trust.writers(ID, flat)
+                check("control: a main that still holds the keys at identities/keys/ is not read", False)
+            except StoreError as e:
+                check("control: a main that still holds the keys at identities/keys/ is not read",
+                      "not yet on the fabric's main" in str(e), e)
+
             link = os.path.join(tmp, "nested-link")
             os.symlink(nested, link)
             os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(nested, "operator")
@@ -73,14 +81,12 @@ def main() -> int:
             g = ["git", "-C", shim, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
             for args in (["add", "-A"], ["commit", "-q", "-m", "shim"], ["update-ref", "refs/remotes/origin/main", "HEAD"]):
                 subprocess.run(g + args, check=True, env=env, capture_output=True)
-            try:
-                trust.writers(ID, shim)
-                check("control: through the shim at the old path the key is not found", False)
-            except StoreError as e:
-                check("control: through the shim at the old path the key is not found", "not yet on the fabric's main" in str(e), e)
+            old = subprocess.run(["git", "-C", shim, "show", "origin/main:identities/keys/lineage.json"], env=env, capture_output=True)
+            check("control: through the shim at the old path git finds no key", old.returncode != 0, old.stdout)
+            check("…and through the operator path, the default, it is found", trust.writers(ID, shim) == {FPR: KEY})
             os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(shim, "operator")
             try:
-                check("…and through the operator path it is", trust.writers(ID, shim) == {FPR: KEY})
+                check("…and through the operator path exported it is", trust.writers(ID, shim) == {FPR: KEY})
             finally:
                 del os.environ["AGENT_FABRIC_OPERATOR"]
 

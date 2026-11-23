@@ -36,6 +36,11 @@ with open(os.path.join(root, "projects", "registry.json")) as fh:
     assert "live-only" in json.load(fh)["projects"]
 print("ok")
 """
+READS_OPERATOR = """import os
+root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+assert os.path.isfile(os.path.join(root, "operator", "projects", "registry.json")), "no operator/ in this tree"
+print("ok")
+"""
 READS_FIXTURE = """import json, os, sys, tempfile
 open(os.path.join(tempfile.gettempdir(), "left-by-the-test"), "w").close()
 assert not any(k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE", "ANTHROPIC_")) for k in os.environ), "a session variable reached the test"
@@ -97,6 +102,7 @@ def main() -> int:
         os.makedirs(marks)
         os.makedirs(sig_tmp)
         for rel, text in (("projects/registry.json", '{"projects": {"live-only": {}}}'), ("policies/x.json", "{}"),
+                          ("operator/projects/registry.json", "{}"), ("tests/test_reads_operator.py", READS_OPERATOR),
                           ("tests/test_reads_live.py", READS_LIVE), (".gitignore", "tests/test_ignored.py\n")):
             write(tree, rel, text)
         env = git_env.git_env()          # the test's own: never the tool's ci_env, which is under test
@@ -128,6 +134,12 @@ def main() -> int:
               history == ["tests/test_reads_history.py: ok"], history)
         check("a test that reads the live registry fails on the stripped copy", "tests/test_reads_live.py: FAILED (exit 1)" in lines, lines)
         check("...said with its failing line", any("AssertionError" in ln or "FileNotFoundError" in ln for ln in lines), lines)
+        r = subprocess.run([sys.executable, "-B", "tests/test_reads_operator.py"], cwd=tree, capture_output=True, text=True, timeout=60)
+        check("control: a test that reads operator/ passes on the tree itself", r.returncode == 0, r.stderr[-300:])
+        op_lines: list[str] = []
+        stripped_run.run(tree, ["tests/test_reads_operator.py"], out=op_lines.append)
+        check("a test that reads operator/ (ADR-045 step B: where the instance data sits) fails on the stripped copy",
+              "tests/test_reads_operator.py: FAILED (exit 1)" in op_lines, op_lines)
         sample = "  ok   fine\n      not detail of anything\n  FAIL x\n      a vs b\n      second\n  ok   next\n      stray\nValueError: boom\n"
         nested = "  FAIL y\n      rc=1\n\n      after a blank\n        sub/x.py: FAILED (exit 1)\n      after the nested run\n  ok   z\n"
         check("a blank line or a nested FAIL line in a check's detail does not end it",

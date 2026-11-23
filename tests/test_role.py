@@ -27,6 +27,8 @@ scrub_process_env()
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 ROLE_PY = os.path.join(ROOT, "tools", "fabric", "role.py")
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+import roots  # noqa: E402 — the fixture's instance data sits where the engine tree's operator root says
 
 
 def id_un() -> str:
@@ -35,14 +37,15 @@ def id_un() -> str:
 
 def build_fabric(root: str) -> None:
     """A miniature agent-fabric: two roles, one project with memory."""
-    os.makedirs(os.path.join(root, "projects"))
-    with open(os.path.join(root, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+    registry = roots.projects_registry(engine=root)
+    os.makedirs(os.path.dirname(registry))
+    with open(registry, "w", encoding="utf-8") as fh:
         json.dump({"version": 1, "projects": {"demo": {"remotes": ["git@example.com:org/demo.git"]}}}, fh)
     for role, skills, commands in (
         ("flutter-dev", ["widget-testing", "ble-debugging"], ["run-emulator.md"]),
         ("backend-dev", ["migration-check"], []),
     ):
-        base = os.path.join(root, "identities", "roles", role)
+        base = roots.role_dir(role, engine=root)
         os.makedirs(base, exist_ok=True)
         with open(os.path.join(base, "charter.md"), "w", encoding="utf-8") as fh:
             fh.write(f"---\nrole: {role}\nclass: charter\n---\n\n# {role}\n")
@@ -222,7 +225,7 @@ def test_force_stashes_before_replacing(f: Fixture) -> None:
 def test_collision_with_a_committed_skill_is_refused_and_leaves_role_intact(f: Fixture) -> None:
     before = f.binding()
     assert before["role"] == "flutter-dev"
-    clash = os.path.join(f.root, "identities/roles/backend-dev/skills/adr-lookup")
+    clash = os.path.join(roots.role_dir("backend-dev", engine=f.root), "skills", "adr-lookup")
     os.makedirs(clash, exist_ok=True)
     with open(os.path.join(clash, "SKILL.md"), "w", encoding="utf-8") as fh:
         fh.write("---\nname: adr-lookup\ndescription: impostor\n---\n")
@@ -248,7 +251,7 @@ def test_activation_says_where_the_role_reaches_the_session(f: Fixture) -> None:
     assert "bound." in proc.stdout and "system prompt" in proc.stdout, proc.stdout
     assert "(no brief yet)" in proc.stdout and "session-start hook" in proc.stdout, proc.stdout
     assert "load now" not in proc.stdout
-    with open(os.path.join(f.root, "identities", "roles", "flutter-dev", "brief.md"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(roots.role_dir("flutter-dev", engine=f.root), "brief.md"), "w", encoding="utf-8") as fh:
         fh.write("---\nrole: flutter-dev\nclass: brief\n---\n\n# flutter-dev — brief\n")
     proc = f.run("flutter-dev")
     assert "charter and brief of flutter-dev" in proc.stdout, proc.stdout

@@ -35,6 +35,9 @@ MODULE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, MODULE_DIR)
 import bootstrap  # noqa: E402
+import roots  # noqa: E402
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()   # a fixture fabric's registry is read at its own operator/, never an exported one
 
 fails = 0
 
@@ -121,7 +124,7 @@ def fabric(s: Scratch, remote: str | None = None) -> tuple[str, str]:
     os.makedirs(os.path.join(root, "runtime", "claude-code", "workspace"))
     shutil.copyfile(os.path.join(HERE, "runtime", "claude-code", "workspace", "settings.json"),
                     os.path.join(root, "runtime", "claude-code", "workspace", "settings.json"))
-    put(os.path.join(root, "projects", "registry.json"), json.dumps({"version": 1, "projects": {
+    put(roots.projects_registry(engine=root), json.dumps({"version": 1, "projects": {
         "agent-fabric": {"remotes": ["git@github.com:example-org/agent-fabric.git"]},
         "alpha": {"remotes": ["git@github.com:example-org/alpha.git"]}}}))
     git("init", "-q", root)
@@ -230,7 +233,7 @@ def moved_origin_repointed(T: str) -> None:
     s = Scratch(T, "moved")
     try:
         projects, root = fabric(s, remote="git@github.com:old-org/agent-fabric.git")
-        put(os.path.join(root, "projects", "registry.json"), json.dumps({"version": 1, "projects": {
+        put(roots.projects_registry(engine=root), json.dumps({"version": 1, "projects": {
             "agent-fabric": {"remotes": ["git@github.com:new-org/agent-fabric.git", "https://github.com/new-org/agent-fabric",
                                          "git@github.com:old-org/agent-fabric.git", "https://github.com/old-org/agent-fabric"],
                              "moved_from": ["git@github.com:old-org/agent-fabric.git", "https://github.com/old-org/agent-fabric"]},
@@ -272,7 +275,7 @@ def moved_origin_repointed(T: str) -> None:
               "origin not re-pointed" in err and b.failed == 1 and origin(alpha) == "https://github.com/new-org/alpha", (out, err, b.failed))
         # No current remote of the origin's scheme: left as it is, never switched to the other scheme.
         git("-C", alpha, "remote", "set-url", "origin", "git@github.com:Old-Org/alpha.git")
-        put(os.path.join(root, "projects", "registry.json"), json.dumps({"version": 1, "projects": {
+        put(roots.projects_registry(engine=root), json.dumps({"version": 1, "projects": {
             "agent-fabric": {"remotes": ["git@github.com:new-org/agent-fabric.git"]},
             "alpha": {"remotes": ["https://github.com/new-org/alpha", "git@github.com:Old-Org/alpha.git"],
                       "moved_from": ["git@github.com:Old-Org/alpha.git"]}}}))
