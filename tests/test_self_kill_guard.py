@@ -323,7 +323,8 @@ def main() -> int:
                        ("wc, head, tail", f"wc -l <<'X' | head -1 | tail -1\nkill {W}\nX"),
                        ("a quoted body's $( … ) is not run", f"cat <<'X'\n$(kill {W})\nX"),
                        ("a \\-quoted delimiter", f"cat <<\\X\n`kill {W}`\nX"),
-                       # Review of #612, round 4 F15: an unquoted $name on the reader's line. Kills: a `$` among _leaves_open's openers.
+                       # Review of #612, round 4 F15: an unquoted $name on the reader's line. Kills: a bare `$`
+                       # added to _leaves_open's openers or to UNREADABLE_LINE.
                        ("gzcoord-send --to $P", f"gzcoord-send --to $P - <<'X'\nkill {W}\nX")):
         d = by_pid(cmd)
         check(f"a data reader's here-document naming a watch's pid passes: {label}", d is None, d)
@@ -420,7 +421,8 @@ def main() -> int:
                        ("cat <<'n' | … sh on a later line", "cat <<'n' |\npkill -f claude-fable\nn\nsh"),
                        # #689 round 2, F7. Kills: the &? of the trailing-operator test.
                        ("cat <<'n' |& … sh on a later line", "cat <<'n' |&\npkill -f claude-fable\nn\nsh"),
-                       # Round 2, F1 and P-3: a word ends at < and >, as bash ends it. Kills: `{` or the reserved words in _leaves_open.
+                       # Round 2, F1 and P-3: a word ends at < and >, as bash ends it. Kills: `{` or the
+                       # reserved words in _leaves_open.
                        ("{>/dev/null : a}", "{>/dev/null : a}\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
                        ("if>/dev/null", "if>/dev/null :; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
                        ("until</dev/null",
@@ -470,7 +472,8 @@ def main() -> int:
         if ("unexpected end of file" in err or "unexpected EOF" in err) \
                 and g.heredoc_operators(line) is not None and not g._leaves_open(line):
             missed.append(line)
-    check("every line bash -n reads as left open ends the here-document drop (3 fixed, 400 seeded lines)", not missed, missed[:5])
+    check("every line bash -n reads as left open ends the here-document drop (3 fixed, 400 seeded lines)",
+          not missed, missed[:5])
     # Review of #612, fix round 1d6d87fa: a body stored in a file the same command runs is code. Each shape, for the
     # pattern reading (the broad drop) and for the pid reading (the data drop). Kills: _runs_what_it_writes -> False.
     stored = (("cat > k.sh, then bash it", "cat > k.sh <<'X'\n{kill}\nX\nbash k.sh"),
