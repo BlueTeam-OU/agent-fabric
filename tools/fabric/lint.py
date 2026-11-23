@@ -52,7 +52,6 @@ import importlib.util
 import json
 import os
 import re
-import subprocess
 import sys
 from collections import defaultdict
 from typing import Any
@@ -298,13 +297,9 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                 findings.append(f"{rel}: boundary case {c!r} is not boundary under these patterns")
         mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
         since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else base_ref
-        # `rel` is relative to the operator's tree; an object is named from the repository's top, where that
-        # tree sits at roots.operator_prefix (move-plan step B). An operator outside the repository has no
-        # object here to compare with: no base, as for a project CI's depth-1 checkout.
-        try:
-            base = _git().run(root, "show", f"{since}:{_prefix_at(root, since)}{rel}", check=False, timeout=60)
-        except ValueError:
-            base = subprocess.CompletedProcess([], 1, "", "")
+        # `rel` is relative to the operator's tree; an object is named from the repository's top, where
+        # this checkout stores that tree (_prefix_at, move-plan step B).
+        base = _git().run(root, "show", f"{since}:{_prefix_at(root, since)}{rel}", check=False, timeout=60)
         # No base, no comparison, and no finding: a managed project's CI runs
         # this lint on a depth-1 checkout of the fabric at its pinned ref,
         # with no origin/main, and a finding there would fail every project
@@ -369,11 +364,8 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
     since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else ""
     if since:
-        try:
-            at = _prefix_at(root, since)
-            listed = _git().run(root, "ls-tree", "-r", "--name-only", since, "--", f"{at}projects/", check=False, timeout=60)
-        except ValueError:
-            at, listed = "", subprocess.CompletedProcess([], 1, "", "")
+        at = _prefix_at(root, since)
+        listed = _git().run(root, "ls-tree", "-r", "--name-only", since, "--", f"{at}projects/", check=False, timeout=60)
         before = {r[len(at):] for r in listed.stdout.splitlines()
                   if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r[len(at):])} if listed.returncode == 0 else set()
         now = set(_arm_jsons_in_read_tree(root))
@@ -398,13 +390,13 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
 
 
 def _prefix_at(root: str, rev: str) -> str:
-    """roots.operator_prefix as `rev` stores the operator's tree. A base from before ADR-045 step B (main
-    until the move merges) has no such tree and keeps the files at their old place: read there, or every
-    history rule compared nothing and passed in silence (#692 F13). A rev that has the tree is read there
-    alone. ValueError, as operator_prefix, for an operator outside the repository."""
-    at = roots.operator_prefix(root)
-    if not at:
-        return at
+    """Where `rev` stores the operator's tree in this checkout: operator/, or "" for a base from before
+    ADR-045 step B (main until the move merges), which keeps the files at their old place. Read there, or
+    every history rule compared nothing and passed in silence (#692 F13). A rev that has the tree is read
+    there alone. The checkout's own layout (`environ={}`), never the exported operator's: git stores
+    operator/ whichever tree AGENT_FABRIC_OPERATOR makes lint read, and an operator outside the repository
+    once raised here and skipped every history rule."""
+    at = roots.operator_prefix(root, {})
     has = _git().run(root, "cat-file", "-e", f"{rev}:{at.rstrip('/')}", check=False, timeout=60)
     return at if has.returncode == 0 else ""
 

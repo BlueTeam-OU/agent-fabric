@@ -1921,6 +1921,42 @@ def case_arm_boundary_history_reads_a_base_from_before_the_move() -> None:
             ("a pattern changed across the move, unrecorded, against a pre-move base", got)
 
 
+def case_arm_boundary_history_reads_the_stored_layout_with_an_operator_outside() -> None:
+    """#692 F13: AGENT_FABRIC_OPERATOR names the tree lint reads, not where git stores it. An operator
+    outside the checkout made _prefix_at raise, and the history rules were skipped without a word."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test_f13_outside", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as tmp:
+        root, outside = os.path.join(tmp, "checkout"), os.path.join(tmp, "elsewhere")
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        rel = os.path.join("projects", "demo", "integration", "gh", "arm.json")
+        doc = {"boundary": {"paths": "^src/|key", "exempt": "^docs/", "cases": ["src/a.rs", "lib/key.rs"]}}
+        catalog = json.dumps({"roles": [{"id": "architect-cto"}, {"id": "devex-tooling"}]})
+        os.makedirs(root)
+        write(OP(root, rel), json.dumps(doc))
+        write(OP(root, "identities", "roles", "catalog.json"), catalog)
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+        g("branch", "base")
+        doc["boundary"]["paths"] = "^src/|key|^vendor/"
+        write(os.path.join(outside, rel), json.dumps(doc))
+        write(os.path.join(outside, "identities", "roles", "catalog.json"), catalog)
+        saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+        os.environ["AGENT_FABRIC_OPERATOR"] = outside
+        try:
+            got = lint.arm_boundary_findings(root, base_ref="base")
+        finally:
+            if saved is None:
+                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+            else:
+                os.environ["AGENT_FABRIC_OPERATOR"] = saved
+        assert any("changed with no new boundary.changes entry" in f for f in got), \
+            ("a pattern changed in an operator outside the checkout, unrecorded", got)
+
+
 def case_arm_boundary_cases_only_leave_retired() -> None:
     """A project's arm.json lists the paths that must stay boundary: each
     must match its own patterns, and one the branch forked with leaves only
@@ -3171,6 +3207,7 @@ def main() -> int:
         case_a_base_before_step_a_holds_the_allowlist_at_policies,
         case_arm_boundary_cases_only_leave_retired,
         case_arm_boundary_history_reads_a_base_from_before_the_move,
+        case_arm_boundary_history_reads_the_stored_layout_with_an_operator_outside,
         case_arm_direct_block,
         case_every_registered_project_declares_an_arm_json,
         case_every_registered_project_declares_a_gzcoord_config,
