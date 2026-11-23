@@ -26,6 +26,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 import lease  # noqa: E402
+import roots  # noqa: E402
 from instance_fixtures import own_instance_tree, write_json  # noqa: E402
 from git_env import scrub_process_env  # noqa: E402
 scrub_process_env()
@@ -462,7 +463,7 @@ def main() -> int:
         # a tree of its own: the checkout's live policy would make the case follow the fleet's tuning.
         # Three slots is no default (cores_per_slot would give NPROC // 4 or 2), so only a read of this file passes.
         tree = f"{sandbox}/tree"
-        write_json(f"{tree}/policies/host-load.json",
+        write_json(roots.policy("host-load.json", engine=tree),
                    {"cores_per_slot": 4, "wait_s": 1500, "hosts": {HOST: {"cpu_slots": 3}}})
         fe = env(AGENT_FABRIC_ROOT=tree)
         del fe["AGENT_FABRIC_HOST_LOAD"]
@@ -540,11 +541,9 @@ def main() -> int:
         root = f"{sandbox}/repo"
         for src, _ in install_cpu_shims.PAYLOAD:
             os.makedirs(os.path.dirname(f"{root}/{src}"), exist_ok=True)
-            if src == "policies/host-load.json":
-                # instance data, absent from a stripped tree: the installer copies whatever the policy holds, so a stand-in will do
-                write_json(f"{root}/{src}", {"cores_per_slot": 4, "hosts": {HOST: {"cpu_slots": 2}}})
-                continue
             shutil.copy(f"{HERE}/{src}", f"{root}/{src}")
+        # instance data, absent from a stripped tree: the installer copies whatever the policy holds, so a stand-in will do
+        write_json(roots.policy("host-load.json", engine=root), {"cores_per_slot": 4, "hosts": {HOST: {"cpu_slots": 2}}})
         first = install_cpu_shims.install(pfx, root)
         again = install_cpu_shims.install(pfx, root)
         directory = first.split(": ", 1)[1]
@@ -583,7 +582,7 @@ def main() -> int:
               "the cpu lease shim is not installed" in r.stderr and "/usr/bin/cargo without a slot" in r.stderr
               and ((r.returncode == 0 and r.stdout.startswith("cargo ")) if real else r.returncode == 127), f"{r.returncode} {r.stderr}")
         # a changed payload is a new directory, the forwarders move, the old one goes
-        with open(f"{root}/policies/host-load.json", "w") as fh:
+        with open(roots.policy("host-load.json", engine=root), "w") as fh:
             fh.write(json.dumps({"hosts": {HOST: {"cpu_slots": 3}}}))
         third = install_cpu_shims.install(pfx, root)
         newdir = third.split(": ", 1)[1]
@@ -595,10 +594,10 @@ def main() -> int:
         r = subprocess.run([sys.executable, INSTALLER], env=env(), capture_output=True, text=True, timeout=60)
         check("install without root and without a test prefix: exit 1, one line, no traceback",
               r.returncode == 1 and "run it as root" in r.stderr and "Traceback" not in r.stderr and r.stdout == "", f"{r.returncode} {r.stderr}")
-        with open(f"{root}/policies/host-load.json", "w") as fh:
+        with open(roots.policy("host-load.json", engine=root), "w") as fh:
             fh.write("{}")
         snapshot = {t: open(f"{pfx}/bin/{t}").read() for t in ("cargo", "dotnet")}
-        os.unlink(f"{root}/policies/host-load.json")
+        os.unlink(roots.policy("host-load.json", engine=root))
         try:
             install_cpu_shims.install(pfx, root)
             failed = False

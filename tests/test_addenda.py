@@ -567,23 +567,24 @@ def main() -> int:
         check("…control: restored, it loads", isinstance(load(), addenda.Holder))
 
         # the parent's own key alone
-        pw = trust.parent_writer(KID, fabric)
-        check("parent_writer is the parent's key alone, not the agent's", list(pw) == [parent_fpr], repr(list(pw)))
-        check("…while writers() has both", set(trust.writers(KID, fabric)) == {parent_fpr, child_fpr})
-        try:
-            trust.parent_writer(PID, fabric)
-            root_err = ""
-        except StoreError as e:
-            root_err = str(e)
-        check("the root has no parent, and so nobody may install its addenda", "no parent" in root_err, root_err)
-        c_head = git(child, child_store, "rev-parse", "HEAD").stdout.strip()
-        try:
-            trust.verify_signed_by(child_store, c_head, {child_fpr: trust.writers(KID, fabric)[child_fpr]})
-            wrong = ""
-        except StoreError as e:
-            wrong = str(e)
-        check("verify_signed_by refuses a commit signed by a key outside the set given", "refused" in wrong and "no writer of this store" in wrong, wrong)
-        check("…and takes it with the set that holds the signer", trust.verify_signed_by(child_store, c_head, pw) == c_head)
+        with account(child):   # the in-process reads of main honour the scratch account's operator (the fixture's tree)
+            pw = trust.parent_writer(KID, fabric)
+            check("parent_writer is the parent's key alone, not the agent's", list(pw) == [parent_fpr], repr(list(pw)))
+            check("…while writers() has both", set(trust.writers(KID, fabric)) == {parent_fpr, child_fpr})
+            try:
+                trust.parent_writer(PID, fabric)
+                root_err = ""
+            except StoreError as e:
+                root_err = str(e)
+            check("the root has no parent, and so nobody may install its addenda", "no parent" in root_err, root_err)
+            c_head = git(child, child_store, "rev-parse", "HEAD").stdout.strip()
+            try:
+                trust.verify_signed_by(child_store, c_head, {child_fpr: trust.writers(KID, fabric)[child_fpr]})
+                wrong = ""
+            except StoreError as e:
+                wrong = str(e)
+            check("verify_signed_by refuses a commit signed by a key outside the set given", "refused" in wrong and "no writer of this store" in wrong, wrong)
+            check("…and takes it with the set that holds the signer", trust.verify_signed_by(child_store, c_head, pw) == c_head)
 
         # rename: the key is the agent id
         doc = json.load(open(lin))

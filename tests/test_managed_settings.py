@@ -506,6 +506,89 @@ def main() -> int:
                   "does not hash to its name" in str(e)
                   and not os.path.exists(os.path.join(tmp, "evil-prefix", "managed", "current")), e)
 
+    print("managed settings: the operator's tree and the shims at the old paths")
+    import roots  # noqa: E402
+    engine_side = {("identities", "personas"), ("identities", "keys"), ("identities", "agents", "README.md"),
+                   ("identities", "recovery.asc"), ("memory", "domains"), ("memory", "shared"), ("memory", "agents"),
+                   ("docs", "live-checks")}
+    check("SHIMMED is roots' move list less what no guard reads (root cannot import roots, so the copy is pinned)",
+          set(ms.SHIMMED) == set(roots._MOVING) - engine_side, sorted(set(ms.SHIMMED) ^ (set(roots._MOVING) - engine_side)))
+    own = ms.snapshot_entries(ROOT, git(ROOT, "rev-parse", "HEAD"))
+    own_paths = [p for _m, _o, p in own]
+    check("this checkout's own HEAD snapshots, and the operator's roles, policies, routing, registry and hosts are in it",
+          all(any(p.startswith(w) for p in own_paths) for w in (
+              "operator/identities/roles/", "operator/policies/", "operator/routing/",
+              "operator/projects/registry.json", "operator/runtime/hosts/registry.json")), own_paths[:5])
+    check("...every entry a regular file: no shim link is carried into the snapshot",
+          all(m in ("100644", "100755") for m, _o, _p in own))
+
+    with tempfile.TemporaryDirectory() as t2:
+        def mk(name: str) -> str:
+            r = os.path.join(t2, name)
+            os.makedirs(r)
+            git(r, "init", "-q", "-b", "main")
+            write(os.path.join(r, ms.TEMPLATE), tpl_text)
+            shutil.copy(os.path.join(ROOT, ms.ENTRY), os.path.join(r, ms.ENTRY))
+            return r
+
+        def link(r: str, at: str, to: str) -> None:
+            os.makedirs(os.path.dirname(os.path.join(r, at)), exist_ok=True)
+            os.symlink(to, os.path.join(r, at))
+
+        def refused(r: str, sha: str) -> bool:
+            try:
+                ms.snapshot_entries(r, sha)
+            except ms.Failed as e:
+                return "a snapshot holds regular files only" in str(e)
+            return False
+
+        post = mk("post")
+        write(os.path.join(post, "operator", "policies", "signing.json"), "{}\n")
+        write(os.path.join(post, "operator", "identities", "roles", "r.md"), "role\n")
+        write(os.path.join(post, "operator", "identities", "keys", "k.asc"), "no guard reads it\n")
+        link(post, "policies/signing.json", "../operator/policies/signing.json")
+        link(post, "identities/roles", "../operator/identities/roles")
+        sha_post = commit(post, "post-move")
+        entries = ms.snapshot_entries(post, sha_post)
+        paths = [p for _m, _o, p in entries]
+        check("post-move fixture: the operator's files are in at their stored paths, its keys are not, the shims are skipped",
+              "operator/policies/signing.json" in paths and "operator/identities/roles/r.md" in paths
+              and not any("keys" in p for p in paths) and not any(p.startswith(("identities/", "policies/")) for p in paths),
+              paths)
+        check("...and the drift read of ls-tree lists the same entries",
+              sorted(ms.listed_entries(post, sha_post)) == sorted(entries))
+
+        stray = mk("stray")
+        write(os.path.join(stray, "operator", "policies", "signing.json"), "{}\n")
+        link(stray, "tools/fabric/evil", "/etc/passwd")
+        check("a link anywhere but a moved path is still refused", refused(stray, commit(stray, "stray")))
+
+        offlist = mk("offlist")
+        write(os.path.join(offlist, "operator", "routing", "aliases.json"), "{}\n")
+        link(offlist, "routing/aliases.json", "../operator/routing/aliases.json")
+        check("a link at a path off the move list is refused even with an operator/ counterpart",
+              refused(offlist, commit(offlist, "offlist")))
+
+        orphan = mk("orphan")
+        link(orphan, "policies/signing.json", "../operator/policies/signing.json")
+        check("a link at a moved path whose commit has no operator/ counterpart is still refused",
+              refused(orphan, commit(orphan, "orphan")))
+
+        nested = mk("nested")
+        write(os.path.join(nested, "operator", "identities", "roles", "r.md"), "role\n")
+        link(nested, "identities/roles/x", "r.md")
+        check("a link inside a moved directory, not the shim itself, is still refused",
+              refused(nested, commit(nested, "nested")))
+
+        pre = mk("pre")
+        write(os.path.join(pre, "policies", "signing.json"), "{}\n")
+        write(os.path.join(pre, "identities", "roles", "r.md"), "role\n")
+        write(os.path.join(pre, "projects", "registry.json"), "{}\n")
+        got = [p for _m, _o, p in ms.snapshot_entries(pre, commit(pre, "pre-move"))]
+        check("a pre-move commit (no operator/ tree) snapshots its regular files as before",
+              {"policies/signing.json", "identities/roles/r.md", "projects/registry.json"} <= set(got)
+              and not any(p.startswith("operator/") for p in got), got)
+
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")
     return 1 if fails else 0
 

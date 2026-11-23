@@ -1,0 +1,482 @@
+{
+  "version": 1,
+  "description": "Logical projects agent-fabric manages. A working copy is matched to a project by its origin remote (or a .agent-fabric-project marker at its toplevel), never by its directory name. `taxonomy` and `memory` are paths INSIDE the project's working copy (its .agent-fabric/); other paths here are repository-relative; machine-specific checkout locations live in each agent's runtime binding. `memory` is where the project's distilled knowledge lives INSIDE the project's working copy (fabric-coordinator's to write; every role reads it). `license` is the SPDX identifier the project's OWN tree carries — information about the project, not about anything here: this repository is Apache-2.0 throughout, projects/<id>/ included.",
+  "agent_env": {
+    "OPENAI_API_KEY": "OpenAI API key for scripts that call it directly (gzapp.decks image generation). One per login: a service account agent-fabric-<login> in the organisation's project (fabric-secrets provision issue-key openai, with the coordinator's admin key), so the Usage API reports spend per agent",
+    "OPENROUTER_API_KEY": "OpenRouter API key for the broker launch path (runtime/openrouter/launch). One per login, named after it (fabric-secrets provision issue-key openrouter, with the coordinator's provisioning key), so the dashboard reports spend per agent; never shared from another login's store",
+    "SERPAPI_API_KEY": "SerpAPI (serpapi.com) key for the locale search tool's located engine (web_search: Google's results with gl, hl, google_domain and lr from the locale; runtime/mcp/websearch-locale), read at call time into the api_key query parameter — SerpAPI's only auth — of a URL that is never logged. Only a language-culture login's store carries it (the CEO's account, 2026-09-17); every other login has no such name, and sync exports it only where it is set. Google's own Custom Search JSON API is closed to new customers (2026-09-17), which is why a SERP proxy",
+    "BRAVE_SEARCH_API_KEY": "Brave Search API key for the locale search tool's second engine (web_search_global), read at call time into one request header; the same login as the Google pair (the CEO: keep both engines, 2026-09-17)",
+    "CLAUDE_CODE_OAUTH_TOKEN": "Which Claude account this login's sessions run on: that account's one-year `claude setup-token` token (user:inference only), put into the login's store from the coordinator's template CLAUDE_ACCOUNT_<ACCOUNT> (ADR-038). Set, it outranks the login's own /login sign-in (measured 2026-09-24); moving a login to another account is this one entry, applied by the signed secrets-sync action (bin/fabric-accounts assign). Unset, the launcher refuses a plain-claude session. The accounts' usage windows are read by the coordinator's observer, not through this token (docs/adr/ADR-031-claude-accounts-assigned-applied-and-proved-by-signed-action.md)",
+    "FABRIC_CONTROL_SIGNING_KEY": "The host operator's Ed25519 key for signing control-plane ACTIONS (tools/fabric/control/sign.py), one line `ed25519-pkcs8:<base64>`. Only the operator's own store carries it — made by `fabric-ctl keygen`, which writes it there on stdin and the public half to runtime/hosts/registry.json; every other login has no such name. A daemon answers an action (fabric-ctl … upgrade) only when signed with it."
+  },
+  "projects": {
+    "gzapp": {
+      "client": "gzapi",
+      "title": "GZAPP transit platform",
+      "remotes": [
+        "git@github.com:gzapi-org/gzapp.git",
+        "https://github.com/gzapi-org/gzapp"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/gzapp/integration",
+      "license": "LicenseRef-gzapp-Proprietary",
+      "agent_env": {
+        "GZAPP_PORT_OFFSET": "the port offset of this login's local stack (infra/local/port-offsets.tsv); exported by fabric-secrets sync, wins over .env.local and the table"
+      },
+      "plain_env": [
+        "GZAPP_PORT_OFFSET"
+      ],
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "tools/gh and the merge flow", "where": "host"},
+        {"name": "dotnet", "proof": "dotnet --version", "version": "10.0.x", "why": "the backend build and tests, Gzapp.Migrate", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "22", "why": "the web apps and the validators", "where": "host"},
+        {"name": "pnpm", "proof": "pnpm --version", "version": "11.6.0", "why": "the web workspace (package.json packageManager)", "where": "account"},
+        {"name": "podman", "proof": "podman --version", "version": "5.x", "why": "the local stack (make up) and Testcontainers; rootless", "where": "host"},
+        {"name": "podman-compose", "proof": "podman compose version", "version": "any", "why": "the local stack's compose files", "where": "host"},
+        {"name": "make", "proof": "make --version", "version": "4.x", "why": "every stack target", "where": "host"},
+        {"name": "jq", "proof": "jq --version", "version": "1.6+", "why": "tools/gh and tools/checks", "where": "host"},
+        {"name": "pyyaml", "proof": "python3 -c 'import yaml, jsonschema'", "version": "any", "why": "check_docs_integrity and the contract tooling", "where": "host"},
+        {"name": "curl", "proof": "curl --version", "version": "any", "why": "actions-health and the tool fetches", "where": "host"},
+        {"name": "fabric-python", "proof": "/usr/local/bin/fabric-python --version", "version": "runtime/python.json", "why": "every forwarder into agent-fabric", "where": "host"},
+        {"name": "flutter", "proof": "flutter --version", "version": "3.47.3", "why": "the Flutter apps and their launchers", "where": "host", "roles": ["flutter-dev", "devex-tooling"]},
+        {"name": "java", "proof": "java -version", "version": "any JDK", "why": "flutter build apk", "where": "host", "roles": ["flutter-dev"]},
+        {"name": "shellcheck", "proof": "shellcheck --version", "version": "any", "why": "devex-tooling's checks", "where": "host", "roles": ["devex-tooling"]},
+        {"name": "doppler", "proof": "doppler --version", "version": "any", "why": "optional: seeds the dev provider keys (doppler run -- make seed-secrets); make up works without it. In the AppVM only, never the template, and only in the accounts that work on gzapp (the owner, 2026-10-08)", "where": "account", "optional": true,
+         "install": {"version": "3.77.0", "url": "https://github.com/DopplerHQ/cli/releases/download/3.77.0/doppler_3.77.0_linux_amd64.tar.gz",
+                     "sha256": "92587cb89c2ff82fc2ddec2b2a9f275ff320994a44e16cd9310b55a429a82084", "member": "doppler"}},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}}
+      ]
+    },
+    "agent-fabric": {
+      "client": "blueteam",
+      "title": "agent-fabric, the control plane itself",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/agent-fabric.git",
+        "https://github.com/BlueTeam-OU/agent-fabric",
+        "git@github.com:gzapi-org/agent-fabric.git",
+        "https://github.com/gzapi-org/agent-fabric"
+      ],
+      "moved_from": [
+        "git@github.com:gzapi-org/agent-fabric.git",
+        "https://github.com/gzapi-org/agent-fabric"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": null,
+      "license": "Apache-2.0",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "fabric-python", "proof": "fabric-python --version", "version": "runtime/python.json", "why": "the pinned interpreter every fabric tool runs on (runtime/python.json)", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "the .mjs tests of GZCoord and the locale search server", "where": "host"},
+        {"name": "gpg", "proof": "gpg --version", "version": "2.x", "why": "each account's own secrets store (ADR-038)", "where": "host"},
+        {"name": "shellcheck", "proof": "shellcheck --version", "why": "tests/static.sh's check of every tracked shell script", "where": "host", "optional": true},
+        {"name": "ruff", "proof": "ruff --version", "version": "0.16.7", "why": "tests/static.py's lint on the rule set in ruff.toml (CI pins ruff==0.16.7); without it the static step says it was not run here", "where": "account", "optional": true},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "codex", "proof": "codex --version", "version": "0.162.1", "why": "the second review engine, fabric-review --engine codex (ADR-053 rule 7): the pinned Codex CLI, the npm platform tarball checked by sha256 before unpacking, installed as its vendor tree (codex-code-mode-host runs every tool call; codex-package.json points it at its rg and bwrap; the voice resources are left out), the same build the gateway's CI runs end to end", "where": "account",
+         "install": {"version": "0.162.1", "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.162.1-linux-x64.tgz",
+                     "sha256": "7417711678b464eee70664126e39e88bb3c84c2928da0e71f14b56e04ff5c09f", "root": "package/vendor/x86_64-unknown-linux-musl",
+                     "members": ["bin/codex", "bin/codex-code-mode-host", "codex-package.json", "codex-path/rg", "codex-resources/bwrap", "codex-resources/zsh/bin/zsh"],
+                     "entrypoint": "bin/codex"}}
+      ]
+    },
+    "kutaisi-shop-transit": {
+      "client": "gzapi",
+      "title": "Kutaisi shop-to-transit matching (OSM shops against bus/marshrutka lines)",
+      "remotes": [
+        "git@github.com:gzapi-org/kutaisi-shop-transit.git",
+        "https://github.com/gzapi-org/kutaisi-shop-transit",
+        "git@github.com:andreabenetton/kutaisi-shop-transit.git",
+        "https://github.com/andreabenetton/kutaisi-shop-transit"
+      ],
+      "moved_from": [
+        "git@github.com:andreabenetton/kutaisi-shop-transit.git",
+        "https://github.com/andreabenetton/kutaisi-shop-transit"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow", "where": "host"},
+        {"name": "python3", "proof": "python3 --version", "version": "3.x", "why": "kutaisi_shop_transit.py and its requirements.txt", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}}
+      ],
+      "integration": null,
+      "license": "LicenseRef-kutaisi-shop-transit-Proprietary",
+      "note": "A private repository whose tree carries no license file: all rights reserved by default. One role, domain-transit; its working copy is that account's (moved there 2026-09-15). Moved to gzapi-org, client gzapi, on the owner's word of 2026-10-24; the andreabenetton spellings stay listed for clones not yet re-pointed."
+    },
+    "gzapi.ge": {
+      "client": "gzapi",
+      "title": "gzapi.ge — the company website (Gzapi LLC)",
+      "remotes": [
+        "git@github.com:gzapi-org/gzapi.ge.git",
+        "https://github.com/gzapi-org/gzapi.ge",
+        "git@github.com:andreabenetton/gzapi.ge.git",
+        "https://github.com/andreabenetton/gzapi.ge"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/gzapi.ge/integration",
+      "license": "LicenseRef-gzapi-ge-Proprietary",
+      "note": "Static Astro site, vision-level by rule, ka/en. The brand's source of truth: where a deck and the site disagree on a token or a phrase, the site wins (owner, 2026-09-15). One role, brand-comms. A private repository whose tree carries no license file: all rights reserved by default. Moved to gzapi-org on 2026-09-16; the andreabenetton spellings stay listed for clones not yet re-pointed.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "the Astro site build", "where": "host"},
+        {"name": "pnpm", "proof": "pnpm --version", "why": "the site's package manager (pnpm-lock.yaml)", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}}
+      ]
+    },
+    "gzapi.brand": {
+      "client": "gzapi",
+      "title": "gzapi.brand — the brand's source of authority",
+      "remotes": [
+        "git@github.com:gzapi-org/gzapi.brand.git",
+        "https://github.com/gzapi-org/gzapi.brand"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/gzapi.brand/integration",
+      "license": "LicenseRef-gzapi-brand-Proprietary",
+      "note": "Names, claims by audience, the brand subset of the design tokens, the asset register and the decision records; no code, no build. The brand's source of authority since the owner's decision of 2026-09-17 (brand/decisions/0001), superseding the 2026-09-15 ruling that gzapi.ge was: the site, the decks and the product's shared web tokens copy the brand subset at a pinned commit and record it. One role, brand-comms; the owner decides, brand-comms proposes. A private repository whose tree carries no licence file; registered by fabric-coordinator on 2026-09-17.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "impeccable", "proof": "impeccable --version", "version": "0.1.18", "why": "brand-comms' AI-slop detector for pages and decks: impeccable detect <dir|file|url> only, never install, hook, plugin or live mode; run with DO_NOT_TRACK=1 (telemetry off); --version prints \"0.1.18+engine\"", "where": "account", "roles": ["brand-comms"],
+         "install": {"version": "0.1.18", "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.18/impeccable-linux-x64",
+                     "sha256": "736ed785e74ae2344d3036127f614ddde5ab520a527d8bc82a891612ef71f648"}},
+        {"name": "fonttools", "proof": "python3 -c 'import fontTools; print(fontTools.version)'", "version": "4.x", "why": "font subsetting and inspection for brand assets (python3-fonttools)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "uharfbuzz", "proof": "python3 -c 'import uharfbuzz; print(uharfbuzz.__version__)'", "version": "0.51", "why": "text shaping, to measure set type exactly (python3-uharfbuzz)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "scour", "proof": "scour --version", "version": "0.38", "why": "SVG optimisation for logos and icons (python3-scour)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "resvg", "proof": "resvg --version", "version": "0.48.1", "why": "SVG to PNG rendering for raster exports", "where": "host", "roles": ["brand-comms"]},
+        {"name": "vtracer", "proof": "vtracer --version", "version": "0.6.4", "why": "raster to SVG tracing; --version prints \"visioncortex VTracer 0.6.4\"", "where": "host", "roles": ["brand-comms"]}
+      ]
+    },
+    "gzapp.decks": {
+      "client": "gzapi",
+      "title": "gzapp.decks — brand presentation decks (Marp)",
+      "remotes": [
+        "git@github.com:gzapi-org/gzapp.decks.git",
+        "https://github.com/gzapi-org/gzapp.decks",
+        "git@github.com:andreabenetton/gzapp.decks.git",
+        "https://github.com/andreabenetton/gzapp.decks"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/gzapp.decks/integration",
+      "license": "LicenseRef-gzapp-decks-Proprietary",
+      "note": "Marp decks under one brand theme whose tokens are vendored from gzapi.ge (the source of truth); bilingual, an asset register every image has a row in, PDFs as versioned build output. One role, brand-comms. A private repository whose tree carries no license file: all rights reserved by default; the vendored fonts are OFL-1.1. Moved to gzapi-org on 2026-09-16; the andreabenetton spellings stay listed for clones not yet re-pointed.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "20 or newer", "why": "the Marp CLI that builds the decks (npm install)", "where": "host"},
+        {"name": "npm", "proof": "npm --version", "why": "installs the Marp CLI locally", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "impeccable", "proof": "impeccable --version", "version": "0.1.18", "why": "brand-comms' AI-slop detector for pages and decks: impeccable detect <dir|file|url> only, never install, hook, plugin or live mode; run with DO_NOT_TRACK=1 (telemetry off); --version prints \"0.1.18+engine\"", "where": "account", "roles": ["brand-comms"],
+         "install": {"version": "0.1.18", "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.18/impeccable-linux-x64",
+                     "sha256": "736ed785e74ae2344d3036127f614ddde5ab520a527d8bc82a891612ef71f648"}}
+      ]
+    },
+    "blueteam.ee": {
+      "client": "blueteam",
+      "title": "blueteam.ee — BlueTeam OÜ's marketing site",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/blueteam.ee.git",
+        "https://github.com/BlueTeam-OU/blueteam.ee"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/blueteam.ee/integration",
+      "license": "LicenseRef-blueteam-ee-Proprietary",
+      "note": "BlueTeam OÜ's private marketing site, Tallinn: Astro 7 over pre-built Landkit Bootstrap 5 bundles, built with npm; no tests, lint or CI; English now, Estonian later. Brand colour #0072ce in site.css and src/data/site.json, which copy the brand source, blueteam.brand, at a pinned commit. A different company and brand from gzapi: gzapi naming, its claims ledger and gzapi.brand tokens do not apply. The commercial Landkit theme and the HK Grotesk Pro font are licensed for this site only, so the repository stays private; its tree carries no licence file. Deployed by hand-uploading dist/ to an i-MSCP host, which is edge-hosting's. Roles: brand-comms (the owner role), language-culture (review of copy), edge-hosting (the upload). Registered on the owner's instruction, 2026-10-10.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
+        {"name": "node", "proof": "node --version", "version": "22.12 or newer", "why": "the Astro 7 site build", "where": "host"},
+        {"name": "npm", "proof": "npm --version", "why": "the site's package manager (package-lock.json); npm run build writes dist/", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "impeccable", "proof": "impeccable --version", "version": "0.1.18", "why": "brand-comms' AI-slop detector for pages and decks: impeccable detect <dir|file|url> only, never install, hook, plugin or live mode; run with DO_NOT_TRACK=1 (telemetry off); --version prints \"0.1.18+engine\"", "where": "account", "roles": ["brand-comms"],
+         "install": {"version": "0.1.18", "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.18/impeccable-linux-x64",
+                     "sha256": "736ed785e74ae2344d3036127f614ddde5ab520a527d8bc82a891612ef71f648"}},
+        {"name": "fonttools", "proof": "python3 -c 'import fontTools; print(fontTools.version)'", "version": "4.x", "why": "font subsetting and inspection for brand assets (python3-fonttools)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "uharfbuzz", "proof": "python3 -c 'import uharfbuzz; print(uharfbuzz.__version__)'", "version": "0.51", "why": "text shaping, to measure set type exactly (python3-uharfbuzz)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "scour", "proof": "scour --version", "version": "0.38", "why": "SVG optimisation for logos and icons (python3-scour)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "resvg", "proof": "resvg --version", "version": "0.48.1", "why": "SVG to PNG rendering for raster exports", "where": "host", "roles": ["brand-comms"]},
+        {"name": "vtracer", "proof": "vtracer --version", "version": "0.6.4", "why": "raster to SVG tracing; --version prints \"visioncortex VTracer 0.6.4\"", "where": "host", "roles": ["brand-comms"]}
+      ]
+    },
+    "blueteam.brand": {
+      "client": "blueteam",
+      "title": "blueteam.brand — BlueTeam OÜ's brand source of authority",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/blueteam.brand.git",
+        "https://github.com/BlueTeam-OU/blueteam.brand"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/blueteam.brand/integration",
+      "license": "LicenseRef-blueteam-brand-Proprietary",
+      "note": "BlueTeam OÜ's brand source of authority: names, claims by audience, the design tokens (brand/tokens.css), the asset register and the decision records; no code, no build. Consumers (blueteam.ee first) copy what they need at a pinned commit and record it. The owner decides, brand-comms proposes; every change is a pull request with a decision record under brand/decisions/. A different company and brand from gzapi (gzapi.brand). A private repository, all rights reserved; its tree carries no licence file. Created 2026-10-15; registered by fabric-coordinator on 2026-10-19 at brand-comms's request (REQUEST 01a13f9b).",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "impeccable", "proof": "impeccable --version", "version": "0.1.18", "why": "brand-comms' AI-slop detector for pages and decks: impeccable detect <dir|file|url> only, never install, hook, plugin or live mode; run with DO_NOT_TRACK=1 (telemetry off); --version prints \"0.1.18+engine\"", "where": "account", "roles": ["brand-comms"],
+         "install": {"version": "0.1.18", "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.18/impeccable-linux-x64",
+                     "sha256": "736ed785e74ae2344d3036127f614ddde5ab520a527d8bc82a891612ef71f648"}},
+        {"name": "fonttools", "proof": "python3 -c 'import fontTools; print(fontTools.version)'", "version": "4.x", "why": "font subsetting and inspection for brand assets (python3-fonttools)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "uharfbuzz", "proof": "python3 -c 'import uharfbuzz; print(uharfbuzz.__version__)'", "version": "0.51", "why": "text shaping, to measure set type exactly (python3-uharfbuzz)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "scour", "proof": "scour --version", "version": "0.38", "why": "SVG optimisation for logos and icons (python3-scour)", "where": "host", "roles": ["brand-comms"]},
+        {"name": "resvg", "proof": "resvg --version", "version": "0.48.1", "why": "SVG to PNG rendering for raster exports", "where": "host", "roles": ["brand-comms"]},
+        {"name": "vtracer", "proof": "vtracer --version", "version": "0.6.4", "why": "raster to SVG tracing; --version prints \"visioncortex VTracer 0.6.4\"", "where": "host", "roles": ["brand-comms"]}
+      ]
+    },
+    "settings-blueteam": {
+      "client": "blueteam",
+      "title": "agent-fabric-settings (BlueTeam-OU) — the organisation's per-repository arming policies",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/agent-fabric-settings.git",
+        "https://github.com/BlueTeam-OU/agent-fabric-settings"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/settings-blueteam/integration",
+      "license": "LicenseRef-agent-fabric-settings-Proprietary",
+      "note": "BlueTeam-OU's private settings repository: it holds the organisation's per-repository arming policies (repos/<repo>.json), which fabric-pr arm (from step C, the reader in tools/fabric/github/arm_policy.py) and the step C/E fabric-repo-policy tool read from its default branch on GitHub, never from a working copy, so a PR in a project cannot change the rules it is armed under. Owned by devex-tooling, who runs plan and apply after a change merges; the fleet default and the schema stay in agent-fabric (policies/arming.json, added with the reader in step C; identities/schemas/arming.schema.json). Registered on the owner's instruction, 2026-10-11.",
+      "tools": [
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
+        {"name": "fabric-python", "proof": "fabric-python --version", "version": "runtime/python.json", "why": "the step C/E tool fabric-repo-policy (plan and apply), which will read these policies (runtime/python.json)", "where": "host"}
+      ]
+    },
+    "settings-gzapi": {
+      "client": "gzapi",
+      "title": "agent-fabric-settings (gzapi-org) — the organisation's per-repository arming policies",
+      "remotes": [
+        "git@github.com:gzapi-org/agent-fabric-settings.git",
+        "https://github.com/gzapi-org/agent-fabric-settings"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/settings-gzapi/integration",
+      "license": "LicenseRef-agent-fabric-settings-Proprietary",
+      "note": "gzapi-org's private settings repository: it holds the organisation's per-repository arming policies (repos/<repo>.json), which fabric-pr arm (from step C, the reader in tools/fabric/github/arm_policy.py) and the step C/E fabric-repo-policy tool read from its default branch on GitHub, never from a working copy, so a PR in a project cannot change the rules it is armed under. Owned by devex-tooling, who runs plan and apply after a change merges; the fleet default and the schema stay in agent-fabric (policies/arming.json, added with the reader in step C; identities/schemas/arming.schema.json). Registered on the owner's instruction, 2026-10-11.",
+      "tools": [
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
+        {"name": "fabric-python", "proof": "fabric-python --version", "version": "runtime/python.json", "why": "the step C/E tool fabric-repo-policy (plan and apply), which will read these policies (runtime/python.json)", "where": "host"}
+      ]
+    },
+    "interweave": {
+      "client": "blueteam",
+      "title": "InterWeave — peer-to-peer transport for Claude Code Channels and first-party clients",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/InterWeave.git",
+        "https://github.com/BlueTeam-OU/InterWeave",
+        "git@github.com:gzapi-org/InterWeave.git",
+        "https://github.com/gzapi-org/InterWeave"
+      ],
+      "moved_from": [
+        "git@github.com:gzapi-org/InterWeave.git",
+        "https://github.com/gzapi-org/InterWeave"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/interweave/integration",
+      "license": "Apache-2.0",
+      "note": "A Rust workspace on libp2p: one PeerId, many EndpointIds, signed GossipSub broadcast, a directed protocol, replaceable discovery, Kademlia, AutoNAT v2 / Circuit Relay v2 / DCUtR. Worked by the owner's own login until 2026-09-17, when the CEO made it a managed project with one new role, p2p-network-dev (the code), architect-cto holding its decision records and stage gates, devex-tooling its CI. Its merge queue stays on (the owner, 2026-09-17). Moved from gzapi-org to BlueTeam-OU on 2026-10-12; bootstrap re-points a clone still on the old remote (moved_from).",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain InterWeave's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["p2p-network-dev", "rust-ui-dev", "devex-tooling"], "install": {"kind": "installer", "version": "1.29.1", "url": "https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init", "sha256": "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"}},
+        {"name": "cargo-ndk", "proof": "cargo +1.99.1 ndk --version", "version": "4.1.2", "why": "the Android APK build: cargo ndk cross-compiles the Rust crates for aarch64-linux-android (the device run of tests/android-e2e)", "where": "account", "roles": ["p2p-network-dev", "rust-ui-dev"],
+         "install": {"kind": "cargo", "version": "4.1.2", "locked": true, "toolchain": "1.99.1"}},
+        {"name": "rust-std-aarch64-linux-android", "proof": "rustup target list --installed --toolchain 1.99.1", "version": "1.99.1", "why": "the Android APK build: cargo ndk links the Rust crates against the aarch64-linux-android std of the toolchain rust-toolchain.toml pins, which rustup installs per account and nothing else declares", "where": "account", "roles": ["p2p-network-dev", "rust-ui-dev"],
+         "install": {"kind": "rustup-target", "toolchain": "1.99.1", "target": "aarch64-linux-android"}},
+        {"name": "cargo-deny", "proof": "cargo-deny --version", "why": "CI's dependency policy (deny.toml), run before a push that changes the graph", "where": "account", "roles": ["p2p-network-dev", "rust-ui-dev", "devex-tooling"],
+         "install": {"version": "0.20.2", "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz",
+                     "sha256": "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f", "member": "cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny"}},
+        {"name": "cargo-machete", "proof": "cargo-machete --version", "why": "CI's unused-dependency check", "where": "account", "optional": true, "roles": ["p2p-network-dev", "rust-ui-dev", "devex-tooling"],
+         "install": {"version": "0.9.2", "url": "https://github.com/bnjbvr/cargo-machete/releases/download/v0.9.2/cargo-machete-v0.9.2-x86_64-unknown-linux-musl.tar.gz",
+                     "sha256": "48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9", "member": "cargo-machete-v0.9.2-x86_64-unknown-linux-musl/cargo-machete"}},
+        {"name": "Xvfb", "proof": "Xvfb -help", "why": "the desktop end-to-end tests of the human client run headless", "where": "host", "optional": true, "roles": ["rust-ui-dev"]},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "osv-scanner", "proof": "osv-scanner --version", "version": "2.6.0", "why": "plan section 20: the Gradle graph's OSV.dev check, run locally before a push that changes it", "where": "account", "roles": ["rust-ui-dev", "p2p-network-dev", "devex-tooling"],
+         "install": {"version": "2.6.0", "url": "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_linux_amd64", "sha256": "ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108"}}
+      ]
+    },
+    "agent-fabric-gateway": {
+      "client": "blueteam",
+      "title": "agent-fabric-gateway — the Rust data plane the fabric's sessions reach their models through",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/agent-fabric-gateway.git",
+        "https://github.com/BlueTeam-OU/agent-fabric-gateway",
+        "git@github.com:gzapi-org/agent-fabric-gateway.git",
+        "https://github.com/gzapi-org/agent-fabric-gateway"
+      ],
+      "moved_from": [
+        "git@github.com:gzapi-org/agent-fabric-gateway.git",
+        "https://github.com/gzapi-org/agent-fabric-gateway"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/agent-fabric-gateway/integration",
+      "license": "Apache-2.0",
+      "note": "The fabric is the control plane (identity, roles, capability policy, model selection); the gateway accepts harness-native API traffic, executes the route it is given and adapts only where it must (its ADR-001, ADR-014). Designed by the owner's own sessions until 2026-09-24, when the owner put the whole repository under fabric-coordinator; since 2026-10-07 rust-services-dev holds its Rust workspace (apps, crates, tests, fixtures, spikes, packaging, xtask); on 2026-11-14 the owner transferred its project truth to architect-cto: the decision records, architecture/, CI, tools/ and the operating files (CLAUDE.md, README.md). fabric-coordinator keeps .agent-fabric/, as in every managed project, and the fabric's side of the seam.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain the gateway's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["rust-services-dev", "devex-tooling", "fabric-coordinator"], "install": {"kind": "installer", "version": "1.29.1", "url": "https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init", "sha256": "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"}},
+        {"name": "cargo-deny", "proof": "cargo-deny --version", "why": "CI's dependency policy over the committed Cargo.lock (deny.toml)", "where": "account", "roles": ["rust-services-dev", "devex-tooling"],
+         "install": {"version": "0.20.2", "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz",
+                     "sha256": "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f", "member": "cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny"}},
+        {"name": "cargo-machete", "proof": "cargo-machete --version", "why": "CI's unused-dependency check, as InterWeave runs it (the owner, 2026-10-10)", "where": "account", "optional": true, "roles": ["rust-services-dev", "devex-tooling"],
+         "install": {"version": "0.9.2", "url": "https://github.com/bnjbvr/cargo-machete/releases/download/v0.9.2/cargo-machete-v0.9.2-x86_64-unknown-linux-musl.tar.gz",
+                     "sha256": "48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9", "member": "cargo-machete-v0.9.2-x86_64-unknown-linux-musl/cargo-machete"}},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}}
+      ]
+    },
+    "herdr": {
+      "client": "blueteam",
+      "title": "herdr — agent-fabric-fleetdeck (Agent Fabric FleetDeck; agent-fabric-herdr until 2026-10-11), BlueTeam-OU's public fork of herdrdev/herdr (renamed from gzapi-org/herdr on 2026-10-08, moved from gzapi-org on 2026-10-09; the old names are its moved_from), the base of Fleet Deck, the operator's console over the fleet",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/agent-fabric-fleetdeck.git",
+        "https://github.com/BlueTeam-OU/agent-fabric-fleetdeck",
+        "git@github.com:BlueTeam-OU/agent-fabric-herdr.git",
+        "https://github.com/BlueTeam-OU/agent-fabric-herdr",
+        "git@github.com:gzapi-org/agent-fabric-herdr.git",
+        "https://github.com/gzapi-org/agent-fabric-herdr",
+        "git@github.com:gzapi-org/herdr.git",
+        "https://github.com/gzapi-org/herdr"
+      ],
+      "moved_from": [
+        "git@github.com:BlueTeam-OU/agent-fabric-herdr.git",
+        "https://github.com/BlueTeam-OU/agent-fabric-herdr",
+        "git@github.com:gzapi-org/agent-fabric-herdr.git",
+        "https://github.com/gzapi-org/agent-fabric-herdr",
+        "git@github.com:gzapi-org/herdr.git",
+        "https://github.com/gzapi-org/herdr"
+      ],
+      "default_branch": "master",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/herdr/integration",
+      "license": "Apache-2.0",
+      "note": "A Rust terminal multiplexer for coding agents; the owner opens one tab per agent account, each entered with moveto. Forked 2026-10-06 on the owner's word: a change general to herdr (a switch that turns its socket API off or limits it to the attached client) goes upstream to herdrdev/herdr as a pull request from this fork; everything the fabric needs of it (per-pane status from the control plane's presence, Fleet Deck's `fabric-deck`, which builds the workspace from the host registry, seeding a new host's first layout from the catalogue's groups; the layout is the operator's to arrange from then on (the name is the owner's, 2026-10-07), status for a pane whose agent runs as another login) stays in this fork. rust-ui-dev holds it beside InterWeave (the owner, 2026-10-06).",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "rustup", "proof": "rustup --version", "version": "per rust-toolchain.toml", "why": "the toolchain herdr's rust-toolchain.toml pins, installed by rustup on first use", "where": "account", "roles": ["rust-ui-dev", "devex-tooling"], "install": {"kind": "installer", "version": "1.29.1", "url": "https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init", "sha256": "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"}},
+        {"name": "zig", "proof": "zig version", "version": "0.16.0", "why": "herdr's vendored libghostty-vt build (ZIG=<path>): the pinned release tarball from ziglang.org checked by sha256 before unpacking, installed whole because the compiler needs its lib/ tree beside it", "where": "account", "roles": ["rust-ui-dev", "devex-tooling"], "install": {"version": "0.16.0", "url": "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz", "sha256": "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00", "root": "zig-x86_64-linux-0.16.0", "whole": true, "entrypoint": "zig"}},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}}
+      ]
+    },
+    "radicle-spike": {
+      "client": "blueteam",
+      "title": "radicle-spike — whether Radicle can carry the fleet's forge (a local seed, agent-fabric mirrored, replication and reachability measured)",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/radicle-spike.git",
+        "https://github.com/BlueTeam-OU/radicle-spike",
+        "git@github.com:gzapi-org/radicle-spike.git",
+        "https://github.com/gzapi-org/radicle-spike"
+      ],
+      "moved_from": [
+        "git@github.com:gzapi-org/radicle-spike.git",
+        "https://github.com/gzapi-org/radicle-spike"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/radicle-spike/integration",
+      "license": "Apache-2.0",
+      "note": "A time-boxed spike, private, created 2026-10-07 on the owner's word: Radicle as a decentralized forge for the fleet (ADR-034's direction). p2p-network-dev holds it (p2p-network-dev-02): run a local seed on the fleet's host, never joined to the public Radicle network, mirror agent-fabric to it (any other repository only on the owner's word), measure replication, reachability through NAT and what a Radicle-backed pull-request flow would need of the forge tools. Its findings came back (findings/00-summary.md: adopt for replication, not yet as the forge). On stand-by since 2026-10-08 (the owner): adoption waits for Radicle 2.0.0, whose breaking change would otherwise mean migrating twice; nothing runs for it meanwhile, and p2p-network-dev-02 works on InterWeave. Nothing here is adopted by the fleet until a decision on 2.0 is made.",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr and the project's tools/gh)", "where": "host"},
+        {"name": "rad", "proof": "rad --version", "why": "the spike's local seed, on stand-by until Radicle 2.0.0", "where": "account", "optional": true, "roles": ["p2p-network-dev"]},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}}
+      ]
+    },
+    "blueteam-fabric": {
+      "client": "blueteam",
+      "title": "blueteam-fabric, the operator: the company's agents, policies and knowledge",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/blueteam-fabric.git",
+        "https://github.com/BlueTeam-OU/blueteam-fabric"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/blueteam-fabric/integration",
+      "license": "LicenseRef-blueteam-fabric-Proprietary",
+      "note": "imported 2026-11-12",
+      "tools": []
+    },
+    "blueteam-accounting": {
+      "client": "blueteam",
+      "title": "blueteam-accounting: BlueTeam OÜ's accounting working papers and filing record, kept by its accountant-ee holder",
+      "remotes": [
+        "git@github.com:BlueTeam-OU/blueteam-accounting.git",
+        "https://github.com/BlueTeam-OU/blueteam-accounting"
+      ],
+      "default_branch": "main",
+      "taxonomy": ".agent-fabric/taxonomy.json",
+      "memory": ".agent-fabric/memory",
+      "integration": "projects/blueteam-accounting/integration",
+      "license": "LicenseRef-blueteam-accounting-Proprietary",
+      "note": "imported 2026-11-17",
+      "tools": [
+        {"name": "git", "proof": "git --version", "version": "2.x", "why": "every repository operation", "where": "host"},
+        {"name": "gh", "proof": "gh --version", "version": "2.x", "why": "the pull-request flow (fabric-pr)", "where": "host"},
+        {"name": "moli", "proof": "moli --version", "version": "1.1.23", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
+         "install": {"version": "1.1.23", "url": "https://github.com/lexmount/moli/releases/download/v1.1.23/moli-x86_64-unknown-linux-gnu.tar.gz",
+                     "sha256": "df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430", "member": "moli-v1.1.23-x86_64-unknown-linux-gnu/moli"}}
+      ]
+    }
+  }
+}

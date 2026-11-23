@@ -22,7 +22,7 @@ That is what makes the sha the operator names (`git ls-remote origin refs/heads/
 view of main) exactly what is installed.
 
 THE LAYOUT, under <prefix> (/usr/local/lib/agent-fabric, which survives a Qubes AppVM's reboot):
-    managed/fabric-<sha>/        runtime/ tools/ routing/ policies/ projects/ identities/roles/ at <sha>, with a
+    managed/fabric-<sha>/        runtime/ tools/ routing/ policies/ projects/ identities/roles/ and their operator/ counterparts at <sha>, with a
                                  MANIFEST (the sha, then `<mode> <blob>\\t<path>` per file); root:root, files 0644
                                  (0755 where git says 100755), dirs 0755; compiled with checked-hash .pyc files
     managed/current              a link to fabric-<sha>, swapped by one os.replace: the only moment the guards change
@@ -57,7 +57,21 @@ PLACEHOLDER = "@ENTRY@"
 # What the guards read: their scripts, the modules they import (tools/fabric/), routing/, the policies, the
 # project registry, aliases.json and the role catalogue. A guard that comes to read outside these fails closed
 # in the snapshot (a missing file), which is the signal to add its path here.
-SNAPSHOT = ("runtime", "tools", "routing", "policies", "projects", "identities/roles")
+# The operator's counterparts ride at their stored paths: a guard installed from the snapshot resolves
+# `<snapshot>/operator` (roots.operator_root with no operator exported). A pre-move commit has no operator/ tree,
+# and those entries then simply list nothing.
+SNAPSHOT = ("runtime", "tools", "routing", "policies", "projects", "identities/roles",
+            "operator/routing", "operator/policies", "operator/projects", "operator/identities/roles",
+            "operator/runtime/hosts")
+# The old paths ADR-045 step B left as symlink shims over operator/. Root runs this file alone and never imports
+# the login's checkout, so the list is a copy of tools/fabric/roots.py's move list, held equal by a test.
+SHIMMED = (
+    ("identities", "roles"), ("policies", "forge-keys"), ("projects", "registry.json"),
+    ("projects", "clients.json"), ("runtime", "hosts", "registry.json"),
+    *(("policies", f"{name}.json") for name in ("arming", "authority", "auto-mode", "host-load", "hygiene", "signing")),
+    ("routing", "profiles.json"), ("routing", "policies"),
+)
+SHIM_MODE = "120000"
 MANIFEST = "MANIFEST"
 FABRIC_PYTHON = "/usr/local/bin/fabric-python"
 JQ_DIRS = ("/usr/bin", "/usr/local/bin")
@@ -191,6 +205,35 @@ def _safe_name(name: bytes) -> str:
     return s
 
 
+def without_shims(entries: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    """`entries` less the links ADR-045 step B left at the old paths. A link counts as a shim only at exactly a
+    moved path and only while the same commit holds the operator/ counterpart: a link anywhere else, and a link
+    at a moved path of a commit with no operator/ tree, stays and is refused by the caller."""
+    paths = {p for _m, _o, p in entries}
+
+    def shim(mode: str, path: str) -> bool:
+        parts = tuple(path.split("/"))
+        moved = parts in SHIMMED or (len(parts) == 2 and parts[0] == "projects"
+                                      and parts[1] not in ("schemas", "registry.json", "clients.json"))
+        return (mode == SHIM_MODE and moved
+                and any(q == f"operator/{path}" or q.startswith(f"operator/{path}/") for q in paths))
+    return [e for e in entries if not shim(e[0], e[2])]
+
+
+def listed_entries(repo: str, rev: str) -> list[tuple[str, str, str]]:
+    """git's own `ls-tree` of SNAPSHOT at `rev`, shims dropped as snapshot_entries drops them, sorted by path."""
+    listed = _git(repo, "ls-tree", "-r", "-z", "--full-tree", rev, "--", *SNAPSHOT)
+    theirs = []
+    for rec in listed.split(b"\0"):
+        if rec:
+            meta, path = rec.split(b"\t", 1)
+            mode, _kind, oid = meta.decode("ascii").split(" ")
+            theirs.append((mode, oid, path.decode("utf-8", "surrogateescape")))
+    theirs = without_shims(theirs)
+    theirs.sort(key=lambda e: e[2].encode("utf-8", "surrogateescape"))
+    return theirs
+
+
 def snapshot_entries(repo: str, sha: str) -> list[tuple[str, str, str]]:
     """(mode, blob id, path) for every file under SNAPSHOT at commit `sha`, read through a verified walk from
     the commit object down, then checked against git's own `ls-tree` of the same paths."""
@@ -215,25 +258,18 @@ def snapshot_entries(repo: str, sha: str) -> list[tuple[str, str, str]]:
                     continue
                 if mode == "40000":
                     walk(child, path)
-                elif not inside:
-                    continue
-                elif mode in ("100644", "100755"):
+                elif inside:
                     out.append((mode, child, "/".join(path)))
-                else:
-                    raise Failed(f"{'/'.join(path)} at {sha} is a {'link' if mode == '120000' else 'submodule'} "
-                                 f"(mode {mode}): a snapshot holds regular files only")
         walk(first[1].decode("ascii"), ())
     finally:
         store.close()
+    out = without_shims(out)
+    for mode, _oid, path in out:
+        if mode not in ("100644", "100755"):
+            raise Failed(f"{path} at {sha} is a {'link' if mode == SHIM_MODE else 'submodule'} "
+                         f"(mode {mode}): a snapshot holds regular files only")
     out.sort(key=lambda e: e[2].encode())
-    listed = _git(repo, "ls-tree", "-r", "-z", "--full-tree", sha, "--", *SNAPSHOT)
-    theirs = []
-    for rec in listed.split(b"\0"):
-        if rec:
-            meta, path = rec.split(b"\t", 1)
-            mode, _kind, oid = meta.decode("ascii").split(" ")
-            theirs.append((mode, oid, path.decode("utf-8", "surrogateescape")))
-    theirs.sort(key=lambda e: e[2].encode("utf-8", "surrogateescape"))
+    theirs = listed_entries(repo, sha)
     if theirs != out:
         raise Failed(f"git ls-tree and the verified walk of {sha} disagree; nothing installed")
     if not {TEMPLATE, ENTRY} <= {p for _m, _o, p in out}:
@@ -614,13 +650,7 @@ def check(repo: str = FABRIC, ref: str = "origin/main", prefix: str = PREFIX, et
             try:
                 with open(os.path.join(snap, MANIFEST), encoding="utf-8") as f:
                     _sha, mine = parse_manifest(f.read())
-                listed = _git(repo, "ls-tree", "-r", "-z", "--full-tree", ref, "--", *SNAPSHOT)
-                theirs = []
-                for rec in listed.split(b"\0"):
-                    if rec:
-                        meta, path = rec.split(b"\t", 1)
-                        mode, _kind, oid = meta.decode("ascii").split(" ")
-                        theirs.append((mode, oid, path.decode("utf-8", "surrogateescape")))
+                theirs = listed_entries(repo, ref)
                 a, b = set(mine), set(theirs)
                 if a != b:
                     paths = sorted({p for _m, _o, p in a ^ b})

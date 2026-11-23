@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "description": "Where the agents' accounts are: the hosts the fabric operates, and which host each login was provisioned on (placement). A host's id is its short hostname — what runtime/identity.py current_host() returns and what a GZCoord address carries — so two hosts can never share one, and a worker that reports another name than the id it was reached as is refused. `ssh` is how the coordinator reaches the host's operator account (an ssh destination; null for the host the coordinator runs on, reached directly), `operator` the login there that holds sudo and the fabric checkout at `fabric`, and `operator_key` (`ed25519:<base64 SPKI>`, written by `fabric-ctl keygen`) the public half of that operator's signing key — every control daemon answers a control-plane ACTION only when signed with it (runtime/control/sign.mjs). `sshd` is the host's own sshd, with its pinned host keys, through which the Fleet Deck reaches each placed account (ADR-048; null or absent until provisioned). Placement is where an account lives, never its identity (the OS's) and never its role.",
+  "hosts": {
+    "develop-qzapp": {
+      "platform": "fedora-qubes",
+      "ssh": null,
+      "operator": "user",
+      "fabric": "~/projects/agent-fabric",
+      "operator_key": "ed25519:MCowBQYDK2VwAyEALKVPvfSMWb0A3zDgwxoldrPv5ZwzhMdRWqczeY8VW1U=",
+      "sshd": {
+        "address": "127.0.0.1",
+        "port": 22,
+        "host_keys": [
+          "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBGJ0xyFK+tvueCOVYJd5LrUfLJV53W7fBIomTYkPtS8r9hmRHp57Cg0AqiZ/cd4rdAbh7L1ckSldStEWhrVX51I=",
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMjtjjzyt2EyD5L9B6KWqoAjBMkQyVPjRhlTdj9TNvf",
+          "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCxlp0uY0OtDcWFvNgBtwj1+D7f6l+y99jeju2x++Lb/Q/Sf/gs1MGU5t27ecn702VOdF3aUhsADKoDT3yoX8LRIHwZzPmeZtAE4fPd4sT/VoMiHNJQ9KQqUQQzkqdISWF/JdpDIhKNW8+QU5fz4zUGEUXdnxTrEG3uV3MQ1PrJXnZlT8uE9iPeYpbIYw37Hx7GC3awtcR85T2XcUlFzl10ANnYSc6alnMPqK3dLOYEnwY/IJHXVE2yqlO6AV/eJkGadkcHko68YHLi5pVWo4KnESGlcVdSApnwvpKObhQyFSkCt5+ns74kdsDtrsWCX5ZVIBsiYtrwj45kckEHuOLHlqOMf2DMb4joZ6lKqAR9tTtfBrwCj2QvN0fSkbc1NzZtBAwmP3Yf3dGxOT5CwSnjuQrolidLJ1QH+Zv2Y5k1wYY+khIPZQN+kM7YWcKYp3vazrzl88QThypgYWn3dmHEv11QirUItszHWGsK75Om50v3zK/fwTcNHJADrZKrIVc="
+        ]
+      }
+    },
+    "fabric-h2": {
+      "platform": "almalinux",
+      "ssh": "op@192.168.200.79",
+      "operator": "op",
+      "fabric": "~/projects/agent-fabric",
+      "interweave_address": "195.69.140.18",
+      "sshd": {
+        "address": "192.168.200.79",
+        "port": 22,
+        "host_keys": [
+          "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBN3Y6IY6VwhLpDXnG9ezpJM3TXmrj7xEOhdDyoj8Ux3hxnkkslKwywuoLPBZkYoakjS6dF8m+6XAddOor6aoZS8=",
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKk5dU50E4mRKhEeuqyyUxzUMJQd4TZjUxpPWSQ7CDRw",
+          "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDUEO19ppZTNDBa8BRqkKvgILUdi1S2IXbVI1S1szrSCXzeijSzvoOgQ9pkrklv3NrldeKbf7HUxnATfWgtJuHxwcpnOUYTLnsGq9N1fMNexYHXNGLQTNLlqcvpvGbwZJVXqCuANLA1AieiAiZKPsWhYKT84ayQAfwt0r2wAUWxFcnctEMh7M35gB7PAEgIYnMvj4X5zx09561dTinY3FhFV6yYajbslmy3TAeeS7c12ye6F9e6RydB3WRoKI6K9ciDQ+jDFj5IRSVm4pPjwmf3zGO4XiPIMguNNryb/NlJb3/lbNgHKeNWqD4ZGikocg47LtxPeNiXphsdnBXvHojSwnP3oKPl9xqU8ssX/MrNrJuMled+lpiDaM6mhaMUYljSfdCCLdLIxKFp4LVt2qUcOLTGcqWXBMsowuCGRVUZLhhc0iHNwR+z/jLOXKw2GNGhhozjwYZHGutZIb6fu239HhZr5mw3FYGufzECs9GQBUulNxsgPYG02NikmvRAe2U="
+        ]
+      }
+    }
+  },
+  "placement": {
+    "user": "develop-qzapp",
+    "architect-cto-01": "develop-qzapp",
+    "backend-dev-01": "develop-qzapp",
+    "backend-dev-02": "develop-qzapp",
+    "flutter-dev-01": "develop-qzapp",
+    "flutter-dev-02": "develop-qzapp",
+    "web-dev-01": "develop-qzapp",
+    "web-dev-02": "develop-qzapp",
+    "db-admin": "develop-qzapp",
+    "devex-tooling": "develop-qzapp",
+    "edge-hosting": "develop-qzapp",
+    "domain-transit": "develop-qzapp",
+    "brand-comms-01": "develop-qzapp",
+    "language-culture-ge": "develop-qzapp",
+    "p2p-network-dev-01": "develop-qzapp",
+    "language-culture-ru": "develop-qzapp",
+    "language-culture-en": "develop-qzapp",
+    "python-dev-01": "develop-qzapp",
+    "rust-ui-dev-01": "develop-qzapp",
+    "rust-ui-dev-02": "develop-qzapp",
+    "p2p-network-dev-02": "develop-qzapp",
+    "rust-services-dev-01": "develop-qzapp",
+    "python-dev-02": "develop-qzapp",
+    "python-dev-03": "develop-qzapp",
+    "python-dev-04": "develop-qzapp",
+    "rust-services-dev-02": "develop-qzapp",
+    "legal-expert-ee-eu": "develop-qzapp",
+    "legal-expert-ch": "develop-qzapp",
+    "legal-expert-ge": "develop-qzapp",
+    "ux-designer-01": "develop-qzapp"
+  }
+}

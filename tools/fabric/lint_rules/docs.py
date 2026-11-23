@@ -101,11 +101,32 @@ def doc_path_findings(root: str | None = None) -> list[str]:
         files = subprocess.run(["git", "-C", root, "ls-files"], capture_output=True, text=True, check=True).stdout.split()
     except (OSError, subprocess.CalledProcessError):
         return []
-    adr_dir = roots.adr_dir(engine=root)
-    numbers = {f[4:7] for f in os.listdir(adr_dir) if f.startswith("ADR-") and f[4:7].isdigit()} if os.path.isdir(adr_dir) else set()
+    # "agent-fabric ADR-NNN" is one numbering held by two trees (ADR-045 rule 4): the operator's records, the
+    # engine's, and the numbers the engine keeps reserved for the ones that moved. Either tree alone calls the
+    # other's citations dangling.
+    numbers: set[str] = set()
+    for adr_dir in {roots.adr_dir(engine=root), roots.engine_adr_dir(engine=root)}:
+        if os.path.isdir(adr_dir):
+            numbers |= {f[4:7] for f in os.listdir(adr_dir) if f.startswith("ADR-") and f[4:7].isdigit()}
+            try:
+                with open(os.path.join(adr_dir, "reserved.json"), encoding="utf-8") as fh:
+                    numbers |= set(json.load(fh).get("reserved", {}))
+            except (OSError, ValueError, AttributeError):
+                pass
+    # The exemptions name instance paths as the repository stores them, and since move-plan step B those sit
+    # under the operator's prefix (operator/memory/..., operator/docs/live-checks/...), not only at the shims.
+    # The files are listed from this repository, so its own operator/ (the fallback) stays exempt whatever is
+    # exported: an operator exported outside it leaves that copy here, and lost the exemption when only the
+    # exported prefix was asked (test_roots_readers, an operator copy beside the checkout).
+    prefixes = {roots.operator_prefix(root, environ={})}
+    try:
+        prefixes.add(roots.operator_prefix(root))
+    except ValueError:
+        pass
+    exempt = DOC_PATH_EXEMPT + tuple(pre + p for pre in sorted(prefixes - {""}) for p in DOC_PATH_EXEMPT)
     out: list[str] = []
     for rel in files:
-        if rel.startswith(DOC_PATH_EXEMPT) or "/test_" in f"/{rel}" or "/tests/" in f"/{rel}":
+        if rel.startswith(exempt) or "/test_" in f"/{rel}" or "/tests/" in f"/{rel}":
             continue
         if not rel.endswith((".md", ".py", ".sh", ".mjs", ".js", ".json", ".service")) and "/" in rel and not rel.startswith("bin/"):
             continue
@@ -728,7 +749,8 @@ def project_name_findings(root: str) -> list[str]:
         pats.append(re.compile(r"\b" + re.escape(re.sub(r"[^A-Za-z0-9]", "_", pid).upper()) + r"_"))
     def walked():
         for rel in GENERIC_DIRS:
-            base = os.path.join(root, rel)
+            # The roles are the operator's (move-plan step B), read where roots puts them, not through a shim.
+            base = roots.roles_dir(engine=root) if rel == "identities/roles" else os.path.join(root, rel)
             if not os.path.isdir(base):
                 continue
             for dirpath, dirnames, filenames in os.walk(base):

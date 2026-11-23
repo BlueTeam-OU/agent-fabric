@@ -46,6 +46,8 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+import roots  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()      # the entry is handed a tree (AGENT_FABRIC_ROOT): the runner's operator must not be the one it finds
 ENTRY = os.environ.get("DIR_AUTHORITY_ENTRY") or os.path.join(ROOT, "policies", "check_agent_fabric_dir_authority.sh")
@@ -77,7 +79,8 @@ class Entry(unittest.TestCase):
         for rel, text in {".agent-fabric/memory/backend-dev/workflow.md": "slice\n", "src/a.txt": "code\n", **(files or {})}.items():
             self.write(rel, text)
         if authority:
-            self.write("policies/authority.json", authority_json(authority))
+            # where the guard reads the entry from a repository it is run in: the operator's tree, operator/ unset (roots.operator_prefix)
+            self.write(os.path.relpath(roots.policy("authority.json", environ={}, engine=self.repo), self.repo), authority_json(authority))
         self.git("init", "-q")
         self.git("config", "user.email", "t@e")
         self.git("config", "user.name", "t")

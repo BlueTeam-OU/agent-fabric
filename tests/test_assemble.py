@@ -34,6 +34,14 @@ SCHEMA_DIR = os.path.join(ROOT, "identities", "schemas")
 PROMPT_DIR = os.path.join(ROOT, "identities", "prompt")
 
 
+def lint_run(out: str) -> subprocess.CompletedProcess:
+    """Lint over a throwaway fabric laid out as before step B: its instance data at the top, so the fixture
+    exports it as the operator (a bare --fabric names the engine tree, whose operator/ the fixture has none of)."""
+    env = {**os.environ, "AGENT_FABRIC_OPERATOR": out}
+    return subprocess.run([sys.executable, LINT, "--fabric", out, "--working-copy", f"{PROJECT}={working_copy(out)}"],
+                          capture_output=True, text=True, env=env)
+
+
 def lint_inputs(out: str) -> None:
     """The committed inputs lint wants beyond what the assembler writes:
     the real schemas, and the launch-prompt sections (identities/prompt/,
@@ -286,15 +294,17 @@ def test_fabric_links_use_the_sibling_prefix_even_when_the_checkout_is_nested(tm
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     import importlib
     layout = importlib.import_module("layout")
+    import roots
     wc = os.path.join(tmp, "wc")
     nested_fabric = os.path.join(wc, "_agent-fabric")
-    os.makedirs(os.path.join(nested_fabric, "memory", "domains", "web-dev"))
+    domain_dir = roots.memory_dir("domains", "web-dev", engine=nested_fabric)   # operator/memory/ with none exported
+    os.makedirs(domain_dir)
     os.makedirs(os.path.join(wc, ".agent-fabric", "memory", "web-dev"))
     saved = layout.FABRIC_ROOT
     try:
         layout.FABRIC_ROOT = nested_fabric
         layout.set_working_copy("demo", wc)
-        slice_ = os.path.join(nested_fabric, "memory", "domains", "web-dev", "x.md")
+        slice_ = os.path.join(domain_dir, "x.md")
         assert layout.link_rel(slice_, "demo") == "../agent-fabric/memory/domains/web-dev/x.md"
         own = os.path.join(wc, ".agent-fabric", "memory", "web-dev", "y.md")
         assert layout.link_rel(own, "demo") == ".agent-fabric/memory/web-dev/y.md"
@@ -1223,7 +1233,7 @@ def test_a_collision_slice_passes_lint(tmp: str) -> None:
     with open(ident(out, "alpha", "charter.md"), "w", encoding="utf-8") as fh:
         fh.write("---\nrole: alpha\nclass: charter\ndescription: d\ntier: 1\ndistilled_at: 2026-01-01\n---\n\n# alpha\n")
     run_assemble(drain, claims_dir, out, *keep_both(tmp, "alpha/domain:one#Same title"))          # re-index with the charter present
-    proc = subprocess.run([sys.executable, LINT, "--fabric", out, "--working-copy", f"{PROJECT}={working_copy(out)}"], capture_output=True, text=True)
+    proc = lint_run(out)
     assert proc.returncode == 0, \
         f"lint rejected what the assembler wrote:\n{proc.stderr}"
 
@@ -2188,7 +2198,7 @@ def test_supersede_retires_the_section_in_the_part_that_holds_it(tmp: str) -> No
         fh.write("---\nrole: alpha\nclass: charter\ndescription: d\ntier: 1\ndistilled_at: 2026-01-01\n---\n\n# alpha\n")
     assert run_assemble(drain, claims_dir, out, "--budget", "500", "--collision-decisions",
                         decisions_file(tmp, {"alpha/domain:grow#Third": "supersede"})).returncode == 0
-    lint = subprocess.run([sys.executable, LINT, "--fabric", out, "--working-copy", f"{PROJECT}={working_copy(out)}"], capture_output=True, text=True)
+    lint = lint_run(out)
     assert lint.returncode == 0, f"lint rejected the tree a supersede across parts left:\n{lint.stderr}"
 
 
@@ -2202,7 +2212,7 @@ def _lintable(out: str) -> None:
 
 
 def _lint(out: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, LINT, "--fabric", out, "--working-copy", f"{PROJECT}={working_copy(out)}"], capture_output=True, text=True)
+    return lint_run(out)
 
 
 def test_a_retired_sibling_already_indexed_this_run_is_re_listed_by_what_remains(tmp: str) -> None:
@@ -2378,7 +2388,7 @@ def test_lint_detects_index_drift(tmp: str) -> None:
     with open(proj(out, "alpha", "solution.md"), "w", encoding="utf-8") as fh:
         fh.write("---\nrole: alpha\nclass: solution\ndescription: added by hand\n"
                  "tier: 2\ndistilled_at: 2026-01-01\nderived_from:\n  - h1\n---\n\nbody\n")
-    proc = subprocess.run([sys.executable, LINT, "--fabric", out, "--working-copy", f"{PROJECT}={working_copy(out)}"], capture_output=True, text=True)
+    proc = lint_run(out)
     assert proc.returncode == 1
     assert "drifted" in proc.stderr, proc.stderr
 
@@ -2478,8 +2488,7 @@ def test_lint_rejects_a_session_temp_crossref_key(tmp: str) -> None:
     with open(crossref_path, "w", encoding="utf-8") as fh:
         json.dump(doc, fh, ensure_ascii=False, indent=2, sort_keys=True)
 
-    proc = subprocess.run(
-        [sys.executable, LINT, "--fabric", out, "--working-copy", f"{PROJECT}={working_copy(out)}"], capture_output=True, text=True)
+    proc = lint_run(out)
     assert proc.returncode == 1, proc.stdout + proc.stderr
     assert "session-local temp path" in proc.stderr, proc.stderr
 
@@ -2496,8 +2505,7 @@ def lintable(out: str) -> None:
 
 
 def run_lint_wc(out: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, LINT, "--fabric", out, "--working-copy", f"{PROJECT}={working_copy(out)}"],
-                          capture_output=True, text=True)
+    return lint_run(out)
 
 
 def test_a_banned_term_in_title_or_topic_is_redacted_too_and_a_person_becomes_the_role(tmp: str) -> None:
@@ -2534,7 +2542,7 @@ def test_a_banned_term_in_title_or_topic_is_redacted_too_and_a_person_becomes_th
     with open(ident(out, "alpha", "charter.md"), "w", encoding="utf-8") as fh:
         fh.write("---\nrole: alpha\nclass: charter\ndescription: d\ntier: 1\ndistilled_at: 2026-01-01\n---\n\n# alpha\n")
     run_assemble(drain, claims_dir, out)          # re-index with the charter present
-    lint = subprocess.run([sys.executable, LINT, "--fabric", out, "--working-copy", f"{PROJECT}={working_copy(out)}"], capture_output=True, text=True)
+    lint = lint_run(out)
     assert lint.returncode == 0, f"lint refused what the assembler wrote:\n{lint.stdout}{lint.stderr}"
 
 
@@ -3809,6 +3817,7 @@ def test_a_name_scoped_own_is_withheld_in_its_own_projects_slices_only(tmp: str)
     assert "[redacted] and [redacted] have grid plans." in read(dom(out, "alpha", "domain.md"))
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     import importlib
+    import roots
     layout = importlib.import_module("layout")
     saved = (layout.FABRIC_ROOT, dict(layout._WORKING_COPIES))
     try:
@@ -3822,7 +3831,7 @@ def test_a_name_scoped_own_is_withheld_in_its_own_projects_slices_only(tmp: str)
         assert "control name" in labels(for_project="another"), "the control: a no-scope entry holds everywhere"
         for doc, said in (({"patterns": [{"pattern": "x", "scope": "own"}]}, "not the fabric's"),
                           ({"patterns": [{"pattern": "x", "scope": "mine"}]}, "the scopes are")):
-            policy = os.path.join(out, "policies", "hygiene.json")
+            policy = roots.policy("hygiene.json", environ={}, engine=out)   # the fabric `out` is the engine: its operator/ is the list's place
             os.makedirs(os.path.dirname(policy), exist_ok=True)
             with open(policy, "w", encoding="utf-8") as fh:
                 json.dump(doc, fh)

@@ -19,6 +19,8 @@ import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tests"))
+sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import roots  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -54,8 +56,12 @@ class Completion(unittest.TestCase):
                     "STUB_LOG": self.log, "LC_ALL": "C"}
         self.registry('{"placement": {"alpha-01": "host-a", "beta-01": "host-a", "gamma-01": "host-b"}}')
 
+    def hosts_registry(self) -> str:
+        # The completion's own environment is self.env (no operator, no override), not this process's.
+        return roots.hosts_registry(environ=self.env, engine=self.root)
+
     def registry(self, text: str | None) -> None:
-        path = os.path.join(self.root, "runtime", "hosts", "registry.json")
+        path = self.hosts_registry()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if text is not None:
             with open(path, "w", encoding="utf-8") as fh:
@@ -127,7 +133,7 @@ class Completion(unittest.TestCase):
                 # A registry that resolves to no file is said (move-plan §3 step A); one that is there and
                 # unreadable or malformed is not.
                 if text is None:
-                    self.assertIn("no hosts registry at " + os.path.join(self.root, "runtime", "hosts", "registry.json"), err)
+                    self.assertIn("no hosts registry at " + self.hosts_registry(), err)
                 else:
                     self.assertEqual(err, "")
                 self.assertEqual(self.complete("fabric-ctl", "all", "")[0], ["status", "keys", "upgrade"])
@@ -135,7 +141,7 @@ class Completion(unittest.TestCase):
     def test_a_registry_without_read_permission_does_not_print_an_error(self):
         if os.geteuid() == 0:
             self.skipTest("root reads any file")
-        path = os.path.join(self.root, "runtime", "hosts", "registry.json")
+        path = self.hosts_registry()
         os.chmod(path, 0)
         self.addCleanup(os.chmod, path, 0o600)
         words, err = self.complete("fabric-ctl", "")

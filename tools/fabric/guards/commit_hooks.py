@@ -15,14 +15,14 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                                                       when every path is one locale's translation file, 1 otherwise
             locale-paths                              the staged paths to judge, one per line; exit 0
             <fabric-root> is where the hook file lives (the forwarder works it out from its own real path), which is
-            NOT where this module lives: a test, or a checkout the hooks serve, holds its own policies/authority.json.
+            NOT where this module lives: a test, or a checkout the hooks serve, holds its own operator/policies/authority.json.
   itself    "agent-fabric itself" is ONE predicate, same_repository(<fabric-root>), for every decision that asks it (the
             guard's scope and label, the contributor carve-out, the decision-record check, the hidden-text scope): the
             repository's toplevel is <fabric-root>, or its git common directory is <fabric-root>'s, so a linked worktree of
             the fabric is the fabric. Every other repository is a managed project, whose guarded set is .agent-fabric/.
   hidden    pre-commit also refuses, for EVERY committer (the coordinator, both carve-outs, an unbound session), a staged
             file that tools/fabric/agent_text.py calls text an agent reads (in agent-fabric itself: any *.md, *.md/*.json
-            under identities/ and .agent-fabric/; in a managed project: .agent-fabric/ only) whose STAGED blob holds
+            under identities/, operator/identities/ and .agent-fabric/; in a managed project: .agent-fabric/ only) whose STAGED blob holds
             a character tools/fabric/hidden_unicode.py refuses. Exit 1, one `<path>:<line>:<col>: U+XXXX NAME (kind)` per
             character.
   card      pre-commit also refuses, for EVERY committer, a commit that stages .agent-fabric/review-card.md over
@@ -31,7 +31,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             value of the committing account's own secrets.env, and commit-msg a message that holds one
             (tools/fabric/guards/secret_values.py, ADR-012 §5 rule 9). Exit 1, the variable named, never the value.
   env       AGENT_FABRIC_STATE_DIR etc. are read by runtime/identity.py, which runs for the binding's role;
-            AGENT_FABRIC_PYTHON is read by the forwarders only. The login is `id -un`, never the password database.
+            AGENT_FABRIC_PYTHON is read by the forwarders only.
+            AGENT_FABRIC_OPERATOR is NOT read for the owner role: the checkout's own operator/ tree is. The login is `id -un`, never the password database.
   stdout    only the three library verbs print on stdout; the hooks speak on stderr (and the decision-record check's
             own report, which goes there too).
   stderr    every refusal, in the words the bash used; they are pinned by tests/test_githook_*.py.
@@ -89,7 +90,7 @@ AMEND_PLACEHOLDER = "(amend or empty commit: the whole repository)"
 DEFAULT_OWNER = "fabric-coordinator"
 # The carve-out's pattern, verbatim what tools/fabric/guards/agent_fabric_dir_authority.py (CI's tripwire) holds too;
 # tests/test_agent_fabric_dir_authority.py fails if the two drift.
-LOCALE_PATH = re.compile(r"identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
+LOCALE_PATH = re.compile(r"(?:operator/(?=identities/roles/))?identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
 # grep's [[:space:]] in a UTF-8 locale takes Unicode spaces too (an em space), so these take any whitespace but the
 # line break, as CI's ban_generated_by_attribution.py does: an ASCII-only class admitted " Co-authored-by:" spaced with
 # an em space at the keyboard while CI refused it (review of #329, F2).
@@ -210,8 +211,11 @@ def identity_role(root: str) -> str:
 
 
 def owner_role(root: str) -> str:
+    # `root` is the fabric checkout (the engine), never the operator's tree: roots.policy(root=) would read
+    # <root>/policies/, which after the move (ADR-045 step B) exists only through a shim. environ={} because an
+    # exported AGENT_FABRIC_OPERATOR outranks engine= and would name a foreign tree's owner for this checkout's hook.
     try:
-        with open(roots.policy("authority.json", root=root), encoding="utf-8") as f:
+        with open(roots.policy("authority.json", engine=root, environ={}), encoding="utf-8") as f:
             return str(json.load(f)["role_definitions"]["role"]).rstrip("\n")
     except Exception:  # noqa: BLE001 - any unreadable shape is the default owner, as the bash's `except Exception`
         return DEFAULT_OWNER
@@ -310,10 +314,16 @@ def _contributor_exit(root: str, role: str, quiet: bool) -> int | None:
     return r.returncode
 
 
+def adr_pathspecs(base: str, adr: str) -> list[str]:
+    """The decision records' pathspecs: the engine's own and the operator's, which since ADR-045 step B holds the
+    organisational ones. environ={} because git stores the checkout's own operator/, whatever is exported."""
+    return [adr, roots.operator_prefix(base, {}) + adr]
+
+
 def _check_decision_records(root: str) -> None:
     """In agent-fabric itself, a commit staging anything under docs/adr/ leaves the records consistent in what it
     COMMITS: the staged tree is checked, not the working tree."""
-    if not same_repository(root) or _git("diff", "--cached", "--quiet", "--no-renames", "--", "docs/adr/").returncode == 0:
+    if not same_repository(root) or _git("diff", "--cached", "--quiet", "--no-renames", "--", *adr_pathspecs(root, "docs/adr/")).returncode == 0:
         return
     try:
         scratch = tempfile.mkdtemp(prefix="pre-commit-adr.")
@@ -323,11 +333,23 @@ def _check_decision_records(root: str) -> None:
         # The whole staged tree: a record's Evidence may cite any path in it.
         if _git("checkout-index", "-a", f"--prefix={scratch}/").returncode != 0:
             raise Refuse("pre-commit: cannot materialize the staged tree to check the decision records")
-        r = subprocess.run([sys.executable, os.path.join(root, "tools", "fabric", "adr.py"), "--root", scratch, "check"],
-                           capture_output=True, text=True, errors="replace", timeout=ADR_CHECK_TIMEOUT_S, stdin=subprocess.DEVNULL)
-        if r.returncode != 0:
+        # Since ADR-045 step B the staged tree holds two halves of one numbering, the engine's docs/adr and
+        # the checkout's own operator/docs/adr: each is checked with the other named, as lint checks them
+        # (lint_rules/docs.adr_findings). An explicit root alone is only that tree, which left the
+        # operator's records unjudged at commit time (#692 F12).
+        operator = os.path.join(scratch, roots.operator_prefix(scratch, {}).rstrip("/"))
+        pairs = [(operator, scratch), (scratch, operator)] if operator != scratch and os.path.isdir(
+            roots.adr_dir(root=operator)) else [(scratch, None)]
+        failed = []
+        for tree, other in pairs:
+            argv = [sys.executable, os.path.join(root, "tools", "fabric", "adr.py"), "--root", tree, "check"]
+            r = subprocess.run(argv + (["--other", other] if other else []), capture_output=True, text=True,
+                               errors="replace", timeout=ADR_CHECK_TIMEOUT_S, stdin=subprocess.DEVNULL)
+            if r.returncode != 0:
+                failed.append((r.stdout + r.stderr).rstrip("\n"))
+        if failed:
             raise Refuse("pre-commit: the decision records in this commit are not consistent — not committed:\n"
-                         + (r.stdout + r.stderr).rstrip("\n"))
+                         + "\n".join(failed))
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
@@ -890,7 +912,7 @@ def _check_adr_edits(msg: str) -> int:
         return 0
     against = _amend_against()
     if (against and _git("rev-parse", "-q", "--verify", f"{against}^{{commit}}").returncode == 0
-            and _git("diff", "--cached", "--name-only", against, "--", "docs/adr").stdout.strip()):
+            and _git("diff", "--cached", "--name-only", against, "--", *adr_pathspecs(top, "docs/adr")).stdout.strip()):
         r = subprocess.run([sys.executable, os.path.join(top, "tools", "fabric", "adr.py"), "--root", top, "staged-check",
                             "--against", against, msg], timeout=ADR_CHECK_TIMEOUT_S, stdin=subprocess.DEVNULL)
         return 1 if r.returncode else 0

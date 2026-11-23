@@ -27,7 +27,7 @@ RC_LOCAL="${AGENT_FABRIC_RC_LOCAL:-/rw/config/rc.local}"
 # The hosts registry, resolved as tools/fabric/roots.py hosts_registry() will once the operator's data leaves the
 # engine (docs/split/move-plan.md §3, step A): the override, then AGENT_FABRIC_OPERATOR, then the operator's clone
 # when it sits beside this checkout and holds the file (run under sudo, this has no home of its own to look in), then the
-# engine checkout. Empty counts as unset. The clone counts only with the file in it: until step B the operator's
+# engine checkout's operator/ (step B). Empty counts as unset. The clone counts only with the file in it: until step B the operator's
 # repository is empty, and a clone that was taken for existing would refuse where the engine's registry answers. An
 # override or an operator that holds no file is the answer all the same, said below, never replaced by the engine's.
 if [[ -n "${AGENT_FABRIC_HOSTS_REGISTRY:-}" ]]; then
@@ -35,7 +35,7 @@ if [[ -n "${AGENT_FABRIC_HOSTS_REGISTRY:-}" ]]; then
 else
     if [[ -n "${AGENT_FABRIC_OPERATOR:-}" ]]; then operator="$AGENT_FABRIC_OPERATOR"
     elif [[ -f "$fabric/../blueteam-fabric/runtime/hosts/registry.json" ]]; then operator="$(cd "$fabric/../blueteam-fabric" && pwd)"
-    else operator="$fabric"; fi
+    else operator="$fabric/operator"; fi
     REGISTRY="$operator/runtime/hosts/registry.json"
 fi
 host="${AGENT_FABRIC_SSH_HOST:-$(hostname -s)}"

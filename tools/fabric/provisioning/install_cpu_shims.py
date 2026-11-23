@@ -35,10 +35,14 @@ import shutil
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import roots  # noqa: E402
+
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 # (source in the repository, name in the installed directory)
 PAYLOAD = (("tools/fabric/lease.py", "lease.py"), ("tools/fabric/cpu_shim.py", "cpu_shim.py"),
-           ("tools/fabric/process.py", "process.py"), ("policies/host-load.json", "host-load.json"))
+           ("tools/fabric/process.py", "process.py"))
+POLICY = "host-load.json"
 TOOLS = ("cargo", "dotnet")
 SHARE = "share/agent-fabric"
 STEM = "cpu-lease-"
@@ -58,10 +62,17 @@ def prefix() -> str:
     return "/usr/local" if os.geteuid() == 0 else os.environ.get("CPU_SHIMS_PREFIX") or "/usr/local"
 
 
+def sources(root: str) -> list[tuple[str, str]]:
+    """(absolute source, installed name). The policy is instance data: through roots, because where a
+    checkout keeps it is the operator's (a shim at policies/ is not there on every host)."""
+    return [(os.path.join(root, src), name) for src, name in PAYLOAD] + [
+        (roots.policy(POLICY, engine=root), POLICY)]
+
+
 def digest(root: str = FABRIC) -> str:
     h = hashlib.sha256()
-    for src, name in PAYLOAD:
-        with open(os.path.join(root, src), "rb") as fh:
+    for path, name in sources(root):
+        with open(path, "rb") as fh:
             data = fh.read()
         h.update(f"{name}\0{len(data)}\0".encode() + data)
     return h.hexdigest()[:16]
@@ -90,8 +101,8 @@ def install(pfx: str, root: str = FABRIC) -> str:
     if made:
         tmp = tempfile.mkdtemp(dir=share, prefix=".cpu-lease-")
         try:
-            for src, name in PAYLOAD:
-                with open(os.path.join(root, src), "rb") as fh:
+            for path, name in sources(root):
+                with open(path, "rb") as fh:
                     _replace(os.path.join(tmp, name), fh.read(), 0o644)
             os.chmod(tmp, 0o755)
             os.rename(tmp, directory)

@@ -111,7 +111,7 @@ from fabric_lint_rules.command_names import command_name_findings  # noqa: E402,
 from fabric_lint_rules.transport import transport_call_findings  # noqa: E402, F401
 from fabric_lint_rules.roots import roots_bypass_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import BASH_LINE_LIMIT, BASH_SHEBANG, _is_bash, bash_shape_findings, bash_size_findings, forwarder_shape  # noqa: E402, F401
-from fabric_lint_rules.shape import agentd_unit_findings, candidate_role_findings, host_registry_findings  # noqa: E402, F401
+from fabric_lint_rules.shape import agentd_unit_findings, candidate_role_findings, host_registry_findings, operator_shim_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_DEFAULT_REL  # noqa: E402, F401
 from fabric_lint_rules.locales import I18N_EXTRA_PATTERNS, I18N_SCHEMA_REL, LOCALE_ENGINES  # noqa: E402, F401
 from fabric_lint_rules.locales import LOCALE_FILE_OPTIONAL, LOCALE_FILE_RE, _i18n_key_re  # noqa: E402, F401
@@ -297,7 +297,9 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                 findings.append(f"{rel}: boundary case {c!r} is not boundary under these patterns")
         mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
         since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else base_ref
-        base = _git().run(root, "show", f"{since}:{rel}", check=False, timeout=60)
+        # `rel` is relative to the operator's tree; an object is named from the repository's top, where
+        # this checkout stores that tree (_prefix_at, move-plan step B).
+        base = _git().run(root, "show", f"{since}:{_prefix_at(root, since)}{rel}", check=False, timeout=60)
         # No base, no comparison, and no finding: a managed project's CI runs
         # this lint on a depth-1 checkout of the fabric at its pinned ref,
         # with no origin/main, and a finding there would fail every project
@@ -362,9 +364,10 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
     since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else ""
     if since:
-        listed = _git().run(root, "ls-tree", "-r", "--name-only", since, "--", "projects/", check=False, timeout=60)
-        before = {r for r in listed.stdout.splitlines()
-                  if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)} if listed.returncode == 0 else set()
+        at = _prefix_at(root, since)
+        listed = _git().run(root, "ls-tree", "-r", "--name-only", since, "--", f"{at}projects/", check=False, timeout=60)
+        before = {r[len(at):] for r in listed.stdout.splitlines()
+                  if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r[len(at):])} if listed.returncode == 0 else set()
         now = set(_arm_jsons_in_read_tree(root))
         removed = sorted(before - now)
         try:
@@ -386,6 +389,18 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     return findings
 
 
+def _prefix_at(root: str, rev: str) -> str:
+    """Where `rev` stores the operator's tree in this checkout: operator/, or "" for a base from before
+    ADR-045 step B (main until the move merges), which keeps the files at their old place. Read there, or
+    every history rule compared nothing and passed in silence (#692 F13). A rev that has the tree is read
+    there alone. The checkout's own layout (`environ={}`), never the exported operator's: git stores
+    operator/ whichever tree AGENT_FABRIC_OPERATOR makes lint read, and an operator outside the repository
+    once raised here and skipped every history rule."""
+    at = roots.operator_prefix(root, {})
+    has = _git().run(root, "cat-file", "-e", f"{rev}:{at.rstrip('/')}", check=False, timeout=60)
+    return at if has.returncode == 0 else ""
+
+
 def _read_tree_files(root: str):
     """(tree, tracked) for the tree roots.* reads instance data from (the
     operator's when AGENT_FABRIC_OPERATOR is exported, ADR-045), never the
@@ -395,16 +410,24 @@ def _read_tree_files(root: str):
     (`rev-parse --show-toplevel`): a tree untracked inside a larger repository
     would read every file as missing, so it is judged by existence, `tracked`
     None. None altogether when absence proves nothing: the engine that is
-    not a checkout, or a checkout whose index is empty (nothing tracked
-    proves nothing; the answer before j147)."""
+    not a checkout, or a checkout (its operator/ too) whose index is empty
+    (nothing tracked proves nothing; the answer before j147)."""
     tree = roots.operator_root(engine=root)
     top = _git().run(tree, "rev-parse", "--show-toplevel", check=False, timeout=60)
-    if top.returncode == 0 and os.path.realpath(top.stdout.strip()) == os.path.realpath(tree):
-        r = _git().run(tree, "ls-files", "-z", check=False, timeout=60)
-        if r.returncode == 0:
-            tracked = {f for f in r.stdout.split("\0") if f}
-            return (tree, tracked) if tracked else None
-    if os.path.realpath(tree) == os.path.realpath(root):
+    real_tree, real_root = os.path.realpath(tree), os.path.realpath(root)
+    # The engine's own tree, or the checkout's own operator/ (step B): one checkout, whose index lists a
+    # subdirectory's files relative to it, and which proves nothing when it has none. Only that one
+    # subdirectory: an exported operator nested elsewhere in the checkout is a tree of its own, judged
+    # by existence like any untracked one.
+    in_engine = real_tree in (real_root, os.path.join(real_root, "operator"))
+    if top.returncode == 0:
+        toplevel = os.path.realpath(top.stdout.strip())
+        if real_tree == toplevel or (in_engine and toplevel == real_root):
+            r = _git().run(tree, "ls-files", "-z", check=False, timeout=60)
+            if r.returncode == 0:
+                tracked = {f for f in r.stdout.split("\0") if f}
+                return (tree, tracked) if tracked else None
+    if in_engine:
         return None
     return tree, None
 
@@ -512,6 +535,9 @@ def gzcoord_declared_findings(root: str) -> list[str]:
 # or runs is CONTRIBUTOR_SUPPLY below (the owner, 2026-11-07).
 CONTRIBUTOR_NEVER = (
     "identities/", "routing/", "policies/", "communication/gzcoord/protocol/", "docs/adr/", "memory/",
+    # The same instance data where ADR-045 step B moved it (move-plan §3): the fence follows the
+    # files, or a contributor entry naming operator/policies/ would pass as reaching nothing here.
+    "operator/identities/", "operator/routing/", "operator/policies/", "operator/docs/adr/", "operator/memory/",
     ".agent-fabric/", ".github/", "AGENTS.md", "CLAUDE.md",
     "tools/fabric/guards/", "tools/fabric/git.py", "tools/fabric/lint.py", "tools/fabric/lint_rules/",
     # The checkers' exception lists, engine data beside them since ADR-045 step A (move-plan §3), fenced as they were
@@ -824,6 +850,7 @@ def _main() -> int:
     findings += command_name_findings(root)
     findings += transport_call_findings(root)
     findings += roots_bypass_findings(root)
+    findings += operator_shim_findings(root)
     findings += arm_boundary_findings(root)
     findings += arm_direct_findings(root)
     findings += arm_declared_findings(root)
@@ -943,7 +970,7 @@ def _main() -> int:
         pbase = layout.project_memory_root(pid)
         plabel = f"{pid}:{layout.PROJECT_MEMORY_SUBDIR}"
         staleness_warnings(pbase, plabel, pid)
-        link_warnings(pbase, plabel, roots.operator_root(engine=root), pbase,
+        link_warnings(pbase, plabel, root, pbase,
                       [layout.project_memory_root(p) for p in layout.list_projects() if p != pid])
         if project_ids and pid not in project_ids:
             findings.append(f"{plabel}: no projects/{pid}/taxonomy.json binds this project")
@@ -1051,7 +1078,7 @@ def _main() -> int:
 
     # --- staleness (ADR-050 rule 2) and dead links: warnings, never findings ---
     staleness_warnings(roots.memory_dir(engine=root), "memory")
-    link_warnings(roots.memory_dir(engine=root), "memory", roots.operator_root(engine=root), "",
+    link_warnings(roots.memory_dir(engine=root), "memory", root, "",
                   [layout.project_memory_root(p) for p in layout.list_projects()])
 
     # --- launch prompt sections --------------------------------------------

@@ -98,7 +98,10 @@ jobs:
       # (docs/split/move-plan.md §2 precondition 5): `git archive` stores a
       # symlink shim and not its target, and the branch's roots would name
       # a layout main has not got yet. The prefix is the one
-      # AGENT_FABRIC_OPERATOR names under the checkout, "" while unset.
+      # AGENT_FABRIC_OPERATOR names under the checkout; unset it is
+      # "operator/", where operator_root() falls back. Until step B is on
+      # main the prefix is "" (the pre-move layout); `moved` is read from
+      # main's roots, so it follows whichever layout main has.
       - name: the branch's authority, judged by main's own guards
         run: |
           base="$(mktemp -d)"
@@ -154,7 +157,9 @@ jobs:
           git archive origin/main tools/fabric | tar -x -C "$base"
           moved="$(/usr/bin/python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import roots; print("\n".join(roots.git_path(*p.split("/"), base=sys.argv[2]) for p in sys.argv[3:]))' "$base/tools/fabric" "$PWD" policies/signing.json policies/authority.json identities/keys identities/roles projects/registry.json)"
           prefix="$(/usr/bin/python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import roots; print(roots.operator_prefix(sys.argv[2]))' "$base/tools/fabric" "$PWD")"
-          git archive origin/main policies $moved | tar -x -C "$base"
+          # The forge keys are archived as a folder beside signing.json, under main's
+          # prefix: main's git_path does not know the folder until step B is on main.
+          git archive origin/main policies "${prefix}policies/forge-keys" $moved | tar -x -C "$base"
           AGENT_FABRIC_OPERATOR="$base/$prefix" /usr/bin/python3 -I "$base/tools/fabric/guards/ban_unsigned_commits.py"
       - name: the bash suites
         run: bash tests/run.sh bash

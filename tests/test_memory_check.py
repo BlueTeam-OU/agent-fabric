@@ -387,6 +387,124 @@ class Anchors(Tree):
         out = [ln.split("\t") for ln in self.run_cli(self.corpus).stdout.splitlines()]
         self.assertIn(["maybe-stale", "domains/d/domain/a.md", "moved", "tools/fabric/runner.py::run_it", f"{want} 2026-03-20 the run changes its answer"], out)
 
+    def test_an_anchor_at_a_moved_path_is_judged_by_the_history_where_the_file_is_stored(self):
+        # ADR-045 step B: policies/ is a symlink shim into operator/policies/, whose commits are the file's.
+        self.write("operator/policies/authority.json", "{}\n")
+        os.symlink("operator/policies", os.path.join(self.tree, "policies"))
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the move", date="2026-03-05")
+        self.write("operator/policies/authority.json", '{"v": 2}\n')
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the policy changes", date="2026-03-20")
+        want = git(self.tree, "rev-parse", "--short", "HEAD")
+        self.slice("a", ("old", anchored("B.", ["policies/authority.json"], observed="2026-03-10")),
+                   ("after", anchored("B.", ["policies/authority.json"], observed="2026-03-25")),
+                   ("stays", anchored("B.", ["tools/fabric/runner.py"], observed="2026-03-10")))
+        v = self.verdicts()
+        self.assertEqual({h: v[h]["verdict"] for h in v}, {"old": "maybe-stale", "after": "fresh", "stays": "fresh"})
+        self.assertEqual(v["old"]["anchors"][0]["commit"], want)
+
+    def test_a_moved_anchor_is_judged_by_the_stored_history_with_an_operator_exported_outside(self):
+        self.write("operator/policies/authority.json", "{}\n")
+        os.symlink("operator/policies", os.path.join(self.tree, "policies"))
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the move", date="2026-03-05")
+        self.write("operator/policies/authority.json", '{"v": 2}\n')
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the policy changes", date="2026-03-20")
+        self.slice("a", ("old", anchored("B.", ["policies/authority.json"], observed="2026-03-10")))
+        outside = os.path.join(self.base, "elsewhere")
+        os.makedirs(outside)
+        r = self.run_cli(self.corpus, "--json", env={"AGENT_FABRIC_OPERATOR": outside})
+        self.assertEqual(json.loads(r.stdout)["sections"][0]["verdict"], "maybe-stale", r.stdout)
+
+    def moved_after_observed(self, edit: bool):
+        """policies/authority.json written before the observed day, then git-mv'd into operator/ behind a symlink after it."""
+        self.write("policies/authority.json", "{}\n")
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the policy", date="2026-03-02")
+        os.makedirs(os.path.join(self.tree, "operator", "policies"))
+        git(self.tree, "mv", "policies/authority.json", "operator/policies/authority.json")
+        # a symlink at the old name, as step B left each moved file: git sees a typechange there, not a rename
+        os.symlink("../operator/policies/authority.json", os.path.join(self.tree, "policies", "authority.json"))
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "split: move the instance data into operator/", date="2026-03-20")
+        if edit:
+            self.write("operator/policies/authority.json", '{"v": 2}\n')
+            git(self.tree, "add", "-A")
+            git(self.tree, "commit", "-q", "-m", "the policy changes", date="2026-03-22")
+        self.slice("a", ("s", anchored("B.", ["policies/authority.json"], observed="2026-03-10")))
+        return self.verdicts()["s"]
+
+    def test_a_pure_rename_into_the_operator_tree_is_no_change_to_the_anchor(self):
+        row = self.moved_after_observed(edit=False)
+        self.assertEqual(row["verdict"], "fresh", row)
+
+    def test_a_pure_move_behind_a_directory_link_off_the_move_list_is_no_change_either(self):
+        # docs/legal is no item of roots' move list, yet step B moved it behind a link like the rest.
+        self.write("docs/legal/draft.md", "the contract applies\n")
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the draft", date="2026-03-02")
+        os.makedirs(os.path.join(self.tree, "operator", "docs"))
+        git(self.tree, "mv", "docs/legal", "operator/docs/legal")
+        os.symlink("../operator/docs/legal", os.path.join(self.tree, "docs", "legal"))
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "split: move the instance data into operator/", date="2026-03-20")
+        self.slice("a", ("s", anchored("B.", ["docs/legal/draft.md"], observed="2026-03-10")))
+        self.assertEqual(self.verdicts()["s"]["verdict"], "fresh")
+
+    def test_a_merge_that_brings_in_what_a_parent_held_is_no_change(self):
+        # #692 F23: main edits the file at its old path; the move branch merges main after the anchor was observed.
+        # The merge differs from its first parent but holds what its second already held: no change to name.
+        self.write("policies/authority.json", "{}\n")
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the policy", date="2026-03-02")
+        moving = git(self.tree, "rev-parse", "--abbrev-ref", "HEAD")
+        git(self.tree, "branch", "mainline")
+        os.makedirs(os.path.join(self.tree, "operator", "policies"))
+        git(self.tree, "mv", "policies/authority.json", "operator/policies/authority.json")
+        os.symlink("../operator/policies/authority.json", os.path.join(self.tree, "policies", "authority.json"))
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "split: move the instance data into operator/", date="2026-03-20")
+        git(self.tree, "checkout", "-q", "mainline")
+        self.write("policies/authority.json", '{"v": 2}\n')
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "main edits the policy", date="2026-03-12")
+        git(self.tree, "checkout", "-q", moving)
+        try:
+            git(self.tree, "merge", "-q", "--no-commit", "mainline")
+        except subprocess.CalledProcessError:
+            pass  # modify/typechange: resolved by hand below, as the step B branch resolved its merges of main
+        os.remove(os.path.join(self.tree, "policies", "authority.json"))
+        os.symlink("../operator/policies/authority.json", os.path.join(self.tree, "policies", "authority.json"))
+        self.write("operator/policies/authority.json", '{"v": 2}\n')
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "--no-edit", "-m", "merge main into the move", date="2026-03-25")
+        self.slice("a", ("s", anchored("B.", ["policies/authority.json"], observed="2026-03-15")))
+        row = self.verdicts()["s"]
+        self.assertEqual(row["verdict"], "fresh", row)
+
+    def test_a_rename_inside_a_moved_directory_anchor_still_counts(self):
+        # #692 F20: the move of the directory is no change; a later rename inside it is one.
+        self.write("docs/legal/draft.md", "the contract applies\n")
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the draft", date="2026-03-02")
+        os.makedirs(os.path.join(self.tree, "operator", "docs"))
+        git(self.tree, "mv", "docs/legal", "operator/docs/legal")
+        os.symlink("../operator/docs/legal", os.path.join(self.tree, "docs", "legal"))
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "split: move the instance data into operator/", date="2026-03-20")
+        self.slice("a", ("s", anchored("B.", ["docs/legal"], observed="2026-03-10")))
+        self.assertEqual(self.verdicts()["s"]["verdict"], "fresh")
+        git(self.tree, "mv", "operator/docs/legal/draft.md", "operator/docs/legal/final.md")
+        git(self.tree, "commit", "-q", "-m", "the draft becomes final", date="2026-03-25")
+        row = self.verdicts()["s"]
+        self.assertEqual((row["verdict"], row["anchors"][0].get("subject")), ("maybe-stale", "the draft becomes final"), row)
+
+    def test_an_edit_after_the_rename_still_counts_and_names_the_edit_not_the_move(self):
+        row = self.moved_after_observed(edit=True)
+        self.assertEqual((row["verdict"], row["anchors"][0]["subject"]), ("maybe-stale", "the policy changes"), row)
+
     def test_stale_hard_outranks_maybe_stale_outranks_unchecked_outranks_fresh(self):
         self.write("tools/fabric/runner.py", "def run_it():\n    return 2\n")
         git(self.tree, "add", "-A")

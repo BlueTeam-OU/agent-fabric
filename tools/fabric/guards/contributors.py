@@ -64,13 +64,37 @@ def authority_git_path(top: str, environ: Mapping[str, str] | None = None) -> st
     operator is exported inside that repository (docs/split/move-plan.md
     §2 precondition 5). A symlink shim cannot serve a git-object read.
     An operator outside `top` keeps no tree in this repository, so the
-    path is the repository's own: what a guard does when the fabric's
-    authority lives in another repository is precondition 6, never a
-    guess made here."""
+    path is the checkout's own operator tree: the old top-level path is a
+    symlink blob since the move, whose content is the link text. What a
+    guard does when the fabric's authority lives in another repository is
+    precondition 6, never a guess made here."""
     try:
         return roots.git_path("policies", "authority.json", base=top, environ=environ)
     except ValueError:
-        return "policies/authority.json"
+        return roots.git_path("policies", "authority.json", base=top, environ={})
+
+
+PRE_MOVE_AUTHORITY = "policies/authority.json"
+
+
+def authority_git_path_at(top: str, rev: str, environ: Mapping[str, str] | None = None) -> str:
+    """authority_git_path as `rev` stores it. A guard reads the BASE's file,
+    and the base can predate the operator tree: main until ADR-045 step B
+    lands on it, so the branch that makes the move would otherwise be judged
+    by an authority.json "missing" from main and refuse every contributor
+    commit it folds (#692). Only a rev with no operator tree at all is read
+    at the old place, and only when the file is there; a rev that has the
+    tree is read there alone, so a base that moved and then lost the file
+    still refuses, never falls back."""
+    rel = authority_git_path(top, environ)
+    tree = rel[: -len(PRE_MOVE_AUTHORITY)].rstrip("/")
+    if not tree or not rel.endswith(PRE_MOVE_AUTHORITY):
+        return rel
+    def has(path: str) -> bool:
+        return subprocess.run(["git", "-C", top, "cat-file", "-e", f"{rev}:{path}"],
+                              capture_output=True, text=True, timeout=60).returncode == 0
+    # A rev with neither is named by the operator's path, which is where it is missing now.
+    return PRE_MOVE_AUTHORITY if not has(tree) and has(PRE_MOVE_AUTHORITY) else rel
 
 
 def contributors_of(text: str) -> dict[str, dict]:

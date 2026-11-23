@@ -10,8 +10,8 @@ CONTRACT (ADR-040 §5 rule 3):
           or `roles` is ignored. `pr` puts a # before a key without one.
           `migration` takes the key as typed: the match is a case-insensitive
           substring, so the `0007` of the help finds `migration-0007`.
-  env     AGENT_FABRIC_OPERATOR (default: AGENT_FABRIC_ROOT, else this
-          repository; the corpus is <operator>/memory), AGENT_FABRIC_WORKING_COPY, _WORKING_COPIES
+  env     AGENT_FABRIC_OPERATOR (default: the operator/ of AGENT_FABRIC_ROOT,
+          else of this repository; the corpus is <operator>/memory), AGENT_FABRIC_WORKING_COPY, _WORKING_COPIES
           (colon-separated), AGENT_FABRIC_STATE_DIR (default
           ${XDG_STATE_HOME:-$HOME/.local/state}/agent-fabric/agents/<login>,
           whose binding.json names one more working copy); the locale orders

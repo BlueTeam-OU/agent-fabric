@@ -135,7 +135,12 @@ def tree_of(corpus: str) -> str | None:
     if os.path.basename(corpus) != "memory":
         return None
     parent = os.path.dirname(corpus)
-    return os.path.dirname(parent) if os.path.basename(parent) == ".agent-fabric" else parent
+    if os.path.basename(parent) == ".agent-fabric":
+        return os.path.dirname(parent)
+    # The fabric's own memory/ sits in its operator tree, operator/ inside the engine checkout (move-plan step B):
+    # its anchors name engine paths, so the checkout is the tree, not operator/.
+    engine = os.path.dirname(parent)
+    return engine if roots.operator_root(environ={}, engine=engine) == parent else parent
 
 
 def own_project_of(corpus: str, given: str | None) -> str | None:
@@ -330,18 +335,89 @@ class History:
         if self._ready[tree]:
             raise NoHistory(self._ready[tree])
 
-    def changed_after(self, tree: str, path: str, day: str) -> dict | None:
-        """The newest commit that touched `path` after the end of `day` (YYYY-MM-DD, UTC), or None."""
-        self.ready(tree)
+    @staticmethod
+    def stored_path(tree: str, path: str) -> str:
+        """`path` as git in `tree` records its history. An anchor names a file where a reader finds it, which
+        for the engine's moved instance data (ADR-045 step B) is a symlink shim: the history of that name is
+        only the shim's, and the file's commits are under operator/. A same-named path in a project's checkout
+        is no shim (it resolves to itself), so it is left alone."""
+        parts = [p for p in path.split("/") if p]
+        try:
+            # `{}`: where this checkout's git stores the file, not where an exported operator would read it;
+            # with one outside the checkout the shim's own history was judged instead (#692 F13).
+            stored = roots.git_path(*parts, base=tree, environ={})
+        except ValueError:
+            # Not on roots' move list, yet moved all the same (docs/legal, docs/live-checks are shims too):
+            # where the link leads is where git stores it, so long as that is the checkout's operator/.
+            rel = os.path.relpath(os.path.realpath(os.path.join(tree, *parts)), os.path.realpath(tree)).replace(os.sep, "/")
+            return rel if rel.startswith("operator/") else path
+        full, real = os.path.join(tree, *parts), os.path.join(tree, *stored.split("/"))
+        if os.path.lexists(real) and os.path.realpath(full) == os.path.realpath(real):
+            return stored
+        return path
+
+    def _since(self, day: str) -> str:
         end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
-        r = self._git(tree, "log", "-1", "--format=%h%x09%cs%x09%s", f"--since={int(end.timestamp())} +0000", "--", path)
+        return f"--since={int(end.timestamp())} +0000"
+
+    def _blob(self, tree: str, rev: str, paths: tuple[str, ...]) -> str | None:
+        """The object the first of `paths` names at `rev` that is a file or a directory there, or None: a blob for
+        a file anchor, a tree for a directory anchor, whose id changes with any add, edit or rename inside it
+        (#692 F20). A symlink shim is mode 120000 and is never the anchor's content. Cached per revision: a
+        commit's object is its child's parent object (#692 F22)."""
+        key = (tree, rev, paths)
+        cache = self.__dict__.setdefault("_objects", {})
+        if key in cache:
+            return cache[key]
+        found = None
+        for p in paths:
+            r = self._git(tree, "ls-tree", "--full-tree", rev, "--", p.rstrip("/"))
+            fields = r.stdout.split() if r.returncode == 0 else []
+            if len(fields) >= 3 and fields[0] != "120000" and fields[1] in ("blob", "tree"):
+                found = fields[2]
+                break
+        cache[key] = found
+        return found
+
+    def _changes(self, tree: str, path: str, day: str):
+        """(commit, date, subject) of the commits after the end of `day` that changed the anchor's file, newest
+        first, yielded as found. An anchor that did not move is one `git log` asked as before. At a moved path
+        (ADR-045 step B) the history is asked under both names, and a commit is a change only when the file's
+        object differs from every parent's: the commit that only moved it is none, nor a merge that brought in
+        what one parent already held (#692 F23). Judged by object, not by git's rename and break detection, whose
+        answer for a file turned into a symlink shim beside its copy differed between the git releases CI runs."""
+        stored = self.stored_path(tree, path)
+        if stored == path:
+            r = self._git(tree, "log", "--format=%h%x09%cs%x09%s", self._since(day), "--", path)
+            if r.returncode != 0:
+                raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
+            for line in r.stdout.splitlines():
+                commit, date, subject = (line.split("\t", 2) + ["", ""])[:3]
+                yield commit, date, subject
+            return
+        names = (stored, path)
+        r = self._git(tree, "log", "--format=%h%x09%p%x09%cs%x09%s", self._since(day), "--", *names)
         if r.returncode != 0:
             raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
-        line = r.stdout.strip().split("\n")[0]
-        if not line:
+        for line in r.stdout.splitlines():
+            commit, parents, date, subject = (line.split("\t", 3) + ["", "", ""])[:4]
+            now = self._blob(tree, commit, names)
+            if parents.split() and now in {self._blob(tree, p, names) for p in parents.split()}:
+                continue
+            yield commit, date, subject
+
+    def changing_commits(self, tree: str, path: str, day: str) -> list[tuple[str, str, str]]:
+        """Every commit `_changes` counts, newest first."""
+        return list(self._changes(tree, path, day))
+
+    def changed_after(self, tree: str, path: str, day: str) -> dict | None:
+        """The newest commit that touched `path` after the end of `day` (YYYY-MM-DD, UTC), or None. Stops at the
+        first change it finds: only the newest is asked for."""
+        self.ready(tree)
+        first = next(self._changes(tree, path, day), None)
+        if first is None:
             return None
-        commit, _, rest = line.partition("\t")
-        date, _, subject = rest.partition("\t")
+        commit, date, subject = first
         return {"commit": commit, "date": date, "subject": subject[:100]}
 
     def diff_since(self, tree: str, path: str, day: str, limit: int) -> str:
@@ -349,12 +425,15 @@ class History:
         its patch, oldest first, cut to `limit` characters (a cut says so). Read-only, like the rest. Raises
         NoHistory when git cannot say."""
         self.ready(tree)
-        end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
-        r = self._git(tree, "log", "--reverse", "-p", "--no-color", "--no-ext-diff", "--format=commit %h %cs %s",
-                      f"--since={int(end.timestamp())} +0000", "--", path)
-        if r.returncode != 0:
-            raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
-        out = r.stdout
+        stored = self.stored_path(tree, path)
+        names = (path,) if stored == path else (stored, path)
+        parts = []
+        for commit, _, _ in reversed(self.changing_commits(tree, path, day)):
+            r = self._git(tree, "show", "-p", "--no-color", "--no-ext-diff", "--format=commit %h %cs %s", commit, "--", *names)
+            if r.returncode != 0:
+                raise NoHistory("git show failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
+            parts.append(r.stdout)
+        out = "".join(parts)
         return out if len(out) <= limit else out[:limit] + f"\n[the diff is cut here: {len(out) - limit} more characters]"
 
 

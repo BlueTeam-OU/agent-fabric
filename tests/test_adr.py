@@ -22,17 +22,46 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 scrub_process_env()
 
+OPERATOR = os.path.join(ROOT, "operator")   # the live organisational records, until step D
 ZERO = "docs/adr/ADR-000-the-enduring-organization.md"
 ONE = "docs/adr/ADR-001-decision-records.md"
+
+
+def merge_operator_records(root: str) -> None:
+    """The fixture is the pre-step-B whole fabric: every record in one docs/adr. The live organisational
+    records sit in operator/docs/adr (their numbers reserved in the engine's), so the copy takes them
+    back, entry by entry in the DIGEST, and drops the reservations they now fill."""
+    src, dst = os.path.join(OPERATOR, "docs", "adr"), os.path.join(root, "docs", "adr")
+    for sub in ("", "history"):
+        os.makedirs(os.path.join(dst, sub), exist_ok=True)
+        d = os.path.join(src, sub)
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else ():
+            if re.match(r"ADR-\d{3}-", f):
+                shutil.copy(os.path.join(d, f), os.path.join(dst, sub, f))
+    eng_path = os.path.join(dst, "DIGEST.md")
+    eng = open(eng_path, encoding="utf-8").read()
+    op = open(os.path.join(src, "DIGEST.md"), encoding="utf-8").read()
+    rows = [ln for ln in op.split("\n") if re.fullmatch(r"\|.*\| ADR-\d{3} \|", ln)]
+    entries = ("\n" + op).split("\n### ")[1:]
+    head, *eng_entries = ("\n" + eng).split("\n### ")
+    head_lines = head.split("\n")
+    table_end = max(i for i, ln in enumerate(head_lines) if re.match(r"\|.*\| ADR-\d{3}", ln))
+    head_lines[table_end + 1:table_end + 1] = rows
+    merged = sorted(eng_entries + entries, key=lambda e: int(re.match(r"ADR-(\d{3})", e).group(1)))
+    with open(eng_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(head_lines).strip("\n") + "\n\n" + "\n".join("### " + e.strip("\n") + "\n" for e in merged))
+    os.remove(os.path.join(dst, "reserved.json"))   # every number it held is a record again
 
 
 def fixture(tmp: str) -> str:
     root = os.path.join(tmp, "fabric")
     shutil.copytree(os.path.join(ROOT, "docs", "adr"), os.path.join(root, "docs", "adr"))
+    merge_operator_records(root)
     # A record's Evidence paths must exist (adr.check), so the copy carries them.
-    adrs, _ = adr.load(ROOT)
+    adrs, _ = adr.load(root)
     for ev in {e.strip() for a in adrs for e in a["fields"].get("Evidence", "").split(",") if e.strip()}:
-        src, dst = os.path.join(ROOT, ev), os.path.join(root, ev)
+        src = next((p for p in (os.path.join(ROOT, ev), os.path.join(OPERATOR, ev)) if os.path.exists(p)), os.path.join(ROOT, ev))
+        dst = os.path.join(root, ev)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         (shutil.copytree if os.path.isdir(src) else shutil.copy)(src, dst)
     write_registry(os.path.join(root, "projects"))   # the fixture's, never the live one
@@ -556,6 +585,88 @@ def case_a_source_is_never_edited(tmp: str) -> None:
     git(root, "commit", "-qa", msg="touch the source")
     f = adr.range_check(root, base)
     assert len(f) == 1 and "a verbatim source, which is never edited" in f[0], f
+
+
+def _rev(root: str) -> str:
+    return subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, env=git_env()).stdout.strip()
+
+
+def _moved_fixture(tmp: str) -> str:
+    """A fixture repository whose records sit under operator/docs/adr, as in the checkout."""
+    root = fixture(tmp)
+    os.makedirs(os.path.join(root, "operator", "docs"))
+    shutil.move(os.path.join(root, "docs", "adr"), os.path.join(root, "operator", "docs", "adr"))
+    return root
+
+
+def case_range_check_from_the_operator_subdirectory_judges_operator_records(tmp: str) -> None:
+    """CI runs range-check with no --root: the tree is <checkout>/operator, a
+    subdirectory, and the records are operator/docs/adr in the diff's paths. The
+    gate once printed clean on an unrecorded body edit there."""
+    root = _moved_fixture(tmp)
+    base = commit_base(root)
+    edit(root, "operator/" + ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "commit", "-qa", msg="reword")
+    for tree in (root, os.path.join(root, "operator")):
+        f = adr.range_check(tree, base)
+        assert len(f) == 1 and "operator/docs/adr/ADR-001" in f[0], (tree, f)
+
+
+def case_staged_and_range_check_judge_the_stored_layout_whatever_operator_is_exported(tmp: str) -> None:
+    """An operator exported outside the checkout changes where the tool reads, not
+    where git stores the records: the hook gates on operator/docs/adr either way (#692 F13)."""
+    root = _moved_fixture(tmp)
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "core.hooksPath", "/dev/null")
+    git(root, "add", "-A"); git(root, "commit", "-q", msg="base")
+    base = _rev(root)
+    outside = os.path.join(tmp, "elsewhere")
+    os.makedirs(outside)
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    os.environ["AGENT_FABRIC_OPERATOR"] = outside
+    try:
+        edit(root, "operator/" + ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+        git(root, "add", "-A")
+        f = adr.staged_check(root, "reword\n")
+        assert len(f) == 1 and "operator/docs/adr/ADR-001" in f[0], f
+        git(root, "commit", "-q", msg="reword")
+        f = adr.range_check(root, base)
+        assert len(f) == 1 and "operator/docs/adr/ADR-001" in f[0], f
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
+def case_range_check_from_the_operator_subdirectory_still_judges_docs_adr(tmp: str) -> None:
+    root = fixture(tmp)
+    os.makedirs(os.path.join(root, "operator"))
+    open(os.path.join(root, "operator", ".keep"), "w").close()
+    base = commit_base(root)
+    edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "commit", "-qa", msg="reword")
+    f = adr.range_check(os.path.join(root, "operator"), base)
+    assert len(f) == 1 and "no new Amendments row" in f[0], f
+
+
+def case_range_check_takes_a_base_from_before_the_move(tmp: str) -> None:
+    """origin/main keeps its records at docs/adr until the move merges; a branch
+    that moves them and then edits one body is still judged against that base."""
+    root = fixture(tmp)
+    base = commit_base(root)
+    os.makedirs(os.path.join(root, "operator", "docs", "adr"))
+    for f in sorted(os.listdir(os.path.join(root, "docs", "adr"))):
+        # Sources stay: a rename of a verbatim source is itself a finding, which this case is not about.
+        if f.endswith(".md") and f.startswith("ADR-"):
+            git(root, "mv", f"docs/adr/{f}", f"operator/docs/adr/{f}")
+    git(root, "commit", "-q", msg="move the records")
+    f = adr.range_check(os.path.join(root, "operator"), base)
+    assert f == [], f"a pure move is not a body edit: {f}"
+    edit(root, "operator/" + ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "commit", "-qa", msg="reword")
+    f = adr.range_check(os.path.join(root, "operator"), base)
+    assert len(f) == 1 and "no new Amendments row" in f[0], f
 
 
 def case_range_check_on_a_base_without_records(tmp: str) -> None:

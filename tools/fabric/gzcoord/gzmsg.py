@@ -11,7 +11,7 @@ CONTRACT, frozen from the Node:
             value or given twice, or a second positional: `gzmsg <cmd>:
             <why>` on stderr, exit 2, before anything is read. An unknown
             command: the usage line on stderr, exit 2.
-  env       AGENT_FABRIC_OPERATOR, else AGENT_FABRIC_ROOT (where
+  env       AGENT_FABRIC_OPERATOR, else AGENT_FABRIC_ROOT's operator/ (where
             identities/roles/catalog.json is read), AGENT_FABRIC_ROOT
             (where runtime/identity.py is read), AGENT_FABRIC_STATE_DIR /
             XDG_STATE_HOME (the binding's directory), and i18n's

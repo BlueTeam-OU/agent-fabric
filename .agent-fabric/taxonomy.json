@@ -40,7 +40,8 @@
         "communication/",
         "tools/fabric/",
         "tests/",
-        "docs/"
+        "docs/",
+        "operator/"
       ],
       "keywords": [
         "control plane",
@@ -85,6 +86,7 @@
       "id": "legal-expert",
       "paths": [
         "docs/legal/",
+        "operator/docs/legal/",
         "LICENSE",
         "LICENSES/",
         "REUSE.toml"

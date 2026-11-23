@@ -252,3 +252,34 @@ def candidate_role_findings(root: str, catalog: dict[str, Any] | None,
                        f"{', '.join(sorted(bound[rid]))} binds it and {', '.join(logins)} holds it — "
                        "a proved role; drop `candidate`")
     return out
+
+
+def operator_shim_findings(root: str) -> list[str]:
+    """Every symlink at an instance-data path the move left behind (ADR-045 step B) points at that path under
+    operator/ and nowhere else. Old-path readers and the arm boundary trust the link, so a retargeted one
+    would read foreign data as the operator's. Read from the index, never the filesystem: a link in the
+    checkout that is not committed is not what main will hold."""
+    r = _git().run(root, "ls-files", "-s", "-z", check=False, timeout=60)
+    if r.returncode != 0:
+        return []
+    entries = [e.split("\t", 1) for e in r.stdout.split("\0") if "\t" in e]
+    if not any(path.startswith("operator/") for _, path in entries):
+        return []   # a fixture laid out as the old layout: no shim to hold
+    moving = {"/".join(item) for item in roots._MOVING}
+    # Held: the move list, the projects/<id> links, and any other link whose operator/ twin is in the index
+    # (docs/legal, identities/agents: the move left them as links though the list names them otherwise or
+    # not at all, #692 F19). The index, not the list, says what the move left behind.
+    stored = {path for _, path in entries if path.startswith("operator/")}
+    twins = stored | {"/".join(p.split("/")[:i]) for p in stored for i in range(2, p.count("/") + 1)}
+    out: list[str] = []
+    for meta, path in entries:
+        mode, sha = meta.split()[:2]
+        parts = path.split("/")
+        held = path in moving or (parts[0] == "projects" and len(parts) == 2) or f"operator/{path}" in twins
+        if mode != "120000" or path.startswith("operator/") or not held:
+            continue
+        want = "../" * (len(parts) - 1) + "operator/" + path
+        target = _git().run(root, "cat-file", "blob", sha, check=False, timeout=60).stdout
+        if target != want:
+            out.append(f"{path}: a symlink to {target!r}, where it must point at {want!r} (the operator's copy)")
+    return out

@@ -15,6 +15,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 from instance_fixtures import code_tree  # noqa: E402
+import roots  # noqa: E402
 from test_roots_seam import operator  # noqa: E402
 
 
@@ -63,7 +64,7 @@ def case_install_agent_files_finds_the_locale_worker_in_the_operator() -> None:
             with root_env:
                 inst.locale_worker(os.path.join(tmp, "home"), "language-culture", "xx")
             assert put == expect, (put, expect)
-        write(os.path.join(engine, rel), "from the engine")
+        write(os.path.join(roots.operator_root(engine=engine, environ={}), rel), "from the engine")
         put = []
         inst = install_agent_files.Installer("claude", True, root=engine)
         inst.put = lambda dest, content: put.append(content)
@@ -84,8 +85,12 @@ def case_routing_reads_policy_and_profiles_from_the_operator() -> None:
         with unset_operator():
             assert routing.load_review_grade()["capability"] == "code-review"
             assert "op-provider" not in routing.load_profiles()["defaults"]
-            assert routing.load_review_grade(op)["capability"] == "op-cap"     # an explicit root still wins
-            assert routing.load_profiles(op)["defaults"].get("op-provider") == {}
+            # A handed engine tree still wins over the code's own; its data is in its operator/.
+            handed = os.path.join(tmp, "handed")
+            write(roots.routing_policy("review-grade.json", engine=handed, environ={}), {"capability": "op-cap", "models": ["op/model"]})
+            write(roots.routing_profiles(engine=handed, environ={}), {"version": 2, "defaults": {"op-provider": {}}})
+            assert routing.load_review_grade(handed)["capability"] == "op-cap"
+            assert routing.load_profiles(handed)["defaults"].get("op-provider") == {}
 
 
 def case_adr_reads_records_and_the_registry_from_the_operator() -> None:
@@ -101,9 +106,9 @@ def case_adr_reads_records_and_the_registry_from_the_operator() -> None:
             assert adr.tree(None) == op
         # No operator: the tree the code is in, here a fixture that holds a project of its own.
         eng = os.path.join(tmp, "engine")
-        write(os.path.join(eng, "projects", "registry.json"), {"projects": {"engproj": {}, "agent-fabric": {}}})
+        write(roots.projects_registry(engine=eng, environ={}), {"projects": {"engproj": {}, "agent-fabric": {}}})
         with code_tree(eng, adr), unset_operator():
-            assert adr.adr_dir() == os.path.join(eng, "docs", "adr")
+            assert adr.adr_dir() == os.path.join(eng, "operator", "docs", "adr")
             assert adr.foreign_projects(None) == {"engproj"}
             assert adr.check() == [f"{adr.ADR_DIR}: missing"]                # the records are read from the same default tree
             assert adr.adr_dir(op) == os.path.join(op, "docs", "adr")      # --root still names the tree
@@ -124,8 +129,12 @@ def case_adr_lookup_reads_the_operators_digest_and_the_engines() -> None:
             tables = adr.cmd_lookup(None, [])
             assert len(tables) == 2 and "opword" in tables[0] and "engword" in tables[1], tables
             assert [h.split(" ")[1] for h in adr.cmd_lookup(op, ["marker"])] == ["ADR-901"]   # --root: that tree alone
-        with code_tree(eng, adr), unset_operator():
+        with code_tree(eng, adr), operator(eng):
             assert [h.split(" ")[1] for h in adr.cmd_lookup(None, ["marker"])] == ["ADR-902"]   # one tree, once
+        # Step B: with no operator exported, the operator's records are the engine tree's operator/docs/adr.
+        write(os.path.join(roots.operator_root(engine=eng, environ={}), "docs", "adr", "DIGEST.md"), entry("903", "inword"))
+        with code_tree(eng, adr), unset_operator():
+            assert [h.split(" ")[1] for h in adr.cmd_lookup(None, ["marker"])] == ["ADR-903", "ADR-902"]
         os.remove(os.path.join(eng, "docs", "adr", "DIGEST.md"))
         with code_tree(eng, adr), operator(op):
             assert [h.split(" ")[1] for h in adr.cmd_lookup(None, ["marker"])] == ["ADR-901"]   # no engine DIGEST: skipped
@@ -154,7 +163,7 @@ def case_workingcopy_reads_the_operators_registry_and_arm_follows() -> None:
             finally:
                 local.toplevel = real
         eng = os.path.join(tmp, "engine")
-        write(os.path.join(eng, "projects", "registry.json"), {"projects": {"engproj": {}}})
+        write(roots.projects_registry(engine=eng, environ={}), {"projects": {"engproj": {}}})
         with code_tree(eng, workingcopy, attr="FABRIC_ROOT"), unset_operator():
             assert "opproj" not in workingcopy.load_registry()["projects"]
             assert "engproj" in workingcopy.load_registry()["projects"]
@@ -179,8 +188,9 @@ def case_layout_places_memory_roles_and_registry_in_the_operator() -> None:
             write(os.path.join(op, "projects", "opproj", "taxonomy.json"), {})
             assert layout.project_taxonomy_path("opproj") == os.path.join(op, "projects", "opproj", "taxonomy.json")
         with unset_operator():
-            assert layout.roles_dir() == os.path.join(layout.FABRIC_ROOT, "identities", "roles")
-            assert layout.domain_dir("d") == os.path.join(layout.FABRIC_ROOT, "memory", "domains", "d")
+            own = roots.operator_root(engine=layout.FABRIC_ROOT, environ={})    # step B: operator/ inside the engine tree
+            assert layout.roles_dir() == os.path.join(own, "identities", "roles")
+            assert layout.domain_dir("d") == os.path.join(own, "memory", "domains", "d")
             assert "opproj" not in layout.project_ids()
 
 
@@ -201,7 +211,7 @@ def case_lint_reads_catalogue_and_authority_from_the_operator() -> None:
         with unset_operator():
             assert lint._catalog_roles(engine) is None          # the engine tree given holds no catalogue
             assert lint.contributor_findings(engine) == []
-            write(os.path.join(engine, "identities", "roles", "catalog.json"), {"roles": [{"id": "engine-role"}]})
+            write(roots.role_catalog(engine=engine, environ={}), {"roles": [{"id": "engine-role"}]})
             assert lint._catalog_roles(engine) == {"engine-role"}   # the control: the engine's own catalogue, not the operator's
 
 
@@ -263,12 +273,12 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
         probed_tree = among_neighbours(probe_box)     # its own directory: a neighbour called <checkout>-probe cannot be in the way
         shutil.copytree(tmp, probed_tree, symlinks=True)
         try:
-            probe = os.path.join(probed_tree, "memory", "domains", "python-dev", "domain", "dead-pid-fixture-must-exceed-pid-max.md")
+            probe = os.path.join(probed_tree, "operator", "memory", "domains", "python-dev", "domain", "dead-pid-fixture-must-exceed-pid-max.md")
             with open(probe, "a", encoding="utf-8") as fh:
                 fh.write("\n## A section only the operator tree has\n\nSee `tools/fabric/no_such_module_for_the_probe.py`.\n\n"
                          "*Observed 2026-10-01 (python-dev)*\n")
-            plain, over, probed = run_together(base, {**base, "AGENT_FABRIC_OPERATOR": tmp},
-                                               {**base, "AGENT_FABRIC_OPERATOR": probed_tree})
+            plain, over, probed = run_together(base, {**base, "AGENT_FABRIC_OPERATOR": os.path.join(tmp, "operator")},
+                                               {**base, "AGENT_FABRIC_OPERATOR": os.path.join(probed_tree, "operator")})
         finally:
             shutil.rmtree(probed_tree, ignore_errors=True)
         # A failing lint prints its findings on stderr and nothing on stdout, so the two stdouts alone read '' vs '' (j157).
@@ -344,7 +354,7 @@ def case_lint_reads_role_files_only_the_operator_holds() -> None:
         os.makedirs(os.path.join(engine, "identities"))
         r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "lint.py"), "--fabric", engine,
                             "--no-siblings"], capture_output=True, text=True,
-                           env={**base, "AGENT_FABRIC_OPERATOR": ROOT})
+                           env={**base, "AGENT_FABRIC_OPERATOR": roots.operator_root(engine=ROOT, environ={})})
         out = r.stdout + r.stderr
         assert "Traceback" not in out, out[-1500:]
         assert "identities/roles/" not in "".join(l for l in out.splitlines(keepends=True) if "does not exist" in l
@@ -363,7 +373,7 @@ def case_the_memory_readers_handed_the_engine_root_ask_for_the_operators_tree() 
         eng, op = os.path.join(tmp, "engine"), os.path.join(tmp, "op")
         write(os.path.join(op, "memory", "domains", "x", "domain", "a.md"), "---\nname: a\n---\n\n## S\n\nsee [[b-of-the-operator]]\n")
         write(os.path.join(op, "memory", "domains", "x", "domain", "b-of-the-operator.md"), "---\nname: b-of-the-operator\n---\n")
-        os.makedirs(os.path.join(eng, "memory"))
+        os.makedirs(roots.memory_dir(engine=eng, environ={}))
         rel = "memory/domains/x/domain/a.md"
         with operator(op):
             assert dataclasses.astuple(memory_flagrun.corpora_of("p", eng, None)[0])[2] == os.path.join(op, "memory")
@@ -371,7 +381,7 @@ def case_the_memory_readers_handed_the_engine_root_ask_for_the_operators_tree() 
             rows = links.unresolved_links([rel], [op], eng, os.path.join(tmp, "no-project"), [], set())
             assert rows == [], rows
         with unset_operator():
-            assert dataclasses.astuple(memory_flagrun.corpora_of("p", eng, None)[0])[2] == os.path.join(eng, "memory")
+            assert dataclasses.astuple(memory_flagrun.corpora_of("p", eng, None)[0])[2] == roots.memory_dir(engine=eng, environ={})
             rows = links.unresolved_links([rel], [op], eng, os.path.join(tmp, "no-project"), [], set())
             assert [r["target"] for r in rows] == ["b-of-the-operator"], rows
 
@@ -409,7 +419,7 @@ def case_the_drain_report_and_anchor_keeper_read_the_operators_corpus() -> None:
     try:
         with tempfile.TemporaryDirectory() as tmp:
             op = os.path.join(tmp, "op")
-            for want, env in ((os.path.join(op, "memory"), operator(op)), (os.path.join(layout.FABRIC_ROOT, "memory"), unset_operator())):
+            for want, env in ((os.path.join(op, "memory"), operator(op)), (roots.memory_dir(engine=layout.FABRIC_ROOT, environ={}), unset_operator())):
                 with env:
                     for name, call in (("report", lambda: report.review_horizons(run, {})),
                                        ("anchorkeep", lambda: anchorkeep.corpus_of(run, os.path.join(tmp, "elsewhere.md")))):

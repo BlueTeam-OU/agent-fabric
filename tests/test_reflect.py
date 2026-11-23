@@ -20,6 +20,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(HERE, "tools", "fabric", "reflect.py")
 SHIM = os.path.join(HERE, "bin", "fabric-reflect")
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import roots  # noqa: E402
 AGENT = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
 TOKEN = "ghp_" + "Z" * 30   # credential-shaped, built so this file carries none
 
@@ -101,8 +102,9 @@ def main() -> int:
         check("--json is a pass too: the cursor did not move", run("status").stdout.startswith("cursor: row 0"))
 
         broken = os.path.join(tmp, "broken-fabric")
-        os.makedirs(os.path.join(broken, "policies"))
-        with open(os.path.join(broken, "policies", "hygiene.json"), "w") as f:
+        broken_hygiene = roots.policy("hygiene.json", engine=broken, environ={})
+        os.makedirs(os.path.dirname(broken_hygiene))
+        with open(broken_hygiene, "w") as f:
             f.write("{not json")
         r = run(e={**env, "AGENT_FABRIC_ROOT": broken})
         check("a broken hygiene list: refused in one line, nothing shown",

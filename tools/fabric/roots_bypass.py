@@ -37,7 +37,7 @@ ENV_NAMES = frozenset({"AGENT_FABRIC_ROOT", "AGENT_FABRIC_OPERATOR"})
 JOINS = frozenset({"join", "joinpath", "Path", "PurePath", "PurePosixPath"})
 # Instance data (roots.py's list) spelled as one root-relative string.
 INSTANCE = re.compile(
-    r"^(policies/[^/]+\.json|identities/(roles|keys|personas)(/|$)|identities/recovery\.asc$|projects/(registry|clients)\.json$|"
+    r"^(operator/)?(policies/[^/]+\.json|identities/(roles|keys|personas)(/|$)|identities/recovery\.asc$|projects/(registry|clients)\.json$|"
     r"projects/[^/]+/integration(/|$)|runtime/hosts/registry\.json$|routing/(profiles\.json|policies(/|$))|"
     r"memory/.|docs/(adr|live-checks)(/|$))")
 # An f-string that BEGINS with a placeholder: `~/projects/agent-fabric/…` inside a message or a command handed to an account's

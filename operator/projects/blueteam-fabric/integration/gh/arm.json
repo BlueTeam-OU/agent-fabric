@@ -1,0 +1,36 @@
+{
+  "description": "blueteam-fabric's rules for fabric-pr arm. The repository is the operator of agent-fabric (ADR-045 §8, docs/split/move-plan.md): BlueTeam OÜ's agents, keys, role definitions, policies, routing and distilled knowledge, read by the engine through roots. It has no build. boundary.paths: every policy under policies/ and the routing that picks and gates the review model (routing/policies/), every project's arm rules (projects/<id>/integration/gh/arm.json), as agent-fabric's own boundary has them, the agent keys and the recovery key (identities/keys/, identities/recovery.asc), the harness wiring (.claude/, .mcp.json), CI (.github/), an environment file at any depth (.env*), a certificate or key file (*.pem), and the words secret, credential and token anywhere. boundary.exempt is dropped first, but never under .claude/, .github/, policies/, routing/policies/ or identities/keys/: Markdown, which is the charters, briefs, records and slices, and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary. No direct-to-main rule: every change is a pull request. Written 2026-11-12, at registration (j766).",
+  "boundary": {
+    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.github/|^(operator/)?policies/|^(operator/)?routing/policies(/|$)|^(operator/)?projects/[^/]+/integration/gh/arm\\.json$|^(operator/)?identities/keys(/|$)|^(operator/)?identities/recovery\\.asc$|(^|/)\\.env|\\.pem$|secret|credential|token",
+    "exempt": "^(?!\\.claude/|\\.github/|(operator/)?(policies/|routing/policies/|identities/keys/))(.*\\.md$|\\.agent-fabric/)",
+    "changes": {
+      "arm-operator-prefix": "The anchors on policies/, routing/policies/, identities/keys/, identities/recovery.asc and the exempt lookahead also match the operator/ form (2026-11-23, ADR-045 step B, PR #692 review 38a695ae F1, recorded on #692 review 10e0e9bd F13): this repository is the operator's tree once it is split out, and inside the engine until then git and GitHub report a moved file at operator/<old path>; the old form stays for a pre-move base; a widening, which needs no owner's word.",
+      "arm-operator-link-paths": "The anchors on identities/keys and routing/policies also match the bare path (2026-11-23, ADR-045 step B, PR #692 review 265e2584 F12): inside the engine checkout step B leaves each as a symlink at its old path, and a pattern that needs something after the directory never named the link. No bare projects/<id> pattern here: once this repository holds the operator tree at its root (step C) projects/registry.json and clients.json are its real files and no project link exists (PR #692 re-review 08a7c4f4 F21); a widening, which needs no owner's word."
+    },
+    "cases": [
+      ".claude/settings.json",
+      ".github/workflows/ci.yml",
+      "policies/authority.json",
+      "policies/signing.json",
+      "identities/keys/lineage.json",
+      "identities/keys/README.md",
+      "identities/recovery.asc",
+      ".env",
+      "certs/server.pem",
+      "access_token.txt",
+      "routing/policies/review-grade.json",
+      "projects/agent-fabric/integration/gh/arm.json",
+      "policies/forge-keys/x.asc",
+      "policies/host-load.json",
+      "operator/policies/arming.json",
+      "operator/policies/forge-keys/X.asc",
+      "operator/identities/keys/lineage.json",
+      "operator/identities/recovery.asc",
+      "operator/routing/policies/review-grade.json",
+      "operator/projects/agent-fabric/integration/gh/arm.json",
+      "identities/keys",
+      "routing/policies"
+    ]
+  },
+  "waiver_role": null
+}

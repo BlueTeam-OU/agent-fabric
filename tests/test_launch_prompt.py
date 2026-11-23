@@ -21,6 +21,8 @@ import socket
 HOST = socket.gethostname().split('.')[0]
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 import pwd
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+import roots  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name   # the agent is the login, never $USER (unset in a container)
@@ -43,11 +45,11 @@ class Fixture:
         shutil.copytree(os.path.join(ROOT, "identities", "prompt"),
                         os.path.join(self.root, "identities", "prompt"),
                         ignore=shutil.ignore_patterns("locale"))   # the real translations: each case writes the ones it needs
-        write(os.path.join(self.root, "identities", "roles", role, "charter.md"),
+        write(os.path.join(roots.roles_dir(engine=self.root, environ={}), role, "charter.md"),
               f"---\nrole: {role}\nclass: charter\ndescription: \"x\"\ntier: 1\ndistilled_at: 2026-09-15\n---\n\n"
               f"# {role} — charter\n\nCHARTER-BODY-LINE for {role}.\n")
         if brief:
-            write(os.path.join(self.root, "identities", "roles", role, "brief.md"),
+            write(os.path.join(roots.roles_dir(engine=self.root, environ={}), role, "brief.md"),
                   f"---\nrole: {role}\nclass: brief\ndescription: \"y\"\ntier: 1\ndistilled_at: 2026-09-15\n---\n\n"
                   f"# {role} — brief\n\nBRIEF-BODY-LINE for {role}.\n")
         self.bind(role)
@@ -107,7 +109,7 @@ def case_missing_brief_is_a_placeholder_not_a_failure() -> None:
 def case_missing_charter_is_a_failure() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp)
-        os.remove(os.path.join(f.root, "identities", "roles", "backend-dev", "charter.md"))
+        os.remove(os.path.join(roots.roles_dir(engine=f.root, environ={}), "backend-dev", "charter.md"))
         r = f.run("--print")
         assert r.returncode == 1 and "no charter" in r.stderr, r.stderr
 
@@ -180,7 +182,7 @@ def case_nothing_about_who_can_be_passed_in() -> None:
 def case_oversized_prompt_is_refused() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp)
-        write(os.path.join(f.root, "identities", "roles", "backend-dev", "brief.md"),
+        write(os.path.join(roots.roles_dir(engine=f.root, environ={}), "backend-dev", "brief.md"),
               "---\nrole: backend-dev\nclass: brief\n---\n\n# backend-dev — brief\n\n" + ("padding line\n" * 2000))
         r = f.run("--print")
         assert r.returncode == 1 and "exceeds" in r.stderr, r.stderr
@@ -212,7 +214,7 @@ def case_every_piece_comes_from_the_locale_when_it_carries_one() -> None:
     Kills: a locale rule that knows only the charter."""
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp, role="language-culture", brief=False)
-        loc = os.path.join(f.root, "identities", "roles", "language-culture", "locale", "ge")
+        loc = os.path.join(roots.roles_dir(engine=f.root, environ={}), "language-culture", "locale", "ge")
         fm = lambda src: f"---\nclass: prompt-translation\ntranslates: identities/prompt/{src}.md\ntranslates_digest: sha256:x\n---\n"
         write(os.path.join(loc, "header.md"), fm("header") + "# ვინ ხარ\n\nშენ ხარ აგენტი `{agent}` ჰოსტზე `{host}`, როლი **{role}**.\n")
         write(os.path.join(loc, "brief-missing.md"), fm("brief-missing") + "_ბრიფი ჯერ არ არის._\n")
@@ -238,7 +240,7 @@ def case_harness_translation_is_appended_last_and_replaces() -> None:
     charter, or leaving the placeholder in."""
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp, role="language-culture", brief=False)
-        loc = os.path.join(f.root, "identities", "roles", "language-culture", "locale", "ge")
+        loc = os.path.join(roots.roles_dir(engine=f.root, environ={}), "language-culture", "locale", "ge")
         write(os.path.join(loc, "harness.md"), "---\nclass: harness-translation\ntranslates: runtime/claude-code/harness/en.md\ntranslates_digest: sha256:x\n---\n"
                                               "შენ ხარ Claude Code.\n\n# მეხსიერება\n\nშენი მეხსიერება არის `{memory_dir}`.\n")
         cwd = os.path.join(tmp, "launch.dir"); os.makedirs(cwd)
@@ -283,7 +285,7 @@ def case_locale_charter_is_rendered_for_the_holder_locale() -> None:
     charter.md, and choosing the locale from the login's suffix."""
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp, role="language-culture", brief=False)
-        write(os.path.join(f.root, "identities", "roles", "language-culture", "locale", "ge", "charter.md"),
+        write(os.path.join(roots.roles_dir(engine=f.root, environ={}), "language-culture", "locale", "ge", "charter.md"),
               "---\nrole: language-culture\nclass: charter\ndescription: \"x\"\ntier: 1\ndistilled_at: 2026-09-17\n"
               "translates: identities/roles/language-culture/charter.md\ntranslates_digest: sha256:" + "0" * 64 + "\n---\n\n"
               "# language-culture — წესდება\n\nGEORGIAN-BODY-LINE ქართულად.\n")
@@ -304,11 +306,11 @@ def case_locale_render_has_a_wider_ceiling() -> None:
         f = Fixture(tmp, role="language-culture", brief=False)
         pad = "ქართული ხაზი\n" * 1900      # ~24.7k characters of body
         head = "---\nrole: language-culture\nclass: charter\ndescription: \"x\"\ntier: 1\ndistilled_at: 2026-09-17\n---\n\n"
-        write(os.path.join(f.root, "identities", "roles", "language-culture", "charter.md"), head + "# c\n\n" + pad)
+        write(os.path.join(roots.roles_dir(engine=f.root, environ={}), "language-culture", "charter.md"), head + "# c\n\n" + pad)
         r = f.run("--print")
         assert r.returncode == 1 and "exceeds" in r.stderr, "the English render lost its ceiling"
-        write(os.path.join(f.root, "identities", "roles", "language-culture", "charter.md"), head + "# c\n\nshort\n")
-        write(os.path.join(f.root, "identities", "roles", "language-culture", "locale", "ge", "charter.md"), head + "# c\n\n" + pad)
+        write(os.path.join(roots.roles_dir(engine=f.root, environ={}), "language-culture", "charter.md"), head + "# c\n\nshort\n")
+        write(os.path.join(roots.roles_dir(engine=f.root, environ={}), "language-culture", "locale", "ge", "charter.md"), head + "# c\n\n" + pad)
         assert "ქართული ხაზი" in _build_direct(f, "language-culture-ge", "language-culture", locale="ge")
 
 
@@ -320,7 +322,7 @@ def case_every_catalogue_role_renders_under_the_ceiling() -> None:
     account's launch. Every role in the REAL catalogue renders here, for
     a plain (non-locale) agent, under the ceiling; a failure names the
     role and the size, the way the launcher does."""
-    roles = [r["id"] for r in json.load(open(os.path.join(ROOT, "identities", "roles", "catalog.json")))["roles"]]
+    roles = [r["id"] for r in json.load(open(roots.role_catalog(engine=ROOT)))["roles"]]
     assert roles, "the catalogue names roles"
     code = ("import importlib.util, sys, json; "
             "spec = importlib.util.spec_from_file_location('lp', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); "
@@ -403,7 +405,7 @@ def case_holder_ceiling_grows_by_the_addenda_only() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp)
         size = len(f.run("--print").stdout)
-        brief = os.path.join(f.root, "identities", "roles", "backend-dev", "brief.md")
+        brief = os.path.join(roots.roles_dir(engine=f.root, environ={}), "backend-dev", "brief.md")
         head = "---\nrole: backend-dev\nclass: brief\n---\n\n# backend-dev — brief\n\n"
         pad = 28000 - size
         for _ in range(3):   # the shared part exactly at MAX_CHARS: no slack to hide an off-by-one
@@ -441,7 +443,7 @@ def case_holder_locale_chooses_the_rendering_not_the_suffix() -> None:
     login whose suffix is another; without one, English, never the suffix."""
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp, role="legal-expert", brief=False)
-        write(os.path.join(f.root, "identities", "roles", "legal-expert", "locale", "ge", "charter.md"),
+        write(os.path.join(roots.roles_dir(engine=f.root, environ={}), "legal-expert", "locale", "ge", "charter.md"),
               "---\nclass: charter\nrole: legal-expert\ntranslates: identities/roles/legal-expert/charter.md\ntranslates_digest: sha256:x\n---\n\n# ქარტია\n")
         holder = {"role": "legal-expert", "charter": None, "brief": None, "holder": {"locale": "ge"}}
         renamed = _build_holder(f, "legal-expert-tbilisi", "legal-expert", holder)
@@ -469,7 +471,7 @@ def case_shared_pieces_render_per_language_for_every_role() -> None:
             assert piece in text, piece
         for english in ("# Who you are", "Working with the team", "Your long-term memory"):
             assert english not in text, f"an English section survived: {english}"
-        own = os.path.join(f.root, "identities", "roles", "legal-expert", "locale", "ge", "team.md")
+        own = os.path.join(roots.roles_dir(engine=f.root, environ={}), "legal-expert", "locale", "ge", "team.md")
         write(own, fm("team") + "# გუნდი, იურისტისთვის\n")
         assert "# გუნდი, იურისტისთვის" in _build_direct(f, "legal-expert-ge", "legal-expert", locale="ge"), "the role's own rendering lost"
         assert "# Who you are" in _build_direct(f, "legal-expert-ru", "legal-expert", locale="ru"), "another locale got Georgian"

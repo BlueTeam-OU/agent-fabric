@@ -180,7 +180,10 @@ def _read_tree(src: str, *, allow_empty: bool = False) -> dict[str, bytes]:
 
 def _load_profile(raw: bytes, agent_id: str) -> dict:
     from lint_rules.schema import validate_json
-    schema_path = os.path.join(roots.operator_root(), SCHEMA_REL)
+    # The schema is the engine's shape of a profile (identities/schemas/ never moves, ADR-045 rule 2), not
+    # the operator's data: under the operator's tree it is missing whenever the operator is the
+    # checkout's operator/, and every settings-put refused (#692 F15).
+    schema_path = os.path.join(roots.engine_root(), SCHEMA_REL)
     try:
         with open(schema_path, encoding="utf-8") as fh:
             schema = json.load(fh)

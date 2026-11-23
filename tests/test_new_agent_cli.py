@@ -24,6 +24,8 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(ROOT, "runtime", "provisioning")
 sys.path.insert(0, os.path.join(ROOT, "tests"))
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+import roots  # noqa: E402
 import section_groups  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import SECRETS_REGISTRY, write_json  # noqa: E402
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
@@ -253,8 +255,8 @@ def main() -> int:
             os.makedirs(f"{fab}/{d}")
         os.makedirs(f"{sandbox}/home/.local/bin")
         # The role the cases ask for, and the registry's projects; the remotes are the fixture's.
-        put(f"{fab}/identities/roles/backend-dev/charter.md", "# backend-dev\n")
-        write_json(f"{fab}/projects/registry.json", SECRETS_REGISTRY)
+        put(os.path.join(roots.role_dir("backend-dev", engine=fab, environ={}), "charter.md"), "# backend-dev\n")
+        write_json(roots.projects_registry(engine=fab, environ={}), SECRETS_REGISTRY)
         for f in ("new-agent-worker.sh", "github-host-keys"):
             shutil.copy2(f"{HERE}/{f}", f"{fab}/runtime/provisioning/")
         shutil.copytree(f"{ROOT}/runtime/hostexec", f"{fab}/runtime/hostexec", symlinks=True)
@@ -518,13 +520,13 @@ echo "systemctl $*" >> "{SEQ}/account-calls"
         sh("git", "-C", demo_src, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit",
            "-q", "-m", "init")
         sh("git", "-C", demo_src, "push", "-q", demo, "HEAD:main")
-        with open(f"{fab}/projects/registry.json", encoding="utf-8") as fh:
+        with open(roots.projects_registry(engine=fab, environ={}), encoding="utf-8") as fh:
             reg = json.load(fh)
         reg["projects"]["demo"] = {"remotes": [demo], "license": "Apache-2.0"}
         # The fabric's SSH remote is the clone URL's repository under another spelling, so that a switch is visible.
         fabric_ssh = f"file://{bare}"
         reg["projects"]["agent-fabric"] = {"remotes": [fabric_ssh], "license": "Apache-2.0"}
-        put(f"{fab}/projects/registry.json", json.dumps(reg))
+        put(roots.projects_registry(engine=fab, environ={}), json.dumps(reg))
         for name, text in FAKES.items():
             put(f"{bin_}/{name}", filled(text), 0o755)
         put(f"{seq}/farbin/hostname", '#!/usr/bin/env bash\n[[ "$1" == -s ]] && { echo far-host; exit 0; }; '

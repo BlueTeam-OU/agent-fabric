@@ -54,3 +54,26 @@ are the guards' exception lists: each one names engine modules that a
 checker admits, and it changes with that code. Rule 2 therefore keeps
 them with the guards in the engine, and `docs/split/move-plan.md` step A
 moves them out of `policies/`.
+
+### Amendment 2026-11-22 — Step B: the operator falls back to operator/, and the forge keys move with signing.json
+
+Step B of `docs/split/move-plan.md` moves the instance data into
+`operator/` inside this repository. Rule 1 said the operator root falls
+back to the engine root when `AGENT_FABRIC_OPERATOR` is unset; from step B
+it falls back to `operator/` under the engine root, whether the engine
+tree came from the environment or from an `engine=` argument, and step D
+replaces that with the account's operator clone. python-dev-02's j175
+changed `roots.operator_root()` and `operator_prefix()` to match.
+
+The plan's precondition 5 left one question open: `policies/forge-keys/`
+was not on the move list, yet `ban_unsigned_commits.py` and the signing
+lint read it beside `signing.json`, through the operator's tree. The two
+options were to move the keys with `signing.json` or to have both readers
+ask the engine for them. The owner chose on 2026-11-22 to move them: the
+`forge_keys` list and the key files it names are one trust decision, so
+they live in one repository, and a change to either is reviewed where the
+other is. The keys are GitHub's and the same for every operator, which was
+the case for the engine; it lost because the list would then sit in one
+repository and its files in another. Rule 2 names the folder, `roots`
+lists it among the paths that move, and CI's signing step archives it
+under main's operator prefix.

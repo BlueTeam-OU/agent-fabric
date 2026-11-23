@@ -377,6 +377,8 @@ class Entry(FlagRun):
         with open(os.path.join(state, "agent-fabric", "agents", pwd.getpwuid(os.geteuid()).pw_name, "binding.json"), "w", encoding="utf-8") as fh:
             json.dump({"role": "fabric-coordinator"} if bound else {}, fh)
         env = {"PATH": "/usr/bin:/bin", "HOME": self.work, "XDG_STATE_HOME": state, "AGENT_FABRIC_ROOT": self.tree,
+               # the fixture is laid out as one tree, instance data at its top (Tree): it is its own operator, deliberately
+               "AGENT_FABRIC_OPERATOR": self.tree,
                "AGENT_FABRIC_CTL": os.path.join(self.work, "ctl.sh"), "AGENT_FABRIC_GZCOORD_SEND": os.path.join(self.work, "send.sh"),
                "FAKE_CTL_DIR": self.work, "FAKE_SEND_DIR": self.work}
         for name, script in (("ctl.sh", "ctl.py"), ("send.sh", "send.py")):

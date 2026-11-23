@@ -26,6 +26,8 @@ own_instance_tree()
 scrub_process_env()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+import roots  # noqa: E402
 ENROLL = os.path.join(HERE, "tools", "fabric", "store_enroll.py")
 STORE = os.path.join(HERE, "tools", "fabric", "secret_store.py")
 ACCOUNT_SECRETS = "projects/agent-fabric/bin/fabric-secrets"
@@ -68,7 +70,7 @@ def main() -> int:
     gnupg = {r: os.path.join(t, f"{r}-gnupg") for r in ("parent", "kid")}
     try:
         fab, remotes, binp = os.path.join(t, "fabric"), os.path.join(t, "remotes"), os.path.join(t, "bin")
-        for d in (os.path.join(fab, "identities", "keys"), remotes, binp,
+        for d in (roots.keys_dir(engine=fab), remotes, binp,
                   os.path.join(t, "parent", "projects"), os.path.join(t, "kid", "projects")):
             os.makedirs(d)
         for g in gnupg.values():
@@ -125,7 +127,7 @@ esac
                                   capture_output=True, text=True, timeout=300)
 
         def lineage_id(login: str) -> str:
-            with open(os.path.join(fab, "identities", "keys", "lineage.json")) as f:
+            with open(os.path.join(roots.keys_dir(engine=fab), "lineage.json")) as f:
                 return next((a for a, r in json.load(f).items() if r.get("login") == login), "")
 
         print("first contact: the parent, then the control")

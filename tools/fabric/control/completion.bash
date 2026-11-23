@@ -16,7 +16,7 @@
 # accepted by fabric-ctl itself.
 # The hosts registry, resolved as tools/fabric/roots.py hosts_registry() will once the operator's data leaves this
 # checkout (agent-fabric docs/split/move-plan.md §3, step A): AGENT_FABRIC_HOSTS_REGISTRY, then the tree named by
-# AGENT_FABRIC_OPERATOR, then the operator's clone when the account has one and it holds the file, then the engine checkout. Empty counts as
+# AGENT_FABRIC_OPERATOR, then the operator's clone when the account has one and it holds the file, then the engine checkout's operator/ (step B). Empty counts as
 # unset. A clone without the file is skipped (until step B the operator's repository is empty). Otherwise the first that
 # applies is the answer: a registry missing from the operator's tree is said below, never read from the engine's instead. The home is the login's, from the passwd database, never the session's $HOME (move-plan §3
 # step D); a login with no home there has no clone to look for and no default engine checkout either.
@@ -33,9 +33,9 @@ _fabric_ctl_hosts_registry() {
         if [[ -n "$home" && -f "$home/projects/blueteam-fabric/runtime/hosts/registry.json" ]]; then
             op="$home/projects/blueteam-fabric"
         elif [[ -n "${AGENT_FABRIC_ROOT:-}" ]]; then
-            op="$AGENT_FABRIC_ROOT"
+            op="$AGENT_FABRIC_ROOT/operator"
         elif [[ -n "$home" ]]; then
-            op="$home/projects/agent-fabric"
+            op="$home/projects/agent-fabric/operator"
         else
             echo "fabric-ctl completion: no home for $(id -un) in the passwd database" >&2
             return 1
