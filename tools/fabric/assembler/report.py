@@ -357,7 +357,7 @@ def report(run: Run) -> int:
     collisions = scan_collisions([
         # Where layout.py writes the domain slices (its FABRIC_ROOT, --fabric): a collision
         # is looked for where the drain puts them. layout.py is not yet on roots.
-        roots.memory_dir("domains", root=layout.FABRIC_ROOT),
+        roots.memory_dir("domains", engine=layout.FABRIC_ROOT),
         layout.project_memory_root(run.project),
         layout.shared_dir(),
     ], functools.partial(in_report, run))

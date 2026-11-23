@@ -349,6 +349,24 @@ def case_a_projects_gh_config_is_found_in_the_operator_tree() -> None:
         workingcopy.resolve, local.toplevel = real_resolve, real_toplevel
 
 
+ENGINE_AS_OPERATOR = re.compile(r"\broot=(?:layout\.)?FABRIC_ROOT\b")
+
+
+def case_no_reader_hands_the_engine_root_to_roots_as_the_operator_root() -> None:
+    """An explicit `root=` is the OPERATOR tree: FABRIC_ROOT is the engine's, so `root=FABRIC_ROOT` read <engine>/memory, a path
+    that exists only through step B's shim (assembler/report.py did, until the move plan's seam-callers note found it); the
+    spelling for the engine is `engine=`. Positive control first: the pattern sees both spellings it exists for."""
+    assert ENGINE_AS_OPERATOR.search("roots.memory_dir(root=layout.FABRIC_ROOT)") and ENGINE_AS_OPERATOR.search("x(root=FABRIC_ROOT)")
+    assert not ENGINE_AS_OPERATOR.search("roots.memory_dir(engine=layout.FABRIC_ROOT)")
+    bad = []
+    for path in sources():
+        with open(path, encoding="utf-8") as fh:
+            for n, line in enumerate(fh, 1):
+                if ENGINE_AS_OPERATOR.search(line) and not line.lstrip().startswith("#"):
+                    bad.append(f"{os.path.relpath(path, ROOT)}:{n}")
+    assert not bad, "root=FABRIC_ROOT (the engine) where the operator's root is meant, use engine=: " + ", ".join(bad)
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0
