@@ -186,7 +186,9 @@ def _snapshot_effort(row: tuple[str, str] | None, checkout: dict | None) -> dict
     """The effort dict routing.effort_phrase consumes, from a snapshot's `<level|-> <outcome>` row. The row does not
     carry the asked level, so `intent` is this checkout's routed intent only when the checkout's own (level, outcome)
     for the class equals the row: after a routing merge the two can differ, and an asked level the snapshot never had
-    would be printed as fact. Otherwise `intent` is None and the phrase leaves the asked level out."""
+    would be printed as fact. Equal rows are necessary, not sufficient: an adapter maps several asked levels onto one
+    served pair, so a checkout that asks otherwise can still agree with the row; the snapshot's routing run does not
+    emit the asked level, and taking it from there is routing.py's. Otherwise `intent` is None and the phrase leaves the asked level out."""
     if row is None:
         return None
     level, outcome = row
