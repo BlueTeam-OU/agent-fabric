@@ -210,8 +210,10 @@ def identity_role(root: str) -> str:
 
 
 def owner_role(root: str) -> str:
+    # `root` is the fabric checkout (the engine), never the operator's tree: roots.policy(root=) would read
+    # <root>/policies/, which after the move (ADR-045 step B) exists only through a shim.
     try:
-        with open(roots.policy("authority.json", root=root), encoding="utf-8") as f:
+        with open(roots.policy("authority.json", engine=root), encoding="utf-8") as f:
             return str(json.load(f)["role_definitions"]["role"]).rstrip("\n")
     except Exception:  # noqa: BLE001 - any unreadable shape is the default owner, as the bash's `except Exception`
         return DEFAULT_OWNER

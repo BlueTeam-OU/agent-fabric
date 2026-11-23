@@ -157,11 +157,6 @@ class Fabric:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
-        # The shim step B leaves at the old path, as in the real tree: guards/commit_hooks.py owner_role() still reads
-        # <fabric>/policies/authority.json (it hands roots.policy() the fabric as an explicit operator root).
-        shim = os.path.join(self.fabric, "policies", "authority.json")
-        if not os.path.lexists(shim):
-            os.symlink(os.path.relpath(path, os.path.dirname(shim)), shim)
 
     def cleanup(self) -> None:
         for repo in self.repos:
