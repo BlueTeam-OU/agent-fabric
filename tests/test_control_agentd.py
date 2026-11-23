@@ -160,6 +160,10 @@ class FakeRelay:
             self.rows.append(r)
             return r
 
+    def snapshot(self) -> list[dict]:
+        with self.lock:
+            return list(self.rows)
+
     def clear(self) -> None:
         with self.lock:
             self._gone = getattr(self, "_gone", 0) + len(self.rows)
@@ -654,6 +658,32 @@ class Pieces(Scratch):
         for t in ts:
             t.join(10)
         self.assertEqual(got, ["boom"] * 3)
+
+    def test_join_inflight_waits_for_threads_and_refuses_a_ctl_hold_token_never_skips_it(self):
+        done = []
+        t = threading.Thread(target=lambda: (time.sleep(0.2), done.append(1)))
+        inflight: set = {t}
+        t.start()
+        agentd.join_inflight(inflight)
+        self.assertEqual(done, [1], "positive control: a thread is joined")
+        leave = agentd.leaver(inflight, exit=lambda code: None, log=lambda m: None)
+        self.assertIsNotNone(agentd.ctl_hold(leave, inflight), "a held session puts a token in the set")
+        token, = (m for m in inflight if not isinstance(m, threading.Thread))   # the one ctl_hold added
+        late = threading.Thread(target=lambda: (time.sleep(0.2), done.append(2)))
+        late.start()
+        # A list, not the set: a set's order is by id hash, and only a token met first makes a raise-at-first-token join fail.
+        with self.assertRaises(TypeError):
+            agentd.join_inflight([token, late])
+        self.assertEqual(done, [1, 2], "every thread was joined before the refusal, the token meets it first")
+
+    def test_ctl_hold_for_refuses_under_once_and_holds_on_a_serving_daemon(self):
+        inflight: set = set()
+        leave = agentd.leaver(inflight, exit=lambda code: None, log=lambda m: None)
+        with self.assertRaises(RuntimeError):
+            agentd.ctl_hold_for(leave, inflight, True)
+        self.assertEqual(inflight, set(), "nothing was held")
+        self.assertIsNotNone(agentd.ctl_hold_for(leave, inflight, False), "positive control: a serving daemon holds")
+        self.assertEqual(len(inflight), 1)
 
     def test_leaving_for_new_code_waits_for_every_running_action_to_reply_then_exits_once(self):
         inflight = {"a", "b"}
@@ -1264,8 +1294,10 @@ class Resident(Daemon):
         r = self.with_relay()
         d = self.start(r.url(), AGENT_FABRIC_STATE_DIR=state, FABRIC_STATE_CHANNEL="test:state:control")
         self.until(lambda: r.waits() > 0, "the daemon never waited", d)
-        self.until(lambda: any(h == "/api/send" for h in r.hits), "no state record posted", d)
-        rec = next(json.loads(x["content"]) for x in r.rows if json.loads(x["content"]).get("kind") == "state")
+        # Wait for the row itself: the fake relay records a hit before it adds the row, and the first send may
+        # be a record of another kind, so a hit says neither that the state row exists nor that it is the one.
+        self.until(lambda: any(json.loads(x["content"]).get("kind") == "state" for x in r.snapshot()), "no state record posted", d)
+        rec = next(json.loads(x["content"]) for x in r.snapshot() if json.loads(x["content"]).get("kind") == "state")
         self.assertEqual(rec["from"], SELF)
         with r.lock:
             channels = [(c, json.loads(json.loads(b)["content"]).get("kind")) for c, b in r.posts]

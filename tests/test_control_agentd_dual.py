@@ -507,7 +507,7 @@ class AgentdInterweaveOnce(Base):
 class AgentdOnce(Base):
     """`--once` with FABRIC_CONTROL_CARRIER=dual: one pass on the relay, no second carrier. Without the `not once` on
     the dual start, a one-shot would start the child and socket and, on the first ctl session, hit hold_for_ctl's
-    assert (a ctl token is no thread: finish_inflight() would join it)."""
+    refusal (a ctl token is no thread: join_inflight() would raise on it)."""
     argv = ["--once"]
     wait_answer = {"messages": []}   # --once's one pass polls for 3 s (a constant of the code); nothing is waiting on the relay
 
