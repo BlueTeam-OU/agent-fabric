@@ -2727,6 +2727,35 @@ def case_the_engine_lists_stay_fenced() -> None:
     assert "tools/fabric/bash-allowlist.json" not in lint.CONTRIBUTOR_NEVER
 
 
+def case_the_read_tree_of_an_exported_operator_nested_in_the_checkout() -> None:
+    """Only the checkout's own operator/ shares its index; any other directory of it that is
+    exported as the operator is judged by existence (`tracked` None), not by "nothing tracked"."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    try:
+        with tempfile.TemporaryDirectory() as root:
+            for args in (("init", "-q"), ("config", "user.email", "t@e"), ("config", "user.name", "t")):
+                subprocess.run(["git", "-C", root, *args], check=True, capture_output=True)
+            write(os.path.join(root, "README"), "x")
+            subprocess.run(["git", "-C", root, "add", "-A"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", root, "commit", "-qm", "base"], check=True, capture_output=True)
+            nested = os.path.join(root, "exported-operator")
+            os.makedirs(os.path.join(nested, "policies"))
+            os.environ["AGENT_FABRIC_OPERATOR"] = nested
+            assert lint._read_tree_files(root) == (nested, None), lint._read_tree_files(root)
+            del os.environ["AGENT_FABRIC_OPERATOR"]
+            os.makedirs(os.path.join(root, "operator", "policies"))
+            assert lint._read_tree_files(root) is None, "the checkout's own operator/, nothing tracked: proves nothing"
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
 def case_a_contributor_entry_never_reaches_a_definition() -> None:
     """ADR-018 §5 rule 8: a contributor's entry names a catalogued role, is
     whole, and admits nothing that defines a role — however broad its
@@ -3166,6 +3195,7 @@ def main() -> int:
         case_a_dollar_anchored_pattern_in_nested_scopes,
         case_a_dollar_anchored_pattern_through_classes_and_rebinding,
         case_a_dollar_anchored_pattern_follows_source_order,
+        case_the_read_tree_of_an_exported_operator_nested_in_the_checkout,
         case_a_contributor_entry_never_reaches_a_definition,
         case_the_fallback_validator_agrees_with_jsonschema,
         case_the_python_pin_is_checkable_and_what_ci_runs,

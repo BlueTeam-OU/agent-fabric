@@ -406,14 +406,16 @@ def _read_tree_files(root: str):
     (`rev-parse --show-toplevel`): a tree untracked inside a larger repository
     would read every file as missing, so it is judged by existence, `tracked`
     None. None altogether when absence proves nothing: the engine that is
-    not a checkout, or a checkout whose index is empty (nothing tracked
-    proves nothing; the answer before j147)."""
+    not a checkout, or a checkout (its operator/ too) whose index is empty
+    (nothing tracked proves nothing; the answer before j147)."""
     tree = roots.operator_root(engine=root)
     top = _git().run(tree, "rev-parse", "--show-toplevel", check=False, timeout=60)
     real_tree, real_root = os.path.realpath(tree), os.path.realpath(root)
-    # The engine's own tree, or the operator's tree inside it (step B: operator/): one checkout, whose
-    # index lists a subdirectory's files relative to it, and which proves nothing when it has none.
-    in_engine = real_tree == real_root or real_tree.startswith(real_root + os.sep)
+    # The engine's own tree, or the checkout's own operator/ (step B): one checkout, whose index lists a
+    # subdirectory's files relative to it, and which proves nothing when it has none. Only that one
+    # subdirectory: an exported operator nested elsewhere in the checkout is a tree of its own, judged
+    # by existence like any untracked one.
+    in_engine = real_tree in (real_root, os.path.join(real_root, "operator"))
     if top.returncode == 0:
         toplevel = os.path.realpath(top.stdout.strip())
         if real_tree == toplevel or (in_engine and toplevel == real_root):
