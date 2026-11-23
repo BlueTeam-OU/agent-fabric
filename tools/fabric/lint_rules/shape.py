@@ -266,11 +266,17 @@ def operator_shim_findings(root: str) -> list[str]:
     if not any(path.startswith("operator/") for _, path in entries):
         return []   # a fixture laid out as the old layout: no shim to hold
     moving = {"/".join(item) for item in roots._MOVING}
+    # Held: the move list, the projects/<id> links, and any other link whose operator/ twin is in the index
+    # (docs/legal, identities/agents: the move left them as links though the list names them otherwise or
+    # not at all, #692 F19). The index, not the list, says what the move left behind.
+    stored = {path for _, path in entries if path.startswith("operator/")}
+    twins = stored | {"/".join(p.split("/")[:i]) for p in stored for i in range(2, p.count("/") + 1)}
     out: list[str] = []
     for meta, path in entries:
         mode, sha = meta.split()[:2]
         parts = path.split("/")
-        if mode != "120000" or not (path in moving or (parts[0] == "projects" and len(parts) == 2)):
+        held = path in moving or (parts[0] == "projects" and len(parts) == 2) or f"operator/{path}" in twins
+        if mode != "120000" or path.startswith("operator/") or not held:
             continue
         want = "../" * (len(parts) - 1) + "operator/" + path
         target = _git().run(root, "cat-file", "blob", sha, check=False, timeout=60).stdout

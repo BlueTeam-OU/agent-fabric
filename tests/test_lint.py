@@ -1671,6 +1671,21 @@ def case_a_moved_path_link_points_at_the_operators_copy_and_nowhere_else() -> No
         g("add", "-A")
         code, out = run_lint(fabric)
         assert code == 1 and "identities/roles: a symlink to '../evil'" in out, f"a retargeted shim passed:\n{out}"
+        # #692 F19: a link the move left that the move list names otherwise (docs/legal), held by its twin.
+        os.remove(link)
+        os.symlink("../operator/identities/roles", link)
+        write(os.path.join(fabric, "operator", "docs", "legal", "a.md"), "# a\n")
+        legal = os.path.join(fabric, "docs", "legal")
+        os.makedirs(os.path.dirname(legal), exist_ok=True)
+        os.symlink("../operator/docs/legal", legal)
+        g("add", "-A")
+        code, out = run_lint(fabric)
+        assert "a symlink to" not in out, f"a correct off-list shim was refused:\n{out}"
+        os.remove(legal)
+        os.symlink("../evil", legal)
+        g("add", "-A")
+        code, out = run_lint(fabric)
+        assert code == 1 and "docs/legal: a symlink to '../evil'" in out, f"a retargeted off-list shim passed:\n{out}"
 
 
 def case_a_managed_projects_name_stays_out_of_generic_files() -> None:
