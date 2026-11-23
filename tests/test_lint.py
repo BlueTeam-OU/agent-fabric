@@ -1656,6 +1656,23 @@ def case_the_agentd_unit_has_one_exec_start_that_runs_the_control_agent() -> Non
             assert code == 1 and want in out, f"{want!r} not said:\n{out}"
 
 
+def case_a_moved_path_link_points_at_the_operators_copy_and_nowhere_else() -> None:
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        link = os.path.join(fabric, "identities", "roles")
+        os.symlink("../operator/identities/roles", link)
+        g = lambda *a: subprocess.run(["git", "-C", fabric, *a], check=True, capture_output=True, env=git_env())  # noqa: E731
+        g("init", "-q")
+        g("add", "-A")
+        code, out = run_lint(fabric)
+        assert "a symlink to" not in out, f"a correct shim was refused:\n{out}"
+        os.remove(link)
+        os.symlink("../evil", link)
+        g("add", "-A")
+        code, out = run_lint(fabric)
+        assert code == 1 and "identities/roles: a symlink to '../evil'" in out, f"a retargeted shim passed:\n{out}"
+
+
 def case_a_managed_projects_name_stays_out_of_generic_files() -> None:
     """A project id from the registry in a role skill, the provisioning,
     a tool or the GZCoord runtime is a finding; the fabric's own remote,
@@ -3223,6 +3240,7 @@ def main() -> int:
         case_the_host_registry_is_one_host_per_id_and_placements_are_known,
         case_the_agentd_unit_has_one_exec_start_that_runs_the_control_agent,
         case_a_bound_and_held_role_is_not_a_candidate,
+        case_a_moved_path_link_points_at_the_operators_copy_and_nowhere_else,
         case_a_managed_projects_name_stays_out_of_generic_files,
         case_review_lenses_are_named_described_and_bounded,
         case_a_dollar_anchored_pattern_is_not_called_with_match,

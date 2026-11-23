@@ -112,7 +112,7 @@ from fabric_lint_rules.command_names import command_name_findings  # noqa: E402,
 from fabric_lint_rules.transport import transport_call_findings  # noqa: E402, F401
 from fabric_lint_rules.roots import roots_bypass_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import BASH_LINE_LIMIT, BASH_SHEBANG, _is_bash, bash_shape_findings, bash_size_findings, forwarder_shape  # noqa: E402, F401
-from fabric_lint_rules.shape import agentd_unit_findings, candidate_role_findings, host_registry_findings  # noqa: E402, F401
+from fabric_lint_rules.shape import agentd_unit_findings, candidate_role_findings, host_registry_findings, operator_shim_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_DEFAULT_REL  # noqa: E402, F401
 from fabric_lint_rules.locales import I18N_EXTRA_PATTERNS, I18N_SCHEMA_REL, LOCALE_ENGINES  # noqa: E402, F401
 from fabric_lint_rules.locales import LOCALE_FILE_OPTIONAL, LOCALE_FILE_RE, _i18n_key_re  # noqa: E402, F401
@@ -858,6 +858,7 @@ def _main() -> int:
     findings += command_name_findings(root)
     findings += transport_call_findings(root)
     findings += roots_bypass_findings(root)
+    findings += operator_shim_findings(root)
     findings += arm_boundary_findings(root)
     findings += arm_direct_findings(root)
     findings += arm_declared_findings(root)
