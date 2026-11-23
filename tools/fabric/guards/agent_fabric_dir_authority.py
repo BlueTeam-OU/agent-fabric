@@ -166,10 +166,15 @@ def is_fabric_itself(top: str, base: str, env: dict[str, str] | None = None) -> 
     tree alone, as the bash did, a branch that deleted the file narrowed the
     check to .agent-fabric/** and its other commits passed with no trailer
     (review of #72). A git that cannot say reads as the stricter scope."""
-    if os.path.isfile(os.path.join(top, contributors.authority_git_path(top, env))):
+    # The operator's path on both sides, never the pre-move fallback: a project
+    # with a top-level policies/authority.json is not the fabric (pinned by
+    # test_agent_fabric_dir_authority), and the branch that moves the fabric
+    # has the file at the operator's path in its own tree.
+    rel = contributors.authority_git_path(top, env)
+    if os.path.isfile(os.path.join(top, rel)):
         return True
     try:
-        r = git.run(top, "cat-file", "-e", f"{base}:{contributors.authority_git_path_at(top, base, env)}", check=False)
+        r = git.run(top, "cat-file", "-e", f"{base}:{rel}", check=False)
     except git.GitError:
         return True
     return r.returncode == 0

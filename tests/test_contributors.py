@@ -106,6 +106,8 @@ def main() -> int:
     tmp = tempfile.mkdtemp()
     try:
         sh(tmp, "init", "-q")
+        sh(tmp, "-c", "core.hooksPath=/dev/null", "commit", "-q", "--allow-empty", "-m", "empty")
+        empty = sh(tmp, "rev-parse", "HEAD").stdout.strip()
         os.makedirs(os.path.join(tmp, "policies"))
         with open(os.path.join(tmp, co.PRE_MOVE_AUTHORITY), "w") as f:
             f.write("{}\n")
@@ -122,6 +124,9 @@ def main() -> int:
         check("the operator's path with no operator exported", moved == "operator/policies/authority.json", moved)
         check("a rev with no operator tree: the pre-move path",
               co.authority_git_path_at(tmp, pre, environ={}) == co.PRE_MOVE_AUTHORITY)
+        got = co.authority_git_path_at(tmp, empty, environ={})
+        check("a rev with neither: named by the operator's path, where the refusal says it is missing",
+              got == moved, got)
         got = co.authority_git_path_at(tmp, "HEAD", environ={})
         check("a rev with the operator tree: its path alone, so a lost file still refuses", got == moved, got)
         check("an operator equal to the toplevel: the old path, asked of no rev",
