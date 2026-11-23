@@ -387,6 +387,23 @@ class Anchors(Tree):
         out = [ln.split("\t") for ln in self.run_cli(self.corpus).stdout.splitlines()]
         self.assertIn(["maybe-stale", "domains/d/domain/a.md", "moved", "tools/fabric/runner.py::run_it", f"{want} 2026-03-20 the run changes its answer"], out)
 
+    def test_an_anchor_at_a_moved_path_is_judged_by_the_history_where_the_file_is_stored(self):
+        # ADR-045 step B: policies/ is a symlink shim into operator/policies/, whose commits are the file's.
+        self.write("operator/policies/authority.json", "{}\n")
+        os.symlink("operator/policies", os.path.join(self.tree, "policies"))
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the move", date="2026-03-05")
+        self.write("operator/policies/authority.json", '{"v": 2}\n')
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the policy changes", date="2026-03-20")
+        want = git(self.tree, "rev-parse", "--short", "HEAD")
+        self.slice("a", ("old", anchored("B.", ["policies/authority.json"], observed="2026-03-10")),
+                   ("after", anchored("B.", ["policies/authority.json"], observed="2026-03-25")),
+                   ("stays", anchored("B.", ["tools/fabric/runner.py"], observed="2026-03-10")))
+        v = self.verdicts()
+        self.assertEqual({h: v[h]["verdict"] for h in v}, {"old": "maybe-stale", "after": "fresh", "stays": "fresh"})
+        self.assertEqual(v["old"]["anchors"][0]["commit"], want)
+
     def test_stale_hard_outranks_maybe_stale_outranks_unchecked_outranks_fresh(self):
         self.write("tools/fabric/runner.py", "def run_it():\n    return 2\n")
         git(self.tree, "add", "-A")

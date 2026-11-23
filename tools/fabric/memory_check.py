@@ -335,9 +335,26 @@ class History:
         if self._ready[tree]:
             raise NoHistory(self._ready[tree])
 
+    @staticmethod
+    def stored_path(tree: str, path: str) -> str:
+        """`path` as git in `tree` records its history. An anchor names a file where a reader finds it, which
+        for the engine's moved instance data (ADR-045 step B) is a symlink shim: the history of that name is
+        only the shim's, and the file's commits are under operator/. A same-named path in a project's checkout
+        is no shim (it resolves to itself), so it is left alone."""
+        parts = [p for p in path.split("/") if p]
+        try:
+            stored = roots.git_path(*parts, base=tree)
+        except ValueError:
+            return path
+        full, real = os.path.join(tree, *parts), os.path.join(tree, *stored.split("/"))
+        if os.path.lexists(real) and os.path.realpath(full) == os.path.realpath(real):
+            return stored
+        return path
+
     def changed_after(self, tree: str, path: str, day: str) -> dict | None:
         """The newest commit that touched `path` after the end of `day` (YYYY-MM-DD, UTC), or None."""
         self.ready(tree)
+        path = self.stored_path(tree, path)
         end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
         r = self._git(tree, "log", "-1", "--format=%h%x09%cs%x09%s", f"--since={int(end.timestamp())} +0000", "--", path)
         if r.returncode != 0:
@@ -354,6 +371,7 @@ class History:
         its patch, oldest first, cut to `limit` characters (a cut says so). Read-only, like the rest. Raises
         NoHistory when git cannot say."""
         self.ready(tree)
+        path = self.stored_path(tree, path)
         end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
         r = self._git(tree, "log", "--reverse", "-p", "--no-color", "--no-ext-diff", "--format=commit %h %cs %s",
                       f"--since={int(end.timestamp())} +0000", "--", path)
