@@ -503,18 +503,23 @@ SYSTEM_BIN = ("/bin/", "/usr/bin/", "/usr/local/bin/")
 
 def _system_reader(word: str) -> bool:
     """A data reader, echo or printf by its bare name or at a system bin path. Not the bare basename: a reader's name
-    at any other path (`./grep`, `/tmp/x/cat`) is any program, as _expands_outside_reader reads `./cat`."""
+    at any other path (`./grep`, `/tmp/x/cat`) is any program, as _expands_outside_reader reads `./cat`. Narrower
+    than _data_only, which reads every command word by its basename: a reader in a directory not listed here
+    (`/usr/sbin/grep`, `/snap/bin/grep`) beside a dropped body is judged though _data_only calls it data. The safe
+    side on purpose, pinned in the tests: a false deny is a rephrase, a dropped kill runs (review of #694, round 5
+    F9)."""
     readers = DATA_READERS | {"echo", "printf"}
-    return word in readers or (word.startswith(SYSTEM_BIN) and os.path.basename(word) in readers)
+    # The directory compared whole, not as a prefix: `/usr/bin/../../tmp/x/grep` and `/usr/bin/sub/grep` are elsewhere
+    # (review of #694, round 5 F8).
+    return word in readers or (os.path.dirname(word) + "/" in SYSTEM_BIN and os.path.basename(word) in readers)
 
 
 def _runs_a_shell(rest: str) -> bool:
     """Whether `rest` (the command with its dropped bodies left out) may hand a block to a shell: a shell as the
     command word of any simple command, behind compound keywords (and `time -p`), assignments and the prefixes the
     guard knows with their options; or a shell's name as any word of a simple command that is no data reader, echo or
-    printf by its bare name or under a system bin directory (_system_reader: `/usr/bin/grep sh notes` is data, as
-    _data_only reads it, review of #694 round 3 F7; `./grep` is any program, round 4 F8), which a wrapper the guard
-    does not know may run (`fi | ionice -c3 sh`, `fi | flock /tmp/l sh`; review of
+    printf by its bare name or in a system bin directory (_system_reader: `/usr/bin/grep sh notes` is data, review of
+    #694 round 3 F7; `./grep` is any program, round 4 F8), which a wrapper the guard does not know may run (`fi | ionice -c3 sh`, `fi | flock /tmp/l sh`; review of
     #694, round 2 F6). Read on the quote-blanked, comment-free text: `grep sh notes`, `# then sh` and a quoted "bash"
     in an argument run nothing, and searching the raw text for the names denied data-only commands main passes
     (review of #694, round 1 F2). The cost, accepted: a shell's name as another program's argument (`ls ~/sh`, pinned

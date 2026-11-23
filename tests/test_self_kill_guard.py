@@ -431,6 +431,13 @@ def main() -> int:
                        ("ls ~/sh after the body", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\nls ~/sh"),
                        # Round 4 F8: a reader's name at a path of no system bin is any program. Kills: the basename.
                        ("if … fi | ./grep sh", "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | ./grep sh"),
+                       # Round 5 F8: the directory whole. Kills: a prefix test of SYSTEM_BIN.
+                       ("if … fi | /usr/bin/../../tmp/x/grep sh",
+                        "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | /usr/bin/../../tmp/x/grep sh"),
+                       # Round 5 F9, the safe side chosen: a reader outside SYSTEM_BIN is judged though _data_only
+                       # reads it as data. Kills: /usr/sbin/ added to SYSTEM_BIN, or a basename test.
+                       ("/usr/sbin/grep sh after the body",
+                        "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\n/usr/sbin/grep sh notes"),
                        # Review of #694, round 2 F6: a block piped into a shell behind a wrapper the guard does not
                        # know. Kills: _runs_a_shell reading command words only; for `time -p sh`, that together with
                        # not skipping time's -p, since either reading alone finds the shell.
