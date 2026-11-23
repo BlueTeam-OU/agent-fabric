@@ -796,6 +796,12 @@ def launch(argv: list[str]) -> int:
     # decides the child's environment on every path, so it is exported here.
     env["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1"
 
+    # Claude Code reaps idle background shells when the machine is short of memory, and a session's inbox watch is
+    # one: the reap of 2026-11-23 07:48Z ended seventeen sessions' watches, so none of them could be woken by a
+    # message. The switch is read from the process environment (Claude Code 2.1.322), and the launcher composes that
+    # on every path, so it is set here beside the tab-title switch rather than in a settings file a project owns.
+    env["CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP"] = "1"
+
     # Temporary files go to a per-account directory in the account's home,
     # on the volume that holds the homes (settle_tmpdir). Not /tmp: one
     # small memory filesystem for every account, which a bare dotnet,
