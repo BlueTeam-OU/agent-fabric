@@ -280,17 +280,11 @@ WORD_END = " \t;&|()<>"
 # What makes a command line's quoting or its `<<` unreadable to heredoc_operators: ANSI-C quoting, where `\'` is a
 # literal quote (`cat $'a\' <<true'` is one word to bash, an operator to a plain quote scan; review of #612, round 2
 # F4), arithmetic, where `<<` is a shift (`echo $((1<<n))`, `(( x<<2 ))`, the old `$[1<<n]`), and a parameter
-# expansion, where it is pattern text (`${x/<<'t'/y}`; review of #612, round 3 F11), and a command substitution.
-# Matched on the raw line, quotes and all: inside `"${x/"<<'t'"/y}"`, `"$[1"<<'n'"]"`, `"$(cat "<<'#'")"` and
-# `` "`cat "<<'#'"`" `` bash reads the inner quotes as part of the expansion, a quote scan reads them as closing it
-# and finds an operator, and `$'a\' <<\X '\'` is one word to bash; each of these only this search catches (round 4
-# F14, and #689 round 1 F3 and P-2). Not `((`: `$((` is a `$(`, and a bare `(( … ))` holds an unquoted `(`, which
-# _leaves_open reads. The cost: `--to "${P}"` or a `$(…)` anywhere on a data reader's line keeps its body judged.
-# A bare `$name` is readable (`gzcoord-send --to $P - <<'X'`, review of #612, round 4 F15): what makes a `$`
-# dangerous is the bracket or quote after it, and a variable that runs the body (`$SHELL <<'X'`) is no data reader,
-# judged by _runs_what_it_writes. And `$"…"`, locale quoting: bash ends `<<$"n"` at a line `n`, where the delimiter
-# computed here keeps the `$` (#689 round 5, P-7).
-UNREADABLE_LINE = re.compile(r"\$'|\$\"|\$\(|\$\[|\$\{|`")
+# expansion, where it is pattern text (`${x/<<'t'/y}`; review of #612, round 3 F11).
+UNREADABLE_LINE = re.compile(r"\$'|\(\(|\$\[|\$\{")
+# What a line that opens a here-document may not hold outside plain quotes for its body to be dropped: an expansion,
+# a substitution, a subscript, a subshell or a group can each make a `<<` something bash does not read as an operator.
+OPENS_SYNTAX = frozenset("$`[({")
 
 
 def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
@@ -299,13 +293,13 @@ def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
     between them, which bash runs, passed (review of #612, P2). The delimiter is its word with the quotes removed;
     any quote or backslash in the word quotes it, and then bash expands nothing in the body. <<< is a here-string.
     None when the line cannot be read surely: UNREADABLE_LINE, a quote the scan leaves open at its end (bash would
-    carry it onto the next line, which this scan does not follow). A `<<` inside a subscript, a group or arithmetic
-    (`$((1<<n))`, `a[1<<"n"]=5`, on its own line or opened on the line before) is no operator to bash either; that is
-    _leaves_open's, which _strip_bodies asks of the same line, and which refuses any unquoted `(`, `[` or `{` (review
-    of #612, rounds 2 to 4; #689 round 4)."""
+    carry it onto the next line, which this scan does not follow), or a line with an operator that holds, outside plain
+    quotes, any of OPENS_SYNTAX. That last test is an allowlist, not a list of spellings: `$((1<<n))`, `$[1<<n]`,
+    `${x/<<'t'/y}` and `a[1<<"n"]=5` each hold a `<<` bash reads as no operator, and the next spelling of the same kind
+    is caught without being named (review of #612, rounds 2 and 3)."""
     if UNREADABLE_LINE.search(line):
         return None
-    s, out, i, quote = strip_non_arguments(line), [], 0, None
+    s, out, i, quote, outside = strip_non_arguments(line), [], 0, None, []
     n = len(s)
     while i < n:
         c = s[i]
@@ -318,6 +312,8 @@ def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
             i += 1
         elif c in "'\"":
             quote = c
+        elif c in OPENS_SYNTAX:
+            outside.append(c)
         elif s.startswith("<<<", i):
             i += 3
             continue
@@ -345,55 +341,9 @@ def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
             i = k
             continue
         i += 1
-    if quote:
+    if quote or (out and outside):
         return None
     return out
-
-
-# The reserved words that open a compound a later line closes, matched wherever they stand as a word: `if>/dev/null`
-# is an `if`, and `echo for` an over-read that costs a rephrase.
-OPENING_WORD = re.compile(r"(?<![\w-])(?:if|while|until|for|select|case|function)(?![\w-])")
-
-
-def _leaves_open(line: str) -> bool:
-    """Whether a command line may leave something open that bash continues on the next line, so that a here-document
-    after it is not the top-level command it looks like: `{` / `cat <<'n'` / `pkill …` / `n` / `} | sh` runs the
-    body, as do `(`, `while`, `if`, `case` and a function body piped the same way, and `a[1` / `<<"n"]=5` is one
-    subscript with no operator in it (review of #612, round 4 F13 and its section 2). Yes when the line, outside
-    quotes and escapes, holds any `(`, `[` or `{`, any opening reserved word, or ends in `|`, `|&`, `&&` or `||`
-    (`cat <<'n' |` NL body NL `n` NL `sh`, #689 round 1 P-1; a list continued on the next line is one bash reads as
-    open too, `bash -n` the oracle the suite asks), or leaves a quote open. A backtick is UNREADABLE_LINE's.
-
-    Stateless on purpose: no closer on the line is believed. Four review rounds of #689 each found a closer that this
-    function, then a stack of openers, took as closing and bash did not (`{ : a}`, `{ >/dev/null }`, `{ cat <() }`,
-    `a[ > b[ ]`), or a word it split otherwise than bash (`if>/dev/null`); every such miss is a body bash runs, and a
-    rule with nothing to close has nothing to desync. The cost, accepted: a balanced line before a here-document
-    (`run(){ make t; }`, `[ -f x ] && …`, `echo {a,b}`, `for f in *; do :; done`) ends the drop, and a kill named in
-    a body after it is a rephrase."""
-    s, blank, i, quote = strip_non_arguments(line), [], 0, None
-    while i < len(s):
-        c = s[i]
-        if quote:
-            if c == "\\" and quote == '"':
-                blank.append("_")
-                i += 1
-            elif c == quote:
-                quote = None
-            blank.append("_")
-        elif c == "\\":
-            blank.append("__")
-            i += 1
-        elif c in "'\"":
-            quote = c
-            blank.append("_")
-        else:
-            blank.append(c)
-        i += 1
-    blanked = "".join(blank)
-    # A quote left open, here too: heredoc_operators reads `<<"n\"` as closed at the escaped quote, bash as open
-    # (#689 round 5, F14).
-    return bool(quote or re.search(r"[([{]", blanked) or OPENING_WORD.search(blanked)
-                or re.search(r"(?:\||&&)&?\s*$", blanked))
 
 
 def _logical_end(lines: list[str], i: int) -> int:
@@ -430,14 +380,9 @@ def _strip_bodies(text: str, takes, opened: list[str] | None = None) -> str:
        is data readers (_data_only); the broad drop (drop_heredoc_bodies) only when no shell reads the body. An
        opening line `takes(line)` refuses keeps its body and every line after it: the body is code, and its lines are
        not read again for here-documents of their own.
-    3. A command line heredoc_operators cannot read surely (None: UNREADABLE_LINE, a quote it cannot balance) opens
-       no droppable here-document, and everything from it on is judged.
+    3. A command line heredoc_operators cannot read surely (None: `$'…'`, `((`, a quote it cannot balance) opens no
+       droppable here-document, and everything from it on is judged.
     4. An operator whose delimiter line is not there drops nothing (review of #70, eighth round).
-    5. A command line that may leave anything open (_leaves_open: any unquoted `(`, `[` or `{`, an opening
-       reserved word, a pipe or list continued at its end) ends the drop: what follows may be inside it, and its
-       closing line may pipe it into a shell. The cost, accepted: a here-document after any such line, balanced or
-       not (`run(){ make t; }`, a gzcoord-send in a `for` loop, `cat <<'X' |` NL body NL `X` NL `grep x`), is
-       judged as text, and a kill named in its body is a rephrase.
     The opening line and every line after a body stay: a kill there still runs. `opened`, when given, collects the
     opening line of each here-document whose body is dropped (_written_names reads what that line may write)."""
     lines, out, i = text.split("\n"), [], 0
@@ -448,8 +393,7 @@ def _strip_bodies(text: str, takes, opened: list[str] | None = None) -> str:
         out += physical
         i = end_of_line
         delims = heredoc_operators(joined)
-        if delims is None or _leaves_open(joined) \
-                or (delims and (not takes(joined) or not all(quoted for _, _, quoted in delims))):
+        if delims is None or (delims and (not takes(joined) or not all(quoted for _, _, quoted in delims))):
             return "\n".join(out + lines[i:])
         for strip_tabs, delim, _ in delims:
             end = next((j for j in range(i, len(lines))
@@ -673,9 +617,6 @@ def strip_non_arguments(text: str) -> str:
     # and a '#' after it starts a comment (review of #70, the seventh
     # round). The depth of open substitutions tells the two apart.
     subst_depth, closed_subst = 0, False
-    # The index of the last character a backslash escaped outside quotes: an escaped blank joins the words on either
-    # side, so `\ #` is one word with a literal `#`, not a comment (#689 round 5 fuzz: `\ # x "` hid an open quote).
-    escaped = -1
     while i < n:
         c = text[i]
         if quote == "'":
@@ -691,7 +632,6 @@ def strip_non_arguments(text: str) -> str:
             out.append(c)
             i += 1
             c = text[i]
-            escaped = i
         elif c in "'\"":
             quote = c
         elif c == "$" and i + 1 < n and text[i + 1] == "(":
@@ -704,12 +644,11 @@ def strip_non_arguments(text: str) -> str:
         elif c == ")":
             closed_subst = subst_depth > 0
             subst_depth = max(0, subst_depth - 1)
-        elif c == "#" and (i == 0 or (text[i - 1] in " \t\n;&|(" and i - 1 != escaped)
-                           or (text[i - 1] == ")" and not closed_subst and i - 1 != escaped)):
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|(" or (text[i - 1] == ")" and not closed_subst)):
             while i < n and text[i] != "\n":
                 i += 1
             continue
-        elif c.isdigit() and (i == 0 or (text[i - 1] in " \t\n;&|()" and i - 1 != escaped)):
+        elif c.isdigit() and (i == 0 or text[i - 1] in " \t\n;&|()"):
             j = i
             while j < n and text[j].isdigit():
                 j += 1

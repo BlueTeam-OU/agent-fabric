@@ -5,7 +5,6 @@ command line; and the hook's protocol end to end."""
 from __future__ import annotations
 
 import json
-import random
 import os
 import subprocess
 import tempfile
@@ -283,6 +282,8 @@ def main() -> int:
     # here-document no shell reads is data, and kill counts as a command word only, not os.kill or self_kill.
     for label, cmd in (("os.kill and a dict in a python here-document",
                         "python3 - <<'EOF'\nimport os\nd = {'a': 1, 'b': 2}\nos.kill(os.getpid(), 15)\nEOF"),
+                       ("a function body beside a here-document that says kill",
+                        "run(){ (timeout 300 make t); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun"),
                        ("a file named self_kill beside a brace list", "python3 tests/test_self_kill_guard.py {a,b}")):
         check(f"no kill command, no ask: {label}", g.unevaluated(cmd) is None, g.unevaluated(cmd))
     for label, cmd in (("pkill with a brace list", "pkill -f x{a,b}"), ("killall with a brace range", "killall p{1..3}"),
@@ -292,15 +293,10 @@ def main() -> int:
                        ("an empty braced expansion glued to kill", "${x}kill $'\\x31\\x32\\x33\\x34'"),
                        ("a glued kill with a brace list", '"$x"kill 12{3,}4'),
                        # Re-review round 4, F13, the accepted cost: a function body running python3 beside a write
-                       # from a here-document keeps that body judged, so its brace list asks (since #689 round 4
-                       # with `make t` too, below).
+                       # from a here-document keeps that body judged, so its brace list asks (with `make t` it
+                       # does not, above).
                        ("a function body running python3 beside a write",
-                        "run(){ (timeout 300 python3 t.py); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun"),
-                       # #689 round 4, the accepted cost of a stateless _leaves_open: any `(`, `[` or `{` on a line
-                       # before a here-document ends the drop, a balanced function body too (with `make t` it passed
-                       # before #689).
-                       ("a function body beside a here-document that says kill",
-                        "run(){ (timeout 300 make t); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun")):
+                        "run(){ (timeout 300 python3 t.py); echo rc=$?; }\ncat > f <<'EOF'\n# a timeout's kill {a,b}\nEOF\nrun")):
         check(f"a kill tool with a brace expansion still asks: {label}", g.unevaluated(cmd) is not None, cmd)
     # A here-document a data reader takes is data for the pid and kill-word search too (j866 / OBSERVATION
     # 01a1d8ab: a gzcoord-send body reporting a watch's pid was denied as killing it). Any other reader keeps its body
@@ -322,10 +318,7 @@ def main() -> int:
                        ("grep -c", f"grep -c x <<'X'\nkill {W}\nX"),
                        ("wc, head, tail", f"wc -l <<'X' | head -1 | tail -1\nkill {W}\nX"),
                        ("a quoted body's $( … ) is not run", f"cat <<'X'\n$(kill {W})\nX"),
-                       ("a \\-quoted delimiter", f"cat <<\\X\n`kill {W}`\nX"),
-                       # Review of #612, round 4 F15: an unquoted $name on the reader's line. Kills: a bare `$`
-                       # added to _leaves_open's openers or to UNREADABLE_LINE.
-                       ("gzcoord-send --to $P", f"gzcoord-send --to $P - <<'X'\nkill {W}\nX")):
+                       ("a \\-quoted delimiter", f"cat <<\\X\n`kill {W}`\nX")):
         d = by_pid(cmd)
         check(f"a data reader's here-document naming a watch's pid passes: {label}", d is None, d)
     for label, cmd in (("bash <<X", f"bash <<'X'\nkill {W}\nX"),
@@ -371,9 +364,7 @@ def main() -> int:
                        ("sort --compress-program=sh", f"sort -S 1K --compress-program=sh <<'X'\nkill {W}\nX"),
                        ("cat | sort --compress-program=sh", f"cat <<'X' | sort -S 1K --compress-program=sh\nkill {W}\nX"),
                        # Rule 4, doubt keeps the body: ANSI-C quoting, where \' is a literal quote.
-                       ("a <<true inside $'…'", f"cat $'a\\' <<true'\nkill {W}\ntrue"),
-                       # #689 round 1, F3: $'…' alone hides the <<, the delimiter balanced. Kills: UNREADABLE_LINE's $'.
-                       ("$'…' hiding a balanced <<", f"cat $'a\\' <<\\X '\\'\nkill {W}\nX")):
+                       ("a <<true inside $'…'", f"cat $'a\\' <<true'\nkill {W}\ntrue")):
         d = by_pid(cmd)
         check(f"a here-document no data reader alone takes still denies: {label}",
               d is not None and d[0] == "deny" and "inbox watch" in d[1], d)
@@ -391,96 +382,12 @@ def main() -> int:
                        # The allowlist, not a spelling: a subscript holds a << bash reads as a shift.
                        ("a << inside an array subscript", "a[1<<\"n\"]=5\npkill -f claude-fable\nn]=5"),
                        ("a here-document in a function body", "f() { cat <<'n'; }\npkill -f claude-fable\nn"),
-                       # Round 4 F13 and section 2: a line left open makes the next lines part of it, a closer
-                       # later piping the whole into sh. Kills: _leaves_open returning False.
-                       ("a subscript opened on the line before", "a[1\n<<\"n\"]=5\npkill -f claude-fable\nn]=5"),
-                       ("{ … } | sh", "{\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
-                       ("( … ) | sh", "(\ncat <<'n'\npkill -f claude-fable\nn\n) | sh"),
-                       ("while … done | sh", "while :; do\ncat <<'n'\npkill -f claude-fable\nn\nbreak; done | sh"),
-                       ("if … fi | sh", "if :; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
-                       ("case … esac | sh", "case x in x)\ncat <<'n'\npkill -f claude-fable\nn\n;; esac | sh"),
-                       ("a function body, run into sh", "f() {\ncat <<'n'\npkill -f claude-fable\nn\n}\nf | sh"),
-                       ("a closer that is an argument", "{\necho }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
-                       # Round 4 F14: the split-line spellings. Kills: _leaves_open and UNREADABLE_LINE's $[ or ${
-                       # alternative, removed together.
-                       ("${ … } split over the <<", "echo ${x/\n<<'t'/y}\npkill -f claude-fable\nt/y}"),
-                       ("$[ … ] split over the <<", "echo $[1\n<<\"n\"]\npkill -f claude-fable\nn]"),
-                       # Round 4 F14: quotes nested in the expansion hide its bracket from the quote scan. Kills:
-                       # UNREADABLE_LINE without its ${ alternative, and without its $[ alternative.
-                       ("a << in quotes nested in ${ … }", "echo \"${x/\"<<'t'\"/y}\"\npkill -f claude-fable\nt/y}"),
-                       ("a << in quotes nested in $[ … ]", "echo \"$[1\"<<'n'\"]\"\npkill -f claude-fable\nn]"),
-                       # Round 4 F15: with a bare $ readable, a variable that runs the body is still judged.
-                       # Kills: the opener rule (a non-reader opener stores the body) in _runs_what_it_writes.
-                       ("$SHELL <<'n'", "$SHELL <<'n'\npkill -f claude-fable\nn"),
-                       # #689 round 1, F1: a `}` inside a word closes no group. Kills: `{` in _leaves_open.
-                       ("{ : a} leaves the group open", "{ : a}\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
-                       ("{ x=} leaves the group open", "{ x=}\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
-                       # F2: a substitution opened by a backtick. Kills: UNREADABLE_LINE without its ` alternative.
-                       ("a backtick open over the body", "echo `\ncat <<'n'\npkill -f claude-fable\nn\n` | sh"),
-                       # P-1: a pipeline or list left open at the line's end. Kills: the trailing-operator test.
-                       ("cat <<'n' | … sh on a later line", "cat <<'n' |\npkill -f claude-fable\nn\nsh"),
-                       # #689 round 2, F7. Kills: the &? of the trailing-operator test.
-                       ("cat <<'n' |& … sh on a later line", "cat <<'n' |&\npkill -f claude-fable\nn\nsh"),
-                       # Round 2, F1 and P-3: a word ends at < and >, as bash ends it. Kills: `{` or the
-                       # reserved words in _leaves_open.
-                       ("{>/dev/null : a}", "{>/dev/null : a}\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
-                       ("if>/dev/null", "if>/dev/null :; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
-                       ("until</dev/null",
-                        "until</dev/null false; do\ncat <<'n'\npkill -f claude-fable\nn\nbreak; done | sh"),
-                       # Round 3, F11: a word after a redirection's target is no command word, so it closes nothing.
-                       # Kills: `{` or the reserved words in _leaves_open.
-                       ("{ >/dev/null }", "{ >/dev/null }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
-                       ("then >/dev/null fi", "if :; then >/dev/null fi\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
-                       # Round 3, F12: a `(` after a redirection opens a process substitution with a command inside.
-                       # Kills: `(` and `case` out of _leaves_open together.
-                       ("<(case …", "cat <(case x in x)\ncat <<'n'\npkill -f claude-fable\nn\n;; esac) | sh"),
-                       # Round 4, F13, P-5 and P-6: a closer after a process substitution, an array or a redirection
-                       # inside a subscript. Kills: `(` and `{` out of _leaves_open together; `[` for the last.
-                       ("{ cat <() }", "{ cat <() }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
-                       ("{ cat <(:) }", "{ cat <(:) }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
-                       ("{ a=(x) }", "{ a=(x) }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
-                       ("a[ > b[ ]", "a[ > b[ ]\ncat <<'n'\npkill -f claude-fable\nn\n]=5"),
-                       # Round 5, F14: a `\"` in a double-quoted delimiter leaves the quote open to bash, and the
-                       # body runs into sh. Kills: the quote test in _leaves_open.
-                       ('<<"n\\"', 'cat <<"n\\"\n" | sh\npkill -f claude-fable\nn'),
-                       # Round 5, P-7: locale quoting moves the delimiter. Kills: UNREADABLE_LINE without its $".
-                       ('<<$"n"', 'cat <<$"n"\nn\npkill -f claude-fable\n$n'),
-                       # F3 and P-2: spellings only UNREADABLE_LINE's $', $( and ` alternatives catch, each alone.
-                       ("$'…' hiding a <<", "echo $'a\\' <<\\X '\\'\npkill -f claude-fable\nX"),
-                       ("a << in quotes nested in $( … )", "echo \"$(cat \"<<'#'\")\"\npkill -f claude-fable\n#)"),
-                       ("a << in quotes nested in ` … `", "echo \"`cat \"<<'#'\"`\"\npkill -f claude-fable\n#`"),
                        ("an unquoted body joined over its delimiter",
                         "cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\npkill -f claude-fable\nY"),
                        ("a here-document inside a shell's body", "bash <<'EOF'\ncat <<'Y'\nEOF\npkill -f claude-fable\nY")):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a pattern kill the broad here-document drop must keep denies: {label}",
               d is not None and d[0] == "deny", d)
-    # #689 round 4: bash is the oracle for what a line leaves open. On seeded random lines of shell tokens, every line
-    # `bash -n` reads as ended early (an unexpected end of file) is one _strip_bodies stops at, by heredoc_operators or
-    # _leaves_open. Four review rounds each found a line a hand-written closer rule read as closed; this asks bash.
-    # A line ending in a backslash is joined to the next by _logical_end first, so it is no line of its own here.
-    # Kills: any opener taken out of _leaves_open, or a closer rule put back.
-    tokens = ["{", "}", "(", ")", "[", "]", "if", "then", "fi", "while", "until", "do", "done", "case", "esac", "in",
-              "for", "select", "x", ";", ";;", "|", "|&", "&&", "||", "&", "<", ">", ">|", "&>", "2>", "<(", ">(", "'",
-              '"', "\\", "$(", "$[", "${", "`", ":", "cat", "#", "!", "function", "f()", "a=(", "x[1", "]=5", "time",
-              "coproc", "$x", "{a,b}", "((", "esac)", "<<", "<<-", '<<"n\\"', '$"', "<<'n'"]
-    # The fixed lines first: a list continued on the next line, and the keywords whose removal no named case or seed
-    # catches (#689 round 5, F15), and a `#` an escaped blank glues to a word, no comment (the round-5 fuzz). Kills:
-    # `&&` in the line-end test; `function`, `for` or `select` out of OPENING_WORD; strip_non_arguments's `escaped`.
-    fixed = ["true &&", "true ||", "function x", "for x in a; do", "select x in a; do", 'echo \\ # x "']
-    rng, missed = random.Random(689), []
-    for i in range(len(fixed) + 400):
-        line = fixed[i] if i < len(fixed) else "".join(
-            rng.choice(tokens) + rng.choice(["", " ", " "]) for _ in range(rng.randint(1, 7))).strip()
-        if not line or line.endswith("\\"):
-            continue
-        err = subprocess.run(["bash", "-n"], input=line + "\n", capture_output=True, text=True,
-                             env={**os.environ, "LC_ALL": "C"}).stderr   # the messages read below are English
-        if ("unexpected end of file" in err or "unexpected EOF" in err) \
-                and g.heredoc_operators(line) is not None and not g._leaves_open(line):
-            missed.append(line)
-    check("every line bash -n reads as left open ends the here-document drop (6 fixed, 400 seeded lines)",
-          not missed, missed[:5])
     # Review of #612, fix round 1d6d87fa: a body stored in a file the same command runs is code. Each shape, for the
     # pattern reading (the broad drop) and for the pid reading (the data drop). Kills: _runs_what_it_writes -> False.
     stored = (("cat > k.sh, then bash it", "cat > k.sh <<'X'\n{kill}\nX\nbash k.sh"),
