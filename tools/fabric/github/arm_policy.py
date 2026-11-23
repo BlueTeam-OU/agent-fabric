@@ -392,18 +392,34 @@ def _compose(fleet: dict, doc: dict | None, settings: str | None, repo: str) -> 
     return policy
 
 
-def load_with_source(repo: str, *, root: str | None = None, registry: Any = None, clients: Any = None,
-                     api: Callable[..., Any] = gh.api) -> tuple[dict, str | None, bool]:
-    """(the policy, the settings repository, whether it held repos/<name>.json) for `repo`, from ONE fetch of that
-    file, so what a caller is told of the source is what the policy was built from. (policy, None, False) for a
-    repository that is no registered project's, which gets the fleet's policy by definition; (fleet, settings, False)
-    for a registered one whose file is absent, which is not the same: its owner wrote a policy that is not there
-    yet, and the fleet's would replace its queue and required checks. Not cached (load has the cache)."""
+def sets_policy(doc: dict | None) -> bool:
+    """Whether a repos/<name>.json carries any policy key. A file of only IGNORED_KEYS (a description) states no
+    policy, so it is no owner's word: applying the fleet default for it would replace the repository's queue and
+    required checks exactly as for an absent file."""
+    return doc is not None and any(k not in IGNORED_KEYS for k in doc)
+
+
+def load_with_file(repo: str, *, root: str | None = None, registry: Any = None, clients: Any = None,
+                   api: Callable[..., Any] = gh.api) -> tuple[dict, str | None, dict | None]:
+    """(the policy, the settings repository, the repos/<name>.json document or None when absent) for `repo`, from ONE
+    fetch of that file, so what a caller is told of the source is what the policy was built from. (policy, None, None)
+    for a repository that is no registered project's, which gets the fleet's policy by definition. Not cached (load
+    has the cache)."""
     fleet = fleet_policy(root)
     registry, clients = _registry_and_clients(root, registry, clients)
     settings = settings_repo_of(registry, clients, repo)
     doc = fetch_repo_policy(settings, repo, api) if settings else None
-    return _compose(fleet, doc, settings, repo), settings, doc is not None
+    return _compose(fleet, doc, settings, repo), settings, doc
+
+
+def load_with_source(repo: str, *, root: str | None = None, registry: Any = None, clients: Any = None,
+                     api: Callable[..., Any] = gh.api) -> tuple[dict, str | None, bool]:
+    """(the policy, the settings repository, whether its repos/<name>.json sets a policy) for `repo`.
+    (policy, None, False) for a repository that is no registered project's; (fleet, settings, False) for a registered
+    one whose file is absent or only describes, which is not the same: its owner wrote a policy that is not there
+    yet, and the fleet's would replace its queue and required checks."""
+    policy, settings, doc = load_with_file(repo, root=root, registry=registry, clients=clients, api=api)
+    return policy, settings, sets_policy(doc)
 
 
 def load(repo: str | None, *, root: str | None = None, registry: Any = None, clients: Any = None,

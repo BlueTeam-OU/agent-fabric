@@ -15,7 +15,7 @@ A difference in which merge methods are allowed (a ruleset that allows the polic
 repository's allow_*_merge fields), in delete-branch-on-merge, or in bypass actors this token cannot see, is
 `(advisory)`: verify fails on it, arm does not refuse on it.
 
-The repository defaults to the current one (gh.py). The policy is arm_policy.load_with_source(repo): the
+The repository defaults to the current one (gh.py). The policy is arm_policy.load_with_file(repo): the
 fleet's with the client's settings repository's file over it. What it asks of GitHub is arm_policy.render(): the repository's
 merge fields and the one ruleset the policy names (every other ruleset is left alone). What GitHub holds is read
 with GETs; apply alone writes: PATCH repos/<repo> with the differing REPOSITORY_FIELDS, then PUT the ruleset by
@@ -25,8 +25,9 @@ organisation's) and, for an App named in a required check that arm_policy does n
 
 Every verb says where the policy came from. A registered project whose own file (repos/<name>.json in its
 client's settings repository) is not there yet gets the fleet's policy from arm_policy.load, which would drop its
-queue and required checks if written: plan and verify report it and go on, apply refuses (exit 2, nothing
-written). A repository that is no registered project's is applied only with --fleet-default.
+queue and required checks if written: plan and verify report it and go on, apply refuses (exit 2, nothing written).
+A file there that sets no policy key (arm_policy.sets_policy: a description is no policy) is refused by apply the same
+way, while plan and verify name the file as the source, as for any file there. A repository that is no registered project's is applied only with --fleet-default.
 
 What is compared, and what is not: the repository fields allow_auto_merge, allow_merge_commit, allow_squash_merge,
 allow_rebase_merge, delete_branch_on_merge; the ruleset's presence, target, enforcement, conditions and bypass
@@ -255,11 +256,16 @@ def run(argv: list[str], api=gh.api, out=sys.stdout, err=sys.stderr) -> int:
         if not arm_policy.is_repo_name(repo):
             print(f"fabric-repo-policy: {repo!r} is not an <owner>/<name>", file=err)
             return 2
-        policy, settings, has_file = arm_policy.load_with_source(repo, api=api)
-        source = describe_source(repo, settings, has_file)
+        policy, settings, doc = arm_policy.load_with_file(repo, api=api)
+        has_file = arm_policy.sets_policy(doc)
+        # plan and verify keep saying "repos/<name>.json in <settings>" for any file there; only apply's refusal
+        # has to say that the file holds no policy.
+        source = describe_source(repo, settings, doc is not None)
         if verb == "apply" and settings is not None and not has_file:
+            if doc is not None:
+                source = f"repos/{repo.split('/', 1)[1]}.json in {settings} sets no policy key (it holds nothing but, at most, a description)"
             print(f"fabric-repo-policy: {source}; applying it would replace {repo}'s queue, required checks and rulesets "
-                  f"with the default: nothing written (add the file first)", file=err)
+                  f"with the default: nothing written (add the file, with a policy key, first)", file=err)
             return 2
         if verb == "apply" and settings is None and not fleet_default:
             print(f"fabric-repo-policy: {source}; apply writes the default only with --fleet-default: nothing written", file=err)
