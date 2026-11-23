@@ -466,12 +466,27 @@ def _blank_quoted(text: str) -> str:
 
 def _expands_outside_reader(line: str) -> bool:
     """Whether an opening line holds an unquoted `$` (or backtick) in a simple command that is no data reader by its
-    exact name. Such a word may be the shell that reads the body behind a wrapper the guard knows nothing of
-    (`ionice -c3 $SHELL <<'X'`, `cat <<'X' | flock /tmp/l $SHELL`), which the `$` in OPENS_SYNTAX refused until a data
-    reader's `--to $P` had to pass (review of #694, round 1 F1). The exact name, not the basename: `./cat` is any
-    program. Quoted, the `$` was hidden from that scan too (`ionice -c3 "$SHELL"`, not covered)."""
-    return any(re.search(r"[$`]", piece) and piece.split()[0] not in DATA_READERS
-               for piece in re.split(r"[|;&\n]", _blank_quoted(line)) if piece.split())
+    exact name, or in a file a data reader writes. Such a word may be the shell that reads the body behind a wrapper the
+    guard knows nothing of (`ionice -c3 $SHELL <<'X'`, `cat <<'X' | flock /tmp/l $SHELL`), which the `$` in
+    OPENS_SYNTAX refused until a data reader's `--to $P` had to pass (review of #694, round 1 F1). The exact name, not
+    the basename: `./cat` is any program. A reader's redirection target or tee operand counts as well: the file it
+    names is one _runs_what_it_writes cannot match with a later `ionice -c3 $f` that runs it (review of #694, round 2
+    F1). Quoted, the `$` was hidden from that scan too (`ionice -c3 "$SHELL"`, `cat > "$f"`, not covered)."""
+    blank = _blank_quoted(line)
+    # The whole line, before the split on | and &, which would take `>|` and `&>` apart.
+    if any(re.search(r"[$`]", m.group(1)) for m in WRITE_REDIRECT.finditer(blank)):
+        return True
+    for piece in re.split(r"[|;&\n]", blank):
+        words = piece.split()
+        if not words:
+            continue
+        if words[0] == "tee":
+            words = _tee_files([w for w in words[1:] if "<" not in w and ">" not in w])
+        elif words[0] in DATA_READERS:
+            continue
+        if any(re.search(r"[$`]", w) for w in words):
+            return True
+    return False
 
 
 # What runs a block it is piped or handed as a command: the shells of SHELLS, `.` as a command word only (`find .` is a
@@ -482,23 +497,31 @@ WRAPPER_OPERAND = re.compile(r"\d[\d.]*[smhd]?|[A-Za-z_][A-Za-z0-9_]*=.*")
 
 
 def _runs_a_shell(rest: str) -> bool:
-    """Whether a shell is the command word of any simple command in `rest` (the command with its dropped bodies left
-    out), behind compound keywords, assignments and the prefixes the guard knows with their options. Command words
-    only, on the quote-blanked, comment-free text: `grep sh notes`, `# then sh` and a quoted "bash" in an argument
-    run nothing, and searching the raw text for the names denied data-only commands main passes (review of #694,
-    round 1 F2). A quoted or variable shell (`fi | "bash"`, `fi | $SHELL`) is not seen here; a `{` or `(` left open
-    on its line is caught by heredoc_operators instead. Linear in the text: a regex here once crossed every blank line
-    from every line start (review of #694, round 1 F3)."""
+    """Whether `rest` (the command with its dropped bodies left out) may hand a block to a shell: a shell as the
+    command word of any simple command, behind compound keywords (and `time -p`), assignments and the prefixes the
+    guard knows with their options; or a shell's name as any word of a simple command that is no data reader, echo or
+    printf by its exact name (`./grep` is any program), which a wrapper the guard does not know may run (`fi | ionice -c3 sh`, `fi | flock /tmp/l sh`; review of
+    #694, round 2 F6). Read on the quote-blanked, comment-free text: `grep sh notes`, `# then sh` and a quoted "bash"
+    in an argument run nothing, and searching the raw text for the names denied data-only commands main passes
+    (review of #694, round 1 F2). The cost, accepted: a shell's name as another program's argument (`ls ~/sh`) beside
+    a dropped body keeps it judged. `.` and `source` only as the command word: no wrapper execs a builtin, and `git
+    add .` is common. A quoted or variable shell (`fi | "bash"`, `fi | $SHELL`) is not seen here; a `{` or `(` left
+    open on its line is caught by heredoc_operators instead. Linear in the text: a regex here once crossed every blank
+    line from every line start (review of #694, round 1 F3)."""
     for words in segments(_blank_quoted(rest)):
         i = 0
         while i < len(words) and (words[i] in COMPOUND or WRAPPER_OPERAND.fullmatch(words[i])):
-            i += 1
+            # time's one option, so `time -p grep sh notes` has grep as its command word.
+            i += 2 if words[i] == "time" and words[i + 1:i + 2] == ["-p"] else 1
         while i < len(words) and os.path.basename(words[i]) in PREFIXES:
             takes = VALUE_OPTIONS.get(os.path.basename(words[i]), set())
             i += 1
             while i < len(words) and (words[i].startswith("-") or WRAPPER_OPERAND.fullmatch(words[i])):
                 i += 2 if words[i] in takes else 1
         if i < len(words) and os.path.basename(words[i]) in BLOCK_SHELLS:
+            return True
+        if i < len(words) and words[i] not in DATA_READERS | {"echo", "printf"} \
+                and any(os.path.basename(w) in NESTED for w in words[i + 1:]):
             return True
     return False
 
