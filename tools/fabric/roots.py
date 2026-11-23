@@ -5,9 +5,10 @@ instance data lives under the latter.
 agent-fabric is being split into a public ENGINE (code, tests, the
 schemas, the default dictionary) and a private OPERATOR repository (what
 describes one fleet: roles, registries, policies, routing overlays,
-memory, decisions, keys). Until the files move, both are this checkout;
+memory, decisions, keys). Since move-plan step B the operator's files sit
+in this checkout's operator/ (old paths are symlink shims until step D);
 this module is the one place that knows which is which, so a reader of
-instance data asks it and the later move is a change here.
+instance data asks it and each later step is a change here.
 
     engine_root()    AGENT_FABRIC_ROOT when set (a test, a fixture, the
                      launcher's exports), else the checkout this file is

@@ -690,7 +690,8 @@ def digests(root: str | None) -> list[str]:
         return [os.path.join(adr_dir(root), "DIGEST.md")]
     operator = os.path.join(adr_dir(None), "DIGEST.md")
     engine = os.path.join(roots.engine_adr_dir(engine=ROOT), "DIGEST.md")
-    # Two trees means an operator is exported (roots answers the engine's otherwise).
+    # Two trees: since step B the operator's records are the checkout's operator/docs/adr, or an exported
+    # operator's; one only for a tree laid out the old way, where roots answers the engine's.
     if os.path.realpath(operator) != os.path.realpath(engine) and not os.path.isfile(operator):
         raise SystemExit(f"adr: the operator's {operator} is missing: no lookup without its records")
     paths, seen = [], set()

@@ -214,7 +214,7 @@
     },
     {
       "role": "legal-expert",
-      "note": "agent-fabric ADR-018 \u00a75 rule 8: the legal opinions and the drafts of legal text the fleet asks of it, under docs/legal/, on its own branch; fabric-coordinator folds and merges. Nothing else of the control plane. Added with the role, 2026-10-15.",
+      "note": "agent-fabric ADR-018 \u00a75 rule 8: the legal opinions and the drafts of legal text the fleet asks of it, under docs/legal/ (operator/docs/legal/ since ADR-045 step B), on its own branch; fabric-coordinator folds and merges. Nothing else of the control plane. Added with the role, 2026-10-15.",
       "paths": [
         "operator/docs/legal/"
       ],
