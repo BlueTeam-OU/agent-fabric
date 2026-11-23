@@ -423,6 +423,12 @@ def main() -> int:
                        ("cat <<X >$f, then ionice -c3 $f",
                         "f=/tmp/k; cat <<'X' >$f\npkill -f claude-fable\nX\nchmod +x $f; ionice -c3 $f"),
                        ("tee $f <<X, then ionice -c3 $f", "tee $f <<'X'\npkill -f claude-fable\nX\nionice -c3 $f"),
+                       # Round 3 F1: the operator glued to the file. Kills: dropping a word that holds < or >.
+                       ("tee $f<<X, then ionice -c3 $f", "tee $f<<'X'\npkill -f claude-fable\nX\nionice -c3 $f"),
+                       ("tee $f>/dev/null <<X, then ionice -c3 $f",
+                        "tee $f>/dev/null <<'X'\npkill -f claude-fable\nX\nionice -c3 $f"),
+                       # Round 3 F7's accepted cost: a program naming a shell may be the wrapper that runs it.
+                       ("ls ~/sh after the body", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\nls ~/sh"),
                        # Review of #694, round 2 F6: a block piped into a shell behind a wrapper the guard does not
                        # know. Kills: _runs_a_shell reading command words only; for `time -p sh`, that together with
                        # not skipping time's -p, since either reading alone finds the shell.
@@ -446,7 +452,10 @@ def main() -> int:
                        # its edges. Kills: `.` counted beyond the command word; time's -p not skipped.
                        ("git add . after the body", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\ngit add ."),
                        ("time -p grep sh after the body",
-                        "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\ntime -p grep sh notes")):
+                        "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\ntime -p grep sh notes"),
+                       # Round 3 F7: a reader named by its path, as _data_only reads it. Kills: the exact name.
+                       ("/usr/bin/grep sh after the body",
+                        "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\n/usr/bin/grep sh notes")):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a data reader's quoted kill beside a shell's name that runs nothing passes: {label}", d is None, d)
     # Review of #694, round 1 F3: a regex from every line start crossed every blank line after it, quadratic, past the

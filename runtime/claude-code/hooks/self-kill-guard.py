@@ -481,7 +481,9 @@ def _expands_outside_reader(line: str) -> bool:
         if not words:
             continue
         if words[0] == "tee":
-            words = _tee_files([w for w in words[1:] if "<" not in w and ">" not in w])
+            # A word's head before its first < or >: bash ends `$f` at the operator glued to it (`tee $f<<'X'`,
+            # `tee $f>/dev/null`; review of #694, round 3 F1), and a redirect's own target is WRITE_REDIRECT's.
+            words = _tee_files([h for h in (re.split(r"[<>]", w)[0] for w in words[1:]) if h])
         elif words[0] in DATA_READERS:
             continue
         if any(re.search(r"[$`]", w) for w in words):
@@ -500,11 +502,12 @@ def _runs_a_shell(rest: str) -> bool:
     """Whether `rest` (the command with its dropped bodies left out) may hand a block to a shell: a shell as the
     command word of any simple command, behind compound keywords (and `time -p`), assignments and the prefixes the
     guard knows with their options; or a shell's name as any word of a simple command that is no data reader, echo or
-    printf by its exact name (`./grep` is any program), which a wrapper the guard does not know may run (`fi | ionice -c3 sh`, `fi | flock /tmp/l sh`; review of
+    printf by its basename, as _data_only reads them (`/usr/bin/grep sh notes` is data there; review of #694, round 3
+    F7), which a wrapper the guard does not know may run (`fi | ionice -c3 sh`, `fi | flock /tmp/l sh`; review of
     #694, round 2 F6). Read on the quote-blanked, comment-free text: `grep sh notes`, `# then sh` and a quoted "bash"
     in an argument run nothing, and searching the raw text for the names denied data-only commands main passes
-    (review of #694, round 1 F2). The cost, accepted: a shell's name as another program's argument (`ls ~/sh`) beside
-    a dropped body keeps it judged. `.` and `source` only as the command word: no wrapper execs a builtin, and `git
+    (review of #694, round 1 F2). The cost, accepted and pinned in the tests: a shell's name as another program's
+    argument (`ls ~/sh`, `which bash`) beside a dropped body keeps it judged, since that program may be the wrapper. `.` and `source` only as the command word: no wrapper execs a builtin, and `git
     add .` is common. A quoted or variable shell (`fi | "bash"`, `fi | $SHELL`) is not seen here; a `{` or `(` left
     open on its line is caught by heredoc_operators instead. Linear in the text: a regex here once crossed every blank
     line from every line start (review of #694, round 1 F3)."""
@@ -520,7 +523,7 @@ def _runs_a_shell(rest: str) -> bool:
                 i += 2 if words[i] in takes else 1
         if i < len(words) and os.path.basename(words[i]) in BLOCK_SHELLS:
             return True
-        if i < len(words) and words[i] not in DATA_READERS | {"echo", "printf"} \
+        if i < len(words) and os.path.basename(words[i]) not in DATA_READERS | {"echo", "printf"} \
                 and any(os.path.basename(w) in NESTED for w in words[i + 1:]):
             return True
     return False
