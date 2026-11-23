@@ -453,6 +453,23 @@ class Anchors(Tree):
         self.slice("a", ("s", anchored("B.", ["docs/legal/draft.md"], observed="2026-03-10")))
         self.assertEqual(self.verdicts()["s"]["verdict"], "fresh")
 
+    def test_a_rename_inside_a_moved_directory_anchor_still_counts(self):
+        # #692 F20: the move of the directory is no change; a later rename inside it is one.
+        self.write("docs/legal/draft.md", "the contract applies\n")
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the draft", date="2026-03-02")
+        os.makedirs(os.path.join(self.tree, "operator", "docs"))
+        git(self.tree, "mv", "docs/legal", "operator/docs/legal")
+        os.symlink("../operator/docs/legal", os.path.join(self.tree, "docs", "legal"))
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "split: move the instance data into operator/", date="2026-03-20")
+        self.slice("a", ("s", anchored("B.", ["docs/legal"], observed="2026-03-10")))
+        self.assertEqual(self.verdicts()["s"]["verdict"], "fresh")
+        git(self.tree, "mv", "operator/docs/legal/draft.md", "operator/docs/legal/final.md")
+        git(self.tree, "commit", "-q", "-m", "the draft becomes final", date="2026-03-25")
+        row = self.verdicts()["s"]
+        self.assertEqual((row["verdict"], row["anchors"][0].get("subject")), ("maybe-stale", "the draft becomes final"), row)
+
     def test_an_edit_after_the_rename_still_counts_and_names_the_edit_not_the_move(self):
         row = self.moved_after_observed(edit=True)
         self.assertEqual((row["verdict"], row["anchors"][0]["subject"]), ("maybe-stale", "the policy changes"), row)

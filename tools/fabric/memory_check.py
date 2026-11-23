@@ -361,12 +361,13 @@ class History:
         return f"--since={int(end.timestamp())} +0000"
 
     def _blob(self, tree: str, rev: str, paths: tuple[str, ...]) -> str | None:
-        """The blob the first of `paths` names at `rev` that is a regular file there, or None. A symlink shim is
-        mode 120000 and is never the anchor's content."""
+        """The object the first of `paths` names at `rev` that is a file or a directory there, or None: a blob for
+        a file anchor, a tree for a directory anchor, whose id changes with any add, edit or rename inside it
+        (#692 F20). A symlink shim is mode 120000 and is never the anchor's content."""
         for p in paths:
-            r = self._git(tree, "ls-tree", rev, "--", p)
+            r = self._git(tree, "ls-tree", "--full-tree", rev, "--", p.rstrip("/"))
             fields = r.stdout.split() if r.returncode == 0 else []
-            if len(fields) >= 3 and fields[0] != "120000" and fields[1] == "blob":
+            if len(fields) >= 3 and fields[0] != "120000" and fields[1] in ("blob", "tree"):
                 return fields[2]
         return None
 
