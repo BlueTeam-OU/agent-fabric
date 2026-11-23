@@ -39,7 +39,7 @@ if [[ "${1:-}" == auth ]]; then
     exit 0
 fi
 echo "ORI-EXECCED:$*"
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_AGENT AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_STORE_SHA AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT AGENT_FABRIC_LAUNCH_CLAUDE_VERSION AGENT_FABRIC_ROOT CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_AGENT AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_STORE_SHA AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT AGENT_FABRIC_LAUNCH_CLAUDE_VERSION AGENT_FABRIC_ROOT CLAUDE_CODE_DISABLE_TERMINAL_TITLE CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP TMPDIR; do
     echo "ORI-ENV:$v=${!v:-}"
 done
 # Presence only, never a value: a template token must not reach the broker.
@@ -63,7 +63,7 @@ done
 for v in OPENROUTER_API_KEY GH_TOKEN CLAUDE_BRIDGE_AUTH_TOKEN OPENAI_API_KEY CLAUDE_CODE_OAUTH_TOKEN DEMO_PORT_OFFSET; do
     echo "CLAUDE-HAS:$v=${!v+yes}"
 done
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_LAUNCH_TZ AGENT_FABRIC_OPERATOR_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR AGENT_FABRIC_RESTARTING AGENT_FABRIC_PULLED; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_LAUNCH_TZ AGENT_FABRIC_OPERATOR_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP TMPDIR AGENT_FABRIC_RESTARTING AGENT_FABRIC_PULLED; do
     echo "CLAUDE-ENV:$v=${!v:-}"
 done
 '''
@@ -360,13 +360,17 @@ def main() -> int:
                       "iaf.routing_run = lambda sub, *a, **k: run({'pins': PINS, 'efforts': EFFORTS}[sub])\n"
                       "session._install_agent_files = lambda: iaf\n"
                       "PINS = 'code-review opus z-ai/glm-5.2@preset/glm2claude-shim\\ncode-plan fable @preset/bare\\n'\n"
-                      "EFFORTS = 'code-low - unexpressible\\ncode-medium high raised\\ncode-high high approximated\\ncode-plan high applied\\ncode-review high applied\\n'\n"
-                      "ef = lambda lvl, i: {'level': lvl, 'intent': i, 'outcome': 'applied', 'how': '', 'source': ''}\n"
+                      "EFFORTS = 'code-low - unexpressible\\ncode-medium high raised\\ncode-high - unexpressible\\ncode-plan low approximated\\ncode-review - unknown-model\\ncode-extra high approximated\\n'\n"
+                      "ef = lambda lvl, i, o='applied': {'level': lvl, 'intent': i, 'outcome': o, 'how': '', 'source': ''}\n"
                       "mk = lambda via: {'model': 'm', 'shim': None, 'composite': 'm', 'via': via, 'source': 'x', 'effort': ef('low', 'low')}\n"
                       "d = {'session': {'source': 'x'}, 'provider': 'openrouter', 'exports': {},\n"
-                      "     'classes': {k: mk('file' if k in ('code-review', 'code-plan') else 'export') for k in ('code-low', 'code-medium', 'code-high', 'code-plan', 'code-review')}}\n"
-                      "d['classes']['code-low']['effort'] = ef(None, 'low'); d['classes']['code-medium']['effort'] = ef('high', 'medium')\n"
-                      "d['classes']['code-high']['effort'] = ef('high', 'xhigh')\n"
+                      "     'classes': {k: mk('file' if k in ('code-review', 'code-plan', 'code-nopin') else 'export') for k in ('code-low', 'code-medium', 'code-high', 'code-plan', 'code-review', 'code-extra', 'code-nopin')}}\n"
+                      "d['classes']['code-nopin'].update(model='CHECKOUT-MODEL', composite='CHECKOUT-MODEL', alias='opus')\n"
+                      "d['classes']['code-low']['effort'] = ef(None, 'low', 'unexpressible'); d['classes']['code-medium']['effort'] = ef('high', 'medium', 'raised')\n"
+                      "d['classes']['code-high']['effort'] = ef('low', 'xhigh', 'approximated')\n"
+                      "d['classes']['code-extra']['effort'] = ef('low', 'xhigh', 'approximated')\n"
+                      "d['classes']['code-plan']['effort'] = ef('low', 'low', 'applied')\n"
+                      "d['classes']['code-review']['effort'] = ef('low', 'low', 'applied')\n"
                       "pf = tempfile.NamedTemporaryFile(delete=False); pf.write(b'x\\n'); pf.close()\n"
                       "try:\n"
                       "    session.print_report(d, routing, label='l', agent='a', role='r', provider='openrouter', session='s', effective_session='s',\n"
@@ -378,14 +382,25 @@ def main() -> int:
             rl = lambda k: cline(rr.stdout, k)
             check("a managed snapshot's raised class prints asked -> served, not the served level alone",
                   "effort high (asked medium)" in rl("code-medium"), rr.stdout + rr.stderr)
-            check("a managed snapshot's approximated class prints asked -> served",
-                  "effort high (asked xhigh)" in rl("code-high"), rr.stdout + rr.stderr)
+            check("a managed snapshot's unexpressible row the checkout disagrees on prints no asked level (F11)",
+                  "effort - (this model expresses none; the asked level is not known here)" in rl("code-high")
+                  and "asked low" not in rl("code-high") and "asked None" not in rl("code-high"), rr.stdout + rr.stderr)
+            check("a managed snapshot row with the checkout's level and another outcome prints no asked level (F11)",
+                  "effort low (approximated; the asked level is not known here)" in rl("code-plan"), rr.stdout + rr.stderr)
+            check("a managed snapshot row with the checkout's outcome and another level prints no asked level (F11)",
+                  "effort high (approximated; the asked level is not known here)" in rl("code-extra"), rr.stdout + rr.stderr)
+            check("a file-pinned class the snapshot pins nothing for prints the tier alias, never this checkout's model",
+                  re.search(r"code-nopin  *: opus  shim -  => opus  \(harness default for its tier\)", rl("code-nopin")) is not None
+                  and "CHECKOUT-MODEL" not in rr.stdout, rr.stdout + rr.stderr)
+            check("a managed snapshot's unknown-model row prints no asked level (F11)",
+                  "effort - (no model pinned, the harness's tier decides)" in rl("code-review")
+                  and "asked" not in rl("code-review"), rr.stdout + rr.stderr)
             check("a managed snapshot's unexpressible class (a `-` row) prints the expresses-none form, never nothing",
                   "effort - (asked low; this model expresses none)" in rl("code-low"), rr.stdout + rr.stderr)
             check("a managed snapshot's broker pin keeps its shim's @",
                   "shim @preset/glm2claude-shim  => z-ai/glm-5.2@preset/glm2claude-shim" in rl("code-review"), rr.stdout + rr.stderr)
-            check("a managed snapshot's bare @preset pin prints the composite as its model, never an empty one",
-                  re.search(r"code-plan  *: @preset/bare  shim @preset/bare  => @preset/bare  ", rl("code-plan")) is not None,
+            check("a managed snapshot's bare @preset pin prints the composite as its model and shim -, as the unmanaged path (F12)",
+                  re.search(r"code-plan  *: @preset/bare  shim -  => @preset/bare  ", rl("code-plan")) is not None,
                   rr.stdout + rr.stderr)
             # A snapshot whose routing cannot run: one line saying so, and --print goes on.
             os.remove(f"{snap}/routing/capabilities.json")
@@ -847,6 +862,8 @@ print("a" * 40, "b" * 40)
             binding()
             out = plain
             check("tab-title writer off on plain claude too", "CLAUDE-ENV:CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1" in out, out)
+            check("the harness's background-shell pressure reap is off on plain claude: a watch must outlive memory pressure",
+                  "CLAUDE-ENV:CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1" in out, out)
             tmp_default = f"{home}/agent-fabric-tmp"
             check("TMPDIR is a per-login directory in the home, in no hidden one, created 700 (pruned: test_launch_tmpdir)",
                   f"CLAUDE-ENV:TMPDIR={tmp_default}" in out and os.path.isdir(tmp_default)
@@ -1030,6 +1047,8 @@ print("a" * 40, "b" * 40)
             check("agent stamped", f"ORI-ENV:AGENT_FABRIC_LAUNCH_AGENT={LOGIN}" in out, out)
             check("the harness's tab-title writer is off in the child: the hook is the only writer",
                   "ORI-ENV:CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1" in out, out)
+            check("the harness's background-shell pressure reap is off in the broker child too",
+                  "ORI-ENV:CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1" in out, out)
             mkfabric()
             out = out_of("--model", "vendor/override", "--version")
             check("a caller's --model is what gets stamped", "ORI-ENV:AGENT_FABRIC_LAUNCH_SESSION_MODEL=vendor/override" in out, out)
