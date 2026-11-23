@@ -160,6 +160,10 @@ class FakeRelay:
             self.rows.append(r)
             return r
 
+    def snapshot(self) -> list[dict]:
+        with self.lock:
+            return list(self.rows)
+
     def clear(self) -> None:
         with self.lock:
             self._gone = getattr(self, "_gone", 0) + len(self.rows)
@@ -1290,8 +1294,10 @@ class Resident(Daemon):
         r = self.with_relay()
         d = self.start(r.url(), AGENT_FABRIC_STATE_DIR=state, FABRIC_STATE_CHANNEL="test:state:control")
         self.until(lambda: r.waits() > 0, "the daemon never waited", d)
-        self.until(lambda: any(h == "/api/send" for h in r.hits), "no state record posted", d)
-        rec = next(json.loads(x["content"]) for x in r.rows if json.loads(x["content"]).get("kind") == "state")
+        # Wait for the row itself: the fake relay records a hit before it adds the row, and the first send may
+        # be a record of another kind, so a hit says neither that the state row exists nor that it is the one.
+        self.until(lambda: any(json.loads(x["content"]).get("kind") == "state" for x in r.snapshot()), "no state record posted", d)
+        rec = next(json.loads(x["content"]) for x in r.snapshot() if json.loads(x["content"]).get("kind") == "state")
         self.assertEqual(rec["from"], SELF)
         with r.lock:
             channels = [(c, json.loads(json.loads(b)["content"]).get("kind")) for c, b in r.posts]
