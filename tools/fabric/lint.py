@@ -302,7 +302,7 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
         # tree sits at roots.operator_prefix (move-plan step B). An operator outside the repository has no
         # object here to compare with: no base, as for a project CI's depth-1 checkout.
         try:
-            base = _git().run(root, "show", f"{since}:{roots.operator_prefix(root)}{rel}", check=False, timeout=60)
+            base = _git().run(root, "show", f"{since}:{_prefix_at(root, since)}{rel}", check=False, timeout=60)
         except ValueError:
             base = subprocess.CompletedProcess([], 1, "", "")
         # No base, no comparison, and no finding: a managed project's CI runs
@@ -370,7 +370,7 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else ""
     if since:
         try:
-            at = roots.operator_prefix(root)
+            at = _prefix_at(root, since)
             listed = _git().run(root, "ls-tree", "-r", "--name-only", since, "--", f"{at}projects/", check=False, timeout=60)
         except ValueError:
             at, listed = "", subprocess.CompletedProcess([], 1, "", "")
@@ -395,6 +395,18 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                 findings.append(f"{rel}: deleted while projects/registry.json still names {project!r}; a project's arm "
                                 "rules leave only with the project (its boundary, cases and records go with the file)")
     return findings
+
+
+def _prefix_at(root: str, rev: str) -> str:
+    """roots.operator_prefix as `rev` stores the operator's tree. A base from before ADR-045 step B (main
+    until the move merges) has no such tree and keeps the files at their old place: read there, or every
+    history rule compared nothing and passed in silence (#692 F13). A rev that has the tree is read there
+    alone. ValueError, as operator_prefix, for an operator outside the repository."""
+    at = roots.operator_prefix(root)
+    if not at:
+        return at
+    has = _git().run(root, "cat-file", "-e", f"{rev}:{at.rstrip('/')}", check=False, timeout=60)
+    return at if has.returncode == 0 else ""
 
 
 def _read_tree_files(root: str):

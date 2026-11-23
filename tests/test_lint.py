@@ -1872,6 +1872,38 @@ def case_arm_direct_block() -> None:
             assert any(word in f for f in lint.arm_direct_findings(root)), (bad, lint.arm_direct_findings(root))
 
 
+def case_arm_boundary_history_reads_a_base_from_before_the_move() -> None:
+    """#692 F13: a base from before ADR-045 step B keeps arm.json at projects/<id>/..., not under operator/.
+    Read at the operator's path, the base had no file and every history rule passed in silence."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test_f13", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        rel = os.path.join("projects", "demo", "integration", "gh", "arm.json")
+        doc = {"boundary": {"paths": "^src/|key", "exempt": "^docs/", "cases": ["src/a.rs", "lib/key.rs"]}}
+        write(os.path.join(root, rel), json.dumps(doc))
+        write(os.path.join(root, "identities", "roles", "catalog.json"),
+              json.dumps({"roles": [{"id": "architect-cto"}, {"id": "devex-tooling"}]}))
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pre-move base")
+        g("branch", "base")
+        os.makedirs(os.path.dirname(OP(root, rel)), exist_ok=True)
+        os.makedirs(os.path.dirname(OP(root, "identities", "roles", "catalog.json")), exist_ok=True)
+        g("mv", rel, os.path.relpath(OP(root, rel), root))
+        g("mv", os.path.join("identities", "roles", "catalog.json"),
+          os.path.relpath(OP(root, "identities", "roles", "catalog.json"), root))
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "the move")
+        assert lint.arm_boundary_findings(root, base_ref="base") == [], "a pure move changes no pattern: clean"
+        doc["boundary"]["paths"] = "^src/|key|^vendor/"
+        write(OP(root, rel), json.dumps(doc))
+        got = lint.arm_boundary_findings(root, base_ref="base")
+        assert any("changed with no new boundary.changes entry" in f for f in got), \
+            ("a pattern changed across the move, unrecorded, against a pre-move base", got)
+
+
 def case_arm_boundary_cases_only_leave_retired() -> None:
     """A project's arm.json lists the paths that must stay boundary: each
     must match its own patterns, and one the branch forked with leaves only
@@ -3117,6 +3149,7 @@ def main() -> int:
         case_bash_is_a_forwarder_or_on_the_allowlist,
         case_a_base_before_step_a_holds_the_allowlist_at_policies,
         case_arm_boundary_cases_only_leave_retired,
+        case_arm_boundary_history_reads_a_base_from_before_the_move,
         case_arm_direct_block,
         case_every_registered_project_declares_an_arm_json,
         case_every_registered_project_declares_a_gzcoord_config,
