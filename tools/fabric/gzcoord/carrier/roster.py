@@ -61,10 +61,14 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Protocol
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
+import roots  # noqa: E402
 
 ROW_KEYS = {"agent_id", "login", "peer_id", "endpoint", "port",
             "identity_show", "login_signature", "countersignature"}
@@ -113,6 +117,17 @@ class GitMainKeys:
                 raise RosterError(f"git could not read the committed keys: {type(e).__name__}") from e
         if git("rev-parse", "-q", "--verify", "refs/remotes/origin/main").returncode:
             raise RosterError(f"{self.root} has no origin/main to read the keys from: fetch the fabric")
+        # `git show <rev>:<path>` spells the path from the repository's top whatever -C names, and a
+        # symlink shim at the old path is no file to it: the operator's prefix under that top, as
+        # secretstore.trust asks for it. The prefix is this code's own (roots), not main's: a main
+        # on the other side of the move reads as having no keys, never as keys at another place.
+        top = git("rev-parse", "-q", "--show-toplevel")
+        if top.returncode or not top.stdout.strip():
+            raise RosterError(f"{self.root} is not a git working tree: fetch the fabric")
+        try:
+            rel = roots.git_path(*rel.split("/"), base=os.fsdecode(top.stdout).strip())
+        except ValueError as e:
+            raise RosterError(f"cannot name {rel} on origin/main of {self.root}: {e}") from None
         r = git("show", f"refs/remotes/origin/main:{rel}")
         return r.stdout if r.returncode == 0 else None
 
