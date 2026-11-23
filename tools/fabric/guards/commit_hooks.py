@@ -339,7 +339,7 @@ def _check_decision_records(root: str) -> None:
         # operator's records unjudged at commit time (#692 F12).
         operator = os.path.join(scratch, roots.operator_prefix(scratch, {}).rstrip("/"))
         pairs = [(operator, scratch), (scratch, operator)] if operator != scratch and os.path.isdir(
-            os.path.join(operator, "docs", "adr")) else [(scratch, None)]
+            roots.adr_dir(root=operator)) else [(scratch, None)]
         failed = []
         for tree, other in pairs:
             argv = [sys.executable, os.path.join(root, "tools", "fabric", "adr.py"), "--root", tree, "check"]
