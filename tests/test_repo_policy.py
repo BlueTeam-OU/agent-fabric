@@ -553,12 +553,16 @@ class Source(unittest.TestCase):
             self.assertEqual([m for m in g.asked if m.startswith("repos/O/R")][:1], [], "no read of the repository before the refusal")
 
     def test_a_description_only_file_is_no_word_for_apply_and_a_file_with_any_policy_key_is(self):
-        for argv in (["apply", REPO, "--yes"], ["apply", REPO, "--yes", "--fleet-default"], ["apply", REPO]):
-            g = self.drifted()
-            rc, out, err = self.run_cli(argv, g, {"description": "only words"})
-            self.assertEqual((rc, out, g.writes), (2, "", []), argv)
-            self.assertIn("repos/R.json in O/settings sets no policy key", err)
-            self.assertIn("nothing written", err)
+        for file in ({"description": "only words"}, {}):
+            for argv in (["apply", REPO, "--yes"], ["apply", REPO, "--yes", "--fleet-default"], ["apply", REPO]):
+                g = self.drifted()
+                rc, out, err = self.run_cli(argv, g, file)
+                self.assertEqual((rc, out, g.writes), (2, "", []), (argv, file))
+                self.assertIn("repos/R.json in O/settings sets no policy key", err)
+                self.assertIn("nothing written", err)
+        for verb in ("plan", "verify"):      # unchanged for every file: the source line says the file is there
+            rc, out, _ = self.run_cli([verb, REPO], self.drifted(), {"description": "d"})
+            self.assertIn("policy: repos/R.json in O/settings\n", out, verb)
         g = Github(POLICY)       # the positive control: one policy key beside the description is applied
         rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g, {"description": "d", "mode": "owner-only"})
         self.assertEqual((rc, [w[2] for w in g.writes if w[0] == "PATCH"]), (0, [{"allow_auto_merge": False}]))
