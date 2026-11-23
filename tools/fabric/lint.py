@@ -52,6 +52,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import defaultdict
 from typing import Any
@@ -297,7 +298,13 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
                 findings.append(f"{rel}: boundary case {c!r} is not boundary under these patterns")
         mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
         since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else base_ref
-        base = _git().run(root, "show", f"{since}:{rel}", check=False, timeout=60)
+        # `rel` is relative to the operator's tree; an object is named from the repository's top, where that
+        # tree sits at roots.operator_prefix (move-plan step B). An operator outside the repository has no
+        # object here to compare with: no base, as for a project CI's depth-1 checkout.
+        try:
+            base = _git().run(root, "show", f"{since}:{roots.operator_prefix(root)}{rel}", check=False, timeout=60)
+        except ValueError:
+            base = subprocess.CompletedProcess([], 1, "", "")
         # No base, no comparison, and no finding: a managed project's CI runs
         # this lint on a depth-1 checkout of the fabric at its pinned ref,
         # with no origin/main, and a finding there would fail every project
@@ -362,9 +369,13 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
     since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else ""
     if since:
-        listed = _git().run(root, "ls-tree", "-r", "--name-only", since, "--", "projects/", check=False, timeout=60)
-        before = {r for r in listed.stdout.splitlines()
-                  if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)} if listed.returncode == 0 else set()
+        try:
+            at = roots.operator_prefix(root)
+            listed = _git().run(root, "ls-tree", "-r", "--name-only", since, "--", f"{at}projects/", check=False, timeout=60)
+        except ValueError:
+            at, listed = "", subprocess.CompletedProcess([], 1, "", "")
+        before = {r[len(at):] for r in listed.stdout.splitlines()
+                  if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r[len(at):])} if listed.returncode == 0 else set()
         now = set(_arm_jsons_in_read_tree(root))
         removed = sorted(before - now)
         try:
@@ -399,12 +410,18 @@ def _read_tree_files(root: str):
     proves nothing; the answer before j147)."""
     tree = roots.operator_root(engine=root)
     top = _git().run(tree, "rev-parse", "--show-toplevel", check=False, timeout=60)
-    if top.returncode == 0 and os.path.realpath(top.stdout.strip()) == os.path.realpath(tree):
-        r = _git().run(tree, "ls-files", "-z", check=False, timeout=60)
-        if r.returncode == 0:
-            tracked = {f for f in r.stdout.split("\0") if f}
-            return (tree, tracked) if tracked else None
-    if os.path.realpath(tree) == os.path.realpath(root):
+    real_tree, real_root = os.path.realpath(tree), os.path.realpath(root)
+    # The engine's own tree, or the operator's tree inside it (step B: operator/): one checkout, whose
+    # index lists a subdirectory's files relative to it, and which proves nothing when it has none.
+    in_engine = real_tree == real_root or real_tree.startswith(real_root + os.sep)
+    if top.returncode == 0:
+        toplevel = os.path.realpath(top.stdout.strip())
+        if real_tree == toplevel or (in_engine and toplevel == real_root):
+            r = _git().run(tree, "ls-files", "-z", check=False, timeout=60)
+            if r.returncode == 0:
+                tracked = {f for f in r.stdout.split("\0") if f}
+                return (tree, tracked) if tracked else None
+    if in_engine:
         return None
     return tree, None
 
@@ -946,7 +963,7 @@ def _main() -> int:
         pbase = layout.project_memory_root(pid)
         plabel = f"{pid}:{layout.PROJECT_MEMORY_SUBDIR}"
         staleness_warnings(pbase, plabel, pid)
-        link_warnings(pbase, plabel, roots.operator_root(engine=root), pbase,
+        link_warnings(pbase, plabel, root, pbase,
                       [layout.project_memory_root(p) for p in layout.list_projects() if p != pid])
         if project_ids and pid not in project_ids:
             findings.append(f"{plabel}: no projects/{pid}/taxonomy.json binds this project")
@@ -1054,7 +1071,7 @@ def _main() -> int:
 
     # --- staleness (ADR-050 rule 2) and dead links: warnings, never findings ---
     staleness_warnings(roots.memory_dir(engine=root), "memory")
-    link_warnings(roots.memory_dir(engine=root), "memory", roots.operator_root(engine=root), "",
+    link_warnings(roots.memory_dir(engine=root), "memory", root, "",
                   [layout.project_memory_root(p) for p in layout.list_projects()])
 
     # --- launch prompt sections --------------------------------------------

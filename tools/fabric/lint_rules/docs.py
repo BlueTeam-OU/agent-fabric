@@ -745,7 +745,8 @@ def project_name_findings(root: str) -> list[str]:
         pats.append(re.compile(r"\b" + re.escape(re.sub(r"[^A-Za-z0-9]", "_", pid).upper()) + r"_"))
     def walked():
         for rel in GENERIC_DIRS:
-            base = os.path.join(root, rel)
+            # The roles are the operator's (move-plan step B), read where roots puts them, not through a shim.
+            base = roots.roles_dir(engine=root) if rel == "identities/roles" else os.path.join(root, rel)
             if not os.path.isdir(base):
                 continue
             for dirpath, dirnames, filenames in os.walk(base):
