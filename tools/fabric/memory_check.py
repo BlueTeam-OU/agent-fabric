@@ -343,7 +343,9 @@ class History:
         is no shim (it resolves to itself), so it is left alone."""
         parts = [p for p in path.split("/") if p]
         try:
-            stored = roots.git_path(*parts, base=tree)
+            # `{}`: where this checkout's git stores the file, not where an exported operator would read it;
+            # with one outside the checkout the shim's own history was judged instead (#692 F13).
+            stored = roots.git_path(*parts, base=tree, environ={})
         except ValueError:
             return path
         full, real = os.path.join(tree, *parts), os.path.join(tree, *stored.split("/"))

@@ -404,6 +404,20 @@ class Anchors(Tree):
         self.assertEqual({h: v[h]["verdict"] for h in v}, {"old": "maybe-stale", "after": "fresh", "stays": "fresh"})
         self.assertEqual(v["old"]["anchors"][0]["commit"], want)
 
+    def test_a_moved_anchor_is_judged_by_the_stored_history_with_an_operator_exported_outside(self):
+        self.write("operator/policies/authority.json", "{}\n")
+        os.symlink("operator/policies", os.path.join(self.tree, "policies"))
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the move", date="2026-03-05")
+        self.write("operator/policies/authority.json", '{"v": 2}\n')
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the policy changes", date="2026-03-20")
+        self.slice("a", ("old", anchored("B.", ["policies/authority.json"], observed="2026-03-10")))
+        outside = os.path.join(self.base, "elsewhere")
+        os.makedirs(outside)
+        r = self.run_cli(self.corpus, "--json", env={"AGENT_FABRIC_OPERATOR": outside})
+        self.assertEqual(json.loads(r.stdout)["sections"][0]["verdict"], "maybe-stale", r.stdout)
+
     def test_stale_hard_outranks_maybe_stale_outranks_unchecked_outranks_fresh(self):
         self.write("tools/fabric/runner.py", "def run_it():\n    return 2\n")
         git(self.tree, "add", "-A")

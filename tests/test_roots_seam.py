@@ -367,6 +367,56 @@ def case_no_reader_hands_the_engine_root_to_roots_as_the_operator_root() -> None
     assert not bad, "root=FABRIC_ROOT (the engine) where the operator's root is meant, use engine=: " + ", ".join(bad)
 
 
+# (path, the call as written) -> why that call reads the exported operator. Every other call names what
+# THIS checkout's git stores and so passes `environ={}`, or an explicit environ of its caller (#692 F13: a
+# call that read the environment made an operator exported outside the repository raise or misjudge).
+ENV_READING_CALLS = {
+    ("tools/fabric/lint_rules/docs.py", "roots.operator_prefix(root)"):
+        "the exported operator's own records prefix, checked beside the stored one on the line above",
+    ("tools/fabric/gzcoord/carrier/roster.py", "roots.git_path(*rel.split('/'), base=os.fsdecode(top.stdout).strip())"):
+        "the keys' checkout may itself be the exported operator's repository (step D); a prefix outside raises into a RosterError",
+    ("tools/fabric/secretstore/trust.py", "roots.git_path(*rel.split('/'), base=os.fsdecode(top.stdout).strip())"):
+        "the root handed in may be the exported operator's own repository (step D); a prefix outside raises into a StoreError",
+}
+PREFIX_CALLS = {"operator_prefix": 1, "git_path": None}   # name -> positional index of environ, if it has one
+
+
+def operator_prefix_calls_without_environ(rel: str, src: str) -> list[tuple[int, str]]:
+    out = []
+    for n in ast.walk(ast.parse(src)):
+        if not isinstance(n, ast.Call):
+            continue
+        name = getattr(n.func, "attr", getattr(n.func, "id", ""))
+        if name not in PREFIX_CALLS:
+            continue
+        slot = PREFIX_CALLS[name]
+        if any(k.arg == "environ" for k in n.keywords) or (slot is not None and len(n.args) > slot):
+            continue
+        out.append((n.lineno, ast.unparse(n)))
+    return out
+
+
+def case_a_call_naming_a_stored_path_says_which_environment_it_reads() -> None:
+    """Positive controls first: the scan sees a bare call in each spelling and lets an explicit environ pass."""
+    got = operator_prefix_calls_without_environ(
+        "x.py", "roots.operator_prefix(top)\nroots.git_path('a', base=top)\nx = operator_prefix(top)\n")
+    assert [ln for ln, _ in got] == [1, 2, 3], got
+    assert operator_prefix_calls_without_environ(
+        "x.py", "roots.operator_prefix(top, {})\nroots.operator_prefix(top, environ=e)\nroots.git_path('a', base=top, environ={})\n") == []
+    bad, used = [], set()
+    for rel in sources():
+        if not rel.startswith("tools/fabric/") or not rel.endswith(".py") or rel == "tools/fabric/roots.py":
+            continue
+        with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+            for ln, call in operator_prefix_calls_without_environ(rel, fh.read()):
+                if (rel, call) in ENV_READING_CALLS:
+                    used.add((rel, call))
+                else:
+                    bad.append(f"{rel}:{ln}: {call}")
+    assert not bad, "pass environ={} (what this checkout stores) or list the call in ENV_READING_CALLS:\n  " + "\n  ".join(bad)
+    assert used == set(ENV_READING_CALLS), f"listed, but no longer called: {sorted(set(ENV_READING_CALLS) - used)}"
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0
