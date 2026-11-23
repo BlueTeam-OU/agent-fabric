@@ -115,11 +115,15 @@ def doc_path_findings(root: str | None = None) -> list[str]:
                 pass
     # The exemptions name instance paths as the repository stores them, and since move-plan step B those sit
     # under the operator's prefix (operator/memory/..., operator/docs/live-checks/...), not only at the shims.
+    # The files are listed from this repository, so its own operator/ (the fallback) stays exempt whatever is
+    # exported: an operator exported outside it leaves that copy here, and lost the exemption when only the
+    # exported prefix was asked (test_roots_readers, an operator copy beside the checkout).
+    prefixes = {roots.operator_prefix(root, environ={})}
     try:
-        prefix = roots.operator_prefix(root)
+        prefixes.add(roots.operator_prefix(root))
     except ValueError:
-        prefix = ""
-    exempt = DOC_PATH_EXEMPT + tuple(prefix + p for p in DOC_PATH_EXEMPT) if prefix else DOC_PATH_EXEMPT
+        pass
+    exempt = DOC_PATH_EXEMPT + tuple(pre + p for pre in sorted(prefixes - {""}) for p in DOC_PATH_EXEMPT)
     out: list[str] = []
     for rel in files:
         if rel.startswith(exempt) or "/test_" in f"/{rel}" or "/tests/" in f"/{rel}":
