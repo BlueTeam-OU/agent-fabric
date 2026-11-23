@@ -557,7 +557,7 @@ def main() -> int:
                 dead = poll_until(lambda: ended(child), 10.0)
                 results[-1] += (dead if new_session else True,)
                 if not new_session:
-                    os.kill(child, signal.SIGKILL)     # the shell was only asked to stop; its child holds this file's stdout
+                    signal_all([child], signal.SIGKILL)     # the shell was only asked to stop; its child holds this file's stdout
                 os.unlink(childpid)
             alive = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL)
             ok_state = wait_until(alive, lambda: True, "its suites started")
