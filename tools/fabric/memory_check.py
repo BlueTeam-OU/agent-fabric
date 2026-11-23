@@ -363,40 +363,61 @@ class History:
     def _blob(self, tree: str, rev: str, paths: tuple[str, ...]) -> str | None:
         """The object the first of `paths` names at `rev` that is a file or a directory there, or None: a blob for
         a file anchor, a tree for a directory anchor, whose id changes with any add, edit or rename inside it
-        (#692 F20). A symlink shim is mode 120000 and is never the anchor's content."""
+        (#692 F20). A symlink shim is mode 120000 and is never the anchor's content. Cached per revision: a
+        commit's object is its child's parent object (#692 F22)."""
+        key = (tree, rev, paths)
+        cache = self.__dict__.setdefault("_objects", {})
+        if key in cache:
+            return cache[key]
+        found = None
         for p in paths:
             r = self._git(tree, "ls-tree", "--full-tree", rev, "--", p.rstrip("/"))
             fields = r.stdout.split() if r.returncode == 0 else []
             if len(fields) >= 3 and fields[0] != "120000" and fields[1] in ("blob", "tree"):
-                return fields[2]
-        return None
+                found = fields[2]
+                break
+        cache[key] = found
+        return found
 
-    def changing_commits(self, tree: str, path: str, day: str) -> list[tuple[str, str, str]]:
+    def _changes(self, tree: str, path: str, day: str):
         """(commit, date, subject) of the commits after the end of `day` that changed the anchor's file, newest
-        first. At a moved path (ADR-045 step B) the history is asked under both names, and a commit is a change
-        only when the file's content differs from its parent's: the commit that only moved it is no change. Judged
-        by blob, not by git's rename and break detection, whose answer for a file turned into a symlink shim beside
-        its copy differed between the git releases CI runs (#692 F14, platform-smoke debian)."""
+        first, yielded as found. An anchor that did not move is one `git log` asked as before. At a moved path
+        (ADR-045 step B) the history is asked under both names, and a commit is a change only when the file's
+        object differs from every parent's: the commit that only moved it is none, nor a merge that brought in
+        what one parent already held (#692 F23). Judged by object, not by git's rename and break detection, whose
+        answer for a file turned into a symlink shim beside its copy differed between the git releases CI runs."""
         stored = self.stored_path(tree, path)
-        names = (path,) if stored == path else (stored, path)
-        r = self._git(tree, "log", "--format=%h%x09%cs%x09%s", self._since(day), "--", *names)
+        if stored == path:
+            r = self._git(tree, "log", "--format=%h%x09%cs%x09%s", self._since(day), "--", path)
+            if r.returncode != 0:
+                raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
+            for line in r.stdout.splitlines():
+                commit, date, subject = (line.split("\t", 2) + ["", ""])[:3]
+                yield commit, date, subject
+            return
+        names = (stored, path)
+        r = self._git(tree, "log", "--format=%h%x09%p%x09%cs%x09%s", self._since(day), "--", *names)
         if r.returncode != 0:
             raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
-        out = []
         for line in r.stdout.splitlines():
-            commit, date, subject = (line.split("\t", 2) + ["", ""])[:3]
-            if stored != path and self._blob(tree, commit, names) == self._blob(tree, f"{commit}^", names):
+            commit, parents, date, subject = (line.split("\t", 3) + ["", "", ""])[:4]
+            now = self._blob(tree, commit, names)
+            if parents.split() and now in {self._blob(tree, p, names) for p in parents.split()}:
                 continue
-            out.append((commit, date, subject))
-        return out
+            yield commit, date, subject
+
+    def changing_commits(self, tree: str, path: str, day: str) -> list[tuple[str, str, str]]:
+        """Every commit `_changes` counts, newest first."""
+        return list(self._changes(tree, path, day))
 
     def changed_after(self, tree: str, path: str, day: str) -> dict | None:
-        """The newest commit that touched `path` after the end of `day` (YYYY-MM-DD, UTC), or None."""
+        """The newest commit that touched `path` after the end of `day` (YYYY-MM-DD, UTC), or None. Stops at the
+        first change it finds: only the newest is asked for."""
         self.ready(tree)
-        commits = self.changing_commits(tree, path, day)
-        if not commits:
+        first = next(self._changes(tree, path, day), None)
+        if first is None:
             return None
-        commit, date, subject = commits[0]
+        commit, date, subject = first
         return {"commit": commit, "date": date, "subject": subject[:100]}
 
     def diff_since(self, tree: str, path: str, day: str, limit: int) -> str:

@@ -453,6 +453,37 @@ class Anchors(Tree):
         self.slice("a", ("s", anchored("B.", ["docs/legal/draft.md"], observed="2026-03-10")))
         self.assertEqual(self.verdicts()["s"]["verdict"], "fresh")
 
+    def test_a_merge_that_brings_in_what_a_parent_held_is_no_change(self):
+        # #692 F23: main edits the file at its old path; the move branch merges main after the anchor was observed.
+        # The merge differs from its first parent but holds what its second already held: no change to name.
+        self.write("policies/authority.json", "{}\n")
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "the policy", date="2026-03-02")
+        moving = git(self.tree, "rev-parse", "--abbrev-ref", "HEAD")
+        git(self.tree, "branch", "mainline")
+        os.makedirs(os.path.join(self.tree, "operator", "policies"))
+        git(self.tree, "mv", "policies/authority.json", "operator/policies/authority.json")
+        os.symlink("../operator/policies/authority.json", os.path.join(self.tree, "policies", "authority.json"))
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "split: move the instance data into operator/", date="2026-03-20")
+        git(self.tree, "checkout", "-q", "mainline")
+        self.write("policies/authority.json", '{"v": 2}\n')
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "-m", "main edits the policy", date="2026-03-12")
+        git(self.tree, "checkout", "-q", moving)
+        try:
+            git(self.tree, "merge", "-q", "--no-commit", "mainline")
+        except subprocess.CalledProcessError:
+            pass  # modify/typechange: resolved by hand below, as the step B branch resolved its merges of main
+        os.remove(os.path.join(self.tree, "policies", "authority.json"))
+        os.symlink("../operator/policies/authority.json", os.path.join(self.tree, "policies", "authority.json"))
+        self.write("operator/policies/authority.json", '{"v": 2}\n')
+        git(self.tree, "add", "-A")
+        git(self.tree, "commit", "-q", "--no-edit", "-m", "merge main into the move", date="2026-03-25")
+        self.slice("a", ("s", anchored("B.", ["policies/authority.json"], observed="2026-03-15")))
+        row = self.verdicts()["s"]
+        self.assertEqual(row["verdict"], "fresh", row)
+
     def test_a_rename_inside_a_moved_directory_anchor_still_counts(self):
         # #692 F20: the move of the directory is no change; a later rename inside it is one.
         self.write("docs/legal/draft.md", "the contract applies\n")
