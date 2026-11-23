@@ -333,11 +333,23 @@ def _check_decision_records(root: str) -> None:
         # The whole staged tree: a record's Evidence may cite any path in it.
         if _git("checkout-index", "-a", f"--prefix={scratch}/").returncode != 0:
             raise Refuse("pre-commit: cannot materialize the staged tree to check the decision records")
-        r = subprocess.run([sys.executable, os.path.join(root, "tools", "fabric", "adr.py"), "--root", scratch, "check"],
-                           capture_output=True, text=True, errors="replace", timeout=ADR_CHECK_TIMEOUT_S, stdin=subprocess.DEVNULL)
-        if r.returncode != 0:
+        # Since ADR-045 step B the staged tree holds two halves of one numbering, the engine's docs/adr and
+        # the checkout's own operator/docs/adr: each is checked with the other named, as lint checks them
+        # (lint_rules/docs.adr_findings). An explicit root alone is only that tree, which left the
+        # operator's records unjudged at commit time (#692 F12).
+        operator = os.path.join(scratch, roots.operator_prefix(scratch, {}).rstrip("/"))
+        pairs = [(operator, scratch), (scratch, operator)] if operator != scratch and os.path.isdir(
+            os.path.join(operator, "docs", "adr")) else [(scratch, None)]
+        failed = []
+        for tree, other in pairs:
+            argv = [sys.executable, os.path.join(root, "tools", "fabric", "adr.py"), "--root", tree, "check"]
+            r = subprocess.run(argv + (["--other", other] if other else []), capture_output=True, text=True,
+                               errors="replace", timeout=ADR_CHECK_TIMEOUT_S, stdin=subprocess.DEVNULL)
+            if r.returncode != 0:
+                failed.append((r.stdout + r.stderr).rstrip("\n"))
+        if failed:
             raise Refuse("pre-commit: the decision records in this commit are not consistent — not committed:\n"
-                         + (r.stdout + r.stderr).rstrip("\n"))
+                         + "\n".join(failed))
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 

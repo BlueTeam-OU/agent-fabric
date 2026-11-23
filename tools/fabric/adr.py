@@ -897,7 +897,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="adr.py", description=__doc__.split("\n\n")[0])
     ap.add_argument("--root", default=None)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("check")
+    # --other: the counterpart tree of one numbering (ADR-045 rule 4), as lint names it; the pre-commit
+    # hook checks a staged tree's two halves with it (#692 F12).
+    p = sub.add_parser("check"); p.add_argument("--other", default=None)
     p = sub.add_parser("index"); p.add_argument("--write", action="store_true", required=True)
     p = sub.add_parser("new"); p.add_argument("slug"); p.add_argument("title")
     p = sub.add_parser("list"); p.add_argument("--class", dest="cls", choices=CLASSES, required=True)
@@ -907,7 +909,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("staged-check"); p.add_argument("message_file"); p.add_argument("--against", default="HEAD")
     a = ap.parse_args(argv)
     if a.cmd == "check":
-        f = check(a.root)
+        f = check(a.root, other=a.other)
         for x in f:
             print(f"  {x}")
         print(f"adr check: {'clean' if not f else f'{len(f)} finding(s)'}")
