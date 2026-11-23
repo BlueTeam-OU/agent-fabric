@@ -140,21 +140,28 @@ INSTANCE_PATHS = ("projects/registry.json", "runtime/hosts/registry.json", "iden
 
 
 def strip_instance(tree: str) -> None:
-    """Remove the instance data from a fabric tree: INSTANCE_PATHS,
-    policies/*.json and each project's integration/."""
+    """Remove the instance data from a fabric tree: operator/ (ADR-045 step B: where it sits since the move), the
+    old top-level INSTANCE_PATHS (a shim link there is removed, dangling or not, a real directory of an old-layout
+    tree too), policies/*.json and each project's integration/."""
+    op = os.path.join(tree, "operator")
+    if os.path.isdir(op) and not os.path.islink(op):
+        shutil.rmtree(op)
     for rel in INSTANCE_PATHS:
         p = os.path.join(tree, rel)
         if os.path.isdir(p) and not os.path.islink(p):
             shutil.rmtree(p)
         elif os.path.lexists(p):
             os.remove(p)
-    for f in os.listdir(os.path.join(tree, "policies")):
-        if f.endswith(".json"):
-            os.remove(os.path.join(tree, "policies", f))
-    for proj in os.listdir(os.path.join(tree, "projects")):
-        integration = os.path.join(tree, "projects", proj, "integration")
-        if os.path.isdir(integration):
-            shutil.rmtree(integration)
+    # isdir follows links: a shim left dangling by the removal above is no directory to list.
+    if os.path.isdir(os.path.join(tree, "policies")):
+        for f in os.listdir(os.path.join(tree, "policies")):
+            if f.endswith(".json"):
+                os.remove(os.path.join(tree, "policies", f))
+    if os.path.isdir(os.path.join(tree, "projects")):
+        for proj in os.listdir(os.path.join(tree, "projects")):
+            integration = os.path.join(tree, "projects", proj, "integration")
+            if os.path.isdir(integration):
+                shutil.rmtree(integration)
 
 
 # A policies/auto-mode.json for a reader of the operator's policy

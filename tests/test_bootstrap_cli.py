@@ -239,7 +239,6 @@ def make_pristine(script: str) -> str:
     # HEAD's engine, never its instance data (ADR-045 §5 rule 3): taken out
     # here, and the fixtures this suite's runs read written below.
     strip_instance(d)
-    shutil.rmtree(f"{d}/operator", ignore_errors=True)   # step B's instance data sits there; the fixtures below replace it
     shutil.copyfile(script, f"{d}/runtime/claude-code/bootstrap.sh")
     os.chmod(f"{d}/runtime/claude-code/bootstrap.sh", 0o755)
     # The port's module beside the script under test, from the same tree
