@@ -7,7 +7,8 @@ reach nothing else.
 Each case fails when its guard is removed: a login placed on any host is proposed; `all`, `keygen` and `help` are;
 the second word is the verbs; the third is that verb's own words plus --json/--timeout/--help; keygen and help take no
 verb; a registry that is absent, unreadable or not JSON still completes `all` and the verbs, and prints nothing on
-stderr unless it is absent, which is said in one line; a tab calls the tool for `--verbs` only."""
+stderr unless it is absent, which is said in one line; a tab calls the tool for `--verbs` only. One case asks the real
+`bin/fabric-ctl --verbs` (the fleet's pinned Python) instead of the stub, so a verb dropped from the table is seen: `state`."""
 from __future__ import annotations
 
 import os
@@ -161,6 +162,12 @@ class Completion(unittest.TestCase):
         os.makedirs(real)
         os.symlink(os.path.join(HERE, "bin", "fabric-ctl"), os.path.join(real, "fabric-ctl"))
         self.env["PATH"] = f"{real}:{self.env['PATH']}"
+        # bin/fabric-ctl runs on the pinned interpreter; the completion hides its stderr, so a missing pin would read as a
+        # dropped verb unless it is asked here, where it can say so.
+        self.env["AGENT_FABRIC_PYTHON"] = os.environ.get("AGENT_FABRIC_PYTHON") or "/usr/local/bin/fabric-python"
+        probe = subprocess.run([os.path.join(real, "fabric-ctl"), "--verbs"], env=self.env, capture_output=True, text=True,
+                               timeout=60)
+        self.assertEqual(probe.returncode, 0, f"the real fabric-ctl --verbs failed: {probe.stderr}")
         for target in ("alpha-01", "all"):
             self.assertEqual(self.complete("fabric-ctl", target, "state")[0], ["state", "states"], target)
         self.assertIn("state", self.complete("fabric-ctl", "all", "")[0])
