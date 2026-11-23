@@ -347,18 +347,33 @@ class History:
             # with one outside the checkout the shim's own history was judged instead (#692 F13).
             stored = roots.git_path(*parts, base=tree, environ={})
         except ValueError:
-            return path
+            # Not on roots' move list, yet moved all the same (docs/legal, docs/live-checks are shims too):
+            # where the link leads is where git stores it, so long as that is the checkout's operator/.
+            rel = os.path.relpath(os.path.realpath(os.path.join(tree, *parts)), os.path.realpath(tree)).replace(os.sep, "/")
+            return rel if rel.startswith("operator/") else path
         full, real = os.path.join(tree, *parts), os.path.join(tree, *stored.split("/"))
         if os.path.lexists(real) and os.path.realpath(full) == os.path.realpath(real):
             return stored
         return path
 
+    def log_scope(self, tree: str, path: str) -> list[str]:
+        """The `git log` arguments that bound a file's history to what changed it. At a moved path the history is
+        asked under both names, and the commit that only moved it (ADR-045 step B's `split: move the instance data`)
+        is no change: under the stored name alone it is an add, and every anchor into the moved data read as changed
+        after its section was observed. A file whose old name became a symlink shim is not a rename to git (that
+        side is a typechange), so -B first breaks the pair into a copy and the typechange, and both are dropped;
+        -M100% keeps a move that also edited the file counted, as the edit it is."""
+        stored = self.stored_path(tree, path)
+        if stored == path:
+            return ["--", path]
+        return ["-B", "-M100%", "--diff-filter=rct", "--", path, stored]
+
     def changed_after(self, tree: str, path: str, day: str) -> dict | None:
         """The newest commit that touched `path` after the end of `day` (YYYY-MM-DD, UTC), or None."""
         self.ready(tree)
-        path = self.stored_path(tree, path)
+        scope = self.log_scope(tree, path)
         end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
-        r = self._git(tree, "log", "-1", "--format=%h%x09%cs%x09%s", f"--since={int(end.timestamp())} +0000", "--", path)
+        r = self._git(tree, "log", "-1", "--format=%h%x09%cs%x09%s", f"--since={int(end.timestamp())} +0000", *scope)
         if r.returncode != 0:
             raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
         line = r.stdout.strip().split("\n")[0]
@@ -373,10 +388,10 @@ class History:
         its patch, oldest first, cut to `limit` characters (a cut says so). Read-only, like the rest. Raises
         NoHistory when git cannot say."""
         self.ready(tree)
-        path = self.stored_path(tree, path)
+        scope = self.log_scope(tree, path)
         end = datetime.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)
         r = self._git(tree, "log", "--reverse", "-p", "--no-color", "--no-ext-diff", "--format=commit %h %cs %s",
-                      f"--since={int(end.timestamp())} +0000", "--", path)
+                      f"--since={int(end.timestamp())} +0000", *scope)
         if r.returncode != 0:
             raise NoHistory("git log failed: " + ((r.stderr or "").strip().split("\n")[0][:120] or f"exit {r.returncode}"))
         out = r.stdout
