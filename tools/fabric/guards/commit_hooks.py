@@ -314,10 +314,16 @@ def _contributor_exit(root: str, role: str, quiet: bool) -> int | None:
     return r.returncode
 
 
+def adr_pathspecs(base: str, adr: str) -> list[str]:
+    """The decision records' pathspecs: the engine's own and the operator's, which since ADR-045 step B holds the
+    organisational ones. environ={} because git stores the checkout's own operator/, whatever is exported."""
+    return [adr, roots.operator_prefix(base, {}) + adr]
+
+
 def _check_decision_records(root: str) -> None:
     """In agent-fabric itself, a commit staging anything under docs/adr/ leaves the records consistent in what it
     COMMITS: the staged tree is checked, not the working tree."""
-    if not same_repository(root) or _git("diff", "--cached", "--quiet", "--no-renames", "--", "docs/adr/").returncode == 0:
+    if not same_repository(root) or _git("diff", "--cached", "--quiet", "--no-renames", "--", *adr_pathspecs(root, "docs/adr/")).returncode == 0:
         return
     try:
         scratch = tempfile.mkdtemp(prefix="pre-commit-adr.")
@@ -894,7 +900,7 @@ def _check_adr_edits(msg: str) -> int:
         return 0
     against = _amend_against()
     if (against and _git("rev-parse", "-q", "--verify", f"{against}^{{commit}}").returncode == 0
-            and _git("diff", "--cached", "--name-only", against, "--", "docs/adr").stdout.strip()):
+            and _git("diff", "--cached", "--name-only", against, "--", *adr_pathspecs(top, "docs/adr")).stdout.strip()):
         r = subprocess.run([sys.executable, os.path.join(top, "tools", "fabric", "adr.py"), "--root", top, "staged-check",
                             "--against", against, msg], timeout=ADR_CHECK_TIMEOUT_S, stdin=subprocess.DEVNULL)
         return 1 if r.returncode else 0
