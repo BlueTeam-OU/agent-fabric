@@ -15,7 +15,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                                                       when every path is one locale's translation file, 1 otherwise
             locale-paths                              the staged paths to judge, one per line; exit 0
             <fabric-root> is where the hook file lives (the forwarder works it out from its own real path), which is
-            NOT where this module lives: a test, or a checkout the hooks serve, holds its own policies/authority.json.
+            NOT where this module lives: a test, or a checkout the hooks serve, holds its own operator/policies/authority.json.
   itself    "agent-fabric itself" is ONE predicate, same_repository(<fabric-root>), for every decision that asks it (the
             guard's scope and label, the contributor carve-out, the decision-record check, the hidden-text scope): the
             repository's toplevel is <fabric-root>, or its git common directory is <fabric-root>'s, so a linked worktree of
@@ -31,7 +31,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             value of the committing account's own secrets.env, and commit-msg a message that holds one
             (tools/fabric/guards/secret_values.py, ADR-012 §5 rule 9). Exit 1, the variable named, never the value.
   env       AGENT_FABRIC_STATE_DIR etc. are read by runtime/identity.py, which runs for the binding's role;
-            AGENT_FABRIC_PYTHON is read by the forwarders only. The login is `id -un`, never the password database.
+            AGENT_FABRIC_PYTHON is read by the forwarders only.
+            AGENT_FABRIC_OPERATOR is NOT read for the owner role: the checkout's own operator/ tree is. The login is `id -un`, never the password database.
   stdout    only the three library verbs print on stdout; the hooks speak on stderr (and the decision-record check's
             own report, which goes there too).
   stderr    every refusal, in the words the bash used; they are pinned by tests/test_githook_*.py.
@@ -211,9 +212,10 @@ def identity_role(root: str) -> str:
 
 def owner_role(root: str) -> str:
     # `root` is the fabric checkout (the engine), never the operator's tree: roots.policy(root=) would read
-    # <root>/policies/, which after the move (ADR-045 step B) exists only through a shim.
+    # <root>/policies/, which after the move (ADR-045 step B) exists only through a shim. environ={} because an
+    # exported AGENT_FABRIC_OPERATOR outranks engine= and would name a foreign tree's owner for this checkout's hook.
     try:
-        with open(roots.policy("authority.json", engine=root), encoding="utf-8") as f:
+        with open(roots.policy("authority.json", engine=root, environ={}), encoding="utf-8") as f:
             return str(json.load(f)["role_definitions"]["role"]).rstrip("\n")
     except Exception:  # noqa: BLE001 - any unreadable shape is the default owner, as the bash's `except Exception`
         return DEFAULT_OWNER

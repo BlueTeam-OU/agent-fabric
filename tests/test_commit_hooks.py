@@ -146,6 +146,20 @@ class Direct(unittest.TestCase):
         self.assertIsNone(ch.locale_role([ok + "/deeper.md"]))
         self.assertIsNone(ch.locale_role([]))
 
+    def test_the_owner_role_is_the_checkouts_own_whatever_operator_is_exported(self):
+        # mutation: `environ={}` dropped from owner_role's roots.policy call, so an exported operator names the owner
+        fabric = Fabric(owner_role="own-owner")
+        foreign = os.path.join(fabric.root, "foreign")
+        os.makedirs(os.path.join(foreign, "policies"))
+        with open(os.path.join(foreign, "policies", "authority.json"), "w", encoding="utf-8") as fh:
+            fh.write('{"role_definitions": {"role": "foreign-owner"}}')
+        self.addCleanup(fabric.cleanup)
+        old = os.environ.get("AGENT_FABRIC_OPERATOR")
+        os.environ["AGENT_FABRIC_OPERATOR"] = foreign
+        self.addCleanup(lambda: os.environ.pop("AGENT_FABRIC_OPERATOR", None) if old is None
+                        else os.environ.__setitem__("AGENT_FABRIC_OPERATOR", old))
+        self.assertEqual(ch.owner_role(fabric.fabric), "own-owner")
+
     def test_the_shared_prompt_pieces_belong_to_language_culture_and_one_suffix_only(self):
         self.assertEqual(ch.locale_role(["identities/prompt/locale/ge/x.md"]), ("language-culture", "ge"))
         self.assertIsNone(ch.locale_role(["identities/prompt/locale/ge/x.md", "identities/prompt/locale/de/x.md"]))
