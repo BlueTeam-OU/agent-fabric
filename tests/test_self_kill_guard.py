@@ -429,6 +429,8 @@ def main() -> int:
                         "tee $f>/dev/null <<'X'\npkill -f claude-fable\nX\nionice -c3 $f"),
                        # Round 3 F7's accepted cost: a program naming a shell may be the wrapper that runs it.
                        ("ls ~/sh after the body", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\nls ~/sh"),
+                       # Round 4 F8: a reader's name at a path of no system bin is any program. Kills: the basename.
+                       ("if … fi | ./grep sh", "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | ./grep sh"),
                        # Review of #694, round 2 F6: a block piped into a shell behind a wrapper the guard does not
                        # know. Kills: _runs_a_shell reading command words only; for `time -p sh`, that together with
                        # not skipping time's -p, since either reading alone finds the shell.
