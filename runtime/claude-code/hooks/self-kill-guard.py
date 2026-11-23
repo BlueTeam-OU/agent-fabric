@@ -288,8 +288,9 @@ WORD_END = " \t;&|()<>"
 # _leaves_open reads. The cost: `--to "${P}"` or a `$(…)` anywhere on a data reader's line keeps its body judged.
 # A bare `$name` is readable (`gzcoord-send --to $P - <<'X'`, review of #612, round 4 F15): what makes a `$`
 # dangerous is the bracket or quote after it, and a variable that runs the body (`$SHELL <<'X'`) is no data reader,
-# judged by _runs_what_it_writes.
-UNREADABLE_LINE = re.compile(r"\$'|\$\(|\$\[|\$\{|`")
+# judged by _runs_what_it_writes. And `$"…"`, locale quoting: bash ends `<<$"n"` at a line `n`, where the delimiter
+# computed here keeps the `$` (#689 round 5, P-7).
+UNREADABLE_LINE = re.compile(r"\$'|\$\"|\$\(|\$\[|\$\{|`")
 
 
 def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
@@ -361,8 +362,7 @@ def _leaves_open(line: str) -> bool:
     subscript with no operator in it (review of #612, round 4 F13 and its section 2). Yes when the line, outside
     quotes and escapes, holds any `(`, `[` or `{`, any opening reserved word, or ends in `|`, `|&`, `&&` or `||`
     (`cat <<'n' |` NL body NL `n` NL `sh`, #689 round 1 P-1; a list continued on the next line is one bash reads as
-    open too, `bash -n` the oracle the suite asks). A backtick is UNREADABLE_LINE's, a quote left open
-    heredoc_operators's.
+    open too, `bash -n` the oracle the suite asks), or leaves a quote open. A backtick is UNREADABLE_LINE's.
 
     Stateless on purpose: no closer on the line is believed. Four review rounds of #689 each found a closer that this
     function, then a stack of openers, took as closing and bash did not (`{ : a}`, `{ >/dev/null }`, `{ cat <() }`,
@@ -390,8 +390,9 @@ def _leaves_open(line: str) -> bool:
             blank.append(c)
         i += 1
     blanked = "".join(blank)
-    # A quote left open is heredoc_operators's None, asked of the same line first.
-    return bool(re.search(r"[([{]", blanked) or OPENING_WORD.search(blanked)
+    # A quote left open, here too: heredoc_operators reads `<<"n\"` as closed at the escaped quote, bash as open
+    # (#689 round 5, F14).
+    return bool(quote or re.search(r"[([{]", blanked) or OPENING_WORD.search(blanked)
                 or re.search(r"(?:\||&&)&?\s*$", blanked))
 
 
@@ -672,6 +673,9 @@ def strip_non_arguments(text: str) -> str:
     # and a '#' after it starts a comment (review of #70, the seventh
     # round). The depth of open substitutions tells the two apart.
     subst_depth, closed_subst = 0, False
+    # The index of the last character a backslash escaped outside quotes: an escaped blank joins the words on either
+    # side, so `\ #` is one word with a literal `#`, not a comment (#689 round 5 fuzz: `\ # x "` hid an open quote).
+    escaped = -1
     while i < n:
         c = text[i]
         if quote == "'":
@@ -687,6 +691,7 @@ def strip_non_arguments(text: str) -> str:
             out.append(c)
             i += 1
             c = text[i]
+            escaped = i
         elif c in "'\"":
             quote = c
         elif c == "$" and i + 1 < n and text[i + 1] == "(":
@@ -699,11 +704,12 @@ def strip_non_arguments(text: str) -> str:
         elif c == ")":
             closed_subst = subst_depth > 0
             subst_depth = max(0, subst_depth - 1)
-        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|(" or (text[i - 1] == ")" and not closed_subst)):
+        elif c == "#" and (i == 0 or (text[i - 1] in " \t\n;&|(" and i - 1 != escaped)
+                           or (text[i - 1] == ")" and not closed_subst and i - 1 != escaped)):
             while i < n and text[i] != "\n":
                 i += 1
             continue
-        elif c.isdigit() and (i == 0 or text[i - 1] in " \t\n;&|()"):
+        elif c.isdigit() and (i == 0 or (text[i - 1] in " \t\n;&|()" and i - 1 != escaped)):
             j = i
             while j < n and text[j].isdigit():
                 j += 1

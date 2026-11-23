@@ -432,14 +432,19 @@ def main() -> int:
                        ("{ >/dev/null }", "{ >/dev/null }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
                        ("then >/dev/null fi", "if :; then >/dev/null fi\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
                        # Round 3, F12: a `(` after a redirection opens a process substitution with a command inside.
-                       # Kills: `(` in _leaves_open.
+                       # Kills: `(` and `case` out of _leaves_open together.
                        ("<(case …", "cat <(case x in x)\ncat <<'n'\npkill -f claude-fable\nn\n;; esac) | sh"),
                        # Round 4, F13, P-5 and P-6: a closer after a process substitution, an array or a redirection
-                       # inside a subscript. Kills: `(` or `[` in _leaves_open.
+                       # inside a subscript. Kills: `(` and `{` out of _leaves_open together; `[` for the last.
                        ("{ cat <() }", "{ cat <() }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
                        ("{ cat <(:) }", "{ cat <(:) }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
                        ("{ a=(x) }", "{ a=(x) }\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
                        ("a[ > b[ ]", "a[ > b[ ]\ncat <<'n'\npkill -f claude-fable\nn\n]=5"),
+                       # Round 5, F14: a `\"` in a double-quoted delimiter leaves the quote open to bash, and the
+                       # body runs into sh. Kills: the quote test in _leaves_open.
+                       ('<<"n\\"', 'cat <<"n\\"\n" | sh\npkill -f claude-fable\nn'),
+                       # Round 5, P-7: locale quoting moves the delimiter. Kills: UNREADABLE_LINE without its $".
+                       ('<<$"n"', 'cat <<$"n"\nn\npkill -f claude-fable\n$n'),
                        # F3 and P-2: spellings only UNREADABLE_LINE's $', $( and ` alternatives catch, each alone.
                        ("$'…' hiding a <<", "echo $'a\\' <<\\X '\\'\npkill -f claude-fable\nX"),
                        ("a << in quotes nested in $( … )", "echo \"$(cat \"<<'#'\")\"\npkill -f claude-fable\n#)"),
@@ -458,21 +463,23 @@ def main() -> int:
     tokens = ["{", "}", "(", ")", "[", "]", "if", "then", "fi", "while", "until", "do", "done", "case", "esac", "in",
               "for", "select", "x", ";", ";;", "|", "|&", "&&", "||", "&", "<", ">", ">|", "&>", "2>", "<(", ">(", "'",
               '"', "\\", "$(", "$[", "${", "`", ":", "cat", "#", "!", "function", "f()", "a=(", "x[1", "]=5", "time",
-              "coproc", "$x", "{a,b}", "((", "esac)"]
-    # The fixed lines first: a list continued on the next line, and the keyword that opens a function definition.
-    # Kills: `&&` in the line-end test; `function` out of OPENING_WORD.
-    fixed = ["true &&", "true ||", "function x"]
+              "coproc", "$x", "{a,b}", "((", "esac)", "<<", "<<-", '<<"n\\"', '$"', "<<'n'"]
+    # The fixed lines first: a list continued on the next line, and the keywords whose removal no named case or seed
+    # catches (#689 round 5, F15), and a `#` an escaped blank glues to a word, no comment (the round-5 fuzz). Kills:
+    # `&&` in the line-end test; `function`, `for` or `select` out of OPENING_WORD; strip_non_arguments's `escaped`.
+    fixed = ["true &&", "true ||", "function x", "for x in a; do", "select x in a; do", 'echo \\ # x "']
     rng, missed = random.Random(689), []
     for i in range(len(fixed) + 400):
         line = fixed[i] if i < len(fixed) else "".join(
             rng.choice(tokens) + rng.choice(["", " ", " "]) for _ in range(rng.randint(1, 7))).strip()
         if not line or line.endswith("\\"):
             continue
-        err = subprocess.run(["bash", "-n"], input=line + "\n", capture_output=True, text=True).stderr
+        err = subprocess.run(["bash", "-n"], input=line + "\n", capture_output=True, text=True,
+                             env={**os.environ, "LC_ALL": "C"}).stderr   # the messages read below are English
         if ("unexpected end of file" in err or "unexpected EOF" in err) \
                 and g.heredoc_operators(line) is not None and not g._leaves_open(line):
             missed.append(line)
-    check("every line bash -n reads as left open ends the here-document drop (3 fixed, 400 seeded lines)",
+    check("every line bash -n reads as left open ends the here-document drop (6 fixed, 400 seeded lines)",
           not missed, missed[:5])
     # Review of #612, fix round 1d6d87fa: a body stored in a file the same command runs is code. Each shape, for the
     # pattern reading (the broad drop) and for the pid reading (the data drop). Kills: _runs_what_it_writes -> False.
