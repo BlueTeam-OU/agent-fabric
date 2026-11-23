@@ -359,13 +359,14 @@ def main() -> int:
                       "iaf.routing_run = lambda sub, *a, **k: run({'pins': PINS, 'efforts': EFFORTS}[sub])\n"
                       "session._install_agent_files = lambda: iaf\n"
                       "PINS = 'code-review opus z-ai/glm-5.2@preset/glm2claude-shim\\ncode-plan fable @preset/bare\\n'\n"
-                      "EFFORTS = 'code-low - unexpressible\\ncode-medium high raised\\ncode-high - unexpressible\\ncode-plan low approximated\\ncode-review - unknown-model\\n'\n"
+                      "EFFORTS = 'code-low - unexpressible\\ncode-medium high raised\\ncode-high - unexpressible\\ncode-plan low approximated\\ncode-review - unknown-model\\ncode-extra high approximated\\n'\n"
                       "ef = lambda lvl, i, o='applied': {'level': lvl, 'intent': i, 'outcome': o, 'how': '', 'source': ''}\n"
                       "mk = lambda via: {'model': 'm', 'shim': None, 'composite': 'm', 'via': via, 'source': 'x', 'effort': ef('low', 'low')}\n"
                       "d = {'session': {'source': 'x'}, 'provider': 'openrouter', 'exports': {},\n"
-                      "     'classes': {k: mk('file' if k in ('code-review', 'code-plan') else 'export') for k in ('code-low', 'code-medium', 'code-high', 'code-plan', 'code-review')}}\n"
+                      "     'classes': {k: mk('file' if k in ('code-review', 'code-plan') else 'export') for k in ('code-low', 'code-medium', 'code-high', 'code-plan', 'code-review', 'code-extra')}}\n"
                       "d['classes']['code-low']['effort'] = ef(None, 'low', 'unexpressible'); d['classes']['code-medium']['effort'] = ef('high', 'medium', 'raised')\n"
                       "d['classes']['code-high']['effort'] = ef('low', 'xhigh', 'approximated')\n"
+                      "d['classes']['code-extra']['effort'] = ef('low', 'xhigh', 'approximated')\n"
                       "d['classes']['code-plan']['effort'] = ef('low', 'low', 'applied')\n"
                       "d['classes']['code-review']['effort'] = ef('low', 'low', 'applied')\n"
                       "pf = tempfile.NamedTemporaryFile(delete=False); pf.write(b'x\\n'); pf.close()\n"
@@ -384,6 +385,8 @@ def main() -> int:
                   and "asked low" not in rl("code-high") and "asked None" not in rl("code-high"), rr.stdout + rr.stderr)
             check("a managed snapshot row with the checkout's level and another outcome prints no asked level (F11)",
                   "effort low (approximated; the asked level is not known here)" in rl("code-plan"), rr.stdout + rr.stderr)
+            check("a managed snapshot row with the checkout's outcome and another level prints no asked level (F11)",
+                  "effort high (approximated; the asked level is not known here)" in rl("code-extra"), rr.stdout + rr.stderr)
             check("a managed snapshot's unknown-model row prints no asked level (F11)",
                   "effort - (no model pinned, the harness's tier decides)" in rl("code-review")
                   and "asked" not in rl("code-review"), rr.stdout + rr.stderr)
