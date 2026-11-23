@@ -310,6 +310,8 @@ def main() -> int:
                        ("gzcoord-send -", f"gzcoord-send - <<'X'\nOBSERVATION: kill {W} refused\nX"),
                        ("tee /dev/null", f"tee /dev/null <<'X' >/dev/null\nkill -9 {W}\nX"),
                        ("a pipe of data readers", f"cat <<'X' | grep -v x | tee /dev/stderr | gzcoord-send -\nkill {W}\nX"),
+                       # Review of #612, round 4 F15: a bare $name on the opening line is no syntax.
+                       ("an unquoted $name on the opening line", f"gzcoord-send --to $P - <<'X'\nkill {W}\nX"),
                        ("two bodies, data readers joined by && and ;",
                         f"cat <<'X' >/dev/null && gzcoord-send - <<\"Y\"; wc -l\nkill {W}\nX\nkill {W}\nY"),
                        ("a quoted ; in a reader's argument", f"cat 'a;b' - <<'X' >/dev/null\nkill {W}\nX"),
@@ -382,6 +384,20 @@ def main() -> int:
                        # The allowlist, not a spelling: a subscript holds a << bash reads as a shift.
                        ("a << inside an array subscript", "a[1<<\"n\"]=5\npkill -f claude-fable\nn]=5"),
                        ("a here-document in a function body", "f() { cat <<'n'; }\npkill -f claude-fable\nn"),
+                       # Review of #612, round 4 F13: a subscript opened on the line before the <<. Kills: the
+                       # still-open bracket test in heredoc_operators.
+                       ("a subscript split before the <<", "a[1\n<<\"n\"]=5\npkill -f claude-fable\nn]=5"),
+                       ("…assigning nothing", "x[0\n<<\"n\"]=\npkill -f claude-fable\nn]="),
+                       # F14: nested quotes hide ${ and $[ from the quote scan, which reads the delimiter t/y} (n]); bash reads no
+                       # operator and runs the kill. Kills: each new alternative of UNREADABLE_LINE.
+                       ("a << inside \"${…}\" with nested quotes", "echo \"${x/\"<<'t'\"/y}\"\npkill -f claude-fable\nt/y}"),
+                       ("a << inside \"$[…]\" with nested quotes", "echo \"$[1\"<<'n'\"]\"\npkill -f claude-fable\nn]"),
+                       # Round 4, pre-existing: a block piped into a shell from its closing line. Kills: the open
+                       # bracket test ({, () and BLOCK_RUNNER in drop_heredoc_bodies (if, for).
+                       ("{ … } | sh", "{\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
+                       ("( … ) | sh", "(\ncat <<'n'\npkill -f claude-fable\nn\n) | sh"),
+                       ("if … fi | sh", "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
+                       ("for … done | bash", "for i in 1; do\ncat <<'n'\npkill -f claude-fable\nn\ndone | bash"),
                        ("an unquoted body joined over its delimiter",
                         "cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\npkill -f claude-fable\nY"),
                        ("a here-document inside a shell's body", "bash <<'EOF'\ncat <<'Y'\nEOF\npkill -f claude-fable\nY")):
