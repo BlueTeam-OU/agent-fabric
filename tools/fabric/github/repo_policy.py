@@ -222,12 +222,14 @@ def write(repo: str, desired: dict, live: dict, found: list[str], written: list[
 USAGE = "usage: fabric-repo-policy plan|verify [owner/repo] [--json] | apply <owner/repo> [--yes] [--fleet-default] [--json]"
 
 
-def describe_source(repo: str, settings: str | None, has_file: bool) -> str:
+def describe_source(repo: str, settings: str | None, has_file: bool, described_only: bool = False) -> str:
     name = repo.split("/", 1)[1]
     if settings is None:
         return f"the fleet default ({repo} is no registered project's)"
     if has_file:
         return f"repos/{name}.json in {settings}"
+    if described_only:
+        return f"the fleet default (repos/{name}.json in {settings} sets no policy key, only a description)"
     return f"the fleet default (repos/{name}.json is not in {settings}, which the project's client keeps its policy in)"
 
 
@@ -255,11 +257,12 @@ def run(argv: list[str], api=gh.api, out=sys.stdout, err=sys.stderr) -> int:
         if not arm_policy.is_repo_name(repo):
             print(f"fabric-repo-policy: {repo!r} is not an <owner>/<name>", file=err)
             return 2
-        policy, settings, has_file = arm_policy.load_with_source(repo, api=api)
-        source = describe_source(repo, settings, has_file)
+        policy, settings, doc = arm_policy.load_with_file(repo, api=api)
+        has_file = arm_policy.sets_policy(doc)
+        source = describe_source(repo, settings, has_file, described_only=doc is not None and not has_file)
         if verb == "apply" and settings is not None and not has_file:
             print(f"fabric-repo-policy: {source}; applying it would replace {repo}'s queue, required checks and rulesets "
-                  f"with the default: nothing written (add the file first)", file=err)
+                  f"with the default: nothing written (add the file, with a policy key, first)", file=err)
             return 2
         if verb == "apply" and settings is None and not fleet_default:
             print(f"fabric-repo-policy: {source}; apply writes the default only with --fleet-default: nothing written", file=err)

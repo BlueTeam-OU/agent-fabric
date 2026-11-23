@@ -219,12 +219,12 @@ class Differences(unittest.TestCase):
 
 
 class Cli(unittest.TestCase):
-    SOURCE = ("O/settings", True)       # a registered project with its own file
+    SOURCE = ("O/settings", {"mode": "owner-only"})       # a registered project with its own file, which sets a policy
 
     def run_cli(self, argv, g: Github | None = None, policy: dict = POLICY, load_error=None):
         out, err = io.StringIO(), io.StringIO()
         load = mock.Mock(side_effect=load_error) if load_error else mock.Mock(return_value=(policy, *self.SOURCE))
-        with mock.patch.object(arm_policy, "load_with_source", load), mock.patch.object(gh, "this_repo", return_value=REPO):
+        with mock.patch.object(arm_policy, "load_with_file", load), mock.patch.object(gh, "this_repo", return_value=REPO):
             rc = repo_policy.run(argv, g or Github(policy), out, err)
         self.load = load
         return rc, out.getvalue(), err.getvalue()
@@ -552,6 +552,26 @@ class Source(unittest.TestCase):
             self.assertIn("nothing written", err)
             self.assertEqual([m for m in g.asked if m.startswith("repos/O/R")][:1], [], "no read of the repository before the refusal")
 
+    def test_a_description_only_file_is_no_word_for_apply_and_a_file_with_any_policy_key_is(self):
+        for argv in (["apply", REPO, "--yes"], ["apply", REPO, "--yes", "--fleet-default"], ["apply", REPO]):
+            g = self.drifted()
+            rc, out, err = self.run_cli(argv, g, {"description": "only words"})
+            self.assertEqual((rc, out, g.writes), (2, "", []), argv)
+            self.assertIn("repos/R.json in O/settings sets no policy key", err)
+            self.assertIn("nothing written", err)
+        g = Github(POLICY)       # the positive control: one policy key beside the description is applied
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g, {"description": "d", "mode": "owner-only"})
+        self.assertEqual((rc, [w[2] for w in g.writes if w[0] == "PATCH"]), (0, [{"allow_auto_merge": False}]))
+        self.assertTrue(out.startswith("policy: repos/R.json in O/settings\n"), out)
+
+    def test_sets_policy_is_the_source_of_has_file(self):
+        g = Github(POLICY)
+        with contextlib.ExitStack() as stack:
+            for patch in self.patched():
+                stack.enter_context(patch)
+            for file, want in (({"description": "d"}, False), ({}, False), ({"description": "d", "mode": "owner-only"}, True)):
+                self.assertEqual(arm_policy.load_with_source(REPO, api=self.world(g, file))[1:], ("O/settings", want), file)
+
     def test_plan_and_verify_keep_working_in_that_window_and_say_the_default_is_in_use(self):
         for verb, want_rc in (("plan", 0), ("verify", 1)):
             g = self.drifted()
@@ -607,7 +627,7 @@ class Source(unittest.TestCase):
 
     def test_json_carries_the_source_for_every_verb(self):
         for verb in ("plan", "verify", "apply"):
-            rc, out, _ = self.run_cli([verb, REPO, "--json"], self.drifted(), {})
+            rc, out, _ = self.run_cli([verb, REPO, "--json"], self.drifted(), {"mode": "owner-only"})
             self.assertEqual(json.loads(out)["policy_source"], "repos/R.json in O/settings", verb)
 
 
