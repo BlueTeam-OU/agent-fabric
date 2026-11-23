@@ -154,6 +154,17 @@ class Completion(unittest.TestCase):
         self.complete("fabric-ctl", "all", "keys", "")
         self.assertEqual(self.calls(), ["--verbs", "--verbs keys"])
 
+    def test_state_is_offered_after_an_account_from_the_real_verb_list(self):
+        # The stub's verb list is a fixture; this one asks the real `fabric-ctl --verbs`, so a verb dropped from the table
+        # (or a completion that stopped reading it) is seen. `states` shares the prefix and is offered with it.
+        real = os.path.join(self.tmp, "realbin")
+        os.makedirs(real)
+        os.symlink(os.path.join(HERE, "bin", "fabric-ctl"), os.path.join(real, "fabric-ctl"))
+        self.env["PATH"] = f"{real}:{self.env['PATH']}"
+        for target in ("alpha-01", "all"):
+            self.assertEqual(self.complete("fabric-ctl", target, "state")[0], ["state", "states"], target)
+        self.assertIn("state", self.complete("fabric-ctl", "all", "")[0])
+
 
 if __name__ == "__main__":
     unittest.main()
