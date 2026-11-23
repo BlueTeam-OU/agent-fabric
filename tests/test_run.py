@@ -130,6 +130,18 @@ def ended(pid: int) -> bool:
         return True
 
 
+def signal_all(pids: list[int], sig: int) -> list[int]:
+    """Signal each pid; the ones already gone are skipped, and returned as the ones that were. A pid listed a moment ago
+    can exit before its signal (platform-smoke fedora, run 44967155833): that is not the case's failure."""
+    gone = []
+    for pid in pids:
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            gone.append(pid)
+    return gone
+
+
 def cmdline(pid: int) -> str:
     """`pid`'s command line, or "" for a process already gone (the same race as ended())."""
     try:
@@ -545,7 +557,7 @@ def main() -> int:
                 dead = poll_until(lambda: ended(child), 10.0)
                 results[-1] += (dead if new_session else True,)
                 if not new_session:
-                    os.kill(child, signal.SIGKILL)     # the shell was only asked to stop; its child holds this file's stdout
+                    signal_all([child], signal.SIGKILL)     # the shell was only asked to stop; its child holds this file's stdout
                 os.unlink(childpid)
             alive = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL)
             ok_state = wait_until(alive, lambda: True, "its suites started")
@@ -653,6 +665,18 @@ def main() -> int:
             shown = sorted(set(re.findall(r"MARK\d", out)))
             check(f"a group {name} during the python section: the exit is {128 + int(sig)} and both running suites' lines reach stdout",
                   rc == 128 + int(sig) and len(shown) == 2, (rc, took, shown, out[-300:], err[-600:]))
+        # signal_all: a listed pid that exited and was reaped before its signal is skipped; a live one is still signalled.
+        gone_child = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone_child.wait()
+        live_child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        try:
+            skipped = signal_all([gone_child.pid, live_child.pid], signal.SIGKILL)
+            live_child.wait(timeout=10)
+            check("a listed pid already gone is skipped and the live one after it is still signalled (control: it died of KILL)",
+                  skipped == [gone_child.pid] and live_child.returncode == -signal.SIGKILL, (skipped, live_child.returncode))
+        finally:
+            live_child.kill()
+            live_child.wait()
         # A group INT also reaches run.py, which asks the runner to stop by TERM: that alone ends the run and hides a runner
         # that takes no INT of its own. So INT goes to the runner and its suites only, as a terminal would send it to a
         # foreground group run.py is not in.
@@ -668,8 +692,7 @@ def main() -> int:
                 r = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True)
                 return [int(x) for x in r.stdout.split()]
             runner = next((c for c in children(p.pid) if "run_python_suites" in cmdline(c)), 0)
-            for pid in [runner, *children(runner)] if runner else []:
-                os.kill(pid, signal.SIGINT)
+            signal_all([runner, *children(runner)] if runner else [], signal.SIGINT)
             try:
                 out, _ = p.communicate(timeout=40)
             except subprocess.TimeoutExpired:
@@ -997,8 +1020,7 @@ def main() -> int:
             time.sleep(0.1)
         left = ours(b"test_slow.py")
         free = who(leases).startswith("free:")
-        for pid in left:
-            os.kill(pid, signal.SIGKILL)
+        signal_all(left, signal.SIGKILL)
         check("a group KILL of a full run ends its suites and frees the lease with them, never before (catches: the lease "
               "held by a process outside the caller's group)",
               was_held and suite_pid > 0 and not left and free, (was_held, suite_pid, left, free))

@@ -1269,7 +1269,10 @@ exec env GNUPGHOME="$home" "$@"
                         return True
             except OSError:
                 return True
-            os.kill(pid, signal.SIGKILL)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:   # exited since the /proc read
+                return True
             return False
         # A wrapper that ignores SIGTERM, as its child then does: only
         # SIGKILL ends either, and the child is what the old kill left.
