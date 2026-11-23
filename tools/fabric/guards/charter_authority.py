@@ -109,6 +109,11 @@ NAME = "check_charter_authority"
 # judge. Judged here too, every locale PR failed CI (#57 blind review F1).
 _DEFINITIONS = (':(glob)identities/roles/*/charter.md', ':(glob)identities/roles/*/brief.md',
                 'identities/roles/catalog.json', 'projects/*/taxonomy.json', 'routing/policies/*', 'policies/authority.json')
+# The shim links themselves (ADR-045 step B): retargeting `identities/roles` at another tree leaves every
+# definition above unchanged. Not in PROTECTED: a bare directory pathspec also matches everything beneath
+# it, which would drag a locale holder's translations under the carve-out into the refusal wherever the
+# directory is not a link. changed_paths keeps only entries git records as links.
+LINKS = ('identities/roles', 'routing/policies')
 # Each instance path twice: as it stood, and under operator/ where ADR-045 step B moved it
 # (move-plan §3). The old path is a symlink shim from step B on; a guard naming only it would
 # see no change to a charter edited at its new path and pass the commit unchecked.
@@ -179,7 +184,17 @@ def changed_paths(repo: str, base: str) -> list[str]:
         lines = [l for l in r.stderr.strip().splitlines() if l.strip()]
         raise Refused(f"cannot diff {base}...HEAD ({(lines or [f'exit {r.returncode}'])[-1]}) — "
                       "a change to a role definition could pass unexamined")
-    return common.lines_of(r.stdout)
+    names = common.lines_of(r.stdout)
+    raw = git.run(repo, "diff", "--no-renames", "--raw", "-z", f"{base}...HEAD", "--", *LINKS, check=False)
+    if raw.returncode != 0:
+        raise Refused(f"cannot diff {base}...HEAD for the role links — a retargeted link could pass unexamined")
+    # -z --raw: ":<old mode> <new mode> <old sha> <new sha> <status>" NUL path NUL
+    fields = raw.stdout.split("\0")
+    for meta, path in zip(fields[0::2], fields[1::2]):
+        modes = meta.lstrip(":").split()[:2]
+        if "120000" in modes and path not in names:
+            names.append(path)
+    return names
 
 
 def listing(paths: list[str], indent: str, to_err: bool = False) -> None:

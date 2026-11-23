@@ -206,6 +206,19 @@ def main() -> int:
     is_rc("…but the same branch changing a role's own charter is refused",
           "develop-qzapp/language-culture-ru/fix/ru-locale", 1)
 
+    print("the old-path link to the roles is a definition too: retargeting it redefines every role")
+    new_repo()
+    shutil.rmtree(f"{SANDBOX}/identities/roles")
+    os.symlink("../operator/identities/roles", f"{SANDBOX}/identities/roles")
+    git("add", "-A")
+    git("commit", "-qm", "roles become a link")
+    git("branch", "-f", "base-ref")
+    os.remove(f"{SANDBOX}/identities/roles")
+    os.symlink("../evil", f"{SANDBOX}/identities/roles")
+    git("add", "-A")
+    git("commit", "-qm", "retarget the roles link")
+    is_rc("a retargeted roles link is refused", "develop-qzapp/web-dev-01/feat/x", 1)
+
     print("the catalogue is protected too")
     new_repo()
     commit_change("identities/roles/catalog.json")
