@@ -360,12 +360,12 @@ def main() -> int:
                       "session._install_agent_files = lambda: iaf\n"
                       "PINS = 'code-review opus z-ai/glm-5.2@preset/glm2claude-shim\\ncode-plan fable @preset/bare\\n'\n"
                       "EFFORTS = 'code-low - unexpressible\\ncode-medium high raised\\ncode-high high approximated\\ncode-plan high applied\\ncode-review high applied\\n'\n"
-                      "ef = lambda lvl, i: {'level': lvl, 'intent': i, 'outcome': 'applied', 'how': '', 'source': ''}\n"
+                      "ef = lambda lvl, i, o='applied': {'level': lvl, 'intent': i, 'outcome': o, 'how': '', 'source': ''}\n"
                       "mk = lambda via: {'model': 'm', 'shim': None, 'composite': 'm', 'via': via, 'source': 'x', 'effort': ef('low', 'low')}\n"
                       "d = {'session': {'source': 'x'}, 'provider': 'openrouter', 'exports': {},\n"
                       "     'classes': {k: mk('file' if k in ('code-review', 'code-plan') else 'export') for k in ('code-low', 'code-medium', 'code-high', 'code-plan', 'code-review')}}\n"
-                      "d['classes']['code-low']['effort'] = ef(None, 'low'); d['classes']['code-medium']['effort'] = ef('high', 'medium')\n"
-                      "d['classes']['code-high']['effort'] = ef('high', 'xhigh')\n"
+                      "d['classes']['code-low']['effort'] = ef(None, 'low', 'unexpressible'); d['classes']['code-medium']['effort'] = ef('high', 'medium', 'raised')\n"
+                      "d['classes']['code-high']['effort'] = ef('low', 'xhigh', 'approximated')\n"
                       "pf = tempfile.NamedTemporaryFile(delete=False); pf.write(b'x\\n'); pf.close()\n"
                       "try:\n"
                       "    session.print_report(d, routing, label='l', agent='a', role='r', provider='openrouter', session='s', effective_session='s',\n"
@@ -377,14 +377,15 @@ def main() -> int:
             rl = lambda k: cline(rr.stdout, k)
             check("a managed snapshot's raised class prints asked -> served, not the served level alone",
                   "effort high (asked medium)" in rl("code-medium"), rr.stdout + rr.stderr)
-            check("a managed snapshot's approximated class prints asked -> served",
-                  "effort high (asked xhigh)" in rl("code-high"), rr.stdout + rr.stderr)
+            check("a managed snapshot's class whose checkout row disagrees prints the outcome without an asked level (F11)",
+                  "effort high (approximated; the asked level is not known here)" in rl("code-high")
+                  and "asked" not in rl("code-high").replace("the asked level is not known", ""), rr.stdout + rr.stderr)
             check("a managed snapshot's unexpressible class (a `-` row) prints the expresses-none form, never nothing",
                   "effort - (asked low; this model expresses none)" in rl("code-low"), rr.stdout + rr.stderr)
             check("a managed snapshot's broker pin keeps its shim's @",
                   "shim @preset/glm2claude-shim  => z-ai/glm-5.2@preset/glm2claude-shim" in rl("code-review"), rr.stdout + rr.stderr)
-            check("a managed snapshot's bare @preset pin prints the composite as its model, never an empty one",
-                  re.search(r"code-plan  *: @preset/bare  shim @preset/bare  => @preset/bare  ", rl("code-plan")) is not None,
+            check("a managed snapshot's bare @preset pin prints the composite as its model and shim -, as the unmanaged path (F12)",
+                  re.search(r"code-plan  *: @preset/bare  shim -  => @preset/bare  ", rl("code-plan")) is not None,
                   rr.stdout + rr.stderr)
             # A snapshot whose routing cannot run: one line saying so, and --print goes on.
             os.remove(f"{snap}/routing/capabilities.json")

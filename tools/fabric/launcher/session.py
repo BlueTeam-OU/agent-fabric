@@ -182,14 +182,29 @@ def _parse_effort_outcomes(text: str) -> dict[str, tuple[str, str]]:
     return out
 
 
-def _snapshot_effort(row: tuple[str, str] | None, intent: str | None) -> dict | None:
+def _snapshot_effort(row: tuple[str, str] | None, checkout: dict | None) -> dict | None:
     """The effort dict routing.effort_phrase consumes, from a snapshot's `<level|-> <outcome>` row. The row does not
-    carry the asked level, so `asked` is this checkout's routed intent for the class: it is the snapshot's own only
-    while the checkout's routing/effort.json agrees, and "?" where the checkout names none."""
+    carry the asked level, so `intent` is this checkout's routed intent only when the checkout's own (level, outcome)
+    for the class equals the row: after a routing merge the two can differ, and an asked level the snapshot never had
+    would be printed as fact. Otherwise `intent` is None and the phrase leaves the asked level out."""
     if row is None:
         return None
     level, outcome = row
-    return {"outcome": outcome, "level": level or None, "intent": intent or "?"}
+    same = isinstance(checkout, dict) and (checkout.get("level") or "") == level and checkout.get("outcome") == outcome
+    return {"outcome": outcome, "level": level or None, "intent": (checkout.get("intent") or None) if same else None}
+
+
+def _effort_text(effort: dict | None, routing) -> str:
+    """routing.effort_phrase, except that an unknown asked level is not printed as one."""
+    if effort and effort.get("outcome") in ("approximated", "raised", "unexpressible", "unknown-model") \
+            and not effort.get("intent"):
+        o = effort["outcome"]
+        if o == "unexpressible":
+            return "effort - (this model expresses none; the asked level is not known here)"
+        if o == "unknown-model":
+            return "effort - (no model pinned, the harness's tier decides)"
+        return "effort %s (%s; the asked level is not known here)" % (effort["level"], o)
+    return routing.effort_phrase(effort)
 
 
 def print_report(d: dict, routing, *, label: str, agent: str, role: str, provider: str, session: str,
@@ -247,15 +262,16 @@ def print_report(d: dict, routing, *, label: str, agent: str, role: str, provide
         for klass, res in d["classes"].items():
             if snap_pins is not None:
                 res = dict(res)
-                asked = res.get("effort")
-                res["effort"] = _snapshot_effort(snap_outcomes.get(klass), asked.get("intent") if isinstance(asked, dict) else None)
+                res["effort"] = _snapshot_effort(snap_outcomes.get(klass), res.get("effort"))
                 if res["via"] == "file":
                     pin = snap_pins.get(klass, "")
                     if pin:
-                        # Every shims.json value starts with "@" and the unmanaged path prints it, so the shim keeps
-                        # it; a bare "@preset/x" has no model part, and the composite stands in for it.
+                        # routing.PRESET is what shim_for tests a bare "@preset/x" against: such a pin has no model
+                        # part and gets no shim, as on the unmanaged path. A model's own pin keeps the "@" it carries,
+                        # the snapshot's shim and not this checkout's shims.json.
                         model, at, shim = pin.partition("@")
-                        res.update(model=model or pin, shim=at + shim if shim else None, composite=pin,
+                        bare = bool(routing.PRESET.fullmatch(pin))
+                        res.update(model=model or pin, shim=at + shim if shim and not bare else None, composite=pin,
                                    source="the managed snapshot")
                     else:
                         res["via"] = "harness"
@@ -268,7 +284,7 @@ def print_report(d: dict, routing, *, label: str, agent: str, role: str, provide
             # Effort is routed beside the model (routing/effort.json), so it is
             # printed beside it: `asked -> served` whenever they differ, because
             # a downgrade nobody can see is the defect the dimension exists for.
-            eff = routing.effort_phrase(res.get("effort"))
+            eff = _effort_text(res.get("effort"), routing) if snap_pins is not None else routing.effort_phrase(res.get("effort"))
             eff = "  " + eff if eff else ""
             if d.get("provider") == "anthropic":
                 print("  %-12s: %s  %s%s" % (klass, res["model"], how, eff))
