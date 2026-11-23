@@ -310,6 +310,8 @@ def main() -> int:
                        ("gzcoord-send -", f"gzcoord-send - <<'X'\nOBSERVATION: kill {W} refused\nX"),
                        ("tee /dev/null", f"tee /dev/null <<'X' >/dev/null\nkill -9 {W}\nX"),
                        ("a pipe of data readers", f"cat <<'X' | grep -v x | tee /dev/stderr | gzcoord-send -\nkill {W}\nX"),
+                       # Review of #612, round 4 F15: a bare $name on the opening line is no syntax.
+                       ("an unquoted $name on the opening line", f"gzcoord-send --to $P - <<'X'\nkill {W}\nX"),
                        ("two bodies, data readers joined by && and ;",
                         f"cat <<'X' >/dev/null && gzcoord-send - <<\"Y\"; wc -l\nkill {W}\nX\nkill {W}\nY"),
                        ("a quoted ; in a reader's argument", f"cat 'a;b' - <<'X' >/dev/null\nkill {W}\nX"),
@@ -382,12 +384,107 @@ def main() -> int:
                        # The allowlist, not a spelling: a subscript holds a << bash reads as a shift.
                        ("a << inside an array subscript", "a[1<<\"n\"]=5\npkill -f claude-fable\nn]=5"),
                        ("a here-document in a function body", "f() { cat <<'n'; }\npkill -f claude-fable\nn"),
+                       # Review of #612, round 4 F13: a subscript opened on the line before the <<. Kills: the
+                       # still-open bracket test in heredoc_operators.
+                       ("a subscript split before the <<", "a[1\n<<\"n\"]=5\npkill -f claude-fable\nn]=5"),
+                       ("…assigning nothing", "x[0\n<<\"n\"]=\npkill -f claude-fable\nn]="),
+                       # F14: nested quotes hide ${ and $[ from the quote scan, which reads the delimiter t/y} (n]); bash reads no
+                       # operator and runs the kill. Kills: each new alternative of UNREADABLE_LINE.
+                       ("a << inside \"${…}\" with nested quotes", "echo \"${x/\"<<'t'\"/y}\"\npkill -f claude-fable\nt/y}"),
+                       ("a << inside \"$[…]\" with nested quotes", "echo \"$[1\"<<'n'\"]\"\npkill -f claude-fable\nn]"),
+                       # Round 4, pre-existing: a block piped into a shell from its closing line. A shell by name is
+                       # caught twice, by the still-open test in heredoc_operators ({, () and by _runs_a_shell (any
+                       # block), so these pin neither alone.
+                       ("{ … } | sh", "{\ncat <<'n'\npkill -f claude-fable\nn\n} | sh"),
+                       ("( … ) | sh", "(\ncat <<'n'\npkill -f claude-fable\nn\n) | sh"),
+                       # Only _runs_a_shell: a keyword compound leaves nothing open on its line.
+                       ("if … fi | sh", "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sh"),
+                       ("for … done | bash", "for i in 1; do\ncat <<'n'\npkill -f claude-fable\nn\ndone | bash"),
+                       ("if … fi | sudo -u root sh", "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | sudo -u root sh"),
+                       # Review of #694, round 1 F4: only the still-open test, each arm alone (a shell in a variable
+                       # is no command word _runs_a_shell can read, and a substitution's output runs as a command
+                       # with no shell named). Kills: dropping that arm from still_open.
+                       ("{ … } | \"sh\"", "{\ncat <<'n'\npkill -f claude-fable\nn\n} | \"sh\""),
+                       ("{ … } | $SHELL", "{\ncat <<'n'\npkill -f claude-fable\nn\n} | $SHELL"),
+                       ("( … ) | $SHELL", "(\ncat <<'n'\npkill -f claude-fable\nn\n) | $SHELL"),
+                       ("a block's output run from an open backtick", "`\ncat <<'n'\npkill -f claude-fable\nn\n`"),
+                       # Review of #694, round 1 F1: a `$` word, which may be the shell, outside a data reader on the
+                       # opening line (main denies each by its `$`). Kills: _expands_outside_reader -> False.
+                       ("ionice -c3 $SHELL <<X", "ionice -c3 $SHELL <<'X'\npkill -f claude-fable\nX"),
+                       ("cat <<X | ionice -c3 $SHELL", "cat <<'X' | ionice -c3 $SHELL\npkill -f claude-fable\nX"),
+                       ("cat <<X | flock /tmp/l $SHELL", "cat <<'X' | flock /tmp/l $SHELL\npkill -f claude-fable\nX"),
+                       ("taskset -c 0 $BASH -s <<X", "taskset -c 0 $BASH -s <<'X'\npkill -f claude-fable\nX"),
+                       ("./cat $SHELL <<X, a reader's basename only", "./cat $SHELL <<'X'\npkill -f claude-fable\nX"),
+                       # Review of #694, round 2 F1: a `$` in the file a data reader writes, run behind a wrapper
+                       # the guard does not know (main denies each by its `$`). Kills: the redirect arm of
+                       # _expands_outside_reader dropped (both cat cases), its tee arm dropped (the tee case).
+                       ("cat > $f <<X, then ionice -c3 $f",
+                        "f=/tmp/k; cat > $f <<'X'\npkill -f claude-fable\nX\nchmod +x $f; ionice -c3 $f"),
+                       ("cat <<X >$f, then ionice -c3 $f",
+                        "f=/tmp/k; cat <<'X' >$f\npkill -f claude-fable\nX\nchmod +x $f; ionice -c3 $f"),
+                       ("tee $f <<X, then ionice -c3 $f", "tee $f <<'X'\npkill -f claude-fable\nX\nionice -c3 $f"),
+                       # Round 3 F1: the operator glued to the file. Kills: dropping a word that holds < or >.
+                       ("tee $f<<X, then ionice -c3 $f", "tee $f<<'X'\npkill -f claude-fable\nX\nionice -c3 $f"),
+                       ("tee $f>/dev/null <<X, then ionice -c3 $f",
+                        "tee $f>/dev/null <<'X'\npkill -f claude-fable\nX\nionice -c3 $f"),
+                       # Round 3 F7's accepted cost: a program naming a shell may be the wrapper that runs it.
+                       ("ls ~/sh after the body", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\nls ~/sh"),
+                       # Round 4 F8: a reader's name at a path of no system bin is any program. Kills: the basename.
+                       ("if … fi | ./grep sh", "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | ./grep sh"),
+                       # Round 5 F8: the directory whole. Kills: a prefix test of SYSTEM_BIN.
+                       ("if … fi | /usr/bin/../../tmp/x/grep sh",
+                        "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | /usr/bin/../../tmp/x/grep sh"),
+                       # Round 5 F9, the safe side chosen: a reader outside SYSTEM_BIN is judged though _data_only
+                       # reads it as data. Kills: /usr/sbin/ added to SYSTEM_BIN, or a basename test.
+                       ("/usr/sbin/grep sh after the body",
+                        "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\n/usr/sbin/grep sh notes"),
+                       # Review of #694, round 2 F6: a block piped into a shell behind a wrapper the guard does not
+                       # know. Kills: _runs_a_shell reading command words only; for `time -p sh`, that together with
+                       # not skipping time's -p, since either reading alone finds the shell.
+                       ("if … fi | ionice -c3 sh", "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | ionice -c3 sh"),
+                       ("if … fi | time -p sh", "if true; then\ncat <<'n'\npkill -f claude-fable\nn\nfi | time -p sh"),
+                       ("for … done | taskset -c 0 bash",
+                        "for i in 1; do\ncat <<'n'\npkill -f claude-fable\nn\ndone | taskset -c 0 bash"),
                        ("an unquoted body joined over its delimiter",
                         "cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\npkill -f claude-fable\nY"),
                        ("a here-document inside a shell's body", "bash <<'EOF'\ncat <<'Y'\nEOF\npkill -f claude-fable\nY")):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a pattern kill the broad here-document drop must keep denies: {label}",
               d is not None and d[0] == "deny", d)
+    # Review of #694, round 1 F2: a shell's name that runs nothing, as an argument or in a comment, keeps a data
+    # reader's quoted kill a quotation (main passes each). Kills: matching the names anywhere in the rest.
+    for label, cmd in (("a comment naming sh after the body", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\n# then sh"),
+                       ("grep sh after the body", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\ncat notes | grep sh"),
+                       ("grep bash before the body", "grep bash notes.txt\ngzcoord-send - <<'X'\npkill -f claude-fable was refused\nX"),
+                       ("grep sh behind timeout", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\ntimeout 5 grep sh notes"),
+                       # Review of #694, round 2 F6's fix reads a shell's name beyond the command word; these pin
+                       # its edges. Kills: `.` counted beyond the command word; time's -p not skipped.
+                       ("git add . after the body", "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\ngit add ."),
+                       ("time -p grep sh after the body",
+                        "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\ntime -p grep sh notes"),
+                       # Round 3 F7: a reader named by its path, as _data_only reads it. Kills: the exact name.
+                       ("/usr/bin/grep sh after the body",
+                        "gzcoord-send - <<'X'\npkill -f claude-fable was refused\nX\n/usr/bin/grep sh notes")):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a data reader's quoted kill beside a shell's name that runs nothing passes: {label}", d is None, d)
+    # Review of #694, round 1 F3: a regex from every line start crossed every blank line after it, quadratic, past the
+    # hook's 5 s budget where no decision is a pass (4.5 s of CPU here at 40000 lines, 0.5 s fixed). CPU time, since
+    # this host runs loaded; the bound is four times the fixed cost. A faster host could run the quadratic form under
+    # any fixed bound, so the growth from 10000 to 40000 lines is bounded as well: 3.8-6.9 fixed and 12-15 quadratic
+    # here at a load of 30-55 (review of #694, round 2), the least of three runs against noise, and 9 between them.
+    # Kills: a pattern that spans newlines per line.
+    def least_cpu(blank_lines: int) -> tuple[float, object]:
+        cmd = "gzcoord-send - <<'X'\npkill -f claude-fable\nX\n" + "\n" * blank_lines + "pkill -f claude-fable"
+        runs = []
+        for _ in range(3):
+            started = time.process_time()
+            d = g.decision(cmd, CLAUDE, shell=False)
+            runs.append(time.process_time() - started)
+        return min(runs), d
+    small, _ = least_cpu(10000)
+    spent, d = least_cpu(40000)
+    check("a dropped body before 40000 blank lines decides in linear time",
+          spent < 2.0 and spent < 9 * small and d and d[0] == "deny", (round(small, 3), round(spent, 3), d))
     # Review of #612, fix round 1d6d87fa: a body stored in a file the same command runs is code. Each shape, for the
     # pattern reading (the broad drop) and for the pid reading (the data drop). Kills: _runs_what_it_writes -> False.
     stored = (("cat > k.sh, then bash it", "cat > k.sh <<'X'\n{kill}\nX\nbash k.sh"),
