@@ -187,7 +187,7 @@ Exit codes:
 # to somebody else's PR.
 AUTOMATION = {"dependabot", "renovate", "github-actions", "weblate", "imgbot", "allcontributors", "pre-commit-ci",
               "snyk-bot"}
-LOCALE_FILE = re.compile(r"identities/roles/[^/\n]+/locale/[^/\n]+/[^/\n]+")
+LOCALE_FILE = re.compile(r"(?:operator/)?identities/roles/[^/\n]+/locale/[^/\n]+/[^/\n]+")
 SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 SHA40 = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")

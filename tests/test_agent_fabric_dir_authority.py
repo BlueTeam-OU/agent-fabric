@@ -67,6 +67,8 @@ def main() -> int:
     L = "identities/roles/language-culture/locale/ge/"
     check("one locale", da.locale_carve_out_role([L + "a.md", L + "b.md"]) == ("language-culture", "ge"))
     check("no path", da.locale_carve_out_role([]) is None)
+    check("a role's locale at the operator's tree", da.locale_carve_out_role(["operator/" + L + "a.md"]) == ("language-culture", "ge"))
+    check("the shared prompt pieces did not move", da.locale_carve_out_role(["operator/identities/prompt/locale/ge/a.md"]) is None)
     check("two suffixes", da.locale_carve_out_role([L + "a.md", L.replace("/ge/", "/ru/") + "a.md"]) is None)
     check("two roles", da.locale_carve_out_role([L + "a.md", "identities/roles/x/locale/ge/a.md"]) is None)
     check("deeper than the locale directory", da.locale_carve_out_role([L + "d/a.md"]) is None)

@@ -146,6 +146,11 @@ class Direct(unittest.TestCase):
         self.assertIsNone(ch.locale_role([ok + "/deeper.md"]))
         self.assertIsNone(ch.locale_role([]))
 
+    def test_a_role_locale_at_the_operators_tree_is_a_locale_path_and_the_prompt_pieces_are_not_moved(self):
+        # mutation: the `operator/` prefix dropped from LOCALE_PATH, so moved translations lose the carve-out; or widened to the prompt
+        self.assertEqual(ch.locale_role(["operator/identities/roles/language-culture/locale/ge/a.md"]), ("language-culture", "ge"))
+        self.assertIsNone(ch.locale_role(["operator/identities/prompt/locale/ge/x.md"]))
+
     def test_the_owner_role_is_the_checkouts_own_whatever_operator_is_exported(self):
         # mutation: `environ={}` dropped from owner_role's roots.policy call, so an exported operator names the owner
         fabric = Fabric(owner_role="own-owner")

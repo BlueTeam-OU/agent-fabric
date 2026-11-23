@@ -90,7 +90,7 @@ AMEND_PLACEHOLDER = "(amend or empty commit: the whole repository)"
 DEFAULT_OWNER = "fabric-coordinator"
 # The carve-out's pattern, verbatim what tools/fabric/guards/agent_fabric_dir_authority.py (CI's tripwire) holds too;
 # tests/test_agent_fabric_dir_authority.py fails if the two drift.
-LOCALE_PATH = re.compile(r"identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
+LOCALE_PATH = re.compile(r"(?:operator/(?=identities/roles/))?identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
 # grep's [[:space:]] in a UTF-8 locale takes Unicode spaces too (an em space), so these take any whitespace but the
 # line break, as CI's ban_generated_by_attribution.py does: an ASCII-only class admitted " Co-authored-by:" spaced with
 # an em space at the keyboard while CI refused it (review of #329, F2).

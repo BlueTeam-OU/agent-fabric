@@ -102,7 +102,7 @@ NAME = "check_agent_fabric_dir_authority"
 # tools/fabric/guards/commit_hooks.py's pattern, which the commit hooks
 # use; tests/test_agent_fabric_dir_authority.py reads that
 # file and fails if the two drift.
-LOCALE_PATH = re.compile(r"identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
+LOCALE_PATH = re.compile(r"(?:operator/(?=identities/roles/))?identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
 # The shared prompt pieces' translations (identities/prompt/locale/<lang>/,
 # ADR-060 stage 3) belong to no one role: every role renders them, and the
 # holder of language-culture named for <lang> writes them, as it did when

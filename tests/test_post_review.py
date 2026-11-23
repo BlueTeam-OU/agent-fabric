@@ -183,6 +183,8 @@ def main() -> int:
 
     cases = [
         ("one locale file", [[{"filename": LOC}]], True),
+        ("a role's locale at the operator's tree", [[{"filename": "operator/" + LOC}]], True),
+        ("the shared prompt pieces did not move", [[{"filename": "operator/identities/prompt/locale/ge/team.md"}]], False),
         ("two pages of locale files", [[{"filename": LOC}], [{"filename": LOC.replace("team", "b")}]], True),
         ("a failing call", None, False),
         ("an error object for a page", [{"message": "Not Found"}], False),
