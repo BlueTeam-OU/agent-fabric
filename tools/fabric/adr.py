@@ -731,6 +731,8 @@ def cmd_lookup(root: str | None, words: list[str]) -> list[str]:
 # fixing it before then is not an amendment, so only records that exist at
 # the base are judged.
 def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
+    root = _toplevel(root)
+    dirs = _adr_dirs(root)
     git = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=True).stdout  # noqa: E731
     at_base = _records_at(root, base)
     findings = []
@@ -740,7 +742,7 @@ def range_check(root: str, base: str, head: str = "HEAD") -> list[str]:
         editorial = bool(EDITORIAL_RE.search(git("log", "-1", "--format=%B", sha)))
         entries = [ln.split("\t") for ln in git("diff-tree", "--no-commit-id", "--name-status", "-r", "-M", sha).splitlines()]
         findings += _judge(sha[:8], entries, lambda p, s=sha: git("show", f"{s}^:{p}"),
-                           lambda p, s=sha: git("show", f"{s}:{p}"), editorial, at_base)
+                           lambda p, s=sha: git("show", f"{s}:{p}"), editorial, at_base, dirs)
     return findings
 
 
@@ -755,6 +757,7 @@ def staged_check(root: str, message: str, against: str = "HEAD") -> list[str]:
     the base CI would compare with (default_range); with no base, range-check
     enforces nothing and neither does this (review of #297, F3). A first
     commit has nothing to compare with and is not judged."""
+    root = _toplevel(root)
     git = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=True).stdout  # noqa: E731
     if subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q", f"{against}^{{commit}}"], capture_output=True).returncode:
         return []
@@ -765,10 +768,30 @@ def staged_check(root: str, message: str, against: str = "HEAD") -> list[str]:
     body = "\n".join(ln for ln in message.split("\n") if not ln.startswith("#"))
     entries = [ln.split("\t") for ln in git("diff-index", "--cached", "--name-status", "-M", against).splitlines()]
     return _judge("this commit", entries, lambda p: git("show", f"{against}:{p}"), lambda p: git("show", f":{p}"),
-                  bool(EDITORIAL_RE.search(body)), at_base)
+                  bool(EDITORIAL_RE.search(body)), at_base, _adr_dirs(root))
 
 
 EDITORIAL_RE = re.compile(r"^ADR-Editorial:\s*\S", re.M)
+
+
+def _toplevel(root: str) -> str:
+    """The repository's toplevel. The tree a caller holds is the operator's
+    (`<checkout>/operator`), a subdirectory: git's diff paths are relative to
+    the toplevel, and `ls-tree` from a subdirectory lists nothing, with
+    status 0 -- which made every record look like the branch's own draft."""
+    top = subprocess.run(["git", "-C", root, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return top.stdout.strip() if top.returncode == 0 and top.stdout.strip() else root
+
+
+def _adr_dirs(top: str) -> tuple[str, ...]:
+    """Where records sit in a diff's paths: the operator's, and `docs/adr`
+    itself, which is where a base from before the move (origin/main until
+    ADR-045 step B merges) and the engine's own records keep them."""
+    try:
+        moved = f"{roots.operator_prefix(top)}{ADR_DIR}"
+    except ValueError:  # the operator is another repository: nothing of it in this one's paths
+        return (ADR_DIR,)
+    return (ADR_DIR,) if moved == ADR_DIR else (moved, ADR_DIR)
 
 
 def _records_at(root: str, base: str) -> set[str]:
@@ -778,38 +801,44 @@ def _records_at(root: str, base: str) -> set[str]:
     (re-review of #50, finding 4). A base with no docs/adr/ at all (the
     branch that introduces the records) has no records: every one in the
     branch is new."""
-    listed = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", f"{base}:{ADR_DIR}"], capture_output=True, text=True)
-    return {m.group(1) for f in listed.stdout.split() if (m := FILE_RE.fullmatch(f))} if listed.returncode == 0 else set()
+    top = _toplevel(root)
+    found: set[str] = set()
+    for d in _adr_dirs(top):
+        listed = subprocess.run(["git", "-C", top, "ls-tree", "--name-only", f"{base}:{d}"], capture_output=True, text=True)
+        if listed.returncode == 0:
+            found |= {m.group(1) for f in listed.stdout.split() if (m := FILE_RE.fullmatch(f))}
+    return found
 
 
-def _judge(label: str, entries: list[list[str]], before_of, after_of, editorial: bool, at_base: set[str]) -> list[str]:
+def _judge(label: str, entries: list[list[str]], before_of, after_of, editorial: bool, at_base: set[str],
+           adr_dirs: tuple[str, ...] = (ADR_DIR,)) -> list[str]:
     """The findings of one change, given its --name-status entries and how to read a path before and after it."""
     findings = []
     # A rename below -M's similarity threshold arrives as a delete and an
     # add of the same record number: pair them, and judge the pair like
     # a rename (re-review of #50).
     deleted = {m.group(1): e[1] for e in entries if e[0][:1] == "D" and len(e) == 2
-               and os.path.dirname(e[1]) == ADR_DIR and (m := FILE_RE.fullmatch(os.path.basename(e[1])))}
+               and os.path.dirname(e[1]) in adr_dirs and (m := FILE_RE.fullmatch(os.path.basename(e[1])))}
     for parts in entries:
         kind = parts[0][:1]
         if kind == "M" and len(parts) == 2:
             old, new_path = parts[1], parts[1]
         elif kind == "R" and len(parts) == 3:
             old, new_path = parts[1], parts[2]
-        elif kind == "A" and len(parts) == 2 and os.path.dirname(parts[1]) == ADR_DIR and (m := FILE_RE.fullmatch(os.path.basename(parts[1]))) and m.group(1) in deleted:
+        elif kind == "A" and len(parts) == 2 and os.path.dirname(parts[1]) in adr_dirs and (m := FILE_RE.fullmatch(os.path.basename(parts[1]))) and m.group(1) in deleted:
             old, new_path = deleted[m.group(1)], parts[1]
-        elif kind == "D" and len(parts) == 2 and parts[1].startswith(f"{ADR_DIR}/sources/"):
+        elif kind == "D" and len(parts) == 2 and any(parts[1].startswith(f"{d}/sources/") for d in adr_dirs):
             findings.append(f"{label}: deletes {parts[1]}, a verbatim source, which is never removed")
             continue
         else:
             continue
         # A source is kept verbatim: any change to one is a finding
         # (agent-fabric ADR-001 §5 rule 9).
-        if new_path.startswith(f"{ADR_DIR}/sources/") or old.startswith(f"{ADR_DIR}/sources/"):
+        if any(p.startswith(f"{d}/sources/") for d in adr_dirs for p in (new_path, old)):
             findings.append(f"{label}: edits {old}, a verbatim source, which is never edited")
             continue
         m = FILE_RE.fullmatch(os.path.basename(new_path))
-        if os.path.dirname(new_path) != ADR_DIR or not m or m.group(1) not in at_base:
+        if os.path.dirname(new_path) not in adr_dirs or not m or m.group(1) not in at_base:
             continue
         before, after = before_of(old), after_of(new_path)
         b_lines, a_lines = before.split("\n"), after.split("\n")

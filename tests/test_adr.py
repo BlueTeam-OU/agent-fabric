@@ -587,6 +587,61 @@ def case_a_source_is_never_edited(tmp: str) -> None:
     assert len(f) == 1 and "a verbatim source, which is never edited" in f[0], f
 
 
+def _rev(root: str) -> str:
+    return subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True, env=git_env()).stdout.strip()
+
+
+def _moved_fixture(tmp: str) -> str:
+    """A fixture repository whose records sit under operator/docs/adr, as in the checkout."""
+    root = fixture(tmp)
+    os.makedirs(os.path.join(root, "operator", "docs"))
+    shutil.move(os.path.join(root, "docs", "adr"), os.path.join(root, "operator", "docs", "adr"))
+    return root
+
+
+def case_range_check_from_the_operator_subdirectory_judges_operator_records(tmp: str) -> None:
+    """CI runs range-check with no --root: the tree is <checkout>/operator, a
+    subdirectory, and the records are operator/docs/adr in the diff's paths. The
+    gate once printed clean on an unrecorded body edit there."""
+    root = _moved_fixture(tmp)
+    base = commit_base(root)
+    edit(root, "operator/" + ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "commit", "-qa", msg="reword")
+    for tree in (root, os.path.join(root, "operator")):
+        f = adr.range_check(tree, base)
+        assert len(f) == 1 and "operator/docs/adr/ADR-001" in f[0], (tree, f)
+
+
+def case_range_check_from_the_operator_subdirectory_still_judges_docs_adr(tmp: str) -> None:
+    root = fixture(tmp)
+    os.makedirs(os.path.join(root, "operator"))
+    open(os.path.join(root, "operator", ".keep"), "w").close()
+    base = commit_base(root)
+    edit(root, ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "commit", "-qa", msg="reword")
+    f = adr.range_check(os.path.join(root, "operator"), base)
+    assert len(f) == 1 and "no new Amendments row" in f[0], f
+
+
+def case_range_check_takes_a_base_from_before_the_move(tmp: str) -> None:
+    """origin/main keeps its records at docs/adr until the move merges; a branch
+    that moves them and then edits one body is still judged against that base."""
+    root = fixture(tmp)
+    base = commit_base(root)
+    os.makedirs(os.path.join(root, "operator", "docs", "adr"))
+    for f in sorted(os.listdir(os.path.join(root, "docs", "adr"))):
+        # Sources stay: a rename of a verbatim source is itself a finding, which this case is not about.
+        if f.endswith(".md") and f.startswith("ADR-"):
+            git(root, "mv", f"docs/adr/{f}", f"operator/docs/adr/{f}")
+    git(root, "commit", "-q", msg="move the records")
+    f = adr.range_check(os.path.join(root, "operator"), base)
+    assert f == [], f"a pure move is not a body edit: {f}"
+    edit(root, "operator/" + ONE, "Cheaper, but it keeps", "Cheaper, yet it keeps")
+    git(root, "commit", "-qa", msg="reword")
+    f = adr.range_check(os.path.join(root, "operator"), base)
+    assert len(f) == 1 and "no new Amendments row" in f[0], f
+
+
 def case_range_check_on_a_base_without_records(tmp: str) -> None:
     root = os.path.join(tmp, "fresh")
     os.makedirs(root)
