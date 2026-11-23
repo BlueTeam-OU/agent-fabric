@@ -105,7 +105,9 @@ def instance(parts: list[str]) -> str | None:
                 norm.pop()                # x/.. is where it started; above the root stays the root
         else:
             norm.append(p)
-    parts = norm
+    # The live instance files sit under the checkout's own operator/ since ADR-045 step B: a read there is
+    # the same live read as one through the shim at the old path (#692 F17).
+    parts = norm[1:] if norm[:1] == ["operator"] else norm
     head = parts[1:] if parts[:1] == ["runtime"] else parts       # runtime/hosts/registry.json
     for a, b in TEST_SEQUENCES:
         if head[:1] == [a] and b in head[1:]:
@@ -253,8 +255,11 @@ def case_the_scan_sees_each_form() -> None:
            '    local = os.path.dirname(os.path.dirname(__file__))\n'
            '    return os.path.join(local, "runtime", "hosts", "registry.json")\n'
            'k = Path(ROOT, "policies", "auto-mode.json")\n'
-           'm = Path(ROOT, "policies") / "x.json"\n')
-    assert {ln for ln, _ in findings(src)} == {5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 20, 21, 22}, findings(src)
+           'm = Path(ROOT, "policies") / "x.json"\n'
+           'n = os.path.join(ROOT, "operator", "policies", "authority.json")\n'
+           'o = os.path.join(ROOT, "operator", "projects", "registry.json")\n'
+           'p = f"{ROOT}/operator/memory/domains"\n')
+    assert {ln for ln, _ in findings(src)} == {5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 20, 21, 22, 23, 24, 25}, findings(src)
 
 
 def case_the_scan_leaves_fixtures_and_engine_files_alone() -> None:
