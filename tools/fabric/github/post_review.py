@@ -465,7 +465,7 @@ def adjudication_refusal(repo: str, pr: str, marker: review_coverage.Marker, bod
 def _compare(repo: str, spec: str, what: str) -> tuple[str, int]:
     """(status, ahead_by) of GitHub's compare for `spec` (base...head). Raises gh.GhError, or ValueError when the
     answer is not the two fields: unknown is never a default status."""
-    out = gh.run(["api", f"repos/{repo}/compare/{spec}", "--jq", '[.status, (.ahead_by | tostring)] | join(" ")'],
+    out = gh.run(["api", f"repos/{repo}/compare/{spec}?per_page=1", "--jq", '[.status, (.ahead_by | tostring)] | join(" ")'],
                  what=f"gh api GET repos/{repo}/compare ({what})")
     status, _, ahead = out.strip().partition(" ")
     if not status or not ahead.isdigit():

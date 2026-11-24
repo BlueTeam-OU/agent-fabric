@@ -187,7 +187,7 @@ def main() -> int:
         gh.run = comparing({"up": "ahead 3", "down": "ahead 5"}, calls)
         post_review.pr_commit_refusal("o/r", "1", old, new, "rel/x")
         check(f"the compares are old...head and base...old, the base ref's slash kept (got {calls})",
-              calls == [f"repos/o/r/compare/{old}...{new}", f"repos/o/r/compare/rel/x...{old}"])
+              calls == [f"repos/o/r/compare/{old}...{new}?per_page=1", f"repos/o/r/compare/rel/x...{old}?per_page=1"])
     finally:
         gh.run = real_run
 
