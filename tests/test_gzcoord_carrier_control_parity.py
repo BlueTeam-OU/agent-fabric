@@ -113,6 +113,54 @@ class LateAndNoSession(unittest.TestCase):
         line = {**sent("r1", 0, [A]), "timeout_s": float("inf")}
         rep = run([line, got("r1", A, "relay", 2), got("r1", A, "interweave", 5, who="agentd", verdict="no-waiter")])
         self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
+        self.assertEqual(rep["malformed_timeout"], 1)
+
+    def test_a_present_but_unusable_timeout_is_counted_and_said_an_absent_one_is_not(self):
+        for bad in ("15", 0, -3, True, None):
+            rep = run([{**sent("r1", 0, [A]), "timeout_s": bad}, got("r1", A, "relay", 2)])
+            self.assertEqual(rep["malformed_timeout"], 1, bad)
+            self.assertIn("1 request(s) have a `timeout_s` that is present but not", cp.render_markdown(rep))
+        rep = run([sent("r1", 0, [A]), got("r1", A, "relay", 2)])
+        self.assertEqual(rep["malformed_timeout"], 0)
+        self.assertNotIn("timeout_s", cp.render_markdown(rep))
+
+    def test_a_relay_only_pair_of_a_run_with_no_session_is_no_session_without_an_agentd_line(self):
+        none = {"t": iso(0), "who": "ctl", "carrier": "interweave", "kind": "request", "id": "r1", "from": OP, "op": "ping", "verdict": "no-session"}
+        rep = run([{**sent("r1", 0, [A]), "timeout_s": 20}, got("r1", A, "relay", 2), none])
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-session")
+        self.assertEqual((rep["causes"]["no-session"], rep["causes"]["relay-only"]), (1, 0))
+
+    def test_a_line_lacking_the_keys_it_is_read_by_is_skipped_never_dropped_unseen(self):
+        no_to = {k: v for k, v in sent("r1", 0, [A]).items() if k != "to"}
+        no_from = {k: v for k, v in got("r1", A, "relay", 2).items() if k != "from"}
+        no_to_agentd = {**no_from, "who": "agentd", "carrier": "interweave"}
+        rep = run([no_to, no_from, no_to_agentd])
+        self.assertEqual((rep["skipped"], rep["pairs"]), (3, []))
+
+    def test_lines_lacking_who_kind_or_a_no_session_id_are_skipped_not_read_as_an_absence(self):
+        relay = got("r1", A, "relay", 2)
+        base = [{**sent("r1", 0, [A]), "timeout_s": 20}]
+        no_id = {"t": iso(0), "who": "ctl", "carrier": "interweave", "kind": "request", "from": OP, "op": "ping", "verdict": "no-session"}
+        for bad in ({k: v for k, v in relay.items() if k != "who"}, {k: v for k, v in relay.items() if k != "kind"}, no_id):
+            self.assertEqual(run(base + [bad])["skipped"], 1, bad)
+
+    def test_lines_whose_verdict_the_report_cannot_read_are_skipped_not_read_as_an_absence(self):
+        base = [{**sent("r1", 0, [A]), "timeout_s": 20}, got("r1", A, "relay", 2)]
+        for bad in ({**got("r1", B, "relay", 2), "verdict": None}, {**got("r1", B, "relay", 2), "verdict": "xx"},
+                    {k: v for k, v in got("r1", B, "relay", 2).items() if k != "verdict"},
+                    {**sent("r2", 0, [B]), "verdict": None}, {k: v for k, v in sent("r2", 0, [B]).items() if k != "verdict"},
+                    {**got("r1", A, "interweave", 5, who="agentd"), "verdict": None}):
+            self.assertEqual(run(base + [bad])["skipped"], 1, bad)
+
+    def test_a_forged_from_line_with_no_kind_is_not_a_damaged_line(self):
+        forged = {"t": iso(1), "who": "agentd", "carrier": "interweave", "kind": None, "id": "x", "from": A, "verdict": "forged-from"}
+        self.assertEqual(run([sent("r1", 0, [A]), forged])["skipped"], 0)
+
+    def test_an_integer_too_large_for_a_float_is_a_malformed_timeout_never_a_crash(self):
+        line = {**sent("r1", 0, [A]), "timeout_s": 10 ** 400}
+        rep = run([line, got("r1", A, "relay", 2)])
+        self.assertEqual(rep["malformed_timeout"], 1)
+
     def test_a_fractional_timeout_is_read_in_whole_seconds(self):
         # a reply at real 10.6 s against --timeout 10.5 logs as 10 s: a miss, not late
         rep = late_case(10, timeout_s=10.5)

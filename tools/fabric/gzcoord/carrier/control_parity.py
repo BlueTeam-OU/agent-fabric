@@ -9,6 +9,7 @@ INPUT   `control-arrivals.jsonl` of the operator's account (control_link.Arrival
         `to` and `timeout_s`, one `no-session` or `session-lost` line when its session with agentd was never made or ended under it,
         and a line per reply copy it was shown, by carrier relay|interweave) and "agentd" (the replies its
         carrier routed — verdict ok | no-waiter | held | forged-from — and the requests that came by InterWeave).
+        A `sent` line with a `timeout_s` that is present but unusable is counted in `malformed_timeout`.
         `t` has a one-second resolution, so a latency is good to a second either way.
 PAIR    (request id, addressee) for every request sent by fabric-ctl in dual (the `sent` line's `to`), whose `t` is
         in [start, end). A reply line whose request has no `sent` line (a fabric-ctl from before it wrote them) is a
@@ -98,6 +99,13 @@ def percentile(values: list[float], p: float) -> float | None:
     return s[max(0, math.ceil(p / 100 * len(s)) - 1)]
 
 
+def _finite(x: int | float) -> bool:
+    try:
+        return math.isfinite(x)
+    except OverflowError:      # an integer too large for a float: json.loads accepts it, math.isfinite does not
+        return False
+
+
 def _is_str(x: Any) -> bool:
     return isinstance(x, str) and bool(x)
 
@@ -113,25 +121,45 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
     routed: dict[tuple[str, str], dict[str, float]] = {}          # (id, sender) -> agentd verdict of the reply -> first t
     no_session: set[str] = set()                                  # requests fabric-ctl had no InterWeave session for
     lost_session: set[str] = set()                                # requests whose session fabric-ctl lost before its end
+    bad_timeout = 0                                               # `sent` lines whose `timeout_s` is present but unusable
     for login, rows in files.items():
         for r in rows:
             who, kind, rid, verdict, carrier = r.get("who"), r.get("kind"), r.get("id"), r.get("verdict"), r.get("carrier")
             if login != operator:
                 continue
-            if who == "ctl" and kind == "request" and isinstance(verdict, str) and verdict.startswith("sent") and _is_str(rid):
+            # agentd writes a `forged-from` line with a null kind when the forged record had none; the report reads no such line.
+            if who not in ("ctl", "agentd") or (not isinstance(kind, str) and verdict != "forged-from"):
+                skipped += 1       # a line whose writer is not ctl/agentd, or whose kind is not a string, cannot be read: counted, never an absence
+                continue
+            if who == "ctl" and kind == "request" and isinstance(verdict, str) and verdict.startswith("sent"):
                 to = r.get("to")
-                if isinstance(to, list) and to and all(_is_str(x) for x in to):
-                    tmo = r.get("timeout_s")
-                    requests.setdefault(rid, {"t": r["_t"], "to": list(to), "alone": verdict == "sent-alone", "op": r.get("op"),
-                                              "timeout_s": tmo if isinstance(tmo, (int, float)) and not isinstance(tmo, bool) and math.isfinite(tmo) and tmo > 0 else None})
-            elif who == "ctl" and kind == "request" and _is_str(rid) and verdict in ("no-session", "session-lost"):
+                if not (_is_str(rid) and isinstance(to, list) and to and all(_is_str(x) for x in to)):
+                    skipped += 1       # a request that names no addressee leaves the report: said, not read as no request
+                    continue
+                tmo = r.get("timeout_s")
+                valid = isinstance(tmo, (int, float)) and not isinstance(tmo, bool) and _finite(tmo) and tmo > 0
+                if rid not in requests:
+                    if "timeout_s" in r and not valid:
+                        bad_timeout += 1       # kept as "no timeout" (the conservative reading), but said so
+                    requests[rid] = {"t": r["_t"], "to": list(to), "alone": verdict == "sent-alone", "op": r.get("op"),
+                                     "timeout_s": tmo if valid else None}
+            elif who == "ctl" and kind == "request" and verdict in ("no-session", "session-lost"):
+                if not _is_str(rid):
+                    skipped += 1
+                    continue
                 (no_session if verdict == "no-session" else lost_session).add(rid)
+            elif kind == "reply" and who in ("ctl", "agentd") and not (_is_str(r.get("in_reply_to")) and _is_str(r.get("from")) and carrier in CARRIERS):
+                skipped += 1
             elif kind == "reply" and _is_str(r.get("in_reply_to")) and _is_str(r.get("from")) and carrier in CARRIERS:
                 key = (r["in_reply_to"], r["from"])
                 if who == "ctl" and verdict in ("ok", "unauthenticated"):
                     copies.setdefault(key, {}).setdefault(carrier, r["_t"])
                 elif who == "agentd" and carrier == "interweave" and isinstance(verdict, str):
                     routed.setdefault(key, {}).setdefault(verdict, r["_t"])
+                elif who == "ctl" or (who == "agentd" and carrier == "interweave"):
+                    skipped += 1       # a reply line of a writer the report reads, whose verdict it cannot read
+            elif who == "ctl" and kind == "request":
+                skipped += 1           # a request line that is neither a sent line nor a session verdict
     unrecorded = sorted({k for k in copies if k[0] not in requests})
     pairs: list[dict] = []
     for rid, q in requests.items():
@@ -171,13 +199,14 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
             if "relay" in got:
                 row["outcome"] = "relay-only"
                 verdicts = routed.get(key, {})
+                # The log names the reason whether or not agentd wrote a line about this reply.
+                if p["id"] in no_session:
+                    row["cause"] = "no-session"
                 # A reply still `held` when agentd last wrote about it was never collected: agentd exits drop the held store with no line.
-                if "no-waiter" in verdicts or ("held" in verdicts and "ok" not in verdicts):
+                elif "no-waiter" in verdicts or ("held" in verdicts and "ok" not in verdicts):
                     row["cause"] = "no-waiter"
                     arrived = min(verdicts[v] for v in ("no-waiter", "held") if v in verdicts)
-                    if p["id"] in no_session:
-                        row["cause"] = "no-session"
-                    elif p["id"] not in lost_session and p.get("timeout_s") and arrived - p["t"] < math.floor(p["timeout_s"]):
+                    if p["id"] not in lost_session and p.get("timeout_s") and arrived - p["t"] < math.floor(p["timeout_s"]):
                         row["cause"] = "late"
                         row["interweave_late_s"] = max(0.0, arrived - p["t"])
                 else:
@@ -205,7 +234,7 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
         stats[c]["p50_s"], stats[c]["p95_s"] = percentile(lat, 50), percentile(lat, 95)
     return {"window": [iso(start), iso(end)], "drill": [iso(drill[0]), iso(drill[1])] if drill else None, "operator": operator,
             "logins": sorted(files), "pairs": out_pairs, "in_drill": in_drill, "carriers": stats, "causes": causes,
-            "unrecorded": len(unrecorded), "skipped": skipped}
+            "unrecorded": len(unrecorded), "skipped": skipped, "malformed_timeout": bad_timeout}
 
 
 def _s(x: float | None) -> str:
@@ -234,6 +263,9 @@ def render_markdown(rep: dict) -> str:
     if rep["unrecorded"]:
         L += ["", f"{rep['unrecorded']} pair(s) have a reply but no `sent` line (a fabric-ctl from before it wrote them): "
                   "an account that never answered cannot be seen for those requests."]
+    if rep["malformed_timeout"]:
+        L += ["", f"{rep['malformed_timeout']} request(s) have a `timeout_s` that is present but not a positive finite number: "
+                  "read as no timeout, so a late reply of theirs stays no-waiter."]
     if rep["skipped"]:
         L += ["", f"{rep['skipped']} line(s) could not be read and are counted nowhere."]
     return "\n".join(L) + "\n"
