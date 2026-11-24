@@ -126,9 +126,12 @@ still answered. This record has the second, over recorded pairs. It has none of
 the others whole:
 
 - the tool lists each pair with the carriers that brought the reply, not the
-  request. An addressee's file records a request only when it came by InterWeave
-  (`control_link.py`, `inbound`); one that came by the relay is logged nowhere.
-  So agentd must also log a request's relay arrival, and the tool must read the
+  request. An addressee's arrival file records a request only when it came by
+  InterWeave (`control_link.py`, `inbound`; the operator's own request is written
+  by `_loop_request` under the same carrier). No arrival file holds a relay copy:
+  agentd's journal names only the carrier of the copy it decided first, and a
+  later copy is dropped as `seen` without a line. So agentd must also log a
+  request's relay arrival in its arrival file, and the tool must read the
   addressees' files, before rule 18's report can be made (#655's owners); and the
   listing is not in `docs/live-checks/`;
 - "no-waiter" names a mechanism, not a cause. 29 of the 693 have the 2026-11-22
