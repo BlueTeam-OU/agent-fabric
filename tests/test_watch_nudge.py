@@ -7,13 +7,15 @@ from __future__ import annotations
 
 import importlib.util
 import io
-import json
 import os
 import subprocess
 import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "tests"))
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
 HOOKS = os.path.join(HERE, "runtime", "claude-code", "hooks")
 HOOK = os.path.join(HOOKS, "watch-nudge.py")
 
