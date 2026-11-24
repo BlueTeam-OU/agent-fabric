@@ -495,7 +495,9 @@ class Inbound(Net):
         self.assertTrue(until(lambda: len(op.arrival_lines()) >= 3), op.logs)
         self.assertEqual(got, [("p-ok", "h/alice")], "a copy bob wrote in alice's name is not alice's answer")
         verdicts = {l["id"]: l["verdict"] for l in op.arrival_lines()}
-        self.assertEqual(verdicts, {"p-ok": "ok", "p-forged": "forged-from", "p-other": "no-waiter"})
+        # A reply to a request no session has registered yet is held for it (j160), whoever sent it; it ends as a
+        # no-waiter line only when it expires or is evicted.
+        self.assertEqual(verdicts, {"p-ok": "ok", "p-forged": "forged-from", "p-other": "held"})
         op.carrier.unwatch("r1")
         self.deliver("alice", "op", cc.frame(reply(rid="p-late", to="r1")))
         self.assertTrue(until(lambda: any(l["id"] == "p-late" for l in op.arrival_lines())))
@@ -758,17 +760,35 @@ class SocketCases(Net):
         a.carrier.watch("r1", lambda rec, sender: got.append("again"))
         self.assertEqual(len(got), 1, "a held reply is handed over once")
 
-    def test_a_reply_after_its_session_ended_or_from_a_peer_is_not_kept(self):
+    def test_a_reply_after_its_session_ended_is_not_kept(self):
         a = self.nodes["alice"]
         a.carrier.watch("r2", lambda *_: None)
         a.carrier.unwatch("r2")
         a.carrier.reply(request(rid="r2", frm="h/alice"), reply(rid="p8", to="r2", frm="h/alice"))
-        a.carrier._route_reply(reply(rid="p9", to="r3", frm="h/bob"), "h/bob")
+        a.carrier._route_reply(reply(rid="p9", to="r2", frm="h/bob"), "h/bob")
         got = []
         a.carrier.watch("r2", lambda rec, s: got.append(rec))
-        a.carrier.watch("r3", lambda rec, s: got.append(rec))
         self.assertEqual(got, [])
         self.assertEqual([l["verdict"] for l in a.arrival_lines()], ["no-waiter", "no-waiter"])
+
+    def test_a_peers_reply_that_beats_the_session_is_held_and_handed_over_as_that_peers(self):
+        # j160: in dual the relay copy is posted first, so a fast peer's InterWeave reply can come before `watch`.
+        a = self.nodes["alice"]
+        a.carrier._route_reply(reply(rid="p9", to="r3", frm="h/bob"), "h/bob")
+        got = []
+        a.carrier.watch("r3", lambda rec, sender: got.append((rec["id"], sender)))
+        self.assertEqual(got, [("p9", "h/bob")])
+        self.assertEqual([(l["verdict"], l["from"]) for l in a.arrival_lines()], [("held", "h/bob"), ("ok", "h/bob")])
+
+    def test_the_replies_held_for_one_request_are_bounded_and_a_dropped_one_names_its_sender(self):
+        a = self.nodes["alice"]
+        for i in range(cc.EARLY_PER_ID + 1):
+            a.carrier._route_reply(reply(rid=f"p{i}", to="r4", frm="h/bob"), "h/bob")
+        got = []
+        a.carrier.watch("r4", lambda rec, s: got.append(rec))
+        self.assertEqual(len(got), cc.EARLY_PER_ID)
+        last = a.arrival_lines()[cc.EARLY_PER_ID]
+        self.assertEqual((last["verdict"], last["from"]), ("no-waiter", "h/bob"))
 
     def test_held_replies_are_bounded_and_expire(self):
         a = self.nodes["alice"]
