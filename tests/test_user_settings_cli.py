@@ -310,7 +310,8 @@ class MemoryWriteCheck(Base):
         self.put_json({"hooks": {"PostToolUse": [
             {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": f'python3 "{here}"'}]}]}})
         self.run_s(self.s)
-        cmds = [h["command"] for e in self.entries(self.doc()) for h in e["hooks"]]
+        # The memory check's own entries: PostToolUse also carries watch-nudge.py since j1090.
+        cmds = [h["command"] for e in self.entries(self.doc()) for h in e["hooks"] if MEMORY_CHECK in h["command"]]
         self.assertEqual(cmds, [f'/usr/local/bin/fabric-python "{here}"'])
 
     def test_memory_check_second_run_changes_nothing(self) -> None:
