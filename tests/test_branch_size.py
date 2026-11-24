@@ -170,6 +170,11 @@ def hook_cases() -> list[tuple[str, bool]]:
                     judge('w3\n\nKind: work\nOwner-Word: 2026-11-24 "ok"\n', amend=True)[0] == 0))
         git(r, "switch", "-q", "main")
         out.append(("on the default branch itself: nothing judged", judge("e\n\nKind: work\n") == (0, [])))
+        # A dangling origin/HEAD (the default branch renamed, the old ref pruned) is no base: the hook falls back to
+        # origin/main instead of refusing every commit (review of #703, F1).
+        git(r, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master")
+        out.append(("a dangling origin/HEAD falls back to origin/main", branch_size.default_base(r) == "refs/remotes/origin/main"))
+        git(r, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
         git(r, "switch", "-q", "-c", "small")
         git(r, "switch", "-q", "-c", "sup")
         for i in range(4):
@@ -206,6 +211,21 @@ def hook_cases() -> list[tuple[str, bool]]:
             with open(event, "w") as f:
                 json.dump({"pull_request": {"base": {"sha": base}, "head": {"sha": git(r, "rev-parse", "HEAD")}}}, f)
             out.append(("ci(): a PR that raises refuse_over in its own head is still judged by the base's",
+                        branch_size.ci(env) == 1))
+            # A merge queue's run: GitHub's merge of the PR onto the base carries no trailer; it is judged by the PR it
+            # merges (its second parent), so a PR whose commits all carry their words passes (review of #703, F5).
+            git(r, "switch", "-q", "-c", "worded", base)
+            for i in range(3):
+                commit(r, f"q{i}", "Kind: work", *(['Owner-Word: 2026-11-24 "q"'] if i >= 2 else []))
+            pr_head = git(r, "rev-parse", "HEAD")
+            git(r, "switch", "-q", "--detach", base)
+            git(r, "merge", "-q", "--no-ff", "--no-verify", "-m", "Merge pull request #1", pr_head)
+            queue = git(r, "rev-parse", "HEAD")
+            with open(event, "w") as f:
+                json.dump({"merge_group": {"base_sha": base, "head_sha": queue}}, f)
+            out.append(("ci(): a merge_group run judges the queued PR, not GitHub's unworded merge",
+                        branch_size.ci({**env, "GITHUB_EVENT_NAME": "merge_group"}) == 0))
+            out.append(("ci(): the same range read as a plain push still sees the merge (the control)",
                         branch_size.ci(env) == 1))
         finally:
             os.chdir(here)

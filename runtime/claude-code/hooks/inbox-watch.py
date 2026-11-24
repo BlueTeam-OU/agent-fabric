@@ -76,8 +76,13 @@ def is_watch(cmd: str | Sequence[str]) -> bool:
 # The modes that move no cursor: --replay, --history and --held read the journal or the relay without a consumer id. A
 # drain, --wait and both watches mark what they print delivered (tools/fabric/gzcoord/inbox.py CONTRACT).
 NON_CONSUMING = ("--replay", "--history", "--held")
-# Words that run the word after them (and their own options) as the command, which canonical() does not skip.
-LAUNCHERS = ("timeout", "nice", "nohup", "stdbuf", "time")
+# Words that run the word after them as the command, which canonical() does not skip, with the options of each that take
+# a separate value (`timeout -s KILL 60 gzcoord-inbox`): a value read as the command would hide the drain (review of
+# #703, F3). timeout's duration is its one positional word before the command.
+LAUNCHERS = {"timeout": ("-s", "--signal", "-k", "--kill-after"), "nice": ("-n", "--adjustment"),
+             "stdbuf": ("-i", "-o", "-e", "--input", "--output", "--error"), "nohup": (), "time": ("-f", "--format", "-o", "--output"),
+             "env": ("-u", "--unset", "-C", "--chdir", "-S", "--split-string")}
+POSITIONAL = {"timeout": 1}
 
 
 def is_consumer(words: Sequence[str]) -> bool:
@@ -87,11 +92,31 @@ def is_consumer(words: Sequence[str]) -> bool:
     2026-11-24). Raises TableError as is_watch does."""
     words = list(words)
     i = 0
-    while i < len(words) and os.path.basename(words[i]) in LAUNCHERS:
-        i += 1
-        while i < len(words) and (words[i].startswith("-") or words[i][:1].isdigit()):
+    while i < len(words):
+        name = os.path.basename(words[i])
+        if "=" in words[i] and words[i].split("=", 1)[0].isidentifier():
             i += 1
+            continue
+        if name not in LAUNCHERS:
+            break
+        i += 1
+        positional = POSITIONAL.get(name, 0)
+        while i < len(words):
+            w = words[i]
+            if w == "--":
+                i += 1
+                break
+            if w in LAUNCHERS[name]:
+                i += 2
+            elif w.startswith("-") or (name == "env" and "=" in w):
+                i += 1
+            elif positional:
+                positional -= 1
+                i += 1
+            else:
+                break
     read = canonical_module().canonical(words[i:])
     if read is None or read[0] != WATCH_COMMAND:
         return False
-    return not any(arg.split("=", 1)[0] in NON_CONSUMING for arg in read[1])
+    # Whole words: gzcoord-inbox reads `--replay` and never `--replay=3`, which runs as a drain (review of #703, F2).
+    return not any(arg in NON_CONSUMING for arg in read[1])

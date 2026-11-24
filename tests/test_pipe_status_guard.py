@@ -131,7 +131,14 @@ class Guard(unittest.TestCase):
         drains = ["gzcoord-inbox | head -15", "gzcoord-inbox 2>&1 | tail", "timeout 60 gzcoord-inbox | grep REQUEST",
                   "fabric gzcoord inbox | head", "/srv/af/bin/gzcoord-inbox | head", "cd x && gzcoord-inbox | wc -l",
                   "ls\ngzcoord-inbox | head", "FOO=1 gzcoord-inbox|head", "gzcoord-inbox --wait 3 | head",
-                  "gzcoord-inbox --until-delivery | tail -5"]
+                  "gzcoord-inbox --until-delivery | tail -5",
+                  # review of #703: F2, the = form is no mode word to gzcoord-inbox, so it drains; F3, the shapes a
+                  # shell still runs as a piped drain; F4, a real drain after a here-document whose body has a quote.
+                  "gzcoord-inbox --replay=3 | head", "gzcoord-inbox --history=5|head",
+                  "gzcoord-inbox \\\n  | head", "if gzcoord-inbox | grep -q x; then echo; fi", "(gzcoord-inbox) | head",
+                  "{ gzcoord-inbox; } | head", "2>/dev/null gzcoord-inbox | head", "timeout -s KILL 60 gzcoord-inbox | head",
+                  "env timeout 5 gzcoord-inbox | head", "nice -n 5 gzcoord-inbox | head", "! gzcoord-inbox | head",
+                  "cat <<EOF\ndon't\nEOF\ngzcoord-inbox | head"]
         for c in drains:
             with self.subTest(command=c):
                 r = self.run_hook({"tool_name": "Bash", "tool_input": {"command": c}})
@@ -142,7 +149,12 @@ class Guard(unittest.TestCase):
         # The journal and relay readers consume nothing; a drain unpiped or to a file hides nothing; a word that is
         # not the command (grep's pattern, an echo's string) is no drain.
         for c in ("gzcoord-inbox", "gzcoord-inbox > log; cat log",
-                  "gzcoord-inbox --history 5 | head", "gzcoord-inbox --held | head", "gzcoord-inbox --replay=3 | head", "grep gzcoord-inbox x | head",
+                  "gzcoord-inbox --history 5 | head", "gzcoord-inbox --held | head", "gzcoord-inbox --replay 3 | head",
+                  "grep gzcoord-inbox x | head",
+                  # F4: a here-document's body is text, not a command.
+                  "cat > notes.md <<'EOF'\ngzcoord-inbox | head hid two of three\nEOF",
+                  "git commit -F - <<'EOF'\ngzcoord-inbox | head\nEOF", "cat <<-X\n\tgzcoord-inbox | head\n\tX\nls",
+                  "( cd x; ls ) | head",
                   "echo 'gzcoord-inbox | head'", "gzcoord-inbox || echo none", "gzcoord-inbox; ls | head"):
             with self.subTest(command=c):
                 self.assertEqual(self.decision(c), "allow")

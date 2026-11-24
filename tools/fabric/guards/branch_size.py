@@ -123,7 +123,11 @@ def repository_of(cwd: str | None = None) -> str | None:
 def default_base(cwd: str | None = None) -> str | None:
     """origin's default branch as a ref, or None when the checkout has no remote-tracking default."""
     try:
-        return _git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD", cwd=cwd).strip()
+        target = _git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD", cwd=cwd).strip()
+        # origin/HEAD outlives a renamed default branch (master to main, then a pruning fetch): a target that is gone
+        # is no base, and counting from it would refuse every commit (review of #703, F1).
+        _git("rev-parse", "--verify", "--quiet", target, cwd=cwd)
+        return target
     except RuntimeError:
         pass
     for ref in ("refs/remotes/origin/main", "refs/remotes/origin/master"):
@@ -263,6 +267,12 @@ def ci(environ=os.environ) -> int:
         print("branch_size: no commit range to judge (not a pull request, or a shallow clone): NOT ENFORCED here")
         return 0
     base, head = rng
+    # A merge queue's run judges GitHub's own merge of the PR onto the queue base: that commit carries no trailer and
+    # brings every work commit at once, so it is judged by the PR it merges, its second parent (review of #703, F5).
+    if environ.get("GITHUB_EVENT_NAME") == "merge_group":
+        parents = _git("rev-list", "--parents", "-n", "1", head).split()[1:]
+        if len(parents) == 2:
+            head = parents[1]
     top = _git("rev-parse", "--show-toplevel").strip()
     rel = os.path.relpath(roots.policy("arming.json", engine=top), top)
     try:

@@ -61,6 +61,7 @@ the one the message names: run the check, capture its status, commit on 0.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -105,24 +106,63 @@ def _is_drain(stage: list[str]) -> bool:
         return False
 
 
+# A shell reserved word that may open a simple command's position: the command is the word after it.
+RESERVED = frozenset(("if", "then", "else", "elif", "while", "until", "do", "!", "{", "time"))
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def _without_heredoc_bodies(cmd: str) -> str:
+    """The command with every here-document's body removed, its opening line kept: a body is text a command reads,
+    never a command, and shlex would otherwise split it into stages (review of #703, F4)."""
+    out: list[str] = []
+    ends: list[tuple[str, bool]] = []
+    for line in cmd.split("\n"):
+        if ends:
+            word, dash = ends[0]
+            if (line.lstrip("\t") if dash else line) == word:
+                ends.pop(0)
+            continue
+        out.append(line)
+        ends.extend((m.group(2), "<<-" in m.group(0)) for m in HEREDOC.finditer(line))
+    return "\n".join(out)
+
+
 def drain_piped(cmd: str) -> bool:
-    """Whether a gzcoord-inbox drain's output goes into a pipe (python-dev-01's report of 2026-11-24: a drain piped
-    into head took three messages and showed one). Read with shlex as a shell splits words, so `grep gzcoord-inbox
-    | head` is a grep, not a drain; a command shlex cannot read (an open quote) is left to the shell to refuse."""
-    lexer = shlex.shlex(cmd.replace("\n", " ; "), posix=True, punctuation_chars=True)
+    """Whether a gzcoord-inbox consumer's output goes into a pipe (2026-11-24: a drain piped into head took three
+    messages and showed one). Read with shlex as a shell splits words, so `grep gzcoord-inbox | head` is a grep, not a
+    drain. Before the split, line continuations are joined and here-document bodies dropped; within a stage, leading
+    reserved words and every redirection are dropped, and a group closed just before the pipe (`( … ) |`, `{ …; } |`)
+    is judged by its last simple command (review of #703, F3). A command shlex cannot read (an open quote) is left to
+    the shell to refuse."""
+    text = _without_heredoc_bodies(cmd.replace("\\\n", " "))
+    lexer = shlex.shlex(text.replace("\n", " ; "), posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     try:
         tokens = list(lexer)
     except ValueError:
         return False
     stage: list[str] = []
+    last: list[str] = []                    # the simple command a separator just ended, for a group's closer
+    skip_target = False
     for t in tokens:
+        if skip_target:
+            skip_target = False
+            continue
         if t in ("|", "|&"):
             if _is_drain(stage):
                 return True
-            stage = []
-        elif set(t) <= set(";&|(){}"):
-            stage = []                      # a separator ends the pipeline; a redirection (it holds < or >) does not
+            stage, last = [], []
+        elif t and set(t) <= set("<>&") and ("<" in t or ">" in t):
+            # A redirection: its fd number before it and its target after it are no words of the command.
+            if stage and stage[-1].isdigit():
+                stage.pop()
+            skip_target = True
+        elif t in (")", "}"):
+            stage = stage or last
+        elif t and set(t) <= set(";&|()"):
+            last, stage = (stage or last), []
+        elif not stage and t in RESERVED:
+            continue
         else:
             stage.append(t)
     return False
