@@ -33,8 +33,9 @@ CONTRACT
                                  rule 18) from the operator's control-arrivals.jsonl
                                  (control_parity.py): per request and addressee
                                  the carriers its reply came by, p50 and p95 per
-                                 carrier, each second-carrier miss with its cause
-                                 and the interweave-stop drill marked
+                                 carrier, each pair the second carrier did not
+                                 deliver with its cause, and the interweave-stop
+                                 drill marked
           self-start           the account's own login starts its own carrier and daemon units, with no
                                operator's signature, only when both are down and enabled, the programs
                                are the pin's and no earlier self-start's failure mark stands (ADR-064
