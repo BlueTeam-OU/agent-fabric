@@ -29,7 +29,7 @@ DEFAULT = {
     "signatures": True,
     "protect": {"deletion": True, "force_push": True},
     "delete_branch_on_merge": False,
-    "commits": {"min": 8, "advice_over": 16, "below_min": "owner-word", "roles": {}, "classes": {}},
+    "commits": {"min": 8, "advice_over": 16, "refuse_over": 32, "below_min": "owner-word", "roles": {}, "classes": {}},
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
 }
@@ -100,6 +100,8 @@ check("an unknown mode", {"mode": "squash"}, False, "")
 check("an unknown method", {"method": "fast-forward"}, False, "")
 check("below_min is a word", mutated(DEFAULT, "commits", "below_min", value="warn"), False, "")
 check("a zero minimum", mutated(DEFAULT, "commits", "min", value=0), False, "")
+check("a refuse_over of one (never above any advice_over)", mutated(DEFAULT, "commits", "refuse_over", value=1), False, "")
+check("refuse_over not a whole number", mutated(DEFAULT, "commits", "refuse_over", value="32"), False, "")
 check("a role minimum of zero", mutated(DEFAULT, "commits", "roles", value={"devex-tooling": {"min": 0}}), False, "")
 check("a role that is not a slug", mutated(DEFAULT, "commits", "roles", value={"Devex Tooling": {"min": 2}}), False, "")
 check("a class with no paths", mutated(DEFAULT, "commits", "classes", value={"docs": {"min": 1}}), False, "paths")
