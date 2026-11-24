@@ -20,7 +20,7 @@ CAUSE   of a relay-only pair, first that the logs show:
                       replies reached no waiter, and with the carrier alone this run says nothing was sent. No miss; a pair of that run
                       with no copy at all stays a `timeout` and is counted here, not in `missed`.
           late        the reply came to the operator's agentd after fabric-ctl had left, but inside the request's own
-                      `timeout_s` (its `sent` line; the second it arrives at is a miss): in dual fabric-ctl leaves DUAL_GRACE_S after every account has answered
+                      `timeout_s` (its `sent` line, whole seconds: a reply at the second it ends is a miss): in dual fabric-ctl leaves DUAL_GRACE_S after every account has answered
                       (by either carrier), with the carrier alone it keeps waiting for the replies, so this reply
                       would have been collected. Not counted as a miss; its latency is `interweave_late_s`. A reply later
                       than `timeout_s`, or from a log whose `sent` line has none, stays no-waiter (j160: 680 of 727
@@ -177,7 +177,7 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
                     arrived = min(verdicts[v] for v in ("no-waiter", "held") if v in verdicts)
                     if p["id"] in no_session:
                         row["cause"] = "no-session"
-                    elif p["id"] not in lost_session and p.get("timeout_s") and arrived - p["t"] < p["timeout_s"]:
+                    elif p["id"] not in lost_session and p.get("timeout_s") and arrived - p["t"] < math.floor(p["timeout_s"]):
                         row["cause"] = "late"
                         row["interweave_late_s"] = max(0.0, arrived - p["t"])
                 else:
@@ -221,8 +221,8 @@ def render_markdown(rep: dict) -> str:
         s = rep["carriers"][c]
         L.append(f"| {c} | {s['delivered']} | {s['missed']} | {_s(s['p50_s'])} | {_s(s['p95_s'])} |")
     L += ["", "Causes of the pairs the second carrier did not deliver: " + ", ".join(f"{c} {rep['causes'][c]}" for c in CAUSES),
-          f"`late` ({rep['causes']['late']}) and `no-session` ({rep['causes']['no-session']}) "
-          "are no miss of the carrier alone and are in no `missed` count above; see the tool's CAUSE paragraph.", ""]
+          f"{rep['carriers']['interweave']['late']} pair(s) were `late` and {rep['carriers']['interweave']['no_session']} belong to a run with no session: "
+          "no miss of the carrier alone, and in no `missed` count above; see the tool's CAUSE paragraph.", ""]
     if rep["drill"]:
         L += [f"## InterWeave-stop drill [{rep['drill'][0]}, {rep['drill'][1]})", "",
               f"{len(rep['in_drill'])} pair(s) inside it, counted in no carrier's row above:"]

@@ -99,8 +99,18 @@ class LateAndNoSession(unittest.TestCase):
 
     def test_the_markdown_says_late_and_no_session_are_in_no_missed_count(self):
         text = cp.render_markdown(late_case(15))
-        self.assertIn("`late` (1) and `no-session` (0)", text)
+        self.assertIn("1 pair(s) were `late` and 0 belong to a run with no session", text)
         self.assertIn("in no `missed` count", text)
+
+    def test_the_markdown_counts_the_timeout_pair_of_a_run_with_no_session_among_those_left_out_of_missed(self):
+        none = {"t": iso(0), "who": "ctl", "carrier": "interweave", "kind": "request", "id": "r1", "from": OP, "op": "ping", "verdict": "no-session"}
+        text = cp.render_markdown(run([{**sent("r1", 0, [A]), "timeout_s": 20}, none]))
+        self.assertIn("0 pair(s) were `late` and 1 belong to a run with no session", text)
+
+    def test_a_fractional_timeout_is_read_in_whole_seconds(self):
+        # a reply at real 10.6 s against --timeout 10.5 logs as 10 s: a miss, not late
+        rep = late_case(10, timeout_s=10.5)
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
 
 
 class Pairs(unittest.TestCase):
