@@ -462,9 +462,9 @@ def adjudication_refusal(repo: str, pr: str, marker: review_coverage.Marker, bod
     return ""
 
 
-def pr_commit_refusal(repo: str, pr: str, sha: str) -> str:
+def pr_commit_refusal(repo: str, pr: str, sha: str, head: str, base_branch: str) -> str:
     """Why sha is not known to be a commit of the PR, or "" when it is. FAILS CLOSED, as locale_only: a list not
-    read, or one GitHub may have cut, does not say the sha is in it."""
+    read does not say the sha is in it, and one GitHub cut is decided by ancestry (evidence.beyond_cut_refusal)."""
     try:
         listed = evidence.PrEvidence(repo, pr).has_commit(sha)
     except gh.GhError:
@@ -472,7 +472,7 @@ def pr_commit_refusal(repo: str, pr: str, sha: str) -> str:
     if listed is True:
         return ""
     if isinstance(listed, evidence.Incomplete):
-        return f"{sha[:12]} is not among the {listed.count} commits GitHub lists for PR #{pr}, a list it cuts there"
+        return evidence.beyond_cut_refusal(repo, pr, sha, head, base_branch, listed)
     return f"{sha[:12]} is not a commit of PR #{pr} (a force-push may have dropped it)"
 
 
@@ -702,7 +702,7 @@ def run(argv: list[str], stdin) -> int:
     # gate as coverage of commits nobody reviewed (the module docstring).
     commit = reviewed
     if commit != head:
-        refusal = pr_commit_refusal(repo, pr, commit)
+        refusal = pr_commit_refusal(repo, pr, commit, head, base_branch)
         if refusal:
             die(f"not posting this report: {refusal}.")
     refusal = range_refusal(root, marker, coverage)
