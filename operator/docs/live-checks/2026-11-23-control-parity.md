@@ -37,12 +37,12 @@ sum(p["addressee"].endswith("/fabric-probe") for p in ro)               # the 1,
 Three figures come from elsewhere. The file-wide 89,096 is `cp.json`'s top-level
 `unrecorded`. The two unreadable lines were found by reading each arrival file
 line by line and keeping each line `json.loads` refuses. The journal's start is
-the first line of `journalctl --user -u agent-fabric-agentd --no-pager`.
+the first line of `journalctl --user -u agent-fabric-agentd --no-pager -o short-iso --utc`.
 
 The per-pair listing is not committed. It can be made again from one file, since
 the tool reads pairs from the operator's file alone: the `user` account's
-`~/.local/state/agent-fabric/agents/user/control-arrivals.jsonl`, append-only,
-with the same command and window.
+`~/.local/state/agent-fabric/agents/user/control-arrivals.jsonl`, which `ArrivalLog`
+appends to, with the same command and window.
 
 Only the operator's file gives pairs and causes (the tool's contract); the
 other 29 are listed and contribute nothing yet.
@@ -94,7 +94,7 @@ The **79,883 recorded pairs** are the measurement:
   693 misses, each losing 19–29 accounts, which is most or all of the fleet:
   identity 14, gateway 8, upgrade 1. The other 59 requests lost one to ten
   accounts each, and 38 of them lost one.
-- The operator's agentd journal starts 2026-11-23T18:14Z: the earlier lines
+- The operator's agentd journal starts 2026-11-23T17:14Z: the earlier lines
   are rotated away, so this record does **not** show whether the bursts coincide with the operator's
   agentd restarting. The 2026-11-22 record
   (2026-11-22-fleet-upgrade-interweave-leg-collects.md) names that restart as
@@ -102,8 +102,10 @@ The **79,883 recorded pairs** are the measurement:
 - The fabric-probe login (no roster row) appears only in the unrecorded pairs,
   where every pair is relay-only: counted in the relay's delivered, never as an
   InterWeave miss.
-- The 11-22 16:24:50Z upgrade run, which the 2026-11-22 record found relay-only
-  for every account, has all 30 of its pairs here: 29 no-waiter and 1 timeout.
+- The 11-22 16:24:50Z upgrade run has all 30 of its pairs here: 29 no-waiter, and
+  one timeout, the operator's own (`develop-qzapp/user`). The 2026-11-22 record
+  gives that run's account: it was sent 3 s after the operator's agentd exited.
+  This record does not reconcile its count with that record's.
 
 ## What it decides
 
@@ -124,13 +126,16 @@ still answered. This record has the second, over recorded pairs. It has none of
 the others whole:
 
 - the tool lists each pair with the carriers that brought the reply, not the
-  request. The request's carrier is in each addressee's own file, which the tool
-  does not read for pairs: a change to the tool (#655's owners) before rule 18's
-  report can be made; and the listing is not in `docs/live-checks/`;
-- "no-waiter" names a mechanism, not a cause: the 693 have no cause yet, and the
-  21 have none at all;
+  request. An addressee's file records a request only when it came by InterWeave
+  (`control_link.py`, `inbound`); one that came by the relay is logged nowhere.
+  So agentd must also log a request's relay arrival, and the tool must read the
+  addressees' files, before rule 18's report can be made (#655's owners); and the
+  listing is not in `docs/live-checks/`;
+- "no-waiter" names a mechanism, not a cause. 29 of the 693 have the 2026-11-22
+  record's account (sent while the operator's agentd was down); the other 664 have
+  no cause yet, and the 21 have none at all;
 - there was no drill.
 
 The report the owner's word is asked on is a later run, with `--drill START END`
 over a window that starts after the no-waiter fix and holds an `interweave-stop`
-drill, of a tool that also reports the request's carrier.
+drill, of a tool and an agentd log that also report the request's carrier.
