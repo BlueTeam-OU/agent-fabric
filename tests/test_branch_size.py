@@ -3,8 +3,10 @@
 (A 2026-11-24), on throwaway repositories, and where the thresholds come from."""
 from __future__ import annotations
 
+import atexit
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,6 +14,16 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric", "guards"))
 import branch_size  # noqa: E402
+
+# Every scratch directory goes however the run ends: the suite names what a test leaves behind.
+_SCRATCH: list[str] = []
+atexit.register(lambda: [shutil.rmtree(d, ignore_errors=True) for d in _SCRATCH])
+
+
+def scratch(prefix: str) -> str:
+    d = tempfile.mkdtemp(prefix=prefix)
+    _SCRATCH.append(d)
+    return d
 
 ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
        "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
@@ -28,7 +40,7 @@ def commit(repo: str, subject: str, *trailers: str) -> str:
 
 
 def repo() -> str:
-    d = tempfile.mkdtemp(prefix="branch-size-")
+    d = scratch("branch-size-")
     git(d, "init", "-q", "-b", "main")
     commit(d, "root", "Kind: work")
     git(d, "switch", "-q", "-c", "feat")
@@ -88,7 +100,7 @@ def cases() -> list[tuple[str, bool]]:
     out += hook_cases()
 
     # Thresholds: the account's copy first, then the fleet file, then the built-in default.
-    state = tempfile.mkdtemp(prefix="branch-size-state-")
+    state = scratch("branch-size-state-")
     fleet = os.path.join(state, "arming.json")
     with open(fleet, "w") as f:
         json.dump({"commits": {"advice_over": 10, "refuse_over": 20}}, f)
@@ -128,7 +140,7 @@ def cases() -> list[tuple[str, bool]]:
 
 def hook_cases() -> list[tuple[str, bool]]:
     out = []
-    state = tempfile.mkdtemp(prefix="branch-size-hook-")
+    state = scratch("branch-size-hook-")
     fleet = os.path.join(state, "arming.json")
     with open(fleet, "w") as f:
         json.dump({"commits": {"advice_over": 2, "refuse_over": 3}}, f)
