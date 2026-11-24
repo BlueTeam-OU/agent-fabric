@@ -366,7 +366,9 @@ repository, which merges at once and has no watcher line) — pinned to the head
 watcher line to run — it is not started here, because
 a watcher must be the SESSION's child for its exit to be the
 session's callback. The PR is then read back, and the read-back decides, also
-when gh pr merge failed: GitHub can merge a PR on a call that reports failure.
+when gh pr merge failed: GitHub can merge a PR on a call that reports failure. When --auto is refused as
+"is in clean status" and the PR reads open on the head with nothing armed or queued, the same merge runs once
+without --auto (an auto repository only), and the PR is read back again.
 A PR that reads open, or cannot be read, while its head is in the base branch
 just fetched (git merge-base --is-ancestor) has merged, and the PR API is lagging.
 
@@ -428,9 +430,9 @@ def say(msg: str) -> None:
 ROLE_TRAILER = re.compile(r"^Fabric-Role:[ \t]*([a-z][a-z0-9-]*)[ \t]*$", re.M)
 # GitHub cuts a status description at 140 characters.
 ARMED_DESCRIPTION = "Armed through fabric-pr arm: this head passed its gates"
-# The merge method as the flag gh takes: a fixed table, not the policy's text put into an argument.
 # gh's text when GitHub declines --auto on a PR that needs no waiting (enablePullRequestAutoMerge).
 CLEAN_STATUS_REFUSAL = "is in clean status"
+# The merge method as the flag gh takes: a fixed table, not the policy's text put into an argument.
 MERGE_FLAGS = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}
 
 
@@ -1557,8 +1559,9 @@ def arm(argv: list[str]) -> int:
         direct = [a for a in merge_args if a != "--auto"]
         try:
             gh.run(["pr", "merge", num, *direct], what=f"gh pr merge {num}")
-            say(f"gh pr merge --auto refused #{num} as already clean; merged it directly on {head[:8]}")
-            failed = ""
+            say(f"gh pr merge --auto refused #{num} as already clean; the direct merge on {head[:8]} exited 0 — reading the PR back")
+            # Kept, not cleared: an exit 2 after this must still name the refusal and that the direct merge ran.
+            failed += " (the direct gh pr merge exited 0)"
         except gh.GhError as e:
             failed += f" (the direct gh pr merge failed too: {e.reason})"
             say(f"direct gh pr merge failed on #{num} ({e.reason}) — reading the PR back before judging")

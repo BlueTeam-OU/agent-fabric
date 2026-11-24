@@ -1339,7 +1339,12 @@ def main() -> int:
         reset(); put("cleanrefuse", ""); put("directfail", "")
         rc, out = run("7", "--basis", "b")
         check("…a direct merge that fails too: exit 2, both failures named",
-              rc == 2 and "is in clean status" in out and "the direct gh pr merge failed too" in out, out)
+              rc == 2 and any(ln.startswith("arm: #7 reads 'idle'") and "is in clean status" in ln
+                              and "the direct gh pr merge failed too" in ln for ln in out.splitlines()), out)
+        reset(); put("cleanrefuse", ""); put("direct_reads_armed", "")
+        rc, out = run("7", "--basis", "b")
+        check("…a direct merge that exits 0 but reads armed-not-merged: exit 0 armed, no claim of a merge",
+              "MERGED #7" not in out and "exited 0 — reading the PR back" in out, out)
         reset(); put("mergefail", "")
         rc, out = run("7", "--basis", "b")
         check("control: another --auto failure does not trigger the direct merge",
