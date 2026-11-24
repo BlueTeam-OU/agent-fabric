@@ -348,3 +348,44 @@ that changes the almalinux profile can run the leg first with
 paths trigger on `runtime/provisioning/platform/` was not added: the
 owner said nightly only, and in this workflow it would also start the
 90-minute stripped run. j803.
+
+### Amendment 2026-11-24 — a branch is refused past `commits.refuse_over`
+
+What changed: §5 rule 4 measures a branch from its first commit, not
+from its pull request, and gives the count two thresholds.
+At `commits.advice_over` (the fleet's 16) the branch lands before more
+is added, as rule 2 already said; the `commit-msg` hook, `fabric-pr
+gate` and the session-start jobs line now say so. Past
+`commits.refuse_over` (the fleet's 32, a new key of
+`operator/policies/arming.json` that a repository's settings may
+override; the schema and `arm_policy.validate` require it greater than
+`advice_over`) a commit that raises the count needs an `Owner-Word:`
+trailer. The hook, CI and the gate refuse one without it. Folded
+commits count like the integrator's own, and a fold that crosses the
+line carries the trailer on its merge. A change whose pieces must land
+together opens its PR at its first fold.
+This replaces the 2026-10-05 reading that sixteen is advice only.
+
+Why: the owner, 2026-11-24, on BlueTeam-OU/InterWeave#752: "how could
+this ever happen". It had 220 work and 34 fix commits, 37 merges and
+482 files, folded from five roles over five days before its PR opened.
+Six partial reviews did not count, and its chain hit post-review's
+250-commit cut. agent-fabric#692 had 48 work commits. Nothing measured
+a branch before its PR existed. Arm printed one "smaller batches next
+time" line, at arming only. And when the PR rules moved into the skill
+(4f0a14475, 2026-10-15), the team section lost "stops being addable at
+sixteen". The owner chose "warn at 16, refuse at 32", with its own
+setting rather than a computed double, overridable per repository.
+
+The owner settled three details the same day. The word is a trailer on
+the commit, so CI can read it, with the trust of arming's basis. The
+hook reads a per-account copy of the repository's policy, written by
+every API read of it, and falls back to the fleet's value when it has
+none. The rule lands first; moving the git prose into a layered
+`git.md` (j1086) is a second PR.
+
+What follows: CI checks against the fleet's value, not a repository's
+override, because a workflow's token cannot read a settings
+repository; the gate, which reads it, holds the override. No settings
+file overrides `advice_over` today, and no open PR was over 32 work
+commits when this landed. j1078.

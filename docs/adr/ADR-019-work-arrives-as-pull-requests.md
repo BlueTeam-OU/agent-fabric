@@ -180,9 +180,29 @@ not on a pipe's exit status.
    the dry-run names an arming authority the agent asks it by
    `REQUEST`, never the owner, and works on a job in another repository
    until the word arrives, since a commit on this PR would move the
-   head the word names (A 2026-11-21). `commits.advice_over` is the size a batch is opened at; a PR
-   over that size is armed on the gate all the same, and the count is advice for the
-   next batch.
+   head the word names (A 2026-11-21). A branch is measured from its
+   first commit, not from its PR (A 2026-11-24). Its count at a commit
+   is the work commits, read as rule 3 reads them, among that commit's
+   ancestors not on the default branch, folded commits included. At
+   `commits.advice_over` the branch lands before more is added (rule 2):
+   the `commit-msg` hook, `fabric-pr gate` and the session-start jobs
+   line say so, and a change whose pieces must land together opens its
+   PR at its first fold, each fold reviewed as its own range. A commit
+   whose count is over `commits.refuse_over` and over its first
+   parent's (a work commit, or a merge that brings work) needs the
+   owner's word, carried in that commit as a trailer
+   `Owner-Word: <YYYY-MM-DD> "<the owner's words>"`. Like the basis
+   "the owner's word" at arming, it is the committing session's claim;
+   no arming authority gives it. A review fix and a merge that brings
+   no work never need it. `commits.refuse_over` is a setting of its
+   own, greater than `commits.advice_over` (the schema and the policy
+   reader both refuse otherwise), never a multiple of it. Three places
+   check it: the hook, against the repository's policy as this account
+   last read it from GitHub, else the fleet's value, saying which; CI,
+   on every commit the branch adds, against the fleet's value on the
+   default branch, since CI cannot read a settings repository; and
+   `fabric-pr gate`, which reads the repository's own policy and is not
+   `MERGEABLE` while a commit over it lacks the trailer.
 5. The gate is `fabric-pr gate`'s verdict for the PR, read
    before arming: `MERGEABLE` needs checks green, a review on the current
    head (`fabric-pr review-status`), no unresolved thread, no conflict, no
@@ -320,3 +340,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-11-21 | the settings repositories and the no-CI word stay the owner's | §5 rule 4: a settings or operator repository names no arming authority; the no-CI word is never an authority's, a repository without CI gets direct mode or CI in its policy |
 | 2026-11-21 | nobody waits idle on a word | §5 rule 4: the agent asks the arming authority the dry-run names by `REQUEST`, never the owner, and works on a job in another repository until the word arrives |
 | 2026-11-21 | the AlmaLinux leg runs nightly | §6: the almalinux:10 platform leg leaves `ci.yml` and `ci-ok` for the scheduled `stripped-nightly.yml`; an EL 10 break merges green; scheduled-red files one job per workflow, so an open job for the stripped run hides it until python-dev-02's j176 |
+| 2026-11-24 | a branch is refused past `commits.refuse_over` | §5 rule 4: counted from the branch's first commit, folds included; warned at `advice_over`; past `refuse_over` a commit needs an `Owner-Word:` trailer, checked by the hook, CI and the gate; sixteen stops being advice only |
