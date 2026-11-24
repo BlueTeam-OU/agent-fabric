@@ -123,7 +123,7 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
                 if isinstance(to, list) and to and all(_is_str(x) for x in to):
                     tmo = r.get("timeout_s")
                     requests.setdefault(rid, {"t": r["_t"], "to": list(to), "alone": verdict == "sent-alone", "op": r.get("op"),
-                                              "timeout_s": tmo if isinstance(tmo, (int, float)) and not isinstance(tmo, bool) and tmo > 0 else None})
+                                              "timeout_s": tmo if isinstance(tmo, (int, float)) and not isinstance(tmo, bool) and math.isfinite(tmo) and tmo > 0 else None})
             elif who == "ctl" and kind == "request" and _is_str(rid) and verdict in ("no-session", "session-lost"):
                 (no_session if verdict == "no-session" else lost_session).add(rid)
             elif kind == "reply" and _is_str(r.get("in_reply_to")) and _is_str(r.get("from")) and carrier in CARRIERS:
@@ -222,7 +222,7 @@ def render_markdown(rep: dict) -> str:
         L.append(f"| {c} | {s['delivered']} | {s['missed']} | {_s(s['p50_s'])} | {_s(s['p95_s'])} |")
     L += ["", "Causes of the pairs the second carrier did not deliver: " + ", ".join(f"{c} {rep['causes'][c]}" for c in CAUSES),
           f"{rep['carriers']['interweave']['late']} pair(s) were `late` and {rep['carriers']['interweave']['no_session']} belong to a run with no session: "
-          "no miss of the carrier alone, and in no `missed` count above; see the tool's CAUSE paragraph.", ""]
+          "no miss of the carrier alone, and in no `missed` count of the interweave row; see the tool's CAUSE paragraph.", ""]
     if rep["drill"]:
         L += [f"## InterWeave-stop drill [{rep['drill'][0]}, {rep['drill'][1]})", "",
               f"{len(rep['in_drill'])} pair(s) inside it, counted in no carrier's row above:"]

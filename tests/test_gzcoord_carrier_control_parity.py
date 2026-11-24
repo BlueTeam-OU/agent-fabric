@@ -100,13 +100,19 @@ class LateAndNoSession(unittest.TestCase):
     def test_the_markdown_says_late_and_no_session_are_in_no_missed_count(self):
         text = cp.render_markdown(late_case(15))
         self.assertIn("1 pair(s) were `late` and 0 belong to a run with no session", text)
-        self.assertIn("in no `missed` count", text)
+        self.assertIn("in no `missed` count of the interweave row", text)
 
     def test_the_markdown_counts_the_timeout_pair_of_a_run_with_no_session_among_those_left_out_of_missed(self):
         none = {"t": iso(0), "who": "ctl", "carrier": "interweave", "kind": "request", "id": "r1", "from": OP, "op": "ping", "verdict": "no-session"}
         text = cp.render_markdown(run([{**sent("r1", 0, [A]), "timeout_s": 20}, none]))
         self.assertIn("0 pair(s) were `late` and 1 belong to a run with no session", text)
+        self.assertIn("| relay | 0 | 1 |", text, "the relay row still counts that pair missed, which the sentence no longer denies")
 
+    def test_a_non_finite_timeout_is_no_timeout_and_never_a_crash(self):
+        # json.loads accepts Infinity; only a hand-made log can hold it (fabric-ctl refuses a non-finite --timeout)
+        line = {**sent("r1", 0, [A]), "timeout_s": float("inf")}
+        rep = run([line, got("r1", A, "relay", 2), got("r1", A, "interweave", 5, who="agentd", verdict="no-waiter")])
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
     def test_a_fractional_timeout_is_read_in_whole_seconds(self):
         # a reply at real 10.6 s against --timeout 10.5 logs as 10 s: a miss, not late
         rep = late_case(10, timeout_s=10.5)
