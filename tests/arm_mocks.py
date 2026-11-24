@@ -147,6 +147,8 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
     # A direct repository's merge (no --auto): it lands at once and reads merged, or with `direct_reads_armed` a
     # PR the API still reads armed (the read-back must not take that for a merge).
     if line == "pr merge 7 --merge --match-head-commit abcdef0123456789abcdef0123456789abcdef01":
+        if has("direct_idle"):
+            return 0, "", ""  # exits 0 and the API still reads open and idle
         if has("directfail"):
             return 1, "", "GraphQL: base branch policy prohibits the merge"
         open(os.path.join(s, "armed" if has("direct_reads_armed") else "merged"), "w").close()

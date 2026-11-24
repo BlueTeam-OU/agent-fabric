@@ -368,7 +368,7 @@ a watcher must be the SESSION's child for its exit to be the
 session's callback. The PR is then read back, and the read-back decides, also
 when gh pr merge failed: GitHub can merge a PR on a call that reports failure. When --auto is refused as
 "is in clean status" and the PR reads open on the head with nothing armed or queued, the same merge runs once
-without --auto (an auto repository only), and the PR is read back again.
+without --auto (a repository whose mode is auto; never queue or direct), and the PR is read back again.
 A PR that reads open, or cannot be read, while its head is in the base branch
 just fetched (git merge-base --is-ancestor) has merged, and the PR API is lagging.
 
@@ -1555,7 +1555,7 @@ def arm(argv: list[str]) -> int:
     # (2026-11-24, #696): the gates above are the hold, so the merge happens now, on the same head. Only that
     # refusal and only a PR read open on the gated head with no arming and no queue entry: any other failure keeps
     # the read-back to judge it.
-    if (not merged and armed == "idle" and policy["mode"] != "direct" and CLEAN_STATUS_REFUSAL in failed):
+    if (not merged and armed == "idle" and policy["mode"] == "auto" and CLEAN_STATUS_REFUSAL in failed):
         direct = [a for a in merge_args if a != "--auto"]
         try:
             gh.run(["pr", "merge", num, *direct], what=f"gh pr merge {num}")

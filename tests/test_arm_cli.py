@@ -82,7 +82,7 @@ def main() -> int:
             """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
-                      "mergefail", "cleanrefuse", "directfail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
+                      "mergefail", "cleanrefuse", "directfail", "direct_idle", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos", "modes.json", "trees_fail",
                       "whoami.json", "armed_status", "status_read_fail", "sticky",
                       "mutationfail", "commentfail", "merges_on_disarm", "direct_reads_armed"):
@@ -1344,7 +1344,16 @@ def main() -> int:
         reset(); put("cleanrefuse", ""); put("direct_reads_armed", "")
         rc, out = run("7", "--basis", "b")
         check("…a direct merge that exits 0 but reads armed-not-merged: exit 0 armed, no claim of a merge",
-              "MERGED #7" not in out and "exited 0 — reading the PR back" in out, out)
+              rc == 0 and "ARMED #7" in out and "MERGED #7" not in out and "exited 0 — reading the PR back" in out, out)
+        reset(); put("cleanrefuse", ""); put("direct_idle", "")
+        rc, out = run("7", "--basis", "b")
+        check("…a direct merge that exits 0 and still reads idle: exit 2, the refusal and the exit 0 both named",
+              rc == 2 and any(ln.startswith("arm: #7 reads 'idle'") and "is in clean status" in ln
+                              and "the direct gh pr merge exited 0" in ln for ln in out.splitlines()), out)
+        reset(); put("cleanrefuse", "")
+        rc, out = run("7", "--basis", "b", policy=dict(claude_only, mode="queue"))
+        check("…a queue repository: no direct merge, exit 2",
+              rc == 2 and f"pr merge 7 --merge --match-head-commit {HEAD}" not in calls(), out + calls())
         reset(); put("mergefail", "")
         rc, out = run("7", "--basis", "b")
         check("control: another --auto failure does not trigger the direct merge",
