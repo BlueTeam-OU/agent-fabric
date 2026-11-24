@@ -589,7 +589,7 @@ CONTRIBUTOR_SUPPLY = (
     *(f"runtime/claude-code/hooks/{h}" for h in (
         "context-sample.py", "freshness.py", "inbox-watch.py", "memory-write-check.py", "model-fallback-note.sh",
         "plan-hold.sh", "pr-counts.py", "session-start.py", "session-start.sh", "session-state.py", "statusline.sh",
-        "subagent-ledger.py", "tab-title.sh", "watch-on-stop.py", "testdata/")),
+        "subagent-ledger.py", "tab-title.sh", "watch-nudge.py", "watch-on-stop.py", "testdata/")),
 )
 
 
