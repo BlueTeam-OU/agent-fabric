@@ -53,6 +53,7 @@ import base64
 import binascii
 import copy
 import json
+import datetime
 import os
 import re
 import sys
@@ -63,6 +64,8 @@ sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
 import workingcopy  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "guards"))
+import branch_size  # noqa: E402  the count and its thresholds' cache have one definition (ADR-019 §5 rule 4)
 
 REPO_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 ROLE_SLUG = re.compile(r"[a-z][a-z0-9-]*")
@@ -97,7 +100,7 @@ DEFAULT: dict[str, Any] = {
     "protect": {"deletion": True, "force_push": True},
     "delete_branch_on_merge": False,
     "queue": {},
-    "commits": {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}},
+    "commits": {"min": 8, "advice_over": 16, "refuse_over": 32, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}},
     "reviews": ["claude"],
     "boundary_reviews": ["claude"],
     "additional_reviews": ["codex"],
@@ -228,10 +231,14 @@ def validate(doc: Any, where: str = "the policy") -> dict:
             raise PolicyError(f"{where}: commits.{key} is not a role slug")
     if "authority_own_prs" in c and not isinstance(c["authority_own_prs"], bool):
         raise PolicyError(f"{where}: commits.authority_own_prs is true or false")
-    for k in ("min", "advice_over", "boundary_min"):
+    for k in ("min", "advice_over", "refuse_over", "boundary_min"):
         if not _int(c[k]):
             raise PolicyError(f"{where}: commits.{k} is not a whole number of at least 1")
         _whole(c, k)
+    # After the merge with the default, so a repository that sets only one of the two is judged against the other's value.
+    if c["refuse_over"] <= c["advice_over"]:
+        raise PolicyError(f"{where}: commits.refuse_over ({c['refuse_over']}) is not above commits.advice_over "
+                          f"({c['advice_over']}): a branch is advised to land before it is refused")
     if c["below_min"] not in BELOW_MIN:
         raise PolicyError(f"{where}: commits.below_min is {c['below_min']!r}, not one of {', '.join(BELOW_MIN)}")
     if not isinstance(c["roles"], dict):
@@ -436,9 +443,36 @@ def load(repo: str | None, *, root: str | None = None, registry: Any = None, cli
     settings = settings_repo_of(registry, clients, repo)
     doc = fetch_repo_policy(settings, repo, api) if settings else None
     policy = _compose(fleet, doc, settings, repo)
+    if settings:
+        write_threshold_cache(repo, policy)
     if cache is not None:
         cache[repo] = copy.deepcopy(policy)
     return policy
+
+
+def write_threshold_cache(repo: str, policy: dict) -> None:
+    """Leave this account's reading of the repository's branch-size numbers where the commit-msg hook and the
+    session-start line find them without a GitHub call (branch_size.thresholds). Atomic, so a hook never reads half a
+    file; a failure is said and never fails the load, since the policy itself was read."""
+    path = ""
+    try:
+        path = branch_size.cache_path(repo)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        doc = {"repository": repo, "read_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+               "advice_over": policy["commits"]["advice_over"], "refuse_over": policy["commits"]["refuse_over"]}
+        tmp = f"{path}.{os.getpid()}.tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(doc, f)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    except (OSError, ValueError, RuntimeError, KeyError) as e:
+        print(f"arm_policy: the branch-size copy for {repo} was not written ({path or 'no path'}): {e}", file=sys.stderr)
 
 
 def with_classes(policy: dict, classes: dict[str, str]) -> dict:

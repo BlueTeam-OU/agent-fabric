@@ -173,7 +173,13 @@ def main() -> int:
             hold = None
         try:
             doc = identity.read_jobs(ctx["agent"])
-            lines += jobs_line(doc, ctx["working_copy"], cleared_jobs(doc), hold)
+            jl = jobs_line(doc, ctx["working_copy"], cleared_jobs(doc), hold)
+            clause = branch_clause(ctx["working_copy"])
+            if clause and jl:
+                jl[-1] += f" {clause[0].upper()}{clause[1:]}."
+            elif clause:
+                jl = [f"agent-fabric: {clause}."]
+            lines += jl
         except (Exception, SystemExit):  # noqa: BLE001 — a job list it cannot read must not cost the session its start
             if hold:
                 # Not jobs_line({}): that says "none open" beside an active job the list may well hold (review of #429, F2).
@@ -315,6 +321,35 @@ def hold_view():
 def hold_of(identity, agent: str) -> dict | None:
     """The record, {"unreadable": why} for a hold.json that cannot be read, None when not held."""
     return hold_view().read(identity, agent)
+
+
+def branch_clause(working_copy: str | None) -> str:
+    """The branch's size against the repository's numbers, for the jobs line; "" on the default branch or where it
+    cannot be known. No GitHub call: branch_size.thresholds reads this account's copy of the last read, else the fleet's
+    (ADR-019 §5 rule 4, the owner 2026-11-24); the count is branch_size's, never restated."""
+    if not working_copy:
+        return ""
+    sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric", "guards"))
+    try:
+        import branch_size
+        base = branch_size.default_base(working_copy)
+        if not base:
+            return ""
+        branch = branch_size._git("rev-parse", "--abbrev-ref", "HEAD", cwd=working_copy).strip()
+        if branch in ("HEAD", base.rsplit("/", 1)[-1]):
+            return ""
+        n = branch_size.count(base, ["HEAD"], cwd=working_copy)
+        advice, refuse, source = branch_size.thresholds(branch_size.repository_of(working_copy))
+    except Exception:  # noqa: BLE001 — a git or state oddity must not cost the session its start
+        return ""
+    finally:
+        sys.path[:] = [p for p in sys.path if p != os.path.join(FABRIC_ROOT, "tools", "fabric", "guards")]
+    line = f"branch {n} work commits (advice {advice}, refuse {refuse}, {source})"
+    if n > refuse:
+        line += f"; past {refuse}: each new work commit needs Owner-Word:"
+    if n >= advice:
+        line += "; land before adding more"
+    return line
 
 
 def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = None,
