@@ -1010,6 +1010,8 @@ def test_the_jobs_line_says_the_branch_size(tmp: str) -> None:
         g(wc, "commit", "-q", "--allow-empty", "-m", "f", "-m", "Answers: F1")      # a fix is not counted
         assert "branch 2 work commits" in hook.branch_clause(wc)
         g(wc, "commit", "-q", "--allow-empty", "-m", "w3", "-m", "Kind: work")
+        at = hook.branch_clause(wc)      # exactly at refuse_over: still no word needed, it is the next commit that does
+        assert "branch 3 work commits" in at and "Owner-Word" not in at and "land before adding more" in at, at
         g(wc, "commit", "-q", "--allow-empty", "-m", "w4", "-m", "Kind: work")
         four = hook.branch_clause(wc)
         assert "branch 4 work commits" in four and "past 3: each new work commit needs Owner-Word:" in four \
