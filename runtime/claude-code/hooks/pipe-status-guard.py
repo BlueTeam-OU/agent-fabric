@@ -29,6 +29,10 @@ DECISIONS, in order:
      or a word not starting with `-`), then commit or push; or `gh pr merge` / `gh pr create`. SP is
      [[:space:]] as GNU grep reads it in a UTF-8 locale (an em space is one, a no-break space is not). A match
      -> deny. refused() decides that match in linear time, without `re` (its docstring says why).
+  5. no match in 4, and a pipe stage whose command is gzcoord-inbox (or `fabric gzcoord inbox`) without
+     --replay, --history or --held (the modes that move no cursor), whatever reads its output -> deny with
+     DRAIN_REASON (drain_piped(), A 2026-11-24): a drain marks what it prints delivered, and a filter hid two
+     of three messages from python-dev-01 the day this was added. Added after the port: it is not the bash's.
 
 NOT BYTE-IDENTICAL to the bash:
   - the bash searched with GNU grep -E; this decides the same expression by hand (refused()). Checked against
@@ -57,6 +61,7 @@ the one the message names: run the check, capture its status, commit on 0.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import sys
 
@@ -71,6 +76,56 @@ FILTERS = ("tail", "head", "grep", "sed", "cut", "wc", "awk", "sort", "uniq", "t
 NOT_GREP_SPACE = frozenset("\x1c\x1d\x1e\x1f\x85\xa0  ")
 REASON = ("A check piped into a filter and chained with && into a commit, push or merge tests the filter's exit status, "
           "not the check's: a failed check would still commit. Run the check to a log, capture rc=$?, and commit only on 0.")
+
+
+DRAIN_REASON = ("A gzcoord-inbox without --replay, --history or --held DRAINS the inbox: every message it prints is "
+                "marked delivered and is not served again, so a pipe after it (head, tail, grep, ...) hides messages it "
+                "took. Run it unpiped, or to a log in your scratchpad and read the whole log; a message already taken is "
+                "in fabric-history. To wait for messages, arm the watch: gzcoord-inbox --until-delivery as a background "
+                "command (gzcoord-receive).")
+
+
+def _inbox_watch():
+    """inbox-watch.py beside this file, loaded by path: it names gzcoord-inbox through canonical() (ADR-068 rule 7)
+    and holds which of its modes consume."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "fabric_inbox_watch", os.path.join(os.path.dirname(os.path.abspath(__file__)), "inbox-watch.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _is_drain(stage: list[str]) -> bool:
+    if not stage:
+        return False
+    try:
+        return _inbox_watch().is_consumer(stage)
+    except Exception:  # noqa: BLE001 - a command table that cannot be read judges nothing: this guard fails open
+        return False
+
+
+def drain_piped(cmd: str) -> bool:
+    """Whether a gzcoord-inbox drain's output goes into a pipe (python-dev-01's report of 2026-11-24: a drain piped
+    into head took three messages and showed one). Read with shlex as a shell splits words, so `grep gzcoord-inbox
+    | head` is a grep, not a drain; a command shlex cannot read (an open quote) is left to the shell to refuse."""
+    lexer = shlex.shlex(cmd.replace("\n", " ; "), posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return False
+    stage: list[str] = []
+    for t in tokens:
+        if t in ("|", "|&"):
+            if _is_drain(stage):
+                return True
+            stage = []
+        elif set(t) <= set(";&|(){}"):
+            stage = []                      # a separator ends the pipeline; a redirection (it holds < or >) does not
+        else:
+            stage.append(t)
+    return False
 
 
 def command(value) -> list:
@@ -182,6 +237,8 @@ def main() -> int:
     cmd = hook_jq.captured(values)
     if cmd and refused(cmd):
         hook_jq.write(hook_jq.decision("PreToolUse", "deny", REASON) + "\n")
+    elif cmd and drain_piped(cmd):
+        hook_jq.write(hook_jq.decision("PreToolUse", "deny", DRAIN_REASON) + "\n")
     return 0
 
 

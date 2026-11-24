@@ -212,8 +212,12 @@ journal is opened read-only, the relay read without a consumer id). The
 body is shown only if the message is addressed to you; otherwise its
 metadata line and exit 2, from the journal or the relay — SPEC §17 applies to a
 replay too. An unreadable journal is one line and exit 1, never "the
-message is not there". Never pipe the watch or a drain through anything
-that truncates.
+message is not there". Never pipe the watch, `--wait` or a drain into
+anything: each marks what it prints delivered, so a filter after it hides
+messages that will not come again (python-dev-01, 2026-11-24: `| head`
+took three and showed one). The pipe-status guard refuses it; only
+`--replay`, `--history` and `--held` move no cursor. A message already
+taken is in `fabric-history`.
 
 To catch up on what was addressed to you — after a restart, or to find
 a message whose seq you do not have — list it in one call rather than

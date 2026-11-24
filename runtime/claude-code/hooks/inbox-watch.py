@@ -71,3 +71,27 @@ def is_watch(cmd: str | Sequence[str]) -> bool:
             if any(flag in w for w in words[k + 1:] for flag in WATCH_FLAGS):
                 return True
     return False
+
+
+# The modes that move no cursor: --replay, --history and --held read the journal or the relay without a consumer id. A
+# drain, --wait and both watches mark what they print delivered (tools/fabric/gzcoord/inbox.py CONTRACT).
+NON_CONSUMING = ("--replay", "--history", "--held")
+# Words that run the word after them (and their own options) as the command, which canonical() does not skip.
+LAUNCHERS = ("timeout", "nice", "nohup", "stdbuf", "time")
+
+
+def is_consumer(words: Sequence[str]) -> bool:
+    """A `gzcoord-inbox` run (in either spelling) that moves the inbox's cursor past what it prints: any mode but
+    NON_CONSUMING. `words` is one command's words from its first (one pipe stage), as a shell splits them. The
+    pipe-status guard asks it: a filter after a consumer hides messages that will not come again (python-dev-01,
+    2026-11-24). Raises TableError as is_watch does."""
+    words = list(words)
+    i = 0
+    while i < len(words) and os.path.basename(words[i]) in LAUNCHERS:
+        i += 1
+        while i < len(words) and (words[i].startswith("-") or words[i][:1].isdigit()):
+            i += 1
+    read = canonical_module().canonical(words[i:])
+    if read is None or read[0] != WATCH_COMMAND:
+        return False
+    return not any(arg.split("=", 1)[0] in NON_CONSUMING for arg in read[1])

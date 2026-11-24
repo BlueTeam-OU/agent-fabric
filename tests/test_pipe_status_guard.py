@@ -127,6 +127,26 @@ class Guard(unittest.TestCase):
         self.assertIn("rc=$?", out["permissionDecisionReason"])
         self.assertIn("commit only on 0", out["permissionDecisionReason"])
 
+    def test_a_gzcoord_inbox_drain_piped_into_anything_is_refused(self):                     # python-dev-01, 2026-11-24
+        drains = ["gzcoord-inbox | head -15", "gzcoord-inbox 2>&1 | tail", "timeout 60 gzcoord-inbox | grep REQUEST",
+                  "fabric gzcoord inbox | head", "/srv/af/bin/gzcoord-inbox | head", "cd x && gzcoord-inbox | wc -l",
+                  "ls\ngzcoord-inbox | head", "FOO=1 gzcoord-inbox|head", "gzcoord-inbox --wait 3 | head",
+                  "gzcoord-inbox --until-delivery | tail -5"]
+        for c in drains:
+            with self.subTest(command=c):
+                r = self.run_hook({"tool_name": "Bash", "tool_input": {"command": c}})
+                out = json.loads(r.stdout)["hookSpecificOutput"]
+                self.assertEqual(out["permissionDecision"], "deny")
+                self.assertIn("DRAINS the inbox", out["permissionDecisionReason"])
+                self.assertIn("fabric-history", out["permissionDecisionReason"])
+        # The journal and relay readers consume nothing; a drain unpiped or to a file hides nothing; a word that is
+        # not the command (grep's pattern, an echo's string) is no drain.
+        for c in ("gzcoord-inbox", "gzcoord-inbox > log; cat log",
+                  "gzcoord-inbox --history 5 | head", "gzcoord-inbox --held | head", "gzcoord-inbox --replay=3 | head", "grep gzcoord-inbox x | head",
+                  "echo 'gzcoord-inbox | head'", "gzcoord-inbox || echo none", "gzcoord-inbox; ls | head"):
+            with self.subTest(command=c):
+                self.assertEqual(self.decision(c), "allow")
+
     def test_a_malformed_input_allows_and_says_nothing(self):                                  # the first payload is the bash test's; the rest are NEW
         for payload in ("not json", "", "{}", '{"tool_input":{}}', '{"tool_input":{"command":""}}'):
             with self.subTest(payload=payload):
