@@ -1555,9 +1555,9 @@ def arm(argv: list[str]) -> int:
     # (2026-11-24, #696): the gates above are the hold, so the merge happens now, on the same head. Only that
     # refusal and only a PR read open on the gated head with no arming and no queue entry: any other failure keeps
     # the read-back to judge it. Mode auto only, never queue: a queue repository's merge queue owns the order and
-    # the checks of every merge, so a merge made here would step round it (a queued PR also reads idle until the
-    # queue takes it), and the refusal has never been observed on a queue repository, so no direct merge is
-    # written for a case nobody has seen. Such a PR keeps the exit 2 and the read-back's judgement.
+    # the checks of every merge, so a merge made here could step round it, and a PR on its way into the queue reads
+    # idle until the queue takes it, which is not a PR that was left unmerged. This refusal is not recorded as seen
+    # on a queue repository, so no direct merge is written for it. Such a PR keeps the exit 2 and the read-back's judgement.
     if (not merged and armed == "idle" and policy["mode"] == "auto" and CLEAN_STATUS_REFUSAL in failed):
         direct = [a for a in merge_args if a != "--auto"]
         try:
