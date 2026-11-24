@@ -18,8 +18,8 @@ gzcoord-carrier control-parity --window 2026-11-16T00:00:00Z 2026-11-23T00:00:00
   --operator user --arrivals <login>=<file> … --json > cp.json
 ```
 
-The Result table is the tool's own summary. Every figure after it is computed from
-`cp.json`'s `pairs` list, one dict per (request, addressee) with `outcome`,
+The Result table is the tool's own summary. Every pair count after it is computed
+from `cp.json`'s `pairs` list, one dict per (request, addressee) with `outcome`,
 `cause`, `op`, `t`, `<carrier>_s` and `unrecorded`:
 
 ```python
@@ -30,10 +30,19 @@ Counter((p["outcome"], p.get("cause")) for p in rec)  # the outcome table
 Counter(p["op"] for p in rec if p.get("cause") == c) # its by-op column, per cause c
 Counter(Counter(p["id"] for p in rec if p.get("cause") == "no-waiter").values())  # bursts
 # p50/p95 over rec: nearest rank of p["<carrier>_s"] where present
+ro = [p for p in unrec if p["outcome"] == "relay-only"]                # the 2,325
+sum(p["addressee"].endswith("/fabric-probe") for p in ro)               # the 1,484
 ```
 
-The per-pair listing itself is the tool's output, kept with the arrival logs
-that produced it, not in this repository.
+Three figures come from elsewhere. The file-wide 89,096 is `cp.json`'s top-level
+`unrecorded`. The two unreadable lines were found by reading each arrival file
+line by line and keeping each line `json.loads` refuses. The journal's start is
+the first line of `journalctl --user -u agent-fabric-agentd --no-pager`.
+
+The per-pair listing is not committed. It can be made again from one file, since
+the tool reads pairs from the operator's file alone: the `user` account's
+`~/.local/state/agent-fabric/agents/user/control-arrivals.jsonl`, append-only,
+with the same command and window.
 
 Only the operator's file gives pairs and causes (the tool's contract); the
 other 29 are listed and contribute nothing yet.
@@ -93,6 +102,8 @@ The **79,883 recorded pairs** are the measurement:
 - The fabric-probe login (no roster row) appears only in the unrecorded pairs,
   where every pair is relay-only: counted in the relay's delivered, never as an
   InterWeave miss.
+- The 11-22 16:24:50Z upgrade run, which the 2026-11-22 record found relay-only
+  for every account, has all 30 of its pairs here: 29 no-waiter and 1 timeout.
 
 ## What it decides
 
@@ -101,16 +112,25 @@ The **79,883 recorded pairs** are the measurement:
   as harmless. `control_carrier` stays `dual`, and ADR-029
   rule 18 does not yet name InterWeave alone.
 - Next, the no-waiter cause must be found (python-dev-04, j160) and closed, and the 21 unexplained
-  pairs explained. A later run with `--drill`, over a window starting after that fix, is
-  the report the owner's word is asked on (*What rule 18 still needs*).
+  pairs explained. The report the owner's word is asked on needs more than a re-run (*What rule 18
+  still needs*).
 
 ## What rule 18 still needs
 
-ADR-029 rule 18 asks for four things: every request id and addressee with its
-carriers, p50 and p95 per carrier, each miss with its cause, and an
-`interweave-stop` drill mid-window with every request still answered. This
-record has the first in the tool's per-pair output and the second over recorded
-pairs. It has the third except for the 21 pairs whose cause is unknown, and it
-has no drill. The report the owner's word is asked on is a later run of the same
-command with `--drill START END` over a window that starts after the no-waiter
-fix and holds an `interweave-stop` drill.
+ADR-029 rule 18 asks for four things: every request id and addressee with the
+carriers that carried the request and the reply; p50 and p95 per carrier; each
+miss with its cause; and an `interweave-stop` drill mid-window with every request
+still answered. This record has the second, over recorded pairs. It has none of
+the others whole:
+
+- the tool lists each pair with the carriers that brought the reply, not the
+  request. The request's carrier is in each addressee's own file, which the tool
+  does not read for pairs: a change to the tool (#655's owners) before rule 18's
+  report can be made; and the listing is not in `docs/live-checks/`;
+- "no-waiter" names a mechanism, not a cause: the 693 have no cause yet, and the
+  21 have none at all;
+- there was no drill.
+
+The report the owner's word is asked on is a later run, with `--drill START END`
+over a window that starts after the no-waiter fix and holds an `interweave-stop`
+drill, of a tool that also reports the request's carrier.

@@ -124,6 +124,11 @@ or provider, which is open question Q2.
 
 ### 3.1 Network (decided, with the alternatives rejected)
 
+*Superseded 2026-11-11 and 2026-11-14: H2 is reached with no overlay (ADR-064 rule 1, A
+2026-11-11), on a public address forwarded to it and admitted from any source on the owner's
+word (A 2026-11-14). The overlay design below, and the overlay addresses in §3.2 and §8, are
+kept as written then.*
+
 - **Decided:** a WireGuard overlay between develop-qzapp and H2, run by each host's operator.
   - On each host, each profile listens on a wildcard address on its roster port (R7). A literal
     overlay-address listener loses network-change detection (InterWeave ADR-0055 5b, measured), and
@@ -152,13 +157,16 @@ A `hosts.H2` entry in `runtime/hosts/registry.json`:
 | `sshd` | sshd bound to the overlay address (an ADR-048 rule 1 amendment for a non-single-host deployment) |
 | `interweave_address` (new) | H2's literal overlay IP |
 
-develop-qzapp gets `interweave_address` too. Then `fabric-host H2 check`, then the first real
+develop-qzapp gets `interweave_address` too (superseded: H2 cannot dial develop-qzapp, ADR-064
+rule 1, and develop-qzapp's rows stay hostless, see the P2 cell of §7). Then `fabric-host H2 check`, then the first real
 ssh-backend read-back as a live check (ADR-010 §7).
 
 ### 3.3 The roster across hosts (fabric-coordinator's surface)
 
-- Superseded in part on 2026-11-24 (owner, §9 status): develop-qzapp's rows stay hostless and only
-  H2's own rows carry `host`, so no existing row is re-countersigned.
+- Superseded in part on 2026-11-24: the owner chose to defer the `host` field to H2's first row
+  (the P2 cell of §7 quotes the question and the answer), so develop-qzapp's rows stay hostless
+  for now and no existing row is re-countersigned. That only H2's rows will carry `host` is §9's
+  reasoning from the code, not the owner's word.
 - Rows carry `host`, a registry id (built in #400). The address comes from the host's
   `interweave_address`, so one move rewrites one field.
 - The countersignature covers `host`. Every row is re-countersigned once. The logins do not
@@ -456,8 +464,8 @@ State records (rule 16) go as direct sends to each host operator's address, on c
 | phase | what | done when | lane |
 |---|---|---|---|
 | P0 | CLI gaps G1-G4 and G6 merged, plus X1 and X2 ruled; a tagged release; `release.json` bumped (F1) | the pin points at a tag: **done 2026-10-28 (v0.2.0); F1 2026-11-18 (0.3.0)** | InterWeave holders via architect-cto; tagging is the owner's; the pin is the coordinator's |
-| P1 | `carrier_cli.py`, the control socket, the per-carrier part sizes and the control parity computation, behind `control_carrier: relay\|dual` (off by default); a two-account check like rule 13; then a dual run on every develop-qzapp account | the parity report is in `docs/live-checks/` and the owner has given the word: **dual on every account since 2026-11-13; the first report (2026-11-23-control-parity.md, 11-16..23) shows no parity: under dual the InterWeave leg missed 714 of 79,883 recorded replies, 693 of them no-waiter, causes not yet known; the word waits on a re-run, with an `interweave-stop` drill mid-window, after the no-waiter cause is closed and the 21 relay-only pairs are explained** | python-dev contributors (`tools/`, `runtime/control/`, `runtime/interweave/` are theirs in `policies/authority.json`); the ADR amendments are the coordinator's |
-| P2 | H2 registered (§3.2); the public forward up; the roster's `host` field and the render; a throwaway login on H2 doing ping and identity both ways plus one GZCoord message each way; F3 | the live check, and the GZCoord parity covers the off-host pair: **H2 registered 2026-11-11, to be reached directly on a public forward (ADR-064 rule 1, A 2026-11-14), not an overlay; the forward waits on the provider (j860). The `host` field lands with H2's first row, not before: develop-qzapp's rows stay hostless (owner 2026-11-24, choosing "Defer to j860"). H2's `operator_key`: the owner chose to mint one for `op` (2026-11-24); it waits on `op` holding a fabric checkout and an own store** | coordinator (registry, roster, provisioning, ADR-048 amendment); H2's operator; python-dev for the render and F3 |
+| P1 | `carrier_cli.py`, the control socket, the per-carrier part sizes and the control parity computation, behind `control_carrier: relay\|dual` (off by default); a two-account check like rule 13; then a dual run on every develop-qzapp account | the parity report is in `docs/live-checks/` and the owner has given the word: **dual on every account since 2026-11-13; the first measurement (2026-11-23-control-parity.md, 11-16..23), not yet rule 18's report, shows no parity: under dual the InterWeave leg missed 714 of 79,883 recorded replies, 693 of them no-waiter, causes not yet known; the word waits on a re-run, with an `interweave-stop` drill mid-window, after the no-waiter cause is closed and the 21 relay-only pairs are explained** | python-dev contributors (`tools/`, `runtime/control/`, `runtime/interweave/` are theirs in `policies/authority.json`); the ADR amendments are the coordinator's |
+| P2 | H2 registered (§3.2); the public forward up; the roster's `host` field and the render; a throwaway login on H2 doing ping and identity both ways plus one GZCoord message each way; F3 | the live check, and the GZCoord parity covers the off-host pair: **H2 registered 2026-11-11, to be reached directly on a public forward (ADR-064 rule 1, A 2026-11-14), not an overlay; the forward waits on the provider (j860). The `host` field lands with H2's first row, not before: develop-qzapp's rows stay hostless: asked whether all 30 rows should name their host now or defer to H2's first row (j860), the owner chose "Defer to j860" (2026-11-24). H2's `operator_key`: the owner chose to mint one for `op` (2026-11-24); it waits on `op` holding a fabric checkout and an own store** | coordinator (registry, roster, provisioning, ADR-048 amendment); H2's operator; python-dev for the render and F3 |
 | P3 | edge-hosting moves (§3.5) | `ping`, `identity`, `tools` and `status` answered from H2 over a week; no lost message in the arrival logs | coordinator; edge-hosting for step 1; the owner for retiring the old account |
 
 **What is measured throughout:**
@@ -609,7 +617,8 @@ ADR-064 rule 2 amendment and a render change, both when H2's first row is admitt
   before a second host)?
 - **Q2.** Where is H2? Does it share develop-qzapp's uplink or provider? That decides whether
   edge-hosting gains an independent vantage point.
-- **Q3.** WireGuard run by the operators, or a coordinated mesh?
+- **Q3 (moot since 2026-11-11).** WireGuard run by the operators, or a coordinated mesh? No
+  overlay is used (ADR-064 rule 1).
 - **Q4 (answered 2026-11-24).** Does H2 get its own operator key, so `fabric-ctl` could run there, or no signer at all?
   The owner, asked whether `op@fabric-h2` gets one: "Mint one for op@fabric-h2". It waits on `op` holding a fabric
   checkout and an own store.
