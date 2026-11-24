@@ -21,6 +21,7 @@ FLEET below. The hook makes no GitHub call: a commit must not wait on the networ
 owner's chosen trade (2026-11-24). Which source answered is always said.
 
 CLI (CI's leg, and a by-hand check):
+  branch_size.py ci                                      the pull request's range (GITHUB_EVENT_PATH), as ci() says
   branch_size.py check <base> <head> [--refuse-over N]   exit 1 and one line per commit lacking the trailer; 0 otherwise
 """
 from __future__ import annotations
@@ -182,6 +183,63 @@ def offenders(rows: list[Row], refuse_over: int) -> list[Row]:
     return [r for r in rows if r.count > refuse_over and r.count > r.parent_count and not OWNER_WORD.match(r.owner_word)]
 
 
+def count(base: str, heads: list[str], cwd: str | None = None) -> int:
+    """Work commits reachable from any of `heads` and not from `base`: the count a commit with those parents starts from."""
+    if not heads:
+        return 0
+    out = _git("log", "--no-merges", "--format=%(trailers:key=Kind,valueonly,separator=%x0a)%x1f"
+               "%(trailers:key=Answers,valueonly,separator=%x20)%x1e", *heads, f"^{base}", cwd=cwd)
+    n = 0
+    for rec in out.split("\x1e"):
+        if not rec.strip():
+            continue
+        kind, _, answers = rec.strip("\n").partition("\x1f")
+        n += _work(kind, answers, False)
+    return n
+
+
+def _trailers(msg_path: str, cwd: str | None = None) -> list[tuple[str, str]]:
+    out = _git("interpret-trailers", "--parse", msg_path, cwd=cwd)
+    return [(k.strip().lower(), v.strip()) for k, sep, v in (t.partition(":") for t in out.splitlines()) if sep]
+
+
+def hook(msg_path: str, amend: bool, merge_head: str = "", cwd: str | None = None) -> tuple[int, list[str]]:
+    """The commit-msg hook's judgement of the commit being made, after the Kind: stamp: (1, why) to refuse, (0, lines to
+    say) otherwise. Nothing to judge (no remote default branch, no HEAD yet, on the default branch itself): (0, [])."""
+    base = default_base(cwd)
+    try:
+        head = _git("rev-parse", "--verify", "--quiet", "HEAD", cwd=cwd).strip()
+    except RuntimeError:
+        return 0, []
+    if not base:
+        return 0, []
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd).strip()
+    if branch == base.rsplit("/", 1)[-1]:
+        return 0, []
+    if amend:
+        heads = _git("rev-list", "--parents", "-n", "1", head, cwd=cwd).split()[1:]
+    else:
+        heads = [head] + ([merge_head] if merge_head else [])
+    merging = len(heads) > 1
+    pairs = _trailers(msg_path, cwd)
+    kinds = [v for k, v in pairs if k == "kind"]
+    work = not merging and _work("\n".join(kinds), " ".join(v for k, v in pairs if k == "answers"), False)
+    before = count(base, heads[:1], cwd)
+    after = count(base, heads, cwd) + work
+    advice, refuse, src = thresholds(repository_of(cwd))
+    words = [v for k, v in pairs if k == "owner-word"]
+    if after > refuse and after > before and not (words and OWNER_WORD.match(words[-1])):
+        return 1, [f"commit-msg: this commit takes the branch to {after} work commits, over commits.refuse_over {refuse} "
+                   f"({src}). Land the branch first; past {refuse} a commit needs the owner's word in it, as a trailer",
+                   "  Owner-Word: <YYYY-MM-DD> \"<the owner's words>\"",
+                   "(agent-fabric ADR-019 §5 rule 4). A review fix (Answers:) is never refused."]
+    if after >= advice:
+        return 0, [f"commit-msg: the branch holds {after} work commits, at or over commits.advice_over {advice} ({src}): "
+                   f"land it before adding more; past {refuse} each commit that adds work needs an Owner-Word: trailer "
+                   f"(agent-fabric ADR-019 §5 rule 4)."]
+    return 0, []
+
+
 def check(base: str, head: str, refuse_over: int | None = None, cwd: str | None = None) -> int:
     if refuse_over is None:
         _, refuse_over, src = fleet()
@@ -195,7 +253,38 @@ def check(base: str, head: str, refuse_over: int | None = None, cwd: str | None 
     return 1 if bad else 0
 
 
+def ci(environ=os.environ) -> int:
+    """CI's leg: the PR's range from the event payload, judged against the fleet's refuse_over as the BASE commit holds it,
+    so a PR cannot raise its own limit. A workflow token cannot read a settings repository, so a repository's own
+    override is the gate's to hold (ADR-019 §5 rule 4). No range: said, and passed, as the attribution guard does."""
+    import ban_generated_by_attribution as attribution
+    rng = attribution.resolve_range(environ)
+    if rng is None:
+        print("branch_size: no commit range to judge (not a pull request, or a shallow clone): NOT ENFORCED here")
+        return 0
+    base, head = rng
+    top = _git("rev-parse", "--show-toplevel").strip()
+    rel = os.path.relpath(roots.policy("arming.json", engine=top), top)
+    try:
+        doc = json.loads(_git("show", f"{base}:{rel}"))
+        commits = doc.get("commits", {}) if isinstance(doc, dict) else {}
+        pair = _pair({**FLEET, **{k: commits[k] for k in FLEET if k in commits}})
+    except (RuntimeError, ValueError):
+        pair = None
+    refuse, src = (pair[1], f"{rel} at the base") if pair else (FLEET["refuse_over"], "built-in default")
+    rows = walk(base, head)
+    print(f"branch_size: {max((r.count for r in rows), default=0)} work commits in {base[:12]}..{head[:12]}, "
+          f"refuse_over {refuse} ({src})")
+    return check(base, head, refuse)
+
+
 def main(argv: list[str]) -> int:
+    if argv == ["ci"]:
+        try:
+            return ci()
+        except RuntimeError as e:
+            print(f"branch_size: {e}", file=sys.stderr)
+            return 1
     if len(argv) >= 3 and argv[0] == "check":
         n = None
         if len(argv) == 5 and argv[3] == "--refuse-over" and argv[4].isdigit():
