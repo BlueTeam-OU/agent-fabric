@@ -97,8 +97,8 @@ def main() -> int:
                                        "headRefOid": HEAD, "baseRefName": "main", "body": body, "files": files,
                                        "title": "the pr", "author": {"login": "gzbot"}}))
 
-        def set_gate(n: int | None, known: bool | None = True, head: str | None = HEAD[:8]) -> None:
-            row: dict = {"number": 7, "checks": "green"}
+        def set_gate(n: int | None, known: bool | None = True, head: str | None = HEAD[:8], no_word: object = ()) -> None:
+            row: dict = {"number": 7, "checks": "green", "no_owner_word": no_word if isinstance(no_word, str) else list(no_word)}
             if head is not None:
                 row["head"] = head
             if n is not None or known is not None:
@@ -665,7 +665,7 @@ def main() -> int:
         no_ci = dict(direct, required_checks=[])
         for reviewed, files, approval in ((False, rec, "the owner's ruling"), (True, ["docs/a.md"], "the review of its head")):
             reset(reviewed=reviewed); set_pr(me, "plain", files)
-            put("gate.json", json.dumps([{"number": 7, "checks": "none-yet", "head": HEAD[:8], "work_commits": 1, "commits_known": True}]))
+            put("gate.json", json.dumps([{"number": 7, "checks": "none-yet", "head": HEAD[:8], "work_commits": 1, "commits_known": True, "no_owner_word": []}]))
             rc, out = run("7", "--basis", owner, "--dry-run", env=renv, policy=no_ci)
             check(f"no check on the head of a {'reviewed PR' if reviewed else 'record PR'} on a direct repository with no CI:"
                   f" it merges on {approval} alone (#488 round 1 F2)",
@@ -1173,7 +1173,7 @@ def main() -> int:
         check("…naming the file outside the class", "Gzapp.Core/Thing.cs" in out, out)
         reset(); set_pr("develop-qzapp/me/docs/x", "Class: docs-only", ["docs/a.md"]); set_gate(20)
         rc, out = run("7", "--basis", "b")
-        check("over 16 under a class: armed with the advice said", rc == 0 and "over 16: smaller batches next time" in out, out)
+        check("over 16 under a class: armed with the advice said", rc == 0 and "at or over commits.advice_over 16: the branch should have landed" in out, out)
         reset(); set_pr(me, "Class: docs-only", ["apps/backend_dotnet/src/Gzapp.Infrastructure/Auth/DriverIdentity.cs"]); set_gate(2)
         put("review_rc", "0")
         rc, out = run("7", "--basis", "b"); check("a boundary file under a stated docs-only class: refused", rc == 1, out)
@@ -1189,7 +1189,7 @@ def main() -> int:
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(17)
         rc, out = run("7", "--basis", "b")
         check("17 work commits: armed with the advice said",
-              rc == 0 and "17 work commits — over 16: smaller batches next time; arming on the basis given" in out, out)
+              rc == 0 and "17 work commits — at or over commits.advice_over 16: the branch should have landed before more was added; arming on the basis given" in out, out)
         check("…and the comment carries the count", "pr comment 7 --body Arming basis: b — 17 work commits, head" in calls(), calls())
         reset(); set_gate(5)
         rc, out = run("7", "--basis", "five commits, all docs")
@@ -1209,6 +1209,15 @@ def main() -> int:
         reset(); set_gate(0, None)
         rc, out = run("7", "--basis", "on the owner's word")
         check("a row with no commits_known field is not trusted either", rc == 2, out)
+
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(40, no_word=["f" * 40])
+        rc, out = run("7", "--basis", "the owner's word, arm it")
+        check("a commit past refuse_over with no Owner-Word trailer: exit 1 whatever the basis, the sha and refuse_over named",
+              rc == 1 and "ffffffffffff" in out and "commits.refuse_over 32" in out and "no basis lifts it" in out, out)
+        check("…and nothing was armed", "pr merge" not in calls(), calls())
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(40, no_word="git log: bad")
+        rc, out = run("7", "--basis", "b")
+        check("a branch the gate could not walk: exit 2, not armed on a guess", rc == 2 and "could not walk" in out, out)
 
         print("arm: the arming path and the dry run")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)

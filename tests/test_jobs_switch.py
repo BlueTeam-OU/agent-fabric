@@ -1068,7 +1068,7 @@ def main() -> int:
                 def count_rows(refs):
                     return [row]
             saved = branching._load
-            branching._load = lambda name, path: Counts
+            branching._load = lambda name, path: Counts if name == "fabric_pr_counts" else saved(name, path)
             try:
                 return real_addable("o/r", 7)
             finally:

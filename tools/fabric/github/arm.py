@@ -325,7 +325,8 @@ What it refuses, in order, and why:
      the default numbers of the repository's arming policy, tools/fabric/
      github/arm_policy.py: the fleet's, with the settings repository's file for
      the repository over it; one that cannot be read is exit 2): 8 or more arms at the
-     review gate; over 16 is ADVICE for the next batch, never a refusal; under
+     review gate; at or over commits.advice_over the branch should have landed before
+     more was added (said, not refused; gate 5b refuses what lacks its Owner-Word); under
      8 is armed on the owner's word — the --basis must carry the phrase
      "owner's word" — or, where the policy names commits.below_min_authority,
      that role's (THE WORD OF A ROLE UNDER THE MINIMUM above) — EXCEPT a class the project's arm.json lets arm at
@@ -341,6 +342,11 @@ What it refuses, in order, and why:
      A record PR (gate 4) arms only on the owner's word, at any count: no role's word or authorization stands in, and
      an --authorization beside the word is read as it relayed.
      (8 and 16 are the default numbers; the policy's, read as THE ARMING POLICY above, are the ones applied.)
+
+  5b. a branch past commits.refuse_over (the live policy's) with a commit that
+     raised its count and carries no `Owner-Word: <YYYY-MM-DD> "<words>"` trailer
+     (agent-fabric ADR-019 §5 rule 4): refused naming each such commit; no basis
+     lifts it, the owner's word at arming is not the trailer on the commit;
 
   6. the checks, on a repository with no required check (and on a direct one): every check on the head
      must be green. A direct repository whose policy names no required check merges with no check on
@@ -1281,10 +1287,22 @@ def arm(argv: list[str]) -> int:
     if gate_head != head[:8]:
         raise refuse(f"pr-gate read head {gate_head}, and the other gates {head[:8]}: a push landed while they ran;"
                      f" review the new range, then arm again")
-    # Over the policy's advice_over (16) is advice for the NEXT batch, never a gate at arming time
-    # nor a reorganisation of the open PR.
-    if work > advice_over:
-        say(f"{work} work commits — over {advice_over}: smaller batches next time; arming on the basis given")
+    # ADR-019 §5 rule 4: past commits.refuse_over each commit that raised the count carries its own Owner-Word
+    # trailer. Arming is a later, separate word, so no basis lifts this: it would stand in for a trailer the commit
+    # hook already refused to let through. The policy is the live one this run loaded, as the gate judged by.
+    no_word = row.get("no_owner_word")
+    if isinstance(no_word, str):
+        raise Unanswered(f"pr-gate could not walk #{num}'s branch ({no_word}); the Owner-Word rule is not applied to a guess")
+    if not isinstance(no_word, list):
+        raise Unanswered(f"pr-gate reported no Owner-Word reading for #{num}")
+    if no_word:
+        raise refuse(f"over commits.refuse_over {policy['commits']['refuse_over']}, no Owner-Word: <YYYY-MM-DD> \"<the owner's"
+                     f" words>\" trailer on {', '.join(str(sha)[:12] for sha in no_word)}; no basis lifts it, each commit"
+                     f" carries its own (ADR-019 §5 rule 4) — land the branch smaller, or have the owner's word recorded on them")
+    # At or over advice_over the branch should have landed before more was added: said, never refused here.
+    if work >= advice_over:
+        say(f"{work} work commits — at or over commits.advice_over {advice_over}: the branch should have landed before more"
+            f" was added; arming on the basis given")
     cls = stated_class(body, classes)
     if cls:
         offlist = [f for f in files if not classes[cls].search(f)]
@@ -1403,7 +1421,7 @@ def arm(argv: list[str]) -> int:
     elif work < min_work:
         say(f"count rule: {work} work commits — under {min_work}, arms at the gate as {cls}" if cls and not boundary_unwaived
             else f"count rule: {work} work commits — under {min_work}, on the owner's word")
-    elif work <= advice_over:
+    elif work < advice_over:
         say(f"count rule: {work} work commits — {min_work} or more, arms at the review gate")
 
     # A repository with no required check has nothing server-side that makes the merge wait for green: arm waits

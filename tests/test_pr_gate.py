@@ -47,10 +47,18 @@ def main() -> int:
     check("7 work: ask the owner", v(7).startswith("MERGEABLE — ask the owner (7 work commits < 8)"))
     check("8 work: arm", v(8).startswith("MERGEABLE — arm: post the basis (8 work commits"))
     check("15 work: arm", v(15).startswith("MERGEABLE — arm: post the basis (15 work commits"))
-    check("16 work: at advice_over, the branch lands before more is added",
-          v(16).startswith("MERGEABLE — 16 work commits, at or over commits.advice_over 16: this branch lands before more is added"))
-    check("17 work: the same line", v(17).startswith("MERGEABLE — 17 work commits, at or over commits.advice_over 16"))
-    check("15 work: no such line (control)", "advice_over" not in v(15) and "lands before" not in v(15))
+    # The advice line compares the branch's own count (branch_size's, folds included), not the arming count: the two differ
+    # by what a fold brings and what a fix removes.
+    vs = lambda w, size: pr_gate.verdict(1, "main", False, commits(w), CLEAR, REVIEWED, [], None, False, [], size)  # noqa: E731
+    check("branch count 16: at advice_over, the branch lands before more is added, and the count is said",
+          vs(10, 16).startswith("MERGEABLE — the branch holds 16 work commits (arming count 10), at or over commits.advice_over 16: "
+                                "this branch lands before more is added"))
+    check("branch count 17 with arming count 17: the same line", vs(17, 17).startswith("MERGEABLE — the branch holds 17 work commits (arming count 17), at or over commits.advice_over 16"))
+    check("branch count 15 whatever the arming count: no such line (control)",
+          "advice_over" not in vs(20, 15) and "lands before" not in vs(20, 15) and vs(20, 15).startswith("MERGEABLE — arm"))
+    unread = pr_gate.verdict(1, "main", False, commits(20), CLEAR, REVIEWED, [], None, False, "git log: bad", "git log: bad")
+    check("an unreadable walk blocks and says so, never the arming count's advice line",
+          unread.startswith("BLOCKED: the branch's size could not be read") and "advice_over" not in unread)
     check("unknown commits: by hand", pr_gate.verdict(1, "main", False, None, CLEAR, REVIEWED, [])
           .startswith("MERGEABLE — commits unknown"))
     check("a queue position wins over every block",
@@ -471,14 +479,17 @@ def main() -> int:
         head = g("rev-parse", "HEAD").stdout.strip()
         cwd = os.getcwd(); os.chdir(tmp)
         try:
-            bad = pr_gate.unworded("main", head, dict(pol, commits=dict(pol["commits"], refuse_over=2)))
-            ok = pr_gate.unworded("main", head, dict(pol, commits=dict(pol["commits"], refuse_over=5)))
-            err = pr_gate.unworded("main", "f" * 40, pol)
+            rows = pr_gate.branch_rows("main", head)
+            bad = pr_gate.unworded(rows, dict(pol, commits=dict(pol["commits"], refuse_over=2)))
+            ok = pr_gate.unworded(rows, dict(pol, commits=dict(pol["commits"], refuse_over=5)))
+            err = pr_gate.unworded(pr_gate.branch_rows("main", "f" * 40), pol)
+            size = pr_gate.branch_count(rows)
         finally:
             os.chdir(cwd)
         check("a real branch: the commits over 2 lacking the word, the worded one passes", [r.count for r in bad] == [3, 5])
         check("...refuse_over 5: none (control)", ok == [])
         check("...a head the clone lacks: the reason, a string", isinstance(err, str) and err)
+        check("the branch's count is the highest of the walk's, the same walk the offenders came from", size == 5)
     finally:
         shutil.rmtree(tmp, True)
 
