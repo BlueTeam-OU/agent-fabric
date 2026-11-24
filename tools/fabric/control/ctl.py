@@ -2443,7 +2443,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     # Kept before the session is closed or dropped: it says, per account, whether the send certainly never reached the child.
     # With no session at all there is no per-account reason, and `maybe_handed` says whether anything could have been sent.
     if arrivals is not None and session is None:
-        # No InterWeave session at all: whatever the accounts answer on that carrier reaches no waiter, which is no miss of
+        # No session with the second carrier at all: whatever the accounts answer on it reaches no waiter, which is no miss of
         # the carrier's own (alone, this run says nothing was sent). The parity report reads this line to say so (j160).
         arrivals.add(link.VIA, request, "no-session", me["address"])
     send_why = dict(session.sent) if session is not None else {}
