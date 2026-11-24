@@ -5,6 +5,7 @@
     ev.files()     -> list of GitHub's file objects, or Incomplete
     ev.commits()   -> list of GitHub's commit objects, or Incomplete
     ev.has_commit(sha) -> True, False, or Incomplete
+    beyond_cut_refusal(...) -> why a sha is not known a commit of a PR whose commit list is cut, or "" (by ancestry; compare)
 
 GitHub lists at most common.PR_FILE_LIST_CAP files and common.PR_COMMIT_LIST_CAP commits of a pull request, paginated
 or not, and stops there WITHOUT an error. A list of exactly the cap length may therefore be the first part of a longer
@@ -36,7 +37,7 @@ class Incomplete:
     what: str      # "files" or "commits"
     count: int
     cap: int
-    # What was listed, for the one reader that says it read a PR in part (results.py); a gate never judges on it.
+    # What was listed, for the readers of a cut list: results.py says it read a PR in part, and review_checkpoint reads a head in the listed part as a member (a sha listed is listed, as has_commit); a gate never judges a PR absent on it.
     partial: tuple = field(default=(), compare=False, repr=False)
 
     @property
@@ -88,7 +89,7 @@ def compare(repo: str, spec: str, what: str) -> tuple[str, int]:
     return status, int(ahead)
 
 
-def beyond_cut_refusal(repo: str, pr: str, sha: str, head: str, base_branch: str, cut: evidence.Incomplete) -> str:
+def beyond_cut_refusal(repo: str, pr: str, sha: str, head: str, base_branch: str, cut: Incomplete) -> str:
     """Why sha is not known to be a commit of a PR whose commit list GitHub cut at `cut.count`, or "": it is one iff it
     is an ancestor of the PR's current head (compare sha...head is ahead or identical) and not on the base branch
     (compare base...sha is ahead by more than 0). FAILS CLOSED: a read that fails, or any other status, refuses.
