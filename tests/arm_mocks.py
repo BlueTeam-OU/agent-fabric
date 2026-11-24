@@ -138,12 +138,17 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         if has("mergefail"):
             # gh's failure on a PR GitHub merges anyway (agent-fabric #237): the state files say what reads back.
             return 1, "", "GraphQL: Merge already in progress (mergePullRequest)"
+        if has("cleanrefuse"):
+            # GitHub 2026-11-24 (#696): a CLEAN green PR refuses --auto and merges nothing.
+            return 1, "", "GraphQL: Pull request Pull request is in clean status (enablePullRequestAutoMerge)"
         if not has("noarm"):
             open(os.path.join(s, "armed"), "w").close()
         return 0, "", ""
     # A direct repository's merge (no --auto): it lands at once and reads merged, or with `direct_reads_armed` a
     # PR the API still reads armed (the read-back must not take that for a merge).
     if line == "pr merge 7 --merge --match-head-commit abcdef0123456789abcdef0123456789abcdef01":
+        if has("directfail"):
+            return 1, "", "GraphQL: base branch policy prohibits the merge"
         open(os.path.join(s, "armed" if has("direct_reads_armed") else "merged"), "w").close()
         return 0, "", ""
     return 1, "", "mock gh: unhandled: " + line

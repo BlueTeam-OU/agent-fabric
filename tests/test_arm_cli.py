@@ -82,7 +82,7 @@ def main() -> int:
             """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
-                      "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
+                      "mergefail", "cleanrefuse", "directfail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos", "modes.json", "trees_fail",
                       "whoami.json", "armed_status", "status_read_fail", "sticky",
                       "mutationfail", "commentfail", "merges_on_disarm", "direct_reads_armed"):
@@ -1330,6 +1330,24 @@ def main() -> int:
         check("gh pr merge fails, idle, the head not in the base: exit 2, the failure named",
               rc == 2 and "reads 'idle'" in out and "failed: GraphQL: Merge already in progress" in out
               and "MERGED #7" not in out, out)
+        print("arm: --auto refused as already clean (#696, 2026-11-24)")
+        reset(); put("cleanrefuse", "")
+        rc, out = run("7", "--basis", "b")
+        check("--auto refused for clean status, idle on the head: merged directly, pinned, exit 0",
+              rc == 0 and "MERGED #7" in out and calls().count(f"pr merge 7 --merge --auto --match-head-commit {HEAD}") == 1
+              and calls().count(f"pr merge 7 --merge --match-head-commit {HEAD}") == 1, out + calls())
+        reset(); put("cleanrefuse", ""); put("directfail", "")
+        rc, out = run("7", "--basis", "b")
+        check("…a direct merge that fails too: exit 2, both failures named",
+              rc == 2 and "is in clean status" in out and "the direct gh pr merge failed too" in out, out)
+        reset(); put("mergefail", "")
+        rc, out = run("7", "--basis", "b")
+        check("control: another --auto failure does not trigger the direct merge",
+              rc == 2 and f"pr merge 7 --merge --match-head-commit {HEAD}" not in calls(), out + calls())
+        reset(); put("cleanrefuse", ""); put("armed", "")
+        rc, out = run("7", "--basis", "b")
+        check("…nor does the clean refusal on a PR already reading armed",
+              rc == 0 and "ARMED #7" in out and f"pr merge 7 --merge --match-head-commit {HEAD}" not in calls(), out + calls())
         reset(); put("mergefail", ""); put("unasked", "")
         rc, out = run("7", "--basis", "b")
         check("…and when git could not be asked, that is said beside the exit 2",

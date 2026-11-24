@@ -429,6 +429,8 @@ ROLE_TRAILER = re.compile(r"^Fabric-Role:[ \t]*([a-z][a-z0-9-]*)[ \t]*$", re.M)
 # GitHub cuts a status description at 140 characters.
 ARMED_DESCRIPTION = "Armed through fabric-pr arm: this head passed its gates"
 # The merge method as the flag gh takes: a fixed table, not the policy's text put into an argument.
+# gh's text when GitHub declines --auto on a PR that needs no waiting (enablePullRequestAutoMerge).
+CLEAN_STATUS_REFUSAL = "is in clean status"
 MERGE_FLAGS = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}
 
 
@@ -1518,30 +1520,49 @@ def arm(argv: list[str]) -> int:
     # that head: an armed or queued PR read on another one is not.
     # `merged` is its own flag, never a value of `armed`: a state read
     # back lowercased would otherwise stand for the merge it is not.
-    merged, armed = False, "unknown"
-    # Whether the PR API's answer may be lagging a merge: it reads open on the head the gates read, or reads nothing.
-    # Merged or open on another head is an answer about another head, and closed is not a lag.
-    may_lag = True
-    try:
-        d = gh.graphql("query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){pullRequest(number:$num)"
-                       "{state headRefOid autoMergeRequest{enabledAt} mergeQueueEntry{position}}}}",
-                       o=owner, n=name, num=int(num))
-        p = d["repository"]["pullRequest"]
-        state, read_head = p["state"], str(p["headRefOid"])
-        may_lag = state == "OPEN" and read_head == head
-        if state == "MERGED" and read_head == head:
-            merged = True
-        elif state == "MERGED":
-            armed = f"merged at {read_head[:8]}, not {head[:8]}"
-        elif state != "OPEN":
-            armed = f"state {state}"
-        elif read_head != head:
-            armed = f"open at {read_head[:8]}, not {head[:8]}"
-        else:
-            armed = (f"queued at {p['mergeQueueEntry']['position']}" if p.get("mergeQueueEntry")
-                     else "armed" if p.get("autoMergeRequest") else "idle")
-    except (gh.GhError, KeyError, TypeError):
-        armed = "unknown"
+    def read_back() -> tuple[bool, str, bool]:
+        # One read of the PR: (merged on the head the gates read, what it reads, whether the answer may lag).
+        merged, armed = False, "unknown"
+        # Whether the PR API's answer may be lagging a merge: it reads open on the head the gates read, or reads nothing.
+        # Merged or open on another head is an answer about another head, and closed is not a lag.
+        may_lag = True
+        try:
+            d = gh.graphql("query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){pullRequest(number:$num)"
+                           "{state headRefOid autoMergeRequest{enabledAt} mergeQueueEntry{position}}}}",
+                           o=owner, n=name, num=int(num))
+            p = d["repository"]["pullRequest"]
+            state, read_head = p["state"], str(p["headRefOid"])
+            may_lag = state == "OPEN" and read_head == head
+            if state == "MERGED" and read_head == head:
+                merged = True
+            elif state == "MERGED":
+                armed = f"merged at {read_head[:8]}, not {head[:8]}"
+            elif state != "OPEN":
+                armed = f"state {state}"
+            elif read_head != head:
+                armed = f"open at {read_head[:8]}, not {head[:8]}"
+            else:
+                armed = (f"queued at {p['mergeQueueEntry']['position']}" if p.get("mergeQueueEntry")
+                         else "armed" if p.get("autoMergeRequest") else "idle")
+        except (gh.GhError, KeyError, TypeError):
+            armed = "unknown"
+        return merged, armed, may_lag
+
+    merged, armed, may_lag = read_back()
+    # GitHub refuses --auto on a PR already CLEAN and green ("Pull request is in clean status"), and merges nothing
+    # (2026-11-24, #696): the gates above are the hold, so the merge happens now, on the same head. Only that
+    # refusal and only a PR read open on the gated head with no arming and no queue entry: any other failure keeps
+    # the read-back to judge it.
+    if (not merged and armed == "idle" and policy["mode"] != "direct" and CLEAN_STATUS_REFUSAL in failed):
+        direct = [a for a in merge_args if a != "--auto"]
+        try:
+            gh.run(["pr", "merge", num, *direct], what=f"gh pr merge {num}")
+            say(f"gh pr merge --auto refused #{num} as already clean; merged it directly on {head[:8]}")
+            failed = ""
+        except gh.GhError as e:
+            failed += f" (the direct gh pr merge failed too: {e.reason})"
+            say(f"direct gh pr merge failed on #{num} ({e.reason}) — reading the PR back before judging")
+        merged, armed, may_lag = read_back()
     # The read-back follows the policy's mode: a queue repository queues a green PR, an auto-merge one arms it. A
     # queue where the policy says auto is said, not refused: the PR is in and the repository is what drifted.
     if policy["mode"] == "auto" and armed.startswith("queued"):
