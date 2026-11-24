@@ -137,6 +137,18 @@ class LateAndNoSession(unittest.TestCase):
         rep = run([no_to, no_from, no_to_agentd])
         self.assertEqual((rep["skipped"], rep["pairs"]), (3, []))
 
+    def test_lines_lacking_who_kind_or_a_no_session_id_are_skipped_not_read_as_an_absence(self):
+        relay = got("r1", A, "relay", 2)
+        base = [{**sent("r1", 0, [A]), "timeout_s": 20}]
+        no_id = {"t": iso(0), "who": "ctl", "carrier": "interweave", "kind": "request", "from": OP, "op": "ping", "verdict": "no-session"}
+        for bad in ({k: v for k, v in relay.items() if k != "who"}, {k: v for k, v in relay.items() if k != "kind"}, no_id):
+            self.assertEqual(run(base + [bad])["skipped"], 1, bad)
+
+    def test_an_integer_too_large_for_a_float_is_a_malformed_timeout_never_a_crash(self):
+        line = {**sent("r1", 0, [A]), "timeout_s": 10 ** 400}
+        rep = run([line, got("r1", A, "relay", 2)])
+        self.assertEqual(rep["malformed_timeout"], 1)
+
     def test_a_fractional_timeout_is_read_in_whole_seconds(self):
         # a reply at real 10.6 s against --timeout 10.5 logs as 10 s: a miss, not late
         rep = late_case(10, timeout_s=10.5)

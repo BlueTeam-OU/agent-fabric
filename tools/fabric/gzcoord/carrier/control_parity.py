@@ -99,6 +99,13 @@ def percentile(values: list[float], p: float) -> float | None:
     return s[max(0, math.ceil(p / 100 * len(s)) - 1)]
 
 
+def _finite(x: int | float) -> bool:
+    try:
+        return math.isfinite(x)
+    except OverflowError:      # an integer too large for a float: json.loads accepts it, math.isfinite does not
+        return False
+
+
 def _is_str(x: Any) -> bool:
     return isinstance(x, str) and bool(x)
 
@@ -120,19 +127,25 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
             who, kind, rid, verdict, carrier = r.get("who"), r.get("kind"), r.get("id"), r.get("verdict"), r.get("carrier")
             if login != operator:
                 continue
+            if who not in ("ctl", "agentd") or not isinstance(kind, str):
+                skipped += 1       # a line that names neither its writer nor its kind cannot be read as anything, and is not an absence
+                continue
             if who == "ctl" and kind == "request" and isinstance(verdict, str) and verdict.startswith("sent"):
                 to = r.get("to")
                 if not (_is_str(rid) and isinstance(to, list) and to and all(_is_str(x) for x in to)):
                     skipped += 1       # a request that names no addressee leaves the report: said, not read as no request
                     continue
                 tmo = r.get("timeout_s")
-                valid = isinstance(tmo, (int, float)) and not isinstance(tmo, bool) and math.isfinite(tmo) and tmo > 0
+                valid = isinstance(tmo, (int, float)) and not isinstance(tmo, bool) and _finite(tmo) and tmo > 0
                 if rid not in requests:
                     if "timeout_s" in r and not valid:
                         bad_timeout += 1       # kept as "no timeout" (the conservative reading), but said so
                     requests[rid] = {"t": r["_t"], "to": list(to), "alone": verdict == "sent-alone", "op": r.get("op"),
                                      "timeout_s": tmo if valid else None}
-            elif who == "ctl" and kind == "request" and _is_str(rid) and verdict in ("no-session", "session-lost"):
+            elif who == "ctl" and kind == "request" and verdict in ("no-session", "session-lost"):
+                if not _is_str(rid):
+                    skipped += 1
+                    continue
                 (no_session if verdict == "no-session" else lost_session).add(rid)
             elif kind == "reply" and who in ("ctl", "agentd") and not (_is_str(r.get("in_reply_to")) and _is_str(r.get("from")) and carrier in CARRIERS):
                 skipped += 1
