@@ -462,39 +462,9 @@ def adjudication_refusal(repo: str, pr: str, marker: review_coverage.Marker, bod
     return ""
 
 
-def _compare(repo: str, spec: str, what: str) -> tuple[str, int]:
-    """(status, ahead_by) of GitHub's compare for `spec` (base...head). Raises gh.GhError, or ValueError when the
-    answer is not the two fields: unknown is never a default status."""
-    out = gh.run(["api", f"repos/{repo}/compare/{spec}?per_page=1", "--jq", '[.status, (.ahead_by | tostring)] | join(" ")'],
-                 what=f"gh api GET repos/{repo}/compare ({what})")
-    status, _, ahead = out.strip().partition(" ")
-    if not status or not ahead.isdigit():
-        raise ValueError(f"the compare answer for {what} is unreadable")
-    return status, int(ahead)
-
-
-def _beyond_cut_refusal(repo: str, pr: str, sha: str, head: str, base_branch: str, cut: evidence.Incomplete) -> str:
-    """Why sha is not known to be a commit of a PR whose commit list GitHub cut at `cut.count`, or "": it is one iff it
-    is an ancestor of the PR's current head (compare sha...head is ahead or identical) and not on the base branch
-    (compare base...sha is ahead by more than 0). FAILS CLOSED: a read that fails, or any other status, refuses.
-    Membership is decided here by ancestry because the list that would say it directly is the one that is cut."""
-    checked = (f"GitHub lists {cut.count} commits of PR #{pr}, a list it cuts there; checked instead that "
-               f"{sha[:12]} is an ancestor of the head {head[:12]} and not on {base_branch}")
-    try:
-        status, _ = _compare(repo, f"{sha}...{head}", "ancestor of the head")
-        if status not in ("ahead", "identical"):
-            return f"{sha[:12]} is not a commit of PR #{pr}: {checked}, but compare says '{status}'"
-        _, on_top_of_base = _compare(repo, f"{quote(base_branch, safe='/')}...{sha}", "off the base")
-    except (gh.GhError, ValueError) as e:
-        return f"{sha[:12]} cannot be shown a commit of PR #{pr}: {checked}, but the compare failed ({getattr(e, 'reason', e)})"
-    if on_top_of_base == 0:
-        return f"{sha[:12]} is not a commit of PR #{pr}: {checked}, but it is already on {base_branch}"
-    return ""
-
-
 def pr_commit_refusal(repo: str, pr: str, sha: str, head: str, base_branch: str) -> str:
     """Why sha is not known to be a commit of the PR, or "" when it is. FAILS CLOSED, as locale_only: a list not
-    read does not say the sha is in it, and one GitHub cut is decided by ancestry (_beyond_cut_refusal)."""
+    read does not say the sha is in it, and one GitHub cut is decided by ancestry (evidence.beyond_cut_refusal)."""
     try:
         listed = evidence.PrEvidence(repo, pr).has_commit(sha)
     except gh.GhError:
@@ -502,7 +472,7 @@ def pr_commit_refusal(repo: str, pr: str, sha: str, head: str, base_branch: str)
     if listed is True:
         return ""
     if isinstance(listed, evidence.Incomplete):
-        return _beyond_cut_refusal(repo, pr, sha, head, base_branch, listed)
+        return evidence.beyond_cut_refusal(repo, pr, sha, head, base_branch, listed)
     return f"{sha[:12]} is not a commit of PR #{pr} (a force-push may have dropped it)"
 
 

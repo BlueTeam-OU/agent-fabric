@@ -8,7 +8,8 @@ the checkpoint review's posted body is the previous report (ADR-065 §2 C). The 
 review on the PR when EVERY check holds, and None, a full review, on any doubt: the review is not by an account
 pr_review_status trusts (the PR's author, AGENT_FABRIC_REVIEW_POSTERS, and on an app's PR the account gh acts as:
 review_posters), its marker or block does not read, a path is "not read" (a partial review is no checkpoint: the paths
-it skipped would never be read), its marker names another commit than it is on, its head is not a commit of the PR or
+it skipped would never be read), its marker names another commit than it is on, its head is not a commit of the PR (in a commit list GitHub cut, decided by
+ancestry: evidence.beyond_cut_refusal; a failed read is a doubt) or
 not an ancestor of `current_head` (a force-push), its base is not an ancestor of its head, its config differs from
 `config_for(its card)`, or any lookup failed. Never a default: an API error is not "no review yet", it is "not known", which the caller reads as a full review.
 
@@ -73,7 +74,7 @@ def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: s
                 exclude_head: str | None = None):
     repo = repo or gh.this_repo(cwd)
     cfg = read_config(environ)
-    meta = gh.pr_view(pr, ["author"], repo=repo)
+    meta = gh.pr_view(pr, ["author", "baseRefName"], repo=repo)
     author = (meta.get("author") or {}).get("login")
     if not isinstance(author, str) or not author:
         return None
@@ -98,8 +99,13 @@ def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: s
     if newest.get("commit_id") != marker.head:
         return None
     commits = evidence.PrEvidence(repo, pr).commits(polled=True)
-    if isinstance(commits, evidence.Incomplete) or not any(isinstance(c, dict) and c.get("sha") == marker.head for c in commits):
-        return None
+    if not any(isinstance(c, dict) and c.get("sha") == marker.head for c in (commits.partial if isinstance(commits, evidence.Incomplete) else commits)):
+        # Not in the listed part: absent from a whole list, but unknown from a cut one, which ancestry decides.
+        base_branch = meta.get("baseRefName")
+        if not isinstance(commits, evidence.Incomplete) or not isinstance(base_branch, str) or not base_branch:
+            return None
+        if evidence.beyond_cut_refusal(repo, str(pr), marker.head, current_head, base_branch, commits):
+            return None
     if not review_coverage.is_ancestor(cwd, marker.head, current_head):
         return None
     if not review_coverage.is_ancestor(cwd, marker.base, marker.head):
