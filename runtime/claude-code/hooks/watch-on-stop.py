@@ -126,13 +126,19 @@ def harness_pid(procs: dict, pid: int) -> int | None:
     return session_proc().nearest_session_in(table, pid)
 
 
+_inbox_watch = None
+
+
 def is_watch(cmd) -> bool:
-    # One predicate with session-start.py, loaded by path (inbox-watch.py).
-    spec = importlib.util.spec_from_file_location(
-        "fabric_inbox_watch", os.path.join(os.path.dirname(os.path.abspath(__file__)), "inbox-watch.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.is_watch(cmd)
+    # One predicate with session-start.py, loaded by path (inbox-watch.py), and loaded once: has_watch asks
+    # it of every process (about 1,500 on a busy host), and a load each cost ~0.35 s of the PostToolUse nudge's read.
+    global _inbox_watch
+    if _inbox_watch is None:
+        spec = importlib.util.spec_from_file_location(
+            "fabric_inbox_watch", os.path.join(os.path.dirname(os.path.abspath(__file__)), "inbox-watch.py"))
+        _inbox_watch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_inbox_watch)
+    return _inbox_watch.is_watch(cmd)
 
 
 def has_watch(procs: dict, session: int, run_dir: str | None = None) -> bool:
