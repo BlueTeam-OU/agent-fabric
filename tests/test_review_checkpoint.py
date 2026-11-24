@@ -77,6 +77,7 @@ def main() -> int:
                     "submitted_at": at, "body": text}
 
         seen: list[str] = []
+        asked: list[str] = []
         bodies: list[str | None] = []
 
         def config_for(card: str) -> str:
@@ -84,7 +85,7 @@ def main() -> int:
             return CONFIG
 
         def ask(reviews, *, current=c2, listed=None, cfg=config_for, author="me", cwd=tmp, environ=None, pr_error=None,
-                list_error=None, commits_error=None, over_cap=False, exclude_head=None, push_account=None):
+                list_error=None, commits_error=None, over_cap=False, exclude_head=None, push_account=None, compares=None, base="main"):
             commits = [{"sha": c} for c in (listed if listed is not None else (c1, c2))]
 
             def api_list(path, **kw):
@@ -99,7 +100,16 @@ def main() -> int:
             def pr_view(number, fields, **kw):
                 if pr_error:
                     raise pr_error
-                return {"author": author if isinstance(author, dict) else {"login": author}}
+                return {"author": author if isinstance(author, dict) else {"login": author}, "baseRefName": base}
+
+            def run(args, **kw):
+                # GitHub's compare, answered per spec from `compares` ("status ahead_by" or an error): the two asks of a cut list.
+                spec = args[1].split("/compare/")[1].split("?")[0]
+                asked.append(spec)
+                answer = (compares or {}).get(spec.split("...")[0] if spec.startswith(c1) else "base")
+                if answer is None or isinstance(answer, Exception):
+                    raise answer or gh.GhError("gh api", "HTTP 502", 502, True)
+                return answer
 
             def api(path, **kw):
                 # `gh api user`, whom gh acts as: the push account an app's PR reads, or GitHub cannot say.
@@ -109,7 +119,7 @@ def main() -> int:
 
             review_posters.push_account.cache_clear()
             with mock.patch.object(cp.gh, "api_list", api_list), mock.patch.object(cp.gh, "pr_view", pr_view), \
-                    mock.patch.object(cp.gh, "api", api):
+                    mock.patch.object(cp.gh, "api", api), mock.patch.object(cp.gh, "run", run):
                 kw = dict(repo="o/r", cwd=cwd, environ={} if environ is None else environ, exclude_head=exclude_head)
                 found = cp.last_checkpoint(7, current, cfg, **kw)
                 with_body = cp.last_checkpoint_review(7, current, cfg, **kw)
@@ -196,7 +206,8 @@ def main() -> int:
         check("no coverage block", ask([rv(body().split("```")[0])]) is None)
         check("a marker naming another head than the review is on", ask([rv(body(), commit_id=c2)]) is None)
         check("a head that is not a commit of the PR", ask([rv(body())], listed=(c2,)) is None)
-        check("a commit list GitHub may have cut", ask([rv(body())], listed=[c1] + [f"{i:040x}" for i in range(common.PR_COMMIT_LIST_CAP)]) is None)
+        check("a commit list GitHub cut that lists the head: listed is listed (evidence.has_commit's rule)",
+              ask([rv(body())], listed=[c1] + [f"{i:040x}" for i in range(common.PR_COMMIT_LIST_CAP)]) == (c0, c1, CARD))
         check("a force-push: the head is no ancestor of the PR's head now", ask([rv(body())], current=forced) is None)
         check("a base that is not an ancestor of the head", ask([rv(body(base=forced))]) is None)
         check("a config that changed since", ask([rv(body())], cfg=lambda card: "7" * 64) is None)
@@ -207,6 +218,26 @@ def main() -> int:
               ask([rv(body(c0, c1), rid=9), rv(body(c1, c2), commit_id=c2, rid=9)], listed=(c1, c2)) is None)
         check("a review without an id: its place is unknown, even an older one's",
               ask([{**rv(body(c0, c1)), "id": None}, rv(body(c1, c2), commit_id=c2)], listed=(c1, c2)) is None)
+        # A commit list GitHub cut (250 entries) that does not show the head: ancestry decides, as post_review's own check does.
+        cut = [f"{n:040x}" for n in range(250)]
+        up, down = {c1: "ahead 1"}, {"base": "ahead 2"}
+        beyond = dict(listed=cut, compares={**up, **down})
+        asked.clear()
+        check("a cut list, the head beyond it, an ancestor of the PR's head and off the base: the checkpoint",
+              ask([rv(body())], **beyond) == (c0, c1, CARD))
+        check("…asked c1...head, then main...c1", asked[:2] == [f"{c1}...{c2}", f"main...{c1}"], asked)
+        check("…identical to the head is an ancestor too", ask([rv(body())], listed=cut, compares={c1: "identical 0", **down}) == (c0, c1, CARD))
+        check("a cut list, the head already on the base: None", ask([rv(body())], listed=cut, compares={**up, "base": "ahead 0"}) is None)
+        check("a cut list, the head not an ancestor (diverged): None", ask([rv(body())], listed=cut, compares={c1: "diverged 3", **down}) is None)
+        check("a cut list, the head behind the PR's head: None", ask([rv(body())], listed=cut, compares={c1: "behind 3", **down}) is None)
+        check("a cut list, the ancestor compare failing: None", ask([rv(body())], listed=cut, compares={c1: gh.GhError("gh api", "HTTP 502", 502, True), **down}) is None)
+        check("a cut list, the base compare failing: None", ask([rv(body())], listed=cut, compares={**up, "base": gh.GhError("gh api", "HTTP 502", 502, True)}) is None)
+        check("a cut list, an unreadable compare answer: None", ask([rv(body())], listed=cut, compares={**up, "base": "ahead x"}) is None)
+        check("a cut list, the PR's base branch unnamed: None", ask([rv(body())], base="", **beyond) is None)
+        asked.clear()
+        check("a cut list that does show the head: the checkpoint without a compare", ask([rv(body())], listed=cut[:-2] + [c1, c2]) == (c0, c1, CARD) and not asked, asked)
+        asked.clear()
+        check("a whole list without the head: None, and no compare asked", ask([rv(body())], listed=(c2,)) is None and not asked, asked)
         check("a clone that lacks the commits", ask([rv(body())], cwd=elsewhere) is None)
         check("a bad poster list in the environment", ask([rv(body())], environ={"AGENT_FABRIC_REVIEW_POSTERS": "nope"}) is None)
         err = gh.GhError("gh api", "HTTP 502", 502, True)

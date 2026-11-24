@@ -32,8 +32,14 @@ FAKE_GH = r"""#!%(python)s
 import json, os, sys
 state = json.load(open(os.environ["GH_STATE_FILE"]))
 a = sys.argv[1:]
-if a[:2] == ["pr", "view"] and "author" in a:
-    print(json.dumps({"author": {"login": "me"}}))
+if a[:2] == ["pr", "view"] and "--json" in a:
+    # The fields asked for, as gh answers: the checkpoint reads the author and the base branch.
+    fields = a[a.index("--json") + 1].split(",")
+    known = {"author": {"login": "me"}, "baseRefName": "main"}
+    if all(f in known for f in fields):
+        print(json.dumps({f: known[f] for f in fields}))
+    else:
+        print("fake gh: unknown fields " + ",".join(fields), file=sys.stderr); sys.exit(1)
 elif a[:2] == ["api", "-i"] and a[2].split("?")[0].endswith("/pulls/7/reviews"):
     sys.stdout.write("HTTP/2.0 200 OK\r\n\r\n" + json.dumps(state["reviews"]))
 elif a[:2] == ["api", "-i"] and a[2].split("?")[0].endswith("/pulls/7/commits"):
