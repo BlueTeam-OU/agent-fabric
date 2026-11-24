@@ -182,7 +182,7 @@ not on a pipe's exit status.
    until the word arrives, since a commit on this PR would move the
    head the word names (A 2026-11-21). A branch is measured from its
    first commit, not from its PR (A 2026-11-24). Its count at a commit
-   is the work commits, read as rule 3 reads them, among that commit's
+   is the work commits, by their rule 3 declaration (a commit that declares nothing is work), among that commit's
    ancestors not on the default branch, folded commits included. At
    `commits.advice_over` the branch lands before more is added (rule 2):
    the `commit-msg` hook, `fabric-pr gate` and the session-start jobs
