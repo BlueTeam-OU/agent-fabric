@@ -41,6 +41,8 @@ sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
 import roots  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "guards"))
+import branch_size  # noqa: E402  the one definition of a branch's count and of the Owner-Word rule
 from github import arm_policy, arm_rules, commit_class, common, evidence, landed, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
 from github.review_status.base import listed, obj  # noqa: E402
 # What was split out of this module stays importable from here: the unit
@@ -423,11 +425,14 @@ MERGE_FLAG = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}
 
 
 def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, review: str,
-            awaiting: list[str], policy: dict | str | None = None, record: bool = False) -> str:
+            awaiting: list[str], policy: dict | str | None = None, record: bool = False,
+            no_word: list | str | None = None) -> str:
     """`policy` is the repository's arming policy (arm_policy.load), None for the default, or the reason it could
     not be read: the numbers of the count rule are its, and an unreadable one is said, never the default. `record`
     is a record PR on a direct repository (record_of): fabric-pr arm asks it no review and arms it on the owner's
-    word alone, so a missing review is no block of it."""
+    word alone, so a missing review is no block of it. `no_word` is the branch's commits that need an Owner-Word:
+    and lack it (branch_size.offenders), or the reason the branch could not be read; None when it was not asked (the
+    commits are unknown, which the verdict says)."""
     # Only a direct policy has a record path; an unreadable one is no policy to lift a block on.
     record = record and isinstance(policy, dict) and policy["mode"] == "direct"
     blocks = []
@@ -450,6 +455,12 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
         blocks.append(f"{st['unresolved']} unresolved thread(s)")
     if awaiting:
         blocks.append(f"awaiting supply from {', '.join(awaiting)} (AWAITING-SUPPLY in the body, no range line yet)")
+    if isinstance(no_word, str):
+        blocks.append(f"the branch's size could not be read ({no_word}), so the Owner-Word rule is not known to hold")
+    elif no_word:
+        refuse = policy["commits"]["refuse_over"] if isinstance(policy, dict) else branch_size.FLEET["refuse_over"]
+        blocks.append(f"over commits.refuse_over {refuse}, no Owner-Word: <YYYY-MM-DD> \"<the owner's words>\" trailer on "
+                      + ", ".join(r.sha[:12] for r in no_word) + " (ADR-019 §5 rule 4)")
     if st["queue"]:
         return f"QUEUED (position {st['queue']}) — nothing to do"
     if st["armed"] == "yes" and not blocks:
@@ -476,8 +487,9 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
     flag += "" if policy["mode"] == "direct" else " --auto"
     # As arm reads it: a minimum above the advice size is not "too big" below the minimum.
     advice_over = max(rule["advice_over"], rule["min"])
-    if work > advice_over:
-        return f"MERGEABLE — {work} work commits, over {advice_over}: smaller batches next time; arm on the basis"
+    if work >= advice_over:
+        return (f"MERGEABLE — {work} work commits, at or over commits.advice_over {advice_over}: this branch lands before "
+                f"more is added; arm on the basis")
     if work >= rule["min"]:
         return f"MERGEABLE — arm: post the basis ({work} work commits, each engine's review on head) and gh pr merge {num} {flag}"
     if rule["below_min"] == "refuse":
@@ -489,6 +501,17 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
         return (f"MERGEABLE — ask {authority} by REQUEST ({work} work commits < {rule['min']}; fabric-pr arm {num} --dry-run"
                 f" names its holders), then arm")
     return f"MERGEABLE — ask the owner ({work} work commits < {rule['min']}), then arm"
+
+
+def unworded(base: str, head: str, policy: dict | str) -> list | str:
+    """The branch's commits over the repository's live refuse_over (not the cache: the gate reads GitHub) with no
+    Owner-Word:, or why the branch could not be walked. An unreadable policy judges by the built-in fleet number;
+    the verdict already says the policy is unread."""
+    refuse = policy["commits"]["refuse_over"] if isinstance(policy, dict) else branch_size.FLEET["refuse_over"]
+    try:
+        return branch_size.offenders(branch_size.walk(f"origin/{base}", head), refuse)
+    except RuntimeError as e:
+        return str(e)[:200]
 
 
 def record_rules(policy: dict | str) -> tuple | None:
@@ -716,6 +739,7 @@ def run(argv: list[str]) -> int:
         num, head, base = p.get("number"), jq_str(p.get("headRefOid")), jq_str(p.get("baseRefName"))
         branch = jq_str(p.get("headRefName"))
         commits = count_commits(num, repo, base, head) if fetched else None
+        no_word = unworded(base, head, policy) if commits is not None else None
         st = gate_state(repo, num, head)
         if st is None:
             note(f"could not read pull request #{num} from GitHub (the graphql read failed); nothing is invented — "
@@ -739,7 +763,7 @@ def run(argv: list[str]) -> int:
             "awaiting_supply": awaiting,
             "checks": st["checks"], "review": review, "record": record, "unresolved_threads": st["unresolved"], "armed": st["armed"],
             "queue_position": st["queue"], "merge_state": st["mstate"], "draft": alt(p.get("isDraft")) is True,
-            "verdict": verdict(num, base, alt(p.get("isDraft")) is True, commits, st, review, awaiting, policy, record),
+            "verdict": verdict(num, base, alt(p.get("isDraft")) is True, commits, st, review, awaiting, policy, record, no_word),
         })
     if as_json:
         print(json.dumps(rows, indent=2, ensure_ascii=False))

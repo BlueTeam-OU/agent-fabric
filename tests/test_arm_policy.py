@@ -76,6 +76,10 @@ class Scratch(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir, True)
         os.makedirs(os.path.join(self.dir, "policies"))
         os.makedirs(os.path.join(self.dir, "projects"))
+        # A policy read now leaves the account's copy of the thresholds: never in the real state dir.
+        p = mock.patch.object(arm_policy.branch_size, "cache_path", return_value=os.path.join(self.dir, "cache.json"))
+        p.start()
+        self.addCleanup(p.stop)
 
     def fleet(self, doc) -> None:
         with open(os.path.join(self.dir, "policies", "arming.json"), "w") as fh:
@@ -85,7 +89,7 @@ class Scratch(unittest.TestCase):
 class Document(unittest.TestCase):
     def test_the_default_is_the_behaviour_before_the_policy(self):
         d = arm_policy.default()
-        self.assertEqual(d["commits"], {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}})
+        self.assertEqual(d["commits"], {"min": 8, "advice_over": 16, "refuse_over": 32, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}})
         self.assertEqual((d["mode"], d["method"]), ("auto", "merge"))
 
     def test_a_partial_document_is_completed_from_the_default_and_the_default_is_not_changed(self):
@@ -293,6 +297,58 @@ class RemoteSpellings(unittest.TestCase):
     def test_a_remote_that_is_another_repository_or_another_host_is_not_it(self):
         for remote in ("https://github.com/O/R2", "https://gitlab.com/O/R", "git@github.com:O/other.git", "/srv/git/O/R", "R"):
             self.assertIsNone(arm_policy.project_of({"projects": {"p": {"client": "c", "remotes": [remote]}}}, "O/R"), remote)
+
+
+class RefuseOver(Scratch):
+    def test_the_default_is_32_and_a_partial_document_keeps_it(self):
+        self.assertEqual(arm_policy.default()["commits"]["refuse_over"], 32)
+        self.assertEqual(arm_policy.validate({"commits": {"min": 3}})["commits"]["refuse_over"], 32)
+        self.assertEqual(arm_policy.validate({"commits": {"refuse_over": 40.0}})["commits"]["refuse_over"], 40)
+
+    def test_it_is_a_whole_number_of_at_least_one(self):
+        for bad in (0, -1, 1.5, "32", True, None):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)) as cm:
+                arm_policy.validate({"commits": {"advice_over": 1, "refuse_over": bad}})
+            self.assertIn("commits.refuse_over is not a whole number", str(cm.exception))
+
+    def test_it_must_be_above_advice_over_and_the_error_names_both(self):
+        for doc in ({"advice_over": 16, "refuse_over": 16}, {"advice_over": 20, "refuse_over": 10},
+                    {"advice_over": 40},          # merged: the default 32 is now not above it
+                    {"refuse_over": 16}):         # merged: equal to the default advice 16
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(doc)) as cm:
+                arm_policy.validate({"commits": doc})
+            self.assertRegex(str(cm.exception), r"refuse_over \(\d+\) is not above commits.advice_over \(\d+\)")
+        p = arm_policy.validate({"commits": {"advice_over": 16, "refuse_over": 17}})   # control: one above is valid
+        self.assertEqual((p["commits"]["advice_over"], p["commits"]["refuse_over"]), (16, 17))
+
+    def test_the_cache_is_written_on_a_read_and_not_on_unavailable_or_without_a_github_read(self):
+        cache = os.path.join(self.dir, "cache", "o", "R.json")
+        reg = {"projects": {"p": {"client": "c", "remotes": ["https://github.com/O/R"]}}}
+        with mock.patch.object(arm_policy.branch_size, "cache_path", return_value=cache):
+            with self.assertRaises(arm_policy.PolicyUnavailable):
+                arm_policy.load("O/R", root=self.dir, registry=reg, clients=CLIENTS, api=Api(error=ghe(500)))
+            self.assertFalse(os.path.exists(cache))
+            arm_policy.load("x/unknown", root=self.dir, registry=reg, clients=CLIENTS, api=Api(error=ghe(500)))
+            self.assertFalse(os.path.exists(cache), "no GitHub read, no copy")
+            arm_policy.load("O/R", root=self.dir, registry=reg, clients=CLIENTS,
+                            api=Api(contents({"commits": {"advice_over": 20, "refuse_over": 50}})))
+        with open(cache, encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual({k: doc[k] for k in ("repository", "advice_over", "refuse_over")},
+                         {"repository": "O/R", "advice_over": 20, "refuse_over": 50})
+        self.assertRegex(doc["read_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$")
+        self.assertEqual(os.listdir(os.path.dirname(cache)), ["R.json"], "no temp file left")
+
+    def test_a_failed_write_says_so_on_stderr_and_does_not_fail_the_load(self):
+        blocker = os.path.join(self.dir, "file")
+        open(blocker, "w").close()
+        err = io.StringIO()
+        with mock.patch.object(arm_policy.branch_size, "cache_path", return_value=os.path.join(blocker, "x", "R.json")), \
+                contextlib.redirect_stderr(err):
+            p = arm_policy.load("O/R", root=self.dir, registry={"projects": {"p": {"client": "c", "remotes": ["https://github.com/O/R"]}}},
+                                clients=CLIENTS, api=Api(contents({"commits": {"min": 2}})))
+        self.assertEqual(p["commits"]["min"], 2)
+        self.assertIn("the branch-size copy for O/R was not written", err.getvalue())
 
 
 class Load(Scratch):
@@ -656,14 +712,18 @@ class PrGate(unittest.TestCase):
     def test_at_the_default_numbers_the_verdicts_are_the_ones_before(self):
         self.assertIn("ask the owner (7 work commits < 8)", self.v(7))
         self.assertIn("arm: post the basis (8 work commits", self.v(8))
-        self.assertIn("arm: post the basis (16 work commits", self.v(16))
-        self.assertIn("17 work commits, over 16", self.v(17))
+        self.assertIn("arm: post the basis (15 work commits", self.v(15))
+        # at advice_over now, not past it: the branch lands before more is added (ADR-019 section 5 rule 4)
+        self.assertIn("16 work commits, at or over commits.advice_over 16: this branch lands before more", self.v(16))
+        self.assertIn("17 work commits, at or over commits.advice_over 16", self.v(17))
 
     def test_the_numbers_are_the_policys(self):
         p = arm_policy.validate({"commits": {"min": 3, "advice_over": 5}})
         self.assertIn("ask the owner (2 work commits < 3)", self.v(2, p))
         self.assertIn("arm: post the basis (3 work commits", self.v(3, p))
-        self.assertIn("6 work commits, over 5", self.v(6, p))
+        self.assertIn("arm: post the basis (4 work commits", self.v(4, p))
+        self.assertIn("5 work commits, at or over commits.advice_over 5", self.v(5, p))
+        self.assertIn("6 work commits, at or over commits.advice_over 5", self.v(6, p))
 
     def test_below_the_minimum_a_named_authority_is_asked_never_the_owner(self):
         # ADR-019 rule 4: the gate's verdict agrees with arm's hint (#676 review 0b3aece7 §2)
@@ -724,6 +784,7 @@ class PrGateRun(unittest.TestCase):
             es.enter_context(mock.patch.object(pr_gate.landed, "origin_is", return_value=True))
             es.enter_context(mock.patch.object(pr_gate, "review_reader", return_value=None))
             es.enter_context(mock.patch.object(pr_gate, "count_commits", return_value=commits))
+            es.enter_context(mock.patch.object(pr_gate, "unworded", return_value=[]))     # no clone to walk here
             es.enter_context(mock.patch.object(pr_gate, "gate_state", return_value=st))
             es.enter_context(mock.patch.object(pr_gate, "review_of_head", review or mock.Mock(return_value="head reviewed: claude ✓ codex ✓ (head abcdef01)")))
             es.enter_context(mock.patch.object(pr_gate.arm_policy, "load", policy_load))
@@ -739,7 +800,7 @@ class PrGateRun(unittest.TestCase):
             return arm_policy.validate({"commits": {"min": 3, "advice_over": 4}})
         row = self.rows(load, work=5)[0]
         self.assertEqual(asked, ["O/R"])
-        self.assertIn("5 work commits, over 4", row["verdict"])
+        self.assertIn("5 work commits, at or over commits.advice_over 4", row["verdict"])
         self.assertIn("arm: post the basis (5", self.rows(lambda r, **k: arm_policy.validate({"commits": {"min": 3, "advice_over": 9}}))[0]["verdict"])
 
     def test_the_default_is_the_verdict_before_the_policy(self):

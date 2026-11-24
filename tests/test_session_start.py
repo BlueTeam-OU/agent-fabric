@@ -978,8 +978,57 @@ def test_hook_names_the_client_of_the_project(tmp: str) -> None:
     assert len(bad) == 1 and bad[0].startswith("agent-fabric: client unresolved \u2014 ") and "ghost" in bad[0], bad
 
 
+def test_the_jobs_line_says_the_branch_size(tmp: str) -> None:
+    """The branch's count against advice and refuse, from branch_size's own thresholds and no GitHub call: three forms
+    by count, and nothing on the default branch."""
+    state = os.path.join(tmp, "state")
+    spec = importlib.util.spec_from_file_location("session_start_hook_branch", os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.py"))
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+    g = lambda cwd, *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *a],  # noqa: E731
+                                      cwd=cwd, check=True, capture_output=True, text=True, env=git_env())
+    wc = os.path.join(tmp, "wc"); os.makedirs(wc)
+    g(wc, "init", "-q", "-b", "main"); g(wc, "commit", "-q", "--allow-empty", "-m", "base")
+    g(wc, "update-ref", "refs/remotes/origin/main", "HEAD"); g(wc, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    g(wc, "remote", "add", "origin", "https://github.com/o/r.git")
+    cache = os.path.join(state, "agents", id_un(), "arming-cache", "o", "r.json")
+    os.makedirs(os.path.dirname(cache))
+    with open(cache, "w", encoding="utf-8") as fh:
+        json.dump({"repository": "o/r", "read_at": "2026-11-24T00:00:00+00:00", "advice_over": 2, "refuse_over": 3}, fh)
+    old = {k: os.environ.get(k) for k in ("AGENT_FABRIC_STATE_DIR",)}
+    os.environ["AGENT_FABRIC_STATE_DIR"] = state
+    try:
+        assert hook.branch_clause(wc) == "", "the default branch has no clause"
+        g(wc, "checkout", "-q", "-b", "feature")
+        g(wc, "commit", "-q", "--allow-empty", "-m", "w1", "-m", "Kind: work")
+        one = hook.branch_clause(wc)
+        assert one.startswith("branch 1 work commits (advice 2, refuse 3, o/r's policy as read 2026-11-24T00:00:00+00:00)"), one
+        assert "land before" not in one and "Owner-Word" not in one, one
+        g(wc, "commit", "-q", "--allow-empty", "-m", "w2", "-m", "Kind: work")
+        two = hook.branch_clause(wc)
+        assert "branch 2 work commits" in two and "land before adding more" in two and "Owner-Word" not in two, two
+        g(wc, "commit", "-q", "--allow-empty", "-m", "f", "-m", "Answers: F1")      # a fix is not counted
+        assert "branch 2 work commits" in hook.branch_clause(wc)
+        g(wc, "commit", "-q", "--allow-empty", "-m", "w3", "-m", "Kind: work")
+        at = hook.branch_clause(wc)      # exactly at refuse_over: still no word needed, it is the next commit that does
+        assert "branch 3 work commits" in at and "Owner-Word" not in at and "land before adding more" in at, at
+        g(wc, "commit", "-q", "--allow-empty", "-m", "w4", "-m", "Kind: work")
+        four = hook.branch_clause(wc)
+        assert "branch 4 work commits" in four and "past 3: each new work commit needs Owner-Word:" in four \
+            and "land before adding more" in four, four
+        os.unlink(cache)
+        fleet = hook.branch_clause(wc)
+        assert "no copy of o/r's own read yet" in fleet and "fleet" in fleet, fleet
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def main() -> int:
-    cases = [test_hook_names_the_client_of_the_project, test_hook_records_context_not_identity, test_a_subagent_start_never_rebinds_the_login,
+    cases = [test_the_jobs_line_says_the_branch_size, test_hook_names_the_client_of_the_project, test_hook_records_context_not_identity, test_a_subagent_start_never_rebinds_the_login,
              test_hook_gives_the_project_layer_from_the_working_copy,
              test_hook_says_when_the_binding_drifted_from_the_launch,
              test_hook_from_the_parent_directory_has_no_project,
