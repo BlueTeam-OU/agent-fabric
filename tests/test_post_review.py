@@ -140,13 +140,54 @@ def main() -> int:
             ("a failing call: refused", None, "could not be read"),
             ("an error object for a page: refused", [{"message": "Not Found"}], "could not be read"),
             ("output that is not JSON: refused", "not json", "could not be read"),
-            ("not in 250, GitHub's cap: refused, the list may be cut", [[{"sha": new}] * 250], "a list it cuts there"),
+            ("not in 250, GitHub's cap: the compare decides, and a failing one refuses", [[{"sha": new}] * 250],
+             "the compare failed"),
             ("in 250, the cap: posts", [[{"sha": new}] * 249 + [{"sha": old}]], ""),
         ):
             gh.run = (lambda out: lambda args, **kw: (_ for _ in ()).throw(gh.GhError("gh api", "Not Found", 404))
                       if out is None else out if isinstance(out, str) else json.dumps(out))(out)
-            got = post_review.pr_commit_refusal("o/r", "1", old)
+            got = post_review.pr_commit_refusal("o/r", "1", old, new, "main")
             check(f"{label} (got {got!r})", want in got if want else got == "")
+    finally:
+        gh.run = real_run
+
+    print("a sha beyond GitHub's 250-commit cut is a commit of the PR iff an ancestor of the head and off the base")
+    cut_pages = [[{"sha": new}] * 250]
+
+    def comparing(answers: dict, calls: list):
+        def fake(args, **kw):
+            if "compare" not in args[1]:
+                return json.dumps(cut_pages)
+            calls.append(args[1])
+            spec = args[1].split("/compare/")[1]
+            out = answers.get("up" if spec.startswith(old) else "down")
+            if out is None:
+                raise gh.GhError("gh api", "Not Found", 404)
+            return out
+        return fake
+    try:
+        for label, answers, want in (
+            ("ancestor of the head, ahead of the base: posts", {"up": "ahead 3", "down": "ahead 5"}, ""),
+            ("identical to the head: posts", {"up": "identical 0", "down": "ahead 5"}, ""),
+            ("not an ancestor (diverged): refused", {"up": "diverged 2", "down": "ahead 5"}, "compare says 'diverged'"),
+            ("not an ancestor (behind): refused", {"up": "behind 2", "down": "ahead 5"}, "compare says 'behind'"),
+            ("on the base: refused", {"up": "ahead 3", "down": "ahead 0"}, "already on main"),
+            ("the ancestor compare fails: refused", {"down": "ahead 5"}, "the compare failed"),
+            ("the base compare fails: refused", {"up": "ahead 3"}, "the compare failed"),
+            ("an unreadable answer: refused", {"up": "ahead", "down": "ahead 5"}, "the compare failed"),
+            ("a non-numeric ahead_by: refused", {"up": "ahead 3", "down": "ahead x"}, "the compare failed"),
+        ):
+            calls: list = []
+            gh.run = comparing(answers, calls)
+            got = post_review.pr_commit_refusal("o/r", "1", old, new, "main")
+            check(f"{label} (got {got!r})", want in got if want else got == "")
+            if want:
+                check("  the refusal names what was checked", "ancestor of the head" in got and "250 commits" in got)
+        calls = []
+        gh.run = comparing({"up": "ahead 3", "down": "ahead 5"}, calls)
+        post_review.pr_commit_refusal("o/r", "1", old, new, "rel/x")
+        check(f"the compares are old...head and base...old, the base ref's slash kept (got {calls})",
+              calls == [f"repos/o/r/compare/{old}...{new}?per_page=1", f"repos/o/r/compare/rel/x...{old}?per_page=1"])
     finally:
         gh.run = real_run
 

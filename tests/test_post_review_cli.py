@@ -56,6 +56,14 @@ case "$1" in
   api)
     # The merge-base of the PR with its base branch, as `--jq .merge_base_commit.sha` leaves it.
     case "$2" in */compare/*)
+      # A cut commit list is decided by two compares, `<sha>...<head>` and `<base>...<sha>`: told apart by the sha before the dots.
+      if [ -f "$S/cmp_up" ] && [ "$4" != ".merge_base_commit.sha" ]; then
+        # base_refusal's merge-base read (its --jq) is not one of the two, and takes the merge-base file.
+        spec="${2##*/compare/}"; spec="${spec%%\?*}"; sha="$(cat "$S/cmp_sha")"
+        echo "COMPARE $spec" >> "$S/calls"
+        if [ "${spec%%...*}" = "$sha" ]; then cat "$S/cmp_up"; exit 0; fi
+        if [ "${spec##*...}" = "$sha" ]; then cat "$S/cmp_down"; exit 0; fi
+      fi
       [ -f "$S/mergebase" ] && { cat "$S/mergebase"; exit 0; }
       echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
     esac
@@ -206,6 +214,8 @@ def main() -> int:
             drop("reviews.json")
             drop("files.json")
             drop("commits.json")
+            for name in ("cmp_up", "cmp_down", "cmp_sha"):
+                drop(name)
             if files:
                 page = [{"previous_filename": f.split("=>")[0], "filename": f.split("=>")[1]} if "=>" in f
                         else {"filename": f} for f in files]
@@ -529,8 +539,28 @@ def main() -> int:
                      dispatch("pinned", head=OLD), "is not a commit of PR #552", [[{"sha": HEAD}]])
         refused_head("unreadable PR commits refuse, nothing sent",
                      dispatch("pinned", head=OLD), "could not be read")
-        refused_head("a sha not in a list GitHub cut at 250 refuses, nothing sent", dispatch("pinned", head=OLD),
-                     "a list it cuts there", [[{"sha": f"{n:040x}"} for n in range(250)]])
+        refused_head("a sha not in a list GitHub cut at 250, its compare unreadable, refuses, nothing sent", dispatch("pinned", head=OLD),
+                     "the compare failed", [[{"sha": f"{n:040x}"} for n in range(250)]])
+
+        cut = [[{"sha": f"{n:040x}"} for n in range(250)]]
+
+        def beyond_cut(label: str, up: str, down: str, want_posted: bool, why: str = "") -> None:
+            """OLD is not among the 250 listed: run() must hand pr_commit_refusal OLD, the head and the base the right way round."""
+            set_pr(f"{me}/feat/thing")
+            put("commits.json", json.dumps(cut) + "\n")
+            put("cmp_sha", OLD)
+            put("cmp_up", up + "\n")
+            put("cmp_down", down + "\n")
+            rc, out = invoke(dispatch("pinned", head=OLD) + "F1 (P2) …", "552", head=OLD)
+            seen = calls()
+            check(label, (rc == 0 and posted()) if want_posted else (rc == 2 and not posted() and why in out),
+                  f"rc={rc}\n{out}{seen}")
+            # An answer that is not an ancestor ends the decision before the base is asked.
+            check("  the compares asked old...head" + ("" if up.startswith("diverged") else ", then main...old"),
+                  f"{OLD}...{HEAD}" in seen and (f"main...{OLD}" in seen) == (not up.startswith("diverged")), seen)
+        beyond_cut("a sha beyond the cut, an ancestor of the head and off main, posts", "ahead 3", "ahead 5", True)
+        beyond_cut("a sha beyond the cut and not an ancestor refuses, nothing sent", "diverged 3", "ahead 5", False, "compare says 'diverged'")
+        beyond_cut("a sha beyond the cut and already on main refuses, nothing sent", "ahead 3", "ahead 0", False, "already on main")
 
         print("post-review: invocation errors are refused, not guessed at")
         set_pr(f"{me}/feat/thing")
