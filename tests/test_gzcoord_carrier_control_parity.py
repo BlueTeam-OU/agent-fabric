@@ -144,6 +144,18 @@ class LateAndNoSession(unittest.TestCase):
         for bad in ({k: v for k, v in relay.items() if k != "who"}, {k: v for k, v in relay.items() if k != "kind"}, no_id):
             self.assertEqual(run(base + [bad])["skipped"], 1, bad)
 
+    def test_lines_whose_verdict_the_report_cannot_read_are_skipped_not_read_as_an_absence(self):
+        base = [{**sent("r1", 0, [A]), "timeout_s": 20}, got("r1", A, "relay", 2)]
+        for bad in ({**got("r1", B, "relay", 2), "verdict": None}, {**got("r1", B, "relay", 2), "verdict": "xx"},
+                    {k: v for k, v in got("r1", B, "relay", 2).items() if k != "verdict"},
+                    {**sent("r2", 0, [B]), "verdict": None}, {k: v for k, v in sent("r2", 0, [B]).items() if k != "verdict"},
+                    {**got("r1", A, "interweave", 5, who="agentd"), "verdict": None}):
+            self.assertEqual(run(base + [bad])["skipped"], 1, bad)
+
+    def test_a_forged_from_line_with_no_kind_is_not_a_damaged_line(self):
+        forged = {"t": iso(1), "who": "agentd", "carrier": "interweave", "kind": None, "id": "x", "from": A, "verdict": "forged-from"}
+        self.assertEqual(run([sent("r1", 0, [A]), forged])["skipped"], 0)
+
     def test_an_integer_too_large_for_a_float_is_a_malformed_timeout_never_a_crash(self):
         line = {**sent("r1", 0, [A]), "timeout_s": 10 ** 400}
         rep = run([line, got("r1", A, "relay", 2)])

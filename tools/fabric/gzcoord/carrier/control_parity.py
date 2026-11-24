@@ -127,8 +127,9 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
             who, kind, rid, verdict, carrier = r.get("who"), r.get("kind"), r.get("id"), r.get("verdict"), r.get("carrier")
             if login != operator:
                 continue
-            if who not in ("ctl", "agentd") or not isinstance(kind, str):
-                skipped += 1       # a line that names neither its writer nor its kind cannot be read as anything, and is not an absence
+            # agentd writes a `forged-from` line with a null kind when the forged record had none; the report reads no such line.
+            if who not in ("ctl", "agentd") or (not isinstance(kind, str) and verdict != "forged-from"):
+                skipped += 1       # a line whose writer is not ctl/agentd, or whose kind is not a string, cannot be read: counted, never an absence
                 continue
             if who == "ctl" and kind == "request" and isinstance(verdict, str) and verdict.startswith("sent"):
                 to = r.get("to")
@@ -155,6 +156,10 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
                     copies.setdefault(key, {}).setdefault(carrier, r["_t"])
                 elif who == "agentd" and carrier == "interweave" and isinstance(verdict, str):
                     routed.setdefault(key, {}).setdefault(verdict, r["_t"])
+                elif who == "ctl" or (who == "agentd" and carrier == "interweave"):
+                    skipped += 1       # a reply line of a writer the report reads, whose verdict it cannot read
+            elif who == "ctl" and kind == "request":
+                skipped += 1           # a request line that is neither a sent line nor a session verdict
     unrecorded = sorted({k for k in copies if k[0] not in requests})
     pairs: list[dict] = []
     for rid, q in requests.items():
