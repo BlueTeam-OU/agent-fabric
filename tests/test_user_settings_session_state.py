@@ -104,6 +104,14 @@ def main() -> int:
         check("watch-on-stop: one entry on Stop, this checkout's", [c for c in stops if "watch-on-stop.py" in c] == [watch], stops)
         check("watch-on-stop: pr-counts kept beside it", any("pr-counts.py" in c for c in stops), stops)
 
+        # The watch-nudge reminder rides PostToolUse, once, at this path, beside the memory check.
+        nudge = f'{PIN} "{HERE}/runtime/claude-code/hooks/watch-nudge.py"'
+        posts = [h["command"] for e in json.load(open(settings))["hooks"]["PostToolUse"] for h in e["hooks"]]
+        check("watch-nudge: one entry on PostToolUse, this checkout's", [c for c in posts if "watch-nudge.py" in c] == [nudge], posts)
+        check("watch-nudge: the memory check kept beside it", any("memory-write-check" in c for c in posts), posts)
+        nudge_entry = [e for e in json.load(open(settings))["hooks"]["PostToolUse"] if any("watch-nudge.py" in h["command"] for h in e["hooks"])]
+        check("watch-nudge: no matcher, so every tool", all("matcher" not in e for e in nudge_entry), nudge_entry)
+
         # The subagent ledger rides SubagentStop, once, at this path.
         ledger = f'{PIN} "{HERE}/runtime/claude-code/hooks/subagent-ledger.py"'
         subs = [h["command"] for e in json.load(open(settings))["hooks"]["SubagentStop"] for h in e["hooks"]]
