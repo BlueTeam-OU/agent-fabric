@@ -156,6 +156,15 @@ class LateAndNoSession(unittest.TestCase):
         forged = {"t": iso(1), "who": "agentd", "carrier": "interweave", "kind": None, "id": "x", "from": A, "verdict": "forged-from"}
         self.assertEqual(run([sent("r1", 0, [A]), forged])["skipped"], 0)
 
+    def test_the_null_kind_exemption_is_agentds_forged_from_and_relay_only_op_lines_only(self):
+        for verdict in ("forged-from", "relay-only-op"):
+            line = {"t": iso(1), "who": "agentd", "carrier": "interweave", "kind": None, "id": "x", "from": A, "verdict": verdict}
+            self.assertEqual(run([sent("r1", 0, [A]), line])["skipped"], 0, verdict)
+            self.assertEqual(run([sent("r1", 0, [A]), {**line, "who": "ctl"}])["skipped"], 1, verdict)
+        for verdict in ("ok", "held", "no-waiter"):
+            line = {"t": iso(1), "who": "agentd", "carrier": "interweave", "kind": None, "id": "x", "from": A, "verdict": verdict}
+            self.assertEqual(run([sent("r1", 0, [A]), line])["skipped"], 1, verdict)
+
     def test_an_integer_too_large_for_a_float_is_a_malformed_timeout_never_a_crash(self):
         line = {**sent("r1", 0, [A]), "timeout_s": 10 ** 400}
         rep = run([line, got("r1", A, "relay", 2)])

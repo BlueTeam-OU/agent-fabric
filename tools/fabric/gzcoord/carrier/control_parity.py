@@ -127,8 +127,9 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
             who, kind, rid, verdict, carrier = r.get("who"), r.get("kind"), r.get("id"), r.get("verdict"), r.get("carrier")
             if login != operator:
                 continue
-            # agentd writes a `forged-from` line with a null kind when the forged record had none; the report reads no such line.
-            if who not in ("ctl", "agentd") or (not isinstance(kind, str) and verdict != "forged-from"):
+            # agentd writes a `forged-from` or `relay-only-op` line with a null kind when the dropped record had none; the report reads no such line.
+            null_kind_ok = who == "agentd" and verdict in ("forged-from", "relay-only-op")
+            if who not in ("ctl", "agentd") or (not isinstance(kind, str) and not null_kind_ok):
                 skipped += 1       # a line whose writer is not ctl/agentd, or whose kind is not a string, cannot be read: counted, never an absence
                 continue
             if who == "ctl" and kind == "request" and isinstance(verdict, str) and verdict.startswith("sent"):
