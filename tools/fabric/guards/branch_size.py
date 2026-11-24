@@ -41,7 +41,7 @@ import identity  # noqa: E402  the state dir has one owner (ADR-003 rule 1)
 
 # What a tree without commits.refuse_over in its arming.json gets: the owner's numbers of 2026-11-24.
 FLEET = {"advice_over": 16, "refuse_over": 32}
-OWNER_WORD = re.compile(r'^\d{4}-\d{2}-\d{2} +"[^"]*\S[^"]*"$')
+OWNER_WORD = re.compile(r'\d{4}-\d{2}-\d{2} +"[^"]*\S[^"]*"')  # fullmatch only
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 
@@ -180,7 +180,7 @@ def walk(base: str, head: str = "HEAD", cwd: str | None = None) -> list[Row]:
 
 def offenders(rows: list[Row], refuse_over: int) -> list[Row]:
     """The commits over refuse_over, over their first parent, without a well-formed Owner-Word."""
-    return [r for r in rows if r.count > refuse_over and r.count > r.parent_count and not OWNER_WORD.match(r.owner_word)]
+    return [r for r in rows if r.count > refuse_over and r.count > r.parent_count and not OWNER_WORD.fullmatch(r.owner_word)]
 
 
 def count(base: str, heads: list[str], cwd: str | None = None) -> int:
@@ -228,7 +228,7 @@ def hook(msg_path: str, amend: bool, merge_head: str = "", cwd: str | None = Non
     after = count(base, heads, cwd) + work
     advice, refuse, src = thresholds(repository_of(cwd))
     words = [v for k, v in pairs if k == "owner-word"]
-    if after > refuse and after > before and not (words and OWNER_WORD.match(words[-1])):
+    if after > refuse and after > before and not (words and OWNER_WORD.fullmatch(words[-1])):
         return 1, [f"commit-msg: this commit takes the branch to {after} work commits, over commits.refuse_over {refuse} "
                    f"({src}). Land the branch first; past {refuse} a commit needs the owner's word in it, as a trailer",
                    "  Owner-Word: <YYYY-MM-DD> \"<the owner's words>\"",

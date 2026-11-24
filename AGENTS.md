@@ -174,7 +174,11 @@ finished, or you were told to. If a push cannot be completed
 (credentials, remote access, branch protection, environment limits), say
 so explicitly and do not claim it succeeded. Commit messages are short,
 specific and scoped to the actual change; completed work is never left
-uncommitted. Work reaches `main` as a pull request (ADR-019).
+uncommitted. Work reaches `main` as a pull request (ADR-019). A branch
+lands at `commits.advice_over` work commits, folds included, and past
+`commits.refuse_over` takes no commit that adds work without an
+`Owner-Word:` trailer; the `commit-msg` hook says the repository's
+numbers (ADR-019 §5 rule 4).
 
 **Every commit declares its kind in its trailers**, because a PR is
 armed by its count of work commits: `Kind: work` for new work, a bug
