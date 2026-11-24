@@ -454,8 +454,8 @@ State records (rule 16) go as direct sends to each host operator's address, on c
 | phase | what | done when | lane |
 |---|---|---|---|
 | P0 | CLI gaps G1-G4 and G6 merged, plus X1 and X2 ruled; a tagged release; `release.json` bumped (F1) | the pin points at a tag: **done 2026-10-28 (v0.2.0); F1 2026-11-18 (0.3.0)** | InterWeave holders via architect-cto; tagging is the owner's; the pin is the coordinator's |
-| P1 | `carrier_cli.py`, the control socket, the per-carrier part sizes and the control parity computation, behind `control_carrier: relay\|dual` (off by default); a two-account check like rule 13; then a dual run on every develop-qzapp account | the parity report is in `docs/live-checks/` and the owner has given the word | python-dev contributors (`tools/`, `runtime/control/`, `runtime/interweave/` are theirs in `policies/authority.json`); the ADR amendments are the coordinator's |
-| P2 | H2 registered (§3.2); the overlay up; the roster's `host` field and the render; a throwaway login on H2 doing ping and identity both ways plus one GZCoord message each way; F3 | the live check, and the GZCoord parity covers the off-host pair | coordinator (registry, roster, provisioning, ADR-048 amendment); H2's operator; python-dev for the render and F3 |
+| P1 | `carrier_cli.py`, the control socket, the per-carrier part sizes and the control parity computation, behind `control_carrier: relay\|dual` (off by default); a two-account check like rule 13; then a dual run on every develop-qzapp account | the parity report is in `docs/live-checks/` and the owner has given the word: **dual on every account since 2026-11-13; the first report (2026-11-23-control-parity.md, 11-16..23) shows no parity: InterWeave alone would have lost 714 of 79,883 recorded replies, 693 of them no-waiter; the word waits on a re-run after that cause is closed** | python-dev contributors (`tools/`, `runtime/control/`, `runtime/interweave/` are theirs in `policies/authority.json`); the ADR amendments are the coordinator's |
+| P2 | H2 registered (§3.2); the overlay up; the roster's `host` field and the render; a throwaway login on H2 doing ping and identity both ways plus one GZCoord message each way; F3 | the live check, and the GZCoord parity covers the off-host pair: **H2 registered 2026-11-11, reached directly on a public forward (ADR-064 rule 1, A 2026-11-14), not an overlay; the forward waits on the provider (j860). The `host` field lands with H2's first row, not before: develop-qzapp's rows stay hostless (owner 2026-11-24). H2's `operator_key`: the owner chose to mint one for `op` (2026-11-24); it waits on `op` holding a fabric checkout and an own store** | coordinator (registry, roster, provisioning, ADR-048 amendment); H2's operator; python-dev for the render and F3 |
 | P3 | edge-hosting moves (§3.5) | `ping`, `identity`, `tools` and `status` answered from H2 over a week; no lost message in the arrival logs | coordinator; edge-hosting for step 1; the owner for retiring the old account |
 
 **What is measured throughout:**
@@ -594,6 +594,12 @@ A 2026-10-27 (iii) in InterWeave #500, waiting for the owner's word.
 - **F3** (merged, #418) — `bin/fabric-op`, the local signed-op runner.
 - **F4** (merged, #400) — the roster schema's `host` field, and `interweave_address` in the
   registry schema.
+
+**Status 2026-11-24 (j956).** F1-F4 are on main. Every row of the roster is still hostless: a row
+with a host is countersigned over it (`canonical_row`) and makes its own daemon listen on the
+wildcard, and develop-qzapp has no address H2 can dial (rule 1). So the field is first used by
+H2's own rows, and a hostless row is to mean the coordinator's host, with no dial from H2: an
+ADR-064 rule 2 amendment and a render change, both when H2's first row is admitted.
 
 ## 10. Open questions for the owner
 
