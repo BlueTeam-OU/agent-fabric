@@ -2425,7 +2425,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     if arrivals is not None:
         # What was asked of whom and when, for the control parity computation (gzcoord/carrier/control_parity.py): replies alone
         # cannot show an account that never answered. `sent-alone`: the relay carries no copy, so its absence is no miss.
-        arrivals.add("relay", request, "sent-alone" if alone else "sent", me["address"], to=[e["address"] for e in expected])
+        arrivals.add("relay", request, "sent-alone" if alone else "sent", me["address"], to=[e["address"] for e in expected],
+                     timeout_s=args["timeout"])
     # The relay is the record, so its post comes first and is never held behind the second carrier: a hand-off that
     # waits on a silent child for ttl_s would put the relay copy on the wire already expired.
     relay_up = True
@@ -2441,6 +2442,11 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     session, early, attempted, maybe_handed = (_second_carrier(request, expected, args, err, relay_alone=not alone) if dual else (None, [], set(), False))
     # Kept before the session is closed or dropped: it says, per account, whether the send certainly never reached the child.
     # With no session at all there is no per-account reason, and `maybe_handed` says whether anything could have been sent.
+    if arrivals is not None and session is None:
+        # No session at all, and nothing handed over: the accounts' replies on the second carrier reach no waiter, which is no
+        # miss of the carrier's own (alone, this run says nothing was sent). A hand-off that failed after it was made may have
+        # sent the request (`maybe_handed`): that is a lost session, a miss, as alone it says the outcome is unknown (j160).
+        arrivals.add(link.VIA, request, "session-lost" if maybe_handed else "no-session", me["address"])
     send_why = dict(session.sent) if session is not None else {}
     never_sent_at_all = session is None and not maybe_handed
 
@@ -2536,6 +2542,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
             return got
         except RuntimeError as e:
             err(f"fabric-ctl: {CARRIER_LABEL}: {e}" + ("; the relay carries alone" if not alone else "; the relay is not used, so no further answer can come"))
+            if arrivals is not None:
+                arrivals.add(link.VIA, request, "session-lost", me["address"])   # an agentd that left under us: its later replies are real losses
             session.close()
             session = None
             return []

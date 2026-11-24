@@ -111,8 +111,9 @@ WRITE_WAIT_S = 5.0         # a line the child's pipe cannot take in this long: t
 WEDGED_AFTER = 3           # consecutive sends that got no outbound at all: the child is not draining
 OUT_OF_TIME = "the time ran out before this send was handed to the child"
 SOCKET_NAME = "control.sock"
-EARLY_HOLD_S = 30.0        # how long this account's own reply waits for its fabric-ctl's session to register
+EARLY_HOLD_S = 30.0        # how long a reply waits for its fabric-ctl's session to register
 EARLY_MAX = 256
+EARLY_PER_ID = 128        # a fleet's replies to one request, parts of a memory reply included
 
 
 def short_id(rid: str) -> str:
@@ -236,7 +237,7 @@ class ArrivalLog:
         self._lock = threading.Lock()
         self._said = False
 
-    def add(self, carrier: str, record: Any, verdict: str, sender: str | None = None, to: list[str] | None = None) -> None:
+    def add(self, carrier: str, record: Any, verdict: str, sender: str | None = None, to: list[str] | None = None, timeout_s: float | None = None) -> None:
         r = record if isinstance(record, dict) else {}
         line = {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self._clock())), "who": self.who, "carrier": carrier,
                 "kind": r.get("kind") if isinstance(r.get("kind"), str) else None, "id": r.get("id") if isinstance(r.get("id"), str) else None,
@@ -247,6 +248,9 @@ class ArrivalLog:
         # passes the expanded list, because the record's own `to` is the string "*" for a request to everyone.
         if to is not None:
             line["to"] = to
+        # How long fabric-ctl waits for this request's answers: what InterWeave alone would have had to deliver within.
+        if timeout_s is not None:
+            line["timeout_s"] = timeout_s
         part = (r.get("data") or {}).get("part") if isinstance(r.get("data"), dict) else None
         if isinstance(part, dict):
             line["part"] = f"{part.get('slug')}/{part.get('part')}"
@@ -583,7 +587,7 @@ class Carrier:
         # under dual it is asked on the relay only, so one that arrives here is dropped as before.
         self.refused_ops = CARRIER_ACTION_OPS if relay_off else RELAY_ONLY_OPS
         self._waiters: dict[str, Callable[[dict, str], None]] = {}
-        self._early: dict[str, tuple[list[dict], float]] = {}   # this account's own replies that came before their waiter
+        self._early: dict[str, tuple[list[tuple[dict, str]], float]] = {}   # (record, sender) of replies that came before their waiter
         self._ended: dict[str, None] = {}                       # request ids whose waiter came and went (insertion-ordered, bounded)
         self._lock = threading.Lock()
         self.inbox = Inbox(self.inbound, log)
@@ -640,19 +644,23 @@ class Carrier:
             # This account's own answer can beat its fabric-ctl's session to `watch`: fabric-ctl posts the relay copy
             # first (the record, never held behind this carrier), agentd answers that copy at once, and the session
             # registers its waiter only when the connection is accepted. Dropped as no-waiter, the account's own row
-            # then read "relay only" in dual (j164). Kept for the session that is about to come, never for one that
-            # came and went (_ended), and bounded: nobody may ever ask for it.
-            keep = waiter is None and sender == self.me and isinstance(rid, str) and rid not in self._ended
+            # then read "relay only" in dual (j164). The same race holds for every account, not this one alone: the relay
+            # copy is posted first, a fast account answers both carriers within the second, and its InterWeave reply
+            # can beat the session's `watch` (j160: 19 of 727 no-waiter lines, all inside the first second).
+            # Kept for the session that is about to come, never for one that came and went (_ended), and
+            # bounded in ids, in age and in records per id: nobody may ever ask for it.
+            keep = (waiter is None and isinstance(rid, str) and rid not in self._ended
+                    and len(self._early.get(rid, ([], 0.0))[0]) < EARLY_PER_ID)
             if keep:
                 now = time.monotonic()
                 for k in [k for k, (_r, t) in self._early.items() if now - t > EARLY_HOLD_S]:
                     dropped.extend(self._early.pop(k)[0])
-                if len(self._early) >= EARLY_MAX:
+                if rid not in self._early and len(self._early) >= EARLY_MAX:   # a held id's next reply never evicts another id's, nor its own
                     dropped.extend(self._early.pop(next(iter(self._early)))[0])
-                self._early.setdefault(rid, ([], now))[0].append(record)
+                self._early.setdefault(rid, ([], now))[0].append((record, sender))
         # A held reply nobody came for ends as the no-waiter it would have been: said, so its cause stays readable.
-        for old in dropped:
-            self.arrivals.add(VIA, old, "no-waiter", self.me)
+        for old, old_sender in dropped:
+            self.arrivals.add(VIA, old, "no-waiter", old_sender)
         self.arrivals.add(VIA, record, "ok" if waiter else ("held" if keep else "no-waiter"), sender)
         if waiter is not None:
             waiter(record, sender)
@@ -675,9 +683,9 @@ class Carrier:
         with self._lock:
             self._waiters[request_id] = waiter
             held = self._early.pop(request_id, ([], 0.0))[0]
-        for record in held:
-            self.arrivals.add(VIA, record, "ok", self.me)
-            waiter(record, self.me)
+        for record, sender in held:
+            self.arrivals.add(VIA, record, "ok", sender)
+            waiter(record, sender)
 
     def unwatch(self, request_id: str) -> None:
         with self._lock:

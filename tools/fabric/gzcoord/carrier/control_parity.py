@@ -6,7 +6,8 @@ the owner's word on a report made from it (docs/live-checks/), never this code's
 INPUT   `control-arrivals.jsonl` of the operator's account (control_link.ArrivalLog), as `LOGIN=FILE`; only that file is
         read for pairs and causes (other accounts' files are accepted and listed, and contribute nothing yet). One JSON line per record that arrived, written by two processes into the
         one file of an account: `who` "ctl" (fabric-ctl: a `sent`/`sent-alone` line per request it made, with its
-        `to`, and a line per reply copy it was shown, by carrier relay|interweave) and "agentd" (the replies its
+        `to` and `timeout_s`, one `no-session` or `session-lost` line when its session with agentd was never made or ended under it,
+        and a line per reply copy it was shown, by carrier relay|interweave) and "agentd" (the replies its
         carrier routed — verdict ok | no-waiter | held | forged-from — and the requests that came by InterWeave).
         `t` has a one-second resolution, so a latency is good to a second either way.
 PAIR    (request id, addressee) for every request sent by fabric-ctl in dual (the `sent` line's `to`), whose `t` is
@@ -15,7 +16,18 @@ PAIR    (request id, addressee) for every request sent by fabric-ctl in dual (th
 OUTCOME per pair, by the copies fabric-ctl was shown: `both`; `interweave-only` (the relay's copy did not come);
         `relay-only` (the miss of the second carrier, with its CAUSE); `none` (cause `timeout`).
 CAUSE   of a relay-only pair, first that the logs show:
-          no-waiter   the operator's agentd routed the reply and no session was waiting for it
+          no-session  fabric-ctl found no session with the operator's agentd (its `no-session` line): the accounts' InterWeave
+                      replies reached no waiter, and with the carrier alone this run says nothing was sent. No miss; a pair of that run
+                      with no copy at all stays a `timeout` and is counted here, not in `missed`.
+          late        the reply came to the operator's agentd after fabric-ctl had left, but inside the request's own
+                      `timeout_s` (its `sent` line, whole seconds: a reply at the second it ends is a miss): in dual fabric-ctl leaves DUAL_GRACE_S after every account has answered
+                      (by either carrier), with the carrier alone it keeps waiting for the replies, so this reply
+                      would have been collected. Not counted as a miss; its latency is `interweave_late_s`. A reply later
+                      than `timeout_s`, or from a log whose `sent` line has none, stays no-waiter (j160: 680 of 727
+                      no-waiter lines of 2026-11-18..22 came 6-99 s after the request, all relay copies in by 8 s).
+          no-waiter   the operator's agentd routed the reply and no session was waiting for it: past the timeout, or the
+                      session was lost (fabric-ctl's `session-lost` line: the agentd left under it), or the old log has
+                      no `timeout_s`
           relay-only  unknown: the operator's log shows no reason the InterWeave reply is missing (a refused request copy is
                       no cause: agentd answers both carriers whichever copy it took). Said so, never guessed.
         `sent-alone` requests (control_carrier names the second carrier alone) have no relay copy to be missed.
@@ -34,7 +46,7 @@ import time
 from typing import Any, Iterable
 
 CARRIERS = ("relay", "interweave")
-CAUSES = ("no-waiter", "relay-only", "timeout")
+CAUSES = ("no-waiter", "late", "no-session", "relay-only", "timeout")
 
 
 class InputError(Exception):
@@ -98,7 +110,9 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
     start, end = window
     requests: dict[str, dict] = {}
     copies: dict[tuple[str, str], dict[str, float]] = {}          # (id, addressee) -> carrier -> first t
-    routed: dict[tuple[str, str], set[str]] = {}                  # (id, sender) -> agentd verdicts of the reply
+    routed: dict[tuple[str, str], dict[str, float]] = {}          # (id, sender) -> agentd verdict of the reply -> first t
+    no_session: set[str] = set()                                  # requests fabric-ctl had no InterWeave session for
+    lost_session: set[str] = set()                                # requests whose session fabric-ctl lost before its end
     for login, rows in files.items():
         for r in rows:
             who, kind, rid, verdict, carrier = r.get("who"), r.get("kind"), r.get("id"), r.get("verdict"), r.get("carrier")
@@ -107,24 +121,29 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
             if who == "ctl" and kind == "request" and isinstance(verdict, str) and verdict.startswith("sent") and _is_str(rid):
                 to = r.get("to")
                 if isinstance(to, list) and to and all(_is_str(x) for x in to):
-                    requests.setdefault(rid, {"t": r["_t"], "to": list(to), "alone": verdict == "sent-alone", "op": r.get("op")})
+                    tmo = r.get("timeout_s")
+                    requests.setdefault(rid, {"t": r["_t"], "to": list(to), "alone": verdict == "sent-alone", "op": r.get("op"),
+                                              "timeout_s": tmo if isinstance(tmo, (int, float)) and not isinstance(tmo, bool) and math.isfinite(tmo) and tmo > 0 else None})
+            elif who == "ctl" and kind == "request" and _is_str(rid) and verdict in ("no-session", "session-lost"):
+                (no_session if verdict == "no-session" else lost_session).add(rid)
             elif kind == "reply" and _is_str(r.get("in_reply_to")) and _is_str(r.get("from")) and carrier in CARRIERS:
                 key = (r["in_reply_to"], r["from"])
                 if who == "ctl" and verdict in ("ok", "unauthenticated"):
                     copies.setdefault(key, {}).setdefault(carrier, r["_t"])
                 elif who == "agentd" and carrier == "interweave" and isinstance(verdict, str):
-                    routed.setdefault(key, set()).add(verdict)
+                    routed.setdefault(key, {}).setdefault(verdict, r["_t"])
     unrecorded = sorted({k for k in copies if k[0] not in requests})
     pairs: list[dict] = []
     for rid, q in requests.items():
         for addressee in dict.fromkeys(q["to"]):
-            pairs.append({"id": rid, "addressee": addressee, "t": q["t"], "alone": q["alone"], "op": q["op"]})
+            pairs.append({"id": rid, "addressee": addressee, "t": q["t"], "alone": q["alone"], "op": q["op"], "timeout_s": q["timeout_s"]})
     for rid, addressee in unrecorded:
         first = min(copies[(rid, addressee)].values())
         pairs.append({"id": rid, "addressee": addressee, "t": first, "alone": False, "op": None, "unrecorded": True})
     out_pairs: list[dict] = []
     in_drill: list[dict] = []
     stats = {c: {"delivered": 0, "missed": 0, "latency": []} for c in CARRIERS}
+    stats["interweave"]["late"] = stats["interweave"]["no_session"] = 0
     causes = {c: 0 for c in CAUSES}
     for p in sorted(pairs, key=lambda x: (x["t"], x["id"], x["addressee"])):
         if not start <= p["t"] < end:
@@ -149,14 +168,18 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
             if not p["alone"] and not p.get("unrecorded"):
                 stats["relay"]["missed"] += 1
         else:
-            # Not for a request that is not on record as sent in dual, or whose relay copy was never to come.
-            if not p.get("unrecorded"):
-                stats["interweave"]["missed"] += 1
             if "relay" in got:
                 row["outcome"] = "relay-only"
+                verdicts = routed.get(key, {})
                 # A reply still `held` when agentd last wrote about it was never collected: agentd exits drop the held store with no line.
-                if "no-waiter" in routed.get(key, ()) or ("held" in routed.get(key, ()) and "ok" not in routed.get(key, ())):
+                if "no-waiter" in verdicts or ("held" in verdicts and "ok" not in verdicts):
                     row["cause"] = "no-waiter"
+                    arrived = min(verdicts[v] for v in ("no-waiter", "held") if v in verdicts)
+                    if p["id"] in no_session:
+                        row["cause"] = "no-session"
+                    elif p["id"] not in lost_session and p.get("timeout_s") and arrived - p["t"] < math.floor(p["timeout_s"]):
+                        row["cause"] = "late"
+                        row["interweave_late_s"] = max(0.0, arrived - p["t"])
                 else:
                     row["cause"] = "relay-only"
             else:
@@ -164,6 +187,16 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
                 row["cause"] = "timeout"
                 if not p["alone"]:
                     stats["relay"]["missed"] += 1
+
+            # Not for a request that is not on record as sent in dual, or whose relay copy was never to come.
+            if not p.get("unrecorded"):
+                if row["cause"] == "late":
+                    stats["interweave"]["late"] += 1
+                elif row["cause"] == "no-session" or p["id"] in no_session:
+                    # A run with no session sent nothing by the carrier: its silence is no miss, though a pair with no copy stays a timeout.
+                    stats["interweave"]["no_session"] += 1
+                else:
+                    stats["interweave"]["missed"] += 1
         if row.get("cause") and not p.get("unrecorded"):
             causes[row["cause"]] += 1
         out_pairs.append(row)
@@ -187,7 +220,9 @@ def render_markdown(rep: dict) -> str:
     for c in CARRIERS:
         s = rep["carriers"][c]
         L.append(f"| {c} | {s['delivered']} | {s['missed']} | {_s(s['p50_s'])} | {_s(s['p95_s'])} |")
-    L += ["", "Causes of the second carrier's misses: " + ", ".join(f"{c} {rep['causes'][c]}" for c in CAUSES), ""]
+    L += ["", "Causes of the pairs the second carrier did not deliver: " + ", ".join(f"{c} {rep['causes'][c]}" for c in CAUSES),
+          f"{rep['carriers']['interweave']['late']} pair(s) were `late` and {rep['carriers']['interweave']['no_session']} belong to a run with no session: "
+          "no miss of the carrier alone, and in no `missed` count of the interweave row; see the tool's CAUSE paragraph.", ""]
     if rep["drill"]:
         L += [f"## InterWeave-stop drill [{rep['drill'][0]}, {rep['drill'][1]})", "",
               f"{len(rep['in_drill'])} pair(s) inside it, counted in no carrier's row above:"]

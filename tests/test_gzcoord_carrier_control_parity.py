@@ -47,6 +47,78 @@ def pair(rep: dict, rid: str, addressee: str) -> dict:
     return next(p for p in rep["pairs"] if p["id"] == rid and p["addressee"] == addressee)
 
 
+def late_case(arrives: int, *, timeout_s: float | None = 20, extra: list[dict] | None = None) -> dict:
+    """alice's relay copy comes at 2 s; agentd routed her InterWeave reply to nobody at `arrives` s."""
+    line = {**sent("r1", 0, [A]), **({"timeout_s": timeout_s} if timeout_s is not None else {})}
+    return run([line, got("r1", A, "relay", 2), got("r1", A, "interweave", arrives, who="agentd", verdict="no-waiter"), *(extra or [])])
+
+
+class LateAndNoSession(unittest.TestCase):
+    """j160: 680 of 727 no-waiter lines were InterWeave replies 6-99 s after the request, behind a fabric-ctl that had left
+    3 s after the relay's copies. With the carrier alone fabric-ctl waits for them, so inside `timeout_s` they are no miss."""
+
+    def test_a_reply_that_reached_agentd_inside_the_requests_timeout_is_late_and_no_miss(self):
+        rep = late_case(15)
+        self.assertEqual(pair(rep, "r1", A)["cause"], "late")
+        self.assertEqual(pair(rep, "r1", A)["interweave_late_s"], 15)
+        self.assertEqual((rep["carriers"]["interweave"]["missed"], rep["carriers"]["interweave"]["late"]), (0, 1))
+        self.assertEqual(rep["causes"]["late"], 1)
+
+    def test_a_reply_past_the_timeout_stays_a_no_waiter_and_a_miss(self):
+        rep = late_case(21)
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
+        self.assertEqual((rep["carriers"]["interweave"]["missed"], rep["carriers"]["interweave"]["late"]), (1, 0))
+
+    def test_a_log_without_the_timeout_keeps_the_old_reading(self):
+        rep = late_case(5, timeout_s=None)
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
+        self.assertEqual(rep["carriers"]["interweave"]["missed"], 1)
+
+    def test_a_session_lost_before_the_reply_makes_it_a_real_no_waiter_whatever_the_timeout(self):
+        lost = {"t": iso(3), "who": "ctl", "carrier": "interweave", "kind": "request", "id": "r1", "from": OP, "op": "ping", "verdict": "session-lost"}
+        rep = late_case(15, extra=[lost])
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
+        self.assertEqual(rep["carriers"]["interweave"]["missed"], 1)
+
+    def test_no_session_is_its_own_cause_and_no_miss(self):
+        none = {"t": iso(0), "who": "ctl", "carrier": "interweave", "kind": "request", "id": "r1", "from": OP, "op": "ping", "verdict": "no-session"}
+        rep = late_case(5, extra=[none])
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-session")
+        self.assertEqual((rep["carriers"]["interweave"]["missed"], rep["carriers"]["interweave"]["no_session"]), (0, 1))
+
+    def test_a_reply_at_the_very_second_the_timeout_ends_is_no_late_reply(self):
+        rep = late_case(20)
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
+        self.assertEqual(rep["carriers"]["interweave"]["late"], 0)
+
+    def test_a_pair_with_no_copy_in_a_run_with_no_session_is_a_timeout_and_no_interweave_miss(self):
+        none = {"t": iso(0), "who": "ctl", "carrier": "interweave", "kind": "request", "id": "r1", "from": OP, "op": "ping", "verdict": "no-session"}
+        rep = run([{**sent("r1", 0, [A]), "timeout_s": 20}, none])
+        self.assertEqual(pair(rep, "r1", A)["cause"], "timeout")
+        self.assertEqual((rep["carriers"]["interweave"]["missed"], rep["carriers"]["interweave"]["no_session"]), (0, 1))
+
+    def test_the_markdown_says_late_and_no_session_are_in_no_missed_count(self):
+        text = cp.render_markdown(late_case(15))
+        self.assertIn("1 pair(s) were `late` and 0 belong to a run with no session", text)
+        self.assertIn("in no `missed` count of the interweave row", text)
+
+    def test_the_markdown_counts_the_timeout_pair_of_a_run_with_no_session_among_those_left_out_of_missed(self):
+        none = {"t": iso(0), "who": "ctl", "carrier": "interweave", "kind": "request", "id": "r1", "from": OP, "op": "ping", "verdict": "no-session"}
+        text = cp.render_markdown(run([{**sent("r1", 0, [A]), "timeout_s": 20}, none]))
+        self.assertIn("0 pair(s) were `late` and 1 belong to a run with no session", text)
+        self.assertIn("| relay | 0 | 1 |", text, "the relay row still counts that pair missed, which the sentence no longer denies")
+
+    def test_a_non_finite_timeout_is_no_timeout_and_never_a_crash(self):
+        # json.loads accepts Infinity; only a hand-made log can hold it (fabric-ctl refuses a non-finite --timeout)
+        line = {**sent("r1", 0, [A]), "timeout_s": float("inf")}
+        rep = run([line, got("r1", A, "relay", 2), got("r1", A, "interweave", 5, who="agentd", verdict="no-waiter")])
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
+    def test_a_fractional_timeout_is_read_in_whole_seconds(self):
+        # a reply at real 10.6 s against --timeout 10.5 logs as 10 s: a miss, not late
+        rep = late_case(10, timeout_s=10.5)
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
+
+
 class Pairs(unittest.TestCase):
     def test_a_reply_by_both_carriers_is_both_and_each_carriers_latency_counts(self):
         rep = run([sent("r1", 10, [A]), got("r1", A, "relay", 12), got("r1", A, "interweave", 11)])

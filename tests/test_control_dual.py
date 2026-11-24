@@ -394,6 +394,35 @@ class Dual(Harness):
         self.assertEqual(self.finish(box), 0, self.err)
         self.assertTrue(any("does not answer" in e and "relay carries alone" in e for e in self.err), self.err)
         self.assertEqual(self.rows()[0]["carrier"], "relay only")
+        # j160: said in the log, so the parity report reads the InterWeave replies that follow as no miss of the carrier.
+        self.assertEqual([(l["verdict"], l["carrier"]) for l in self.arrivals() if l["kind"] == "request" and l["verdict"] != "sent"], [("no-session", "interweave")])
+
+    def test_the_request_line_carries_the_timeout_the_wait_was_given(self):
+        # j160: what the carrier alone would have had to deliver within; the parity report calls a reply inside it `late`, past it a miss.
+        self.boot("alice")
+        box = self.run_ctl("alice", "ping", "--json", "--timeout", "10")
+        self.answer("alice", self.request_of("alice"))
+        self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual([l["timeout_s"] for l in self.arrivals() if l["verdict"] == "sent"], [10])
+        self.assertEqual([l for l in self.arrivals() if l["verdict"] in ("no-session", "session-lost")], [], "positive control: a healthy run says neither")
+
+    def test_a_hand_off_that_failed_after_the_session_was_made_is_a_lost_session_not_an_absent_one(self):
+        # A session that was made may have had the request sent (maybe_handed): the carrier's own failure, a miss of it.
+        self.boot("alice")
+        with mock.patch.object(link.Session, "wait_sent", side_effect=RuntimeError("the operator's agentd closed the connection")):
+            box = self.run_ctl("alice", "ping", "--json", "--timeout", "10")
+            self.answer("alice", self.relay_request(), interweave=False)
+            self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual([l["verdict"] for l in self.arrivals() if l["verdict"] in ("no-session", "session-lost")], ["session-lost"])
+
+    def test_a_session_that_agentd_closed_under_the_run_is_said_as_lost(self):
+        self.boot("alice")
+        with mock.patch.object(link.Session, "poll", side_effect=RuntimeError("the operator's agentd closed the connection")):
+            box = self.run_ctl("alice", "ping", "--json", "--timeout", "10")
+            req = self.request_of("alice")
+            self.answer("alice", req, interweave=False)
+            self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual([l["carrier"] for l in self.arrivals() if l["verdict"] == "session-lost"], ["interweave"])
 
     def test_with_the_key_absent_or_relay_nothing_changes(self):
         self.boot("alice")
