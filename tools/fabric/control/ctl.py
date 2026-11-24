@@ -2443,9 +2443,10 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     # Kept before the session is closed or dropped: it says, per account, whether the send certainly never reached the child.
     # With no session at all there is no per-account reason, and `maybe_handed` says whether anything could have been sent.
     if arrivals is not None and session is None:
-        # No session with the second carrier at all: whatever the accounts answer on it reaches no waiter, which is no miss of
-        # the carrier's own (alone, this run says nothing was sent). The parity report reads this line to say so (j160).
-        arrivals.add(link.VIA, request, "no-session", me["address"])
+        # No session at all, and nothing handed over: the accounts' replies on the second carrier reach no waiter, which is no
+        # miss of the carrier's own (alone, this run says nothing was sent). A hand-off that failed after it was made may have
+        # sent the request (`maybe_handed`): that is a lost session, a miss, as alone it says the outcome is unknown (j160).
+        arrivals.add(link.VIA, request, "session-lost" if maybe_handed else "no-session", me["address"])
     send_why = dict(session.sent) if session is not None else {}
     never_sent_at_all = session is None and not maybe_handed
 

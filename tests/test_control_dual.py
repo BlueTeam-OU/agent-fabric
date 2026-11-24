@@ -406,6 +406,15 @@ class Dual(Harness):
         self.assertEqual([l["timeout_s"] for l in self.arrivals() if l["verdict"] == "sent"], [10])
         self.assertEqual([l for l in self.arrivals() if l["verdict"] in ("no-session", "session-lost")], [], "positive control: a healthy run says neither")
 
+    def test_a_hand_off_that_failed_after_the_session_was_made_is_a_lost_session_not_an_absent_one(self):
+        # A session that was made may have had the request sent (maybe_handed): the carrier's own failure, a miss of it.
+        self.boot("alice")
+        with mock.patch.object(link.Session, "wait_sent", side_effect=RuntimeError("the operator's agentd closed the connection")):
+            box = self.run_ctl("alice", "ping", "--json", "--timeout", "10")
+            self.answer("alice", self.relay_request(), interweave=False)
+            self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual([l["verdict"] for l in self.arrivals() if l["verdict"] in ("no-session", "session-lost")], ["session-lost"])
+
     def test_a_session_that_agentd_closed_under_the_run_is_said_as_lost(self):
         self.boot("alice")
         with mock.patch.object(link.Session, "poll", side_effect=RuntimeError("the operator's agentd closed the connection")):

@@ -655,7 +655,7 @@ class Carrier:
                 now = time.monotonic()
                 for k in [k for k, (_r, t) in self._early.items() if now - t > EARLY_HOLD_S]:
                     dropped.extend(self._early.pop(k)[0])
-                if len(self._early) >= EARLY_MAX:
+                if rid not in self._early and len(self._early) >= EARLY_MAX:   # a held id's next reply never evicts another id's, nor its own
                     dropped.extend(self._early.pop(next(iter(self._early)))[0])
                 self._early.setdefault(rid, ([], now))[0].append((record, sender))
         # A held reply nobody came for ends as the no-waiter it would have been: said, so its cause stays readable.

@@ -790,18 +790,28 @@ class SocketCases(Net):
         last = a.arrival_lines()[cc.EARLY_PER_ID]
         self.assertEqual((last["verdict"], last["from"]), ("no-waiter", "h/bob"))
 
+    def test_a_second_reply_to_a_held_request_evicts_nobody_when_the_store_is_full(self):
+        a = self.nodes["alice"]
+        for i in range(cc.EARLY_MAX):
+            a.carrier._route_reply(reply(rid=f"p{i}", to=f"q{i}", frm="h/bob"), "h/bob")
+        a.carrier._route_reply(reply(rid="px", to="q0", frm="h/bob"), "h/bob")
+        self.assertEqual(len(a.carrier._early), cc.EARLY_MAX)
+        self.assertEqual(len(a.carrier._early["q0"][0]), 2, "the oldest id keeps both of its replies")
+        self.assertEqual([l for l in a.arrival_lines() if l["verdict"] == "no-waiter"], [])
+
     def test_held_replies_are_bounded_and_expire(self):
         a = self.nodes["alice"]
         for i in range(cc.EARLY_MAX + 5):
-            a.carrier._route_reply(reply(rid=f"p{i}", to=f"q{i}", frm="h/alice"), "h/alice")
+            a.carrier._route_reply(reply(rid=f"p{i}", to=f"q{i}", frm="h/bob"), "h/bob")
         self.assertEqual(len(a.carrier._early), cc.EARLY_MAX)
         for k in a.carrier._early:
             a.carrier._early[k] = (a.carrier._early[k][0], time.monotonic() - cc.EARLY_HOLD_S - 1)
-        a.carrier._route_reply(reply(rid="px", to="qx", frm="h/alice"), "h/alice")
+        a.carrier._route_reply(reply(rid="px", to="qx", frm="h/bob"), "h/bob")
         self.assertEqual(list(a.carrier._early), ["qx"])
         lines = a.arrival_lines()
         self.assertEqual(sum(1 for l in lines if l["verdict"] == "held"), cc.EARLY_MAX + 6)
         self.assertEqual(sum(1 for l in lines if l["verdict"] == "no-waiter"), cc.EARLY_MAX + 5, "every evicted or expired one is said as no-waiter")
+        self.assertEqual({l["from"] for l in lines}, {"h/bob"}, "each under the sender it came from, never this account's")
 
     def test_the_operators_own_address_is_answered_through_its_own_socket(self):
         op = self.nodes["op"]

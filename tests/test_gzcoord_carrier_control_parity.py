@@ -86,6 +86,17 @@ class LateAndNoSession(unittest.TestCase):
         self.assertEqual(pair(rep, "r1", A)["cause"], "no-session")
         self.assertEqual((rep["carriers"]["interweave"]["missed"], rep["carriers"]["interweave"]["no_session"]), (0, 1))
 
+    def test_a_reply_at_the_very_second_the_timeout_ends_is_no_late_reply(self):
+        rep = late_case(20)
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
+        self.assertEqual(rep["carriers"]["interweave"]["late"], 0)
+
+    def test_a_pair_with_no_copy_in_a_run_with_no_session_is_a_timeout_and_no_interweave_miss(self):
+        none = {"t": iso(0), "who": "ctl", "carrier": "interweave", "kind": "request", "id": "r1", "from": OP, "op": "ping", "verdict": "no-session"}
+        rep = run([{**sent("r1", 0, [A]), "timeout_s": 20}, none])
+        self.assertEqual(pair(rep, "r1", A)["cause"], "timeout")
+        self.assertEqual((rep["carriers"]["interweave"]["missed"], rep["carriers"]["interweave"]["no_session"]), (0, 1))
+
     def test_the_markdown_says_late_and_no_session_are_in_no_missed_count(self):
         text = cp.render_markdown(late_case(15))
         self.assertIn("`late` (1) and `no-session` (0)", text)

@@ -6,7 +6,8 @@ the owner's word on a report made from it (docs/live-checks/), never this code's
 INPUT   `control-arrivals.jsonl` of the operator's account (control_link.ArrivalLog), as `LOGIN=FILE`; only that file is
         read for pairs and causes (other accounts' files are accepted and listed, and contribute nothing yet). One JSON line per record that arrived, written by two processes into the
         one file of an account: `who` "ctl" (fabric-ctl: a `sent`/`sent-alone` line per request it made, with its
-        `to`, and a line per reply copy it was shown, by carrier relay|interweave) and "agentd" (the replies its
+        `to` and `timeout_s`, one `no-session` or `session-lost` line when its session with agentd was never made or ended under it,
+        and a line per reply copy it was shown, by carrier relay|interweave) and "agentd" (the replies its
         carrier routed — verdict ok | no-waiter | held | forged-from — and the requests that came by InterWeave).
         `t` has a one-second resolution, so a latency is good to a second either way.
 PAIR    (request id, addressee) for every request sent by fabric-ctl in dual (the `sent` line's `to`), whose `t` is
@@ -16,9 +17,10 @@ OUTCOME per pair, by the copies fabric-ctl was shown: `both`; `interweave-only` 
         `relay-only` (the miss of the second carrier, with its CAUSE); `none` (cause `timeout`).
 CAUSE   of a relay-only pair, first that the logs show:
           no-session  fabric-ctl found no session with the operator's agentd (its `no-session` line): the accounts' InterWeave
-                      replies reached no waiter, and with the carrier alone this run says nothing was sent. No miss.
+                      replies reached no waiter, and with the carrier alone this run says nothing was sent. No miss; a pair of that run
+                      with no copy at all stays a `timeout` and is counted here, not in `missed`.
           late        the reply came to the operator's agentd after fabric-ctl had left, but inside the request's own
-                      `timeout_s` (its `sent` line): in dual fabric-ctl leaves DUAL_GRACE_S after every account has answered
+                      `timeout_s` (its `sent` line; the second it arrives at is a miss): in dual fabric-ctl leaves DUAL_GRACE_S after every account has answered
                       (by either carrier), with the carrier alone it keeps waiting for the replies, so this reply
                       would have been collected. Not counted as a miss; its latency is `interweave_late_s`. A reply later
                       than `timeout_s`, or from a log whose `sent` line has none, stays no-waiter (j160: 680 of 727
@@ -45,7 +47,6 @@ from typing import Any, Iterable
 
 CARRIERS = ("relay", "interweave")
 CAUSES = ("no-waiter", "late", "no-session", "relay-only", "timeout")
-NOT_MISSED = ("late", "no-session")   # causes that are no loss of the carrier alone: see the CAUSE paragraph
 
 
 class InputError(Exception):
@@ -176,7 +177,7 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
                     arrived = min(verdicts[v] for v in ("no-waiter", "held") if v in verdicts)
                     if p["id"] in no_session:
                         row["cause"] = "no-session"
-                    elif p["id"] not in lost_session and p.get("timeout_s") and arrived - p["t"] <= p["timeout_s"]:
+                    elif p["id"] not in lost_session and p.get("timeout_s") and arrived - p["t"] < p["timeout_s"]:
                         row["cause"] = "late"
                         row["interweave_late_s"] = max(0.0, arrived - p["t"])
                 else:
@@ -186,11 +187,13 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
                 row["cause"] = "timeout"
                 if not p["alone"]:
                     stats["relay"]["missed"] += 1
+
             # Not for a request that is not on record as sent in dual, or whose relay copy was never to come.
             if not p.get("unrecorded"):
                 if row["cause"] == "late":
                     stats["interweave"]["late"] += 1
-                elif row["cause"] == "no-session":
+                elif row["cause"] == "no-session" or p["id"] in no_session:
+                    # A run with no session sent nothing by the carrier: its silence is no miss, though a pair with no copy stays a timeout.
                     stats["interweave"]["no_session"] += 1
                 else:
                     stats["interweave"]["missed"] += 1
@@ -217,7 +220,7 @@ def render_markdown(rep: dict) -> str:
     for c in CARRIERS:
         s = rep["carriers"][c]
         L.append(f"| {c} | {s['delivered']} | {s['missed']} | {_s(s['p50_s'])} | {_s(s['p95_s'])} |")
-    L += ["", "Causes of the second carrier's relay-only pairs: " + ", ".join(f"{c} {rep['causes'][c]}" for c in CAUSES),
+    L += ["", "Causes of the pairs the second carrier did not deliver: " + ", ".join(f"{c} {rep['causes'][c]}" for c in CAUSES),
           f"`late` ({rep['causes']['late']}) and `no-session` ({rep['causes']['no-session']}) "
           "are no miss of the carrier alone and are in no `missed` count above; see the tool's CAUSE paragraph.", ""]
     if rep["drill"]:
