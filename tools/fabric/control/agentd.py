@@ -1334,7 +1334,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         join_inflight(inflight)
 
     def relay_arrival(rec: dict, a: dict) -> None:
-        """The relay's copy of a request, in this account's arrival file beside the InterWeave copy's line (Carrier.inbound):
+        """The relay's copy of a request, in this account's arrival file beside the second carrier's copy's line (Carrier.inbound):
         control-parity reads the file for the carriers that carried each request (rule 18). A copy that accept() refused as already
         seen is the second carrier's arrival and counts; one refused for any other reason (forged, expired, not for this account)
         is no arrival of that request and is not written."""
