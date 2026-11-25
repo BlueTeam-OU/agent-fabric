@@ -551,3 +551,35 @@ address, its own included, through the socket, and fails with no socket.
 said a relay that is down leaves a send's addressee unknown, is amended
 the same day. Not yet read back live: a two-account run with the relay
 stopped.
+
+### Amendment 2026-11-25 — Each account answers its newest state record
+
+Rule 16's readers took each account's newest `state` record from the
+relay's stored history of the state channel. The second carrier stores
+none, so the cutover plan (`docs/proposals/gzcoord-interweave-only-cutover.md`
+§2.5, row 2) needed the record asked of the account instead.
+python-dev-02's BlueTeam-OU/agent-fabric#640 (merged aa6b8a06), on the
+contract agreed in REPLY 01a1e82f, has each agentd keep the record it last
+posted in its state directory (`state-record.json`, 0600, written
+atomically) in every carrier mode, posting none under the second carrier
+alone, and answer it to a new op, `state`, with its own address. `fabric-ctl <login|all> state` asks it under any carrier;
+`states` (its `--follow` asking again every five seconds), the queue's
+`waits`, and the pool holder's state and role reads ask it instead of reading the channel when `control_carrier` names the second
+carrier alone, or when `FABRIC_STATE_READ=op` says so, which is said on
+stderr and exists to exercise the op while the fleet is on `dual`;
+`fabric-ctl` refuses another value, a control agent says it and ignores it. A
+silent account, a `null` record or a record not from the account asked
+reads as unknown, never as an empty record; under `relay` and `dual`
+without the override nothing a reader does changed.
+
+The op is public (rule 4) on the test that rule sets: the record it
+answers is the one the account posts on the state channel, which every
+relay-token holder reads whole under `relay` and `dual`. It takes no
+arguments, so rule 3 is unchanged. `fabric-ctl --verbs` lists it, which
+is what the completion reads (#695 holds a case against the real list).
+
+Read back live on 2026-11-23 under `dual` by python-dev-02
+(`operator/docs/live-checks/2026-11-23-ctl-state-op-under-dual.md`): one
+account and all 30 answered `state`, and `FABRIC_STATE_READ=op ... states`
+gave the same 30 states. Not read back: a fleet on the second carrier
+alone, and a silent account on the live fleet (the suite's).
