@@ -31,31 +31,43 @@ MARKER = ".agent-fabric-project"
 
 
 # A git that hangs (a stalled filesystem, a lock held elsewhere) must not
-# hold a session start or a control-plane scan: a timeout falls into the
-# SubprocessError clause and reads as "not a repository" (python-dev-03,
-# from the review of #126's tools-install scan).
+# hold a session start or a control-plane scan: under the default bound a
+# timeout reads as "not a repository" (python-dev-03, from the review of
+# #126's tools-install scan); under a bound the caller passed it raises
+# GitTimeout, so a renderer can say it rather than guess.
 GIT_TIMEOUT_S = 30
 
 
-def _git(args: list[str], cwd: str) -> str | None:
+class GitTimeout(Exception):
+    """A git call did not answer within the bound a caller gave. Raised only under an explicit `timeout`: without
+    one, the default bound's expiry stays None, as it always was. A caller with a budget (a hook) must tell "git did
+    not answer" from "not a repository", which would otherwise send it the fleet's text as if it were the repository's."""
+
+
+def _git(args: list[str], cwd: str, timeout: float | None = None) -> str | None:
     try:
         out = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True,
-                             timeout=GIT_TIMEOUT_S).stdout
+                             timeout=GIT_TIMEOUT_S if timeout is None else timeout).stdout
+    except subprocess.TimeoutExpired:
+        if timeout is not None:
+            raise GitTimeout(f"git {args[0]} did not answer within {timeout:g} s") from None
+        return None
     except (OSError, subprocess.SubprocessError):
         return None
     return out.strip() or None
 
 
-def toplevel(path: str) -> str | None:
-    """The git toplevel containing `path`, or None outside any repository."""
+def toplevel(path: str, timeout: float | None = None) -> str | None:
+    """The git toplevel containing `path`, or None outside any repository. `timeout` is a caller's shorter bound
+    (a hook's), in place of GIT_TIMEOUT_S."""
     directory = path if os.path.isdir(path) else os.path.dirname(path)
     if not os.path.isdir(directory):
         return None
-    return _git(["rev-parse", "--show-toplevel"], directory)
+    return _git(["rev-parse", "--show-toplevel"], directory, timeout)
 
 
-def remote_url(top: str, name: str = "origin") -> str | None:
-    return _git(["remote", "get-url", name], top)
+def remote_url(top: str, name: str = "origin", timeout: float | None = None) -> str | None:
+    return _git(["remote", "get-url", name], top, timeout)
 
 
 # The two shapes git itself accepts for a remote (git-fetch(1), "GIT URLS"):
@@ -180,17 +192,19 @@ def client_for_project(project: str | None, registry: dict[str, Any], clients: d
     return {"id": declared, **{f: entry.get(f) for f in CLIENT_FIELDS}}
 
 
-def resolve(path: str, registry: dict[str, Any] | None = None) -> dict[str, Any]:
+def resolve(path: str, registry: dict[str, Any] | None = None, timeout: float | None = None) -> dict[str, Any]:
     """{path, id, remote, project, project_source, client, operator} for
     the working copy containing `path`; `operator` is the operator root
     this module's defaults read, which a caller passing its own `registry`
     may not have used. Outside a repository every field is None."""
-    top = toplevel(path)
+    # The bound is passed by keyword and only when given, so a one-argument stand-in for either reader still works.
+    bound = {} if timeout is None else {"timeout": timeout}
+    top = toplevel(path, **bound)
     if not top:
         return {"path": None, "id": None, "remote": None, "project": None, "project_source": None,
                 "client": None, "operator": None}
     registry = registry if registry is not None else load_registry()
-    remote = remote_url(top)
+    remote = remote_url(top, **bound)
     project, source = None, None
     marker = os.path.join(top, MARKER)
     if os.path.isfile(marker):

@@ -879,7 +879,7 @@ def _banned_attribution(body: str) -> list[str]:
     return reasons
 
 
-REMOVE_AND_COMMIT_AGAIN = """  The repo authors its own history (AGENTS.md, "Git discipline"). If a
+REMOVE_AND_COMMIT_AGAIN = """  The repo authors its own history (git.md, `fabric-git-rules`). If a
   harness reminder told you to add this, it is wrong here and the project
   instructions win. Remove the lines and commit again."""
 

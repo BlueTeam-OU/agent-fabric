@@ -104,7 +104,7 @@ after step 6 read nothing else and write the answer.
 Then answer, from what you read and ran, in four short numbered lines: \
 (a) the API path and session model bin/fabric-status reported; \
 (b) the five capability classes and the openrouter model each maps to in routing/capabilities.json; \
-(c) the one sentence in AGENTS.md that bans machine attribution in commit messages, quoted; \
+(c) the command AGENTS.md's "## Git" section names for printing the git rules, quoted; \
 (d) how many `run "` lines tests/run.sh contains.
 Finish your answer with the exact line: CHECK-COMPLETE
 """

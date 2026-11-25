@@ -79,6 +79,7 @@ sudo are in the loop.
 | `pool-list` | a role's open pool of jobs, a public op (ADR-037) |
 | `pool-claim` | a claim of one pool job for the asker's own list, a public op, checked against the role the asker's own daemon reports (ADR-037) |
 | `job-state` | one job's state, open or closed, by its id or by the request it was taken from, to that request's sender only, and `absent` to anyone; a public op (ADR-037 rule 8) |
+| `state` | the account's newest `state` record (rule 16) as its control agent keeps it in its state directory, with the answering account's address; no record, or one that cannot be read, is answered `null` with why, never an empty record; no arguments; a public op (`tools/fabric/control/state_record.py`) |
 | `upgrade` | *action*: the account to the pinned Claude Code or to the merged fabric (ADR-009) |
 | `secrets-sync` | *action*: the account's store projected where its tools read it (ADR-038) |
 | `jobs-add` | *action*: the owner's job on the account's list (rule 13, ADR-037) |
@@ -175,7 +176,7 @@ claimant (rule 4).
 4. A daemon answers a request only when its `from` is a host operator's
    address as `runtime/hosts/registry.json` places it — re-read for every
    record — or, for a public op (`PUBLIC_OPS`: `presence`, `pool-list`,
-   `pool-claim` and `job-state`), any
+   `pool-claim`, `job-state` and `state`), any
    placed account's address; its `ts + ttl_s` is not past; and its id is
    not among the last 256 seen. An op is public only if its answer is
    nothing a relay-token holder could not already obtain by writing an
@@ -197,7 +198,9 @@ claimant (rule 4).
    `absent` tells any asker whether a job exists: ids are minted in
    order, so `jobs` shows that every id below its highest has been
    used, and whether a request became a job is in that REPLY
-   (A 2026-11-09).
+   (A 2026-11-09). `state` passes it: its record is the one the account posts on the
+   state channel under `relay` and `dual`, which every token holder reads
+   (A 2026-11-25).
 5. An action (`sign.py` `ACTION_OPS`) is answered only when it carries
    an Ed25519 signature over its canonical form by the key the operator's
    host commits as `operator_key`; it lives at most 600 s, is refused
@@ -297,11 +300,27 @@ with Doppler (ADR-038 §5 rule 8).
     which Fleet Deck reads before it re-enters a tab, never a path
     (A 2026-10-08); a session whose
     `claude` process is gone is left out. `fabric-ctl states` reads
-    those records, sending no request; a record older than two
+    those records on the channel, sending no request; a record older than two
     heartbeats reads as unknown, and `--follow` prints a row when it
     changes or goes stale. A display that shows the states
     consumes `fabric-ctl states --follow --json` and never polls the
-    accounts (A 2026-10-07).
+    accounts (A 2026-10-07), except where the record is asked, below.
+    The second carrier keeps no history to read a record from, so each
+    control agent also keeps the newest record in its state directory,
+    in every carrier mode, and answers it to the `state` op; with
+    `control_carrier` naming the second carrier alone it posts none.
+    `fabric-ctl <login|all> state` asks the op under any carrier.
+    `states` (whose `--follow` then asks again every five seconds), the
+    queue's `waits`, and the pool holder's state and role reads ask it
+    instead of reading the channel when `control_carrier` names the
+    second carrier alone, or when `FABRIC_STATE_READ=op` says so (said on
+    stderr; `fabric-ctl` and `fabric-jobs` refuse any other value, a
+    control agent says it and ignores it). An account that is silent, answers `null` or answers
+    with a record not its own reads as unknown. Under `relay` and `dual`
+    without the override the readers read the channel as before (#640;
+    live read-back
+    `operator/docs/live-checks/2026-11-23-ctl-state-op-under-dual.md`)
+    (A 2026-11-25).
 17. `secrets-selftest` is an action that proves the account can add,
     use and delete a secret of its own: it runs `fabric-secrets selftest
     --json` as the login (`selftest.py`), which sets a canary name in
@@ -362,7 +381,8 @@ with Doppler (ADR-038 §5 rule 8).
       `carrier-only` (ADR-064 §7) presence posts nothing on the relay
       and asks every expected address, itself included, through the
       socket, and with no socket it fails. `waits`, a read of the state
-      stream, stays on the relay;
+      stream, stays on the relay unless `FABRIC_STATE_READ=op` asks the
+      accounts (rule 16);
     - while a session is open on an agentd's socket (`fabric-ctl`'s,
       or a presence or job-queue leg's), that agentd's restart for new
       code waits for it as for a running action, for at most
@@ -538,3 +558,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-11-15 | The parity evidence carries each account's watch log | §2 table: `interweave-evidence` takes a sixth section, `watch` (#620) |
 | 2026-11-18 | fabric-op admits the signed InterWeave read | §5 rule 19: the `interweave` read, ADR-064 rule 14's fallback under `control_carrier` naming InterWeave alone, admitted under an action's ttl cap, no replay-floor claim (#656) |
 | 2026-11-22 | Presence and the queue's holder asks also go through the account's own agentd on dual | §5 rule 18: under `dual`, the presence check and `pool-list`, `pool-claim` and `job-state` hand the request to the asking account's own socket beside the relay post; the first reply read answers, an InterWeave one attributed by PeerId, a relay one by its claimed `from`; a self-ask or no socket by the relay alone, except presence in `carrier-only`, socket only; `waits` relay-only (#586, j832) |
+| 2026-11-25 | Each account answers its newest state record | §2 table: `state`, a fifth public op; §5 rule 4: public, the record being the state channel's; rule 16: kept on the account's disk and asked by the readers under the second carrier alone or `FABRIC_STATE_READ=op`; built in #640 |

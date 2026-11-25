@@ -146,13 +146,13 @@ carrier's `interweave/inbox.jsonl` (`carrier/arrivals.py` `Spool`), "outbox" is 
 Not GZCoord messages, so outside the goal as worded; listed because the relay cannot be retired
 while these stand. Under `"control_carrier": "dual"` (`runtime/control/config.json`, the fleet
 since 2026-11-13) control already rides InterWeave beside the relay. Since #656 `control_config`
-also takes InterWeave alone (`control/carrier_cfg.py`, three values); what is missing is the
-state stream.
+also takes InterWeave alone (`control/carrier_cfg.py`, three values), and since #640 each
+account answers its newest state record to the `state` op (ADR-029 rule 16).
 
 | where | uses the relay for | replacement | exists? |
 |---|---|---|---|
 | `tools/fabric/control/agentd.py` `main` (`call`, `post`, `prime`, the read loop) | reads every request on `fabric:control` by `since_id`, posts every reply | `control_link` on the `fabric-control` endpoint | built, on under `dual` and under InterWeave alone (`agentd.control_config` takes `relay`, `dual` or InterWeave alone, `control/carrier_cfg.py`) |
-| `agentd.py` `state_poster`; `control/ctl.py` `states`; `control/queue.py` `read_waits`; `control/pool.py` `state_reader`, `role_from_stream` | the state channel: each account's newest state record, read back from the relay's stored history | a request each agentd answers, or a table the reader keeps | no: InterWeave stores no history |
+| `agentd.py` `state_poster`; `control/ctl.py` `states`; `control/queue.py` `read_waits`; `control/pool.py` `state_reader`, `role_from_stream` | the state channel: each account's newest state record, read back from the relay's stored history | a request each agentd answers: the public `state` op (`control/state_record.py`, `control/state_read.py`) | built (#640), asked under InterWeave alone or with `FABRIC_STATE_READ=op`; read back live under `dual` 2026-11-23 (`operator/docs/live-checks/2026-11-23-ctl-state-op-under-dual.md`) |
 | `control/ctl.py` `main` | posts the request, pages the replies | `_second_carrier`, through the operator's agentd socket | built, used under `dual` |
 | `control/presence.py` `ask_presence`; `control/queue.py` `ask_holder`, `bound_call`, `relay` | public ops asked by any account (`presence`, `pool-list`, `pool-claim`, `job-state`) | the asker's own agentd socket | yes under `dual` (#586, W12): `presence.ask_presence` and `queue.ask_holder` also send through the account's agentd and take a reply from either carrier; `bound_call` and `relay` still post to the relay; the relay-stopped read-back is gate 2's |
 | `control_link.Carrier.start_send` and `reply` for the account's own address | the operator's own row of every `fabric-ctl all`: agentd sent no reply to its own account over InterWeave ("not sent: this account (the relay carries it)"), so that row came by relay alone (all of its own replies 2026-11-12 to 11-14, `control-arrivals.jsonl`) | answered in-process: `_loop_request` hands the request to this agentd's handler, `reply` routes the answer to the waiter (W18) | yes, #618 (2026-11-15): since 00:07:08Z the own row also arrives as `interweave`, `ok` (371 replies to 2026-11-16 02:19Z, 18 ops); the relay copy still comes beside it under `dual`; a `RELAY_ONLY_OPS` op still loops nothing, as the row below; the relay-stopped read-back is gate 2's |

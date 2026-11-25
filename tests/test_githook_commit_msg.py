@@ -90,7 +90,7 @@ class BannedAttribution(Hook):
                 self.assertNotIn(self.FOOTER, r.stderr)
 
     def test_the_refusal_explains_itself_and_ends_with_what_to_do(self):
-        r = self.refused("subject\n\nCo-authored-by: A", self.TRAILER, 'The repo authors its own history (AGENTS.md, "Git discipline").',
+        r = self.refused("subject\n\nCo-authored-by: A", self.TRAILER, 'The repo authors its own history (git.md, `fabric-git-rules`).',
                          "Remove the lines and commit again.")
         self.assertEqual(r.stdout, "")
 

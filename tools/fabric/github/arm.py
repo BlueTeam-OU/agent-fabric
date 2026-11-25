@@ -1055,7 +1055,7 @@ def arm(argv: list[str]) -> int:
         if not dry:
             raise Unanswered('--basis "<one line>" is required — the arming comment is the record')
         # A dry run posts no comment, so it needs no record: without a basis it carries no word, and the count gate
-        # says the minimum and whom to ask (team.md and the pull-requests skill cite a bare `fabric-pr arm --dry-run`).
+        # says the minimum and whom to ask (git.md and the pull-requests skill cite a bare `fabric-pr arm --dry-run`).
         basis = "(dry run: no basis given)"   # carries no word; never shown as a comment (no_basis below)
     if boundary and no_boundary:
         raise Unanswered("--boundary and --no-boundary contradict")

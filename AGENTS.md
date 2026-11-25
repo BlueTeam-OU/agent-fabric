@@ -164,40 +164,19 @@ fabric-model list                         # every model and effort choice per pr
 fabric-lease <name> -- <cmd>              # one holder per host resource across this host's accounts (ADR-010)
 fabric-branches [--sweep]                 # local branches against origin/main; --sweep deletes what is on it, pushed worktrees, ended sessions' scratch, your merged branches on origin (ADR-022)
 fabric-jobs add|list|pause|switch|show … # your job list; switch says: fabric-fresh --job, or in place if none worked yet and you stand in its copy (ADR-037)
+fabric-git-rules                          # this working copy's git, branch and PR rules, rendered from its policy (ADR-019)
 ```
 
-## Git discipline
+## Git
 
-After each logical unit of work, create a git commit. Pushing is not
-part of that loop: push when the work asks for it — the branch is
-finished, or you were told to. If a push cannot be completed
-(credentials, remote access, branch protection, environment limits), say
-so explicitly and do not claim it succeeded. Commit messages are short,
-specific and scoped to the actual change; completed work is never left
-uncommitted. Work reaches `main` as a pull request (ADR-019). A branch
-lands at `commits.advice_over` work commits, folds included, and past
-`commits.refuse_over` takes no commit that adds work without an
-`Owner-Word:` trailer; the `commit-msg` hook says the repository's
-numbers (ADR-019 §5 rule 4).
-
-**Every commit declares its kind in its trailers**, because a PR is
-armed by its count of work commits: `Kind: work` for new work, a bug
-fix of the project, docs or a record; `Answers: <finding labels or
-thread>` for a commit that answers a review of its PR, which the
-`commit-msg` hook stamps `Kind: review-fix`. A commit with neither is
-refused; a merge declares nothing (ADR-019 §5 rule 3).
-
-**The repo authors its own history: no machine attribution, anywhere.**
-No `Co-authored-by:` trailer, no `Claude-Session:` trailer, no session URL
-and no "Generated with Claude Code" footer — not in a commit message, and
-not in a pull-request description. `policies/ban_generated_by_attribution.sh`
-refuses it as the `commit-msg` hook, in CI on every commit a branch adds,
-and in `tests/run.sh`. Write the message right the first time.
-
-Your own commit messages with shell metacharacters (`` ` ``, `$`, `×`,
-`()`) MUST be passed via a quoted heredoc (`<<'EOF' ... EOF`), not inline
-`-m` strings, to avoid silent shell expansion. A command you hand the
-owner is never a heredoc (Working here).
+How you commit, size a branch, and open, count and arm a pull request
+is the repository's `git.md`: the session-start hook gives it for the
+working copy you are in, again when you move to another, and
+`fabric-git-rules` prints it in any harness (ADR-019 §5 rule 9). Its
+numbers are the repository's arming policy, never a copy in prose.
+What is agent-fabric's own: work reaches `main` as a pull request
+(ADR-019), and every commit here carries the `Fabric-Role:` trailer the
+hooks stamp (above, "Read-only, unless you are fabric-coordinator").
 
 ## Licence, runtime state and credentials
 

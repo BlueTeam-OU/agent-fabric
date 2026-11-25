@@ -81,8 +81,13 @@ def main() -> int:
               and json.load(open(f))["sessions"]["s1"]["state"] == "blocked")
         ss.record({"session_id": "s2", "hook_event_name": "SessionStart"}, d, 4, P, PROC)
         check("two sessions kept apart", set(json.load(open(f))["sessions"]) == {"s1", "s2"})
+        for sid in ("s1", "s2"):
+            open(os.path.join(d, f"git-rules-{sid}.json"), "w").close()
         check("an ended session leaves the file", ss.record(ev("SessionEnd"), d, 5, P, PROC) is True
               and set(json.load(open(f))["sessions"]) == {"s2"})
+        check("…and takes its git-rules note with it, not another session's",
+              not os.path.exists(os.path.join(d, "git-rules-s1.json")) and os.path.exists(os.path.join(d, "git-rules-s2.json")))
+        os.remove(os.path.join(d, "git-rules-s2.json"))
         check("an end for an unknown session writes nothing", ss.record(ev("SessionEnd"), d, 6, P, PROC) is False)
         check("no session id: nothing", ss.record({"hook_event_name": "Stop"}, d, 7, P, PROC) is False)
         with open(f, "w") as fh:
@@ -94,9 +99,11 @@ def main() -> int:
         proc(6161, "claude", 1, 999)
         ss.record({"session_id": "s3", "hook_event_name": "SessionStart"}, d, 11, (6161, 999), PROC)
         shutil.rmtree(f"{PROC}/6161")
+        open(os.path.join(d, "git-rules-s3.json"), "w").close()
         check("a killed session (no SessionEnd) is pruned when another session writes",
               ss.record(ev("UserPromptSubmit"), d, 12, (5151, 888), PROC) is True and "s3" not in json.load(open(f))["sessions"],
               json.load(open(f)))
+        check("…and its git-rules note goes with it", not os.path.exists(os.path.join(d, "git-rules-s3.json")))
         since = json.load(open(f))["sessions"]["s1"]["since"]
         proc(7171, "claude", 1, 1)
         ss.record({"session_id": "s5", "hook_event_name": "SessionStart"}, d, 20, (7171, 1), PROC)

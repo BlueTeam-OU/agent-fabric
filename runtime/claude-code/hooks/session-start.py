@@ -36,6 +36,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import time
@@ -155,6 +156,8 @@ def main() -> int:
         # another working copy's channel and secrets store (review of #269).
         lines += client_line(ctx["project"] if ctx["project_source"] == "working-copy" else None)
         lines += project_layer(role, ctx["project"], ctx["working_copy"])
+        lines += git_rules_layer(ctx["working_copy"], None if subagent else session)
+        lines += agents_md_layer(ctx["working_copy"])
         try:
             lines += trailing(ctx["working_copy"])
         except Exception:  # noqa: BLE001 — a git oddity must not cost the session its project layer
@@ -525,13 +528,14 @@ def project_layer(role: str | None, project: str | None, working_copy: str | Non
     index = os.path.join(working_copy, ".agent-fabric", "memory", role, "INDEX.md")
     out: list[str] = []
     try:
-        with open(remit, encoding="utf-8") as fh:
-            body = fh.read()
+        # Text-mode newline translation, kept from the open() this replaced: front matter is matched on \n.
+        body = read_tree_file(remit, working_copy, 1 << 30).decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
         body = re.sub(r"\A---\n.*?\n---\n", "", body, count=1, flags=re.DOTALL).strip("\n")
         out.append(f"# {role} — remit in {project} ({os.path.relpath(remit, working_copy)})\n\n{body}")
-    except OSError:
+    except OSError as exc:
+        why = "is missing" if not os.path.lexists(remit) else f"was not read: {exc.strerror or exc}"
         out.append(f"agent-fabric: {project} has no remit for {role} "
-                   f"({os.path.relpath(remit, working_copy)} is missing); the charter is the whole definition here.")
+                   f"({os.path.relpath(remit, working_copy)} {why}); the charter is the whole definition here.")
     if os.path.isfile(index):
         out.append(f"Your knowledge of {project}: ask `memory_find` before changing code, config or a decision here "
                    "(it answers the slices whose cue matches, with their age), `memory_read` for the sections you "
@@ -540,6 +544,126 @@ def project_layer(role: str | None, project: str | None, working_copy: str | Non
         out.append(f"agent-fabric: {project} has no distilled knowledge for {role} yet "
                    f"({os.path.relpath(os.path.dirname(index), working_copy)}/).")
     return out
+
+
+# The SessionStart hook's timeout is 15 s (runtime/claude-code/workspace/settings.json). The renderer makes at most four
+# local git calls (toplevel in target_of and again in resolve, origin's URL in resolve and in _repo_of), so 1.5 s each
+# is 6 s at the worst, leaving 9 s of the 15 for the rest of the start; each is a local read of milliseconds, and a
+# hook past its timeout says nothing at all.
+GIT_RULES_CALL_S = 1.5
+
+
+def git_rules_layer(working_copy: str | None, session: str | None) -> list[str]:
+    """The git rules of the working copy (ADR-019 §5 rule 9), rendered by tools/fabric/git_rules.py from the account's
+    copy of the repository's policy: no API call here. Noted for the session, so freshness.py gives them again only on
+    a prompt in another working copy; `session` is None for a subagent's start, which shares the parent's session id and
+    must not move its note to a scratch worktree. Loaded by path and never raising: prose does not stop a session."""
+    try:
+        spec = importlib.util.spec_from_file_location("fabric_git_rules", os.path.join(FABRIC_ROOT, "tools", "fabric", "git_rules.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        text = mod.for_hook(working_copy, timeout=GIT_RULES_CALL_S)
+        # A failure line is not the rules: not noted as given, so the next prompt (freshness.py) tries again.
+        if session and not text.startswith(mod.FAILURE_PREFIX):
+            mod.record_given(session, working_copy)
+        return [text]
+    except Exception as exc:  # noqa: BLE001 — the module itself failing to load
+        return [f"agent-fabric: the git rules could not be rendered ({type(exc).__name__}: {exc}); run `fabric-git-rules`."]
+
+
+AGENTS_MD_LIMIT = 256 * 1024
+# CLAUDE.md's import syntax: an @token at a word start, which Claude Code expands in place.
+AT_IMPORT = re.compile(r"(?m)(?:^|\s)@(\S+)")
+
+
+def tree_file_problem(real: str, root: str) -> str | None:
+    """Why the resolved path `real` must not be read as a file of the tree at
+    `root`, or None.
+
+    A committed symlink is the repository's say-so, not the owner's: following
+    one out of the tree would put any file the reader can open
+    (`/proc/self/environ`, a key) into session context. A link that stays
+    inside it is the repository's own layout (this one links policies/ into
+    operator/), so it is followed: only a regular file whose real path is
+    inside the real root passes."""
+    real_root = os.path.realpath(root)
+    if os.path.commonpath([real_root, real]) != real_root:
+        return "lies outside the working copy"
+    try:
+        if not stat.S_ISREG(os.lstat(real).st_mode):
+            return "is not a regular file"
+    except OSError as exc:
+        return exc.strerror or str(exc)
+    return None
+
+
+def read_tree_file(path: str, root: str, limit: int) -> bytes:
+    """At most `limit` bytes of `path`, read at its real path once
+    `tree_file_problem` passed that; OSError when it is refused or unreadable.
+    Opening the resolved name with O_NOFOLLOW closes the window between the
+    check and the open in which its last component could become a link."""
+    real = os.path.realpath(path)
+    problem = tree_file_problem(real, root)
+    if problem:
+        raise OSError(0, problem)
+    fd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as fh:
+        return fh.read(limit)
+
+
+def imports_agents_md(working_copy: str, agents: str) -> bool:
+    """Whether CLAUDE.md or .claude/CLAUDE.md already carries `agents` through
+    an @import. Claude Code resolves an import against the importing file's own
+    directory, so `@AGENTS.md` in .claude/CLAUDE.md names .claude/AGENTS.md and
+    the root file there is `@../AGENTS.md`."""
+    target = os.path.realpath(agents)
+    for name in ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md")):
+        full = os.path.join(working_copy, name)
+        try:
+            with open(full, encoding="utf-8", errors="replace") as fh:
+                text = fh.read(AGENTS_MD_LIMIT)
+        except OSError:
+            continue
+        base = os.path.dirname(full)
+        for tok in AT_IMPORT.findall(text):
+            if "\0" in tok:  # realpath raises on it; a committed file must not crash the hook
+                continue
+            if os.path.realpath(os.path.join(base, tok)) == target:
+                return True
+    return False
+
+
+def agents_md_layer(working_copy: str | None) -> list[str]:
+    """The project's AGENTS.md as context, when the harness would not load it.
+
+    Claude Code reads CLAUDE.md and never AGENTS.md; a project that keeps its
+    instructions in AGENTS.md alone, or beside a CLAUDE.md that does not import
+    it, would give the session none of them. A CLAUDE.md that imports it
+    already carries the text, and giving it again here would load it twice.
+    Unreadable, oversized, or not a file of the tree is said in one line, never
+    silently dropped: unknown is not "no instructions"."""
+    if not working_copy:
+        return []
+    path = os.path.join(working_copy, "AGENTS.md")
+    if not os.path.lexists(path):
+        return []
+    for name in ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md")):
+        try:
+            # Either one a link to the other is the same file the harness loads.
+            if os.path.samefile(os.path.join(working_copy, name), path):
+                return []
+        except OSError:
+            continue
+    if imports_agents_md(working_copy, path):
+        return []
+    try:
+        raw = read_tree_file(path, working_copy, AGENTS_MD_LIMIT + 1)
+    except OSError as exc:
+        return [f"agent-fabric: AGENTS.md of this working copy could not be read ({exc.strerror or exc}); read it yourself."]
+    if len(raw) > AGENTS_MD_LIMIT:
+        return [f"agent-fabric: AGENTS.md of this working copy is over {AGENTS_MD_LIMIT} bytes and was not loaded; read it yourself."]
+    return [f"Contents of {path} (project instructions, loaded by the session-start hook):\n\n"
+            + raw.decode("utf-8", errors="replace").strip("\n")]
 
 
 if __name__ == "__main__":

@@ -57,20 +57,9 @@ release (`MESSAGE-FORMAT.md`).
 `QUESTION`, or a `REPLY` to its `REQUEST` naming what blocks you. A
 decision written only on your own screen reaches no one.
 
-**Pull requests: one change, one owner, one open PR per agent and
-repository.** Pieces that only work together land as one PR,
-integrated by the concern's owning role; a supplier delivers commits or
-a `for/` branch to it and opens no PR. While your PR is open,
-the next piece of work, any topic, is another commit on it, up to
-`commits.advice_over` work commits (folds count). A PR is armed
-by its work-commit count against the minimum `fabric-pr arm --dry-run`
-prints, never without the review gate; under it, bundle queued jobs
-first, then it arms on a word: the arming authority's the dry-run
-names, asked by `REQUEST` while you work in another repository, else
-the owner's.
-Any PR status you state carries its counts ("#215: 6 work, 2 fix,
-minimum 8"). Load the `pull-requests` skill (the procedure)
-before you open, supply, fold, add to or arm a PR.
+**Git, branches and pull requests: the repository's `git.md`**, given
+at session start for your working copy and again when you move to
+another; `fabric-git-rules` prints it.
 
 **A review finding is judged before it is answered** — by the review
 class, not the session that wrote the code — and when it is real you fix

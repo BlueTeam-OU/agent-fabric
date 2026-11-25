@@ -389,3 +389,33 @@ override, because a workflow's token cannot read a settings
 repository; the gate, which reads it, holds the override. No settings
 file overrides `advice_over` today, and no open PR was over 32 work
 commits when this landed. j1078.
+
+### Amendment 2026-11-25 — the git rules are `git.md`, by hook
+
+§5 rule 9 is new. How a session commits, sizes a branch, opens, counts
+and arms a pull request is one text, `git.md`, in three layers: the
+repository's `repos/<repo>.git.md` in its client's settings repository
+(the owner's), `operator/prompt/git.md`, and the engine default
+`identities/prompt/git.md`. The first found is used whole. Its numbers
+are placeholders filled from that repository's merged arming policy, so
+the prose and the policy cannot disagree. The session-start hook gives
+it for the working copy, the prompt hook again when the session moves
+to another working copy, and `fabric-git-rules` prints it for a harness
+without hooks. `AGENTS.md`'s "Git discipline" and `team.md`'s pull
+request paragraph move into it.
+
+Why: the owner, 2026-11-24. `AGENTS.md` is read from the working copy at
+its own commit: a stale copy carries stale rules, and a worktree loads
+it twice. The launch prompt is rendered from `main`, but it is the same
+for every repository, while the numbers are each repository's (its
+settings override `commits.*`), and the managed projects' own git
+sections had drifted from their policies (gateway, gzapp, gzapi.ge).
+A hook follows the working copy, as the remit does, and renders from
+the repository's own policy. The owner chose the three layers, the
+whole-file replacement, a missing placeholder as an error, and an
+unreadable repository layer falling back to the operator's text, said.
+
+What follows: the hook reads the account's copy of the policy and of
+the repository's `git.md`, written whenever `fabric-pr` reads the
+policy, and calls no API. Each managed project's role removes its git
+section after this lands, by REQUEST. j1086.
