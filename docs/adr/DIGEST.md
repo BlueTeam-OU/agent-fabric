@@ -501,7 +501,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-21 — settings and operator repositories name no arming authority; the no-CI word stays the owner's, never an authority's (rule 4).
 - A 2026-11-21 — waiting on a word: REQUEST the arming authority, never the owner; a job in another repository meanwhile (rule 4).
 - A 2026-11-21 — the almalinux:10 leg runs nightly in stripped-nightly.yml, outside `ci-ok`; an EL 10 break merges green; scheduled-red's one job per workflow hides it behind an open stripped job until scheduled-red's marker is scoped per job (§6).
-- Keywords: Answers, armed_status, disarm.
+- A 2026-11-24 — a branch counts from its first commit, folds included: warned at `advice_over`, past `refuse_over` a commit needs an `Owner-Word:` trailer (hook, CI, gate) (rule 4).
+- Keywords: Answers, armed_status, disarm, refuse_over, Owner-Word.
 
 ### ADR-020 — The review class is the review (Accepted)
 

@@ -20,6 +20,7 @@ Module, called directly:
 """
 from __future__ import annotations
 
+import json
 import os
 import stat
 import sys
@@ -109,6 +110,49 @@ class Module(Hooks):
         r = self.fabric.hook("pre-commit", self.repo)
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("commit hooks: cannot tell whether this commit is made in agent-fabric", r.stderr)
+
+
+class BranchSize(Hooks):
+    """The commit-msg hook's Owner-Word rule (ADR-019 §5 rule 4) through the real `git commit`, with the fleet's thresholds
+    at advice_over 1 and refuse_over 2. Each case names the mutation of commit_msg it catches."""
+    WORD = 'Owner-Word: 2026-11-24 "go on"'
+
+    def setUp(self):
+        super().setUp()
+        # The fleet's thresholds are the operator tree's: a scratch one, never the checkout's own numbers.
+        self.operator = os.path.join(self.fabric.root, "operator")
+        os.makedirs(os.path.join(self.operator, "policies"))
+        with open(os.path.join(self.operator, "policies", "arming.json"), "w", encoding="utf-8") as fh:
+            json.dump({"commits": {"advice_over": 1, "refuse_over": 2}}, fh)
+        self.repo.git("update-ref", "refs/remotes/origin/main", "main")
+        self.repo.git("switch", "-q", "-c", "feat")
+
+    def work(self, name: str, *trailers: str, flags: tuple = ()):
+        return self.fabric.commit(self.repo, "\n\n".join([name, "\n".join(("Kind: work", *trailers))]), "--allow-empty", *flags,
+                                  AGENT_FABRIC_OPERATOR=self.operator)
+
+    def test_a_commit_past_refuse_over_without_the_trailer_is_refused_and_with_it_admitted(self):
+        # mutation: `if refused: return 1` deleted in commit_msg, which said the refusal and let the commit through
+        first = self.work("w1")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn("at or over commits.advice_over 1", first.stderr)
+        self.assertEqual(self.work("w2").returncode, 0)
+        head = self.repo.git("rev-parse", "HEAD").stdout
+        refused = self.work("w3")
+        self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertIn("over commits.refuse_over 2", refused.stderr)
+        self.assertEqual(self.repo.git("rev-parse", "HEAD").stdout, head, "the refused commit was made")
+        admitted = self.work("w3", self.WORD)
+        self.assertEqual(admitted.returncode, 0, admitted.stderr)
+
+    def test_an_amend_of_the_last_commit_is_not_counted_twice(self):
+        # mutation: amend always False in commit_msg, which counts the commit being replaced beside its replacement
+        self.assertEqual(self.work("w1").returncode, 0)
+        self.assertEqual(self.work("w2").returncode, 0)
+        amended = self.work("w2 again", flags=("--amend",))
+        self.assertEqual(amended.returncode, 0, amended.stderr)
+        self.assertEqual(self.repo.git("rev-list", "--count", "origin/main..HEAD").stdout.strip(), "2")
+        self.assertEqual(self.work("w3").returncode, 1, "control: a third commit is still past refuse_over")
 
 
 class Direct(unittest.TestCase):

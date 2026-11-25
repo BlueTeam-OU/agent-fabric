@@ -177,6 +177,16 @@ def main() -> int:
           (want["work"], want["fix"], want["merge"], want["netted"]) == (4, 3, 1, 4), want)
     check("GitHub's commit list gives the same split: work, fix, merge and netted",
           (row["work"], row["fix"], row["merge"], row["netted"]) == (want["work"], want["fix"], want["merge"], want["netted"]), row)
+    # The branch's own count (review of #703, F12): the one definition, branch_size.count over the clone, where the
+    # netted reverts are work; the fixture makes it differ from the arming count, so `branch_work = work` fails here.
+    import importlib.util
+    bs_spec = importlib.util.spec_from_file_location("bs_for_counts", os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "fabric", "guards", "branch_size.py"))
+    bs = importlib.util.module_from_spec(bs_spec)
+    bs_spec.loader.exec_module(bs)
+    branch = bs.count(base, [shas[-1]], cwd=repo)
+    check("branch_work is branch_size's count of the same range, and differs from the arming count here",
+          row.get("branch_work") == branch and branch != row["work"], (row.get("branch_work"), branch, row["work"]))
     check("…and nets the same commits: which of a chain's three is netted shows in the subjects",
           (sorted(row["fix_subjects"]), sorted(row["netted_subjects"])) == (sorted(want["fix_subjects"]), sorted(want["netted_subjects"])),
           (row.get("fix_subjects"), row.get("netted_subjects"), want["netted_subjects"]))
@@ -196,6 +206,9 @@ def main() -> int:
     rows = {r["number"]: r for r in run_counts([str(n) for n in docs], Hub({"o/this": docs}))}
     check("open, armed, pending, a marked review on the head", rows[1]["line"] == "#1 (1 work, 0 fix) open, armed, checks pending, review claude ✓ codex ✗ (head hhhhhhhh)", rows[1]["line"])
     check("open, unarmed, red, a merge commit is not work", rows[2]["line"] == "#2 (1 work, 0 fix) open, unarmed, checks red, review claude ✗ codex ✗ (head hhhhhhhh)", rows[2]["line"])
+    # The branch's own count beside the arming count (review of #703, F8): by declaration, a merge is not work.
+    check("the row carries branch_work, branch_size's count", rows[1].get("branch_work") == 1 and rows[2].get("branch_work") == 1,
+          (rows[1].get("branch_work"), rows[2].get("branch_work")))
     check("merged says only merged", rows[3]["line"] == "#3 (1 work, 0 fix) merged", rows[3]["line"])
     check("closed unmerged says closed", rows[4]["line"] == "#4 (1 work, 0 fix) closed", rows[4]["line"])
     check("a draft, queued, no checks yet", rows[5]["line"] == "#5 (1 work, 0 fix) draft, queued, checks none yet, review claude ✗ codex ✗ (head hhhhhhhh)", rows[5]["line"])

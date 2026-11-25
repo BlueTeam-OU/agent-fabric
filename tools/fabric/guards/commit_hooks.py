@@ -62,6 +62,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, HERE)
 sys.path.insert(1, os.path.dirname(HERE))
 import agent_text  # noqa: E402  the one predicate for text an agent reads (lint judges the same files)
+import branch_size  # noqa: E402  a branch's count and its Owner-Word rule (ADR-019 §5 rule 4, A 2026-11-24)
 import commit_kind  # noqa: E402
 import hidden_unicode  # noqa: E402  the one definition of what such text may not hide
 import review_card  # noqa: E402  the card's path and cap, as the brief renderer refuses it
@@ -953,6 +954,20 @@ def commit_msg(root: str, msg: str) -> int:
     # EVERY commit declares its KIND (ADR-019 §5 rule 3); an amended merge is told by the argv of the git that runs
     # this hook, its parent.
     if commit_kind.main(["commit_kind.py", msg, str(os.getppid())]) != 0:
+        return 1
+    # A BRANCH past commits.refuse_over takes a commit that adds work only with the owner's word in it (ADR-019 §5 rule 4,
+    # A 2026-11-24); at advice_over it is told to land. After the Kind stamp, which says whether this commit is work.
+    try:
+        amend = commit_kind.is_amend(commit_kind.parent_argv(str(os.getppid())) or [])
+    except Exception:  # noqa: BLE001 - an argv that cannot be read is no amend, as _amend_against reads it
+        amend = False
+    try:
+        refused, lines = branch_size.hook(msg, amend, merge_head())
+    except RuntimeError as e:
+        raise Refuse(f"commit-msg: cannot count this branch's work commits ({e}), so this commit is refused") from None
+    for line in lines:
+        say(line)
+    if refused:
         return 1
     # A decision record's body edit is recorded in the commit that makes it (agent-fabric ADR-001), judged by the
     # repository's OWN tools/fabric/adr.py.

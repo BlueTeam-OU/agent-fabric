@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,7 +20,8 @@ from unittest import mock
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from github import arm_policy, pr_gate  # noqa: E402
-from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
+import branch_size  # noqa: E402  tools/fabric/guards, put on the path by pr_gate
+from git_env import git_env as scrub_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 
 scrub_process_env()
 
@@ -44,8 +46,19 @@ def main() -> int:
     v = lambda w: pr_gate.verdict(1, "main", False, commits(w), CLEAR, REVIEWED, [])  # noqa: E731
     check("7 work: ask the owner", v(7).startswith("MERGEABLE — ask the owner (7 work commits < 8)"))
     check("8 work: arm", v(8).startswith("MERGEABLE — arm: post the basis (8 work commits"))
-    check("16 work: arm", v(16).startswith("MERGEABLE — arm: post the basis (16 work commits"))
-    check("17 work: over 16, still mergeable", v(17).startswith("MERGEABLE — 17 work commits, over 16"))
+    check("15 work: arm", v(15).startswith("MERGEABLE — arm: post the basis (15 work commits"))
+    # The advice line compares the branch's own count (branch_size's, folds included), not the arming count: the two differ
+    # by what a fold brings and what a fix removes.
+    vs = lambda w, size: pr_gate.verdict(1, "main", False, commits(w), CLEAR, REVIEWED, [], None, False, [], size)  # noqa: E731
+    check("branch count 16: at advice_over, the branch lands before more is added, and the count is said",
+          vs(10, 16).startswith("MERGEABLE — the branch holds 16 work commits (arming count 10), at or over commits.advice_over 16: "
+                                "this branch lands before more is added"))
+    check("branch count 17 with arming count 17: the same line", vs(17, 17).startswith("MERGEABLE — the branch holds 17 work commits (arming count 17), at or over commits.advice_over 16"))
+    check("branch count 15 whatever the arming count: no such line (control)",
+          "advice_over" not in vs(20, 15) and "lands before" not in vs(20, 15) and vs(20, 15).startswith("MERGEABLE — arm"))
+    unread = pr_gate.verdict(1, "main", False, commits(20), CLEAR, REVIEWED, [], None, False, "git log: bad", "git log: bad")
+    check("an unreadable walk blocks and says so, never the arming count's advice line",
+          unread.startswith("BLOCKED: the branch's size could not be read") and "advice_over" not in unread)
     check("unknown commits: by hand", pr_gate.verdict(1, "main", False, None, CLEAR, REVIEWED, [])
           .startswith("MERGEABLE — commits unknown"))
     check("a queue position wins over every block",
@@ -439,6 +452,47 @@ def main() -> int:
 
     # A record PR on a direct repository (agent-fabric ADR-019 rule 1, A 2026-11-05): arm asks it no review, so the
     # gate must not block it on one; the same row elsewhere, or not a record, still blocks.
+    print("the Owner-Word rule (ADR-019 section 5 rule 4): a branch past refuse_over, per commit")
+    pol = dict(arm_policy.default(), commits=dict(arm_policy.default()["commits"], refuse_over=40))
+    row = lambda sha: branch_size.Row(sha, 41, 40, True, False, "")  # noqa: E731
+    nw = lambda no_word, policy=pol: pr_gate.verdict(1, "main", False, commits(41), CLEAR, REVIEWED, [], policy, False, no_word)  # noqa: E731
+    out = nw([row("a" * 40), row("b" * 40)])
+    check("a commit without the trailer: not MERGEABLE, each sha and the live refuse_over named",
+          out.startswith("BLOCKED:") and "aaaaaaaaaaaa" in out and "bbbbbbbbbbbb" in out and "commits.refuse_over 40" in out and "Owner-Word" in out)
+    check("...none missing (the trailer is present): MERGEABLE again", nw([]).startswith("MERGEABLE"))
+    check("...not asked (commits unknown): unchanged", nw(None).startswith("MERGEABLE"))
+    check("...a branch that could not be walked is said, not passed",
+          nw("git log: bad").startswith("BLOCKED: the branch's size could not be read (git log: bad)"))
+    check("...its other blocks stand beside it", "unresolved" in pr_gate.verdict(
+        1, "main", False, commits(41), dict(CLEAR, unresolved="1"), REVIEWED, [], pol, False, [row("c" * 40)]))
+    tmp = tempfile.mkdtemp(prefix="gate-ow-")
+    try:
+        g = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *a],  # noqa: E731
+                                      cwd=tmp, check=True, capture_output=True, text=True, env=scrub_env())
+        g("init", "-q", "-b", "main"); g("commit", "-q", "--allow-empty", "-m", "base")
+        g("update-ref", "refs/remotes/origin/main", "HEAD")
+        g("checkout", "-q", "-b", "br")
+        for n in range(3):
+            g("commit", "-q", "--allow-empty", "-m", f"w{n}", "-m", "Kind: work")
+        g("commit", "-q", "--allow-empty", "-m", "w3", "-m", "Kind: work\n\nOwner-Word: 2026-11-24 \"go on\"")
+        g("commit", "-q", "--allow-empty", "-m", "w4", "-m", "Kind: work")
+        head = g("rev-parse", "HEAD").stdout.strip()
+        cwd = os.getcwd(); os.chdir(tmp)
+        try:
+            rows = pr_gate.branch_rows("main", head)
+            bad = pr_gate.unworded(rows, dict(pol, commits=dict(pol["commits"], refuse_over=2)))
+            ok = pr_gate.unworded(rows, dict(pol, commits=dict(pol["commits"], refuse_over=5)))
+            err = pr_gate.unworded(pr_gate.branch_rows("main", "f" * 40), pol)
+            size = pr_gate.branch_count(rows)
+        finally:
+            os.chdir(cwd)
+        check("a real branch: the commits over 2 lacking the word, the worded one passes", [r.count for r in bad] == [3, 5])
+        check("...refuse_over 5: none (control)", ok == [])
+        check("...a head the clone lacks: the reason, a string", isinstance(err, str) and err)
+        check("the branch's count is the highest of the walk's, the same walk the offenders came from", size == 5)
+    finally:
+        shutil.rmtree(tmp, True)
+
     print("the record path: arm and the gate agree")
     direct = dict(arm_policy.default(), mode="direct")
     unreviewed = arm_policy.review_summary(set(), ["claude"], "abcdef01")

@@ -76,6 +76,10 @@ class Scratch(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir, True)
         os.makedirs(os.path.join(self.dir, "policies"))
         os.makedirs(os.path.join(self.dir, "projects"))
+        # A policy read now leaves the account's copy of the thresholds: never in the real state dir.
+        p = mock.patch.object(arm_policy.branch_size, "cache_path", return_value=os.path.join(self.dir, "cache.json"))
+        p.start()
+        self.addCleanup(p.stop)
 
     def fleet(self, doc) -> None:
         with open(os.path.join(self.dir, "policies", "arming.json"), "w") as fh:
@@ -85,7 +89,7 @@ class Scratch(unittest.TestCase):
 class Document(unittest.TestCase):
     def test_the_default_is_the_behaviour_before_the_policy(self):
         d = arm_policy.default()
-        self.assertEqual(d["commits"], {"min": 8, "advice_over": 16, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}})
+        self.assertEqual(d["commits"], {"min": 8, "advice_over": 16, "refuse_over": 32, "boundary_min": 8, "below_min": "owner-word", "roles": {}, "classes": {}})
         self.assertEqual((d["mode"], d["method"]), ("auto", "merge"))
 
     def test_a_partial_document_is_completed_from_the_default_and_the_default_is_not_changed(self):
@@ -293,6 +297,58 @@ class RemoteSpellings(unittest.TestCase):
     def test_a_remote_that_is_another_repository_or_another_host_is_not_it(self):
         for remote in ("https://github.com/O/R2", "https://gitlab.com/O/R", "git@github.com:O/other.git", "/srv/git/O/R", "R"):
             self.assertIsNone(arm_policy.project_of({"projects": {"p": {"client": "c", "remotes": [remote]}}}, "O/R"), remote)
+
+
+class RefuseOver(Scratch):
+    def test_the_default_is_32_and_a_partial_document_keeps_it(self):
+        self.assertEqual(arm_policy.default()["commits"]["refuse_over"], 32)
+        self.assertEqual(arm_policy.validate({"commits": {"min": 3}})["commits"]["refuse_over"], 32)
+        self.assertEqual(arm_policy.validate({"commits": {"refuse_over": 40.0}})["commits"]["refuse_over"], 40)
+
+    def test_it_is_a_whole_number_of_at_least_one(self):
+        for bad in (0, -1, 1.5, "32", True, None):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)) as cm:
+                arm_policy.validate({"commits": {"advice_over": 1, "refuse_over": bad}})
+            self.assertIn("commits.refuse_over is not a whole number", str(cm.exception))
+
+    def test_it_must_be_above_advice_over_and_the_error_names_both(self):
+        for doc in ({"advice_over": 16, "refuse_over": 16}, {"advice_over": 20, "refuse_over": 10},
+                    {"advice_over": 40},          # merged: the default 32 is now not above it
+                    {"refuse_over": 16}):         # merged: equal to the default advice 16
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(doc)) as cm:
+                arm_policy.validate({"commits": doc})
+            self.assertRegex(str(cm.exception), r"refuse_over \(\d+\) is not above commits.advice_over \(\d+\)")
+        p = arm_policy.validate({"commits": {"advice_over": 16, "refuse_over": 17}})   # control: one above is valid
+        self.assertEqual((p["commits"]["advice_over"], p["commits"]["refuse_over"]), (16, 17))
+
+    def test_the_cache_is_written_on_a_read_and_not_on_unavailable_or_without_a_github_read(self):
+        cache = os.path.join(self.dir, "cache", "o", "R.json")
+        reg = {"projects": {"p": {"client": "c", "remotes": ["https://github.com/O/R"]}}}
+        with mock.patch.object(arm_policy.branch_size, "cache_path", return_value=cache):
+            with self.assertRaises(arm_policy.PolicyUnavailable):
+                arm_policy.load("O/R", root=self.dir, registry=reg, clients=CLIENTS, api=Api(error=ghe(500)))
+            self.assertFalse(os.path.exists(cache))
+            arm_policy.load("x/unknown", root=self.dir, registry=reg, clients=CLIENTS, api=Api(error=ghe(500)))
+            self.assertFalse(os.path.exists(cache), "no GitHub read, no copy")
+            arm_policy.load("O/R", root=self.dir, registry=reg, clients=CLIENTS,
+                            api=Api(contents({"commits": {"advice_over": 20, "refuse_over": 50}})))
+        with open(cache, encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual({k: doc[k] for k in ("repository", "advice_over", "refuse_over")},
+                         {"repository": "O/R", "advice_over": 20, "refuse_over": 50})
+        self.assertRegex(doc["read_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$")
+        self.assertEqual(os.listdir(os.path.dirname(cache)), ["R.json"], "no temp file left")
+
+    def test_a_failed_write_says_so_on_stderr_and_does_not_fail_the_load(self):
+        blocker = os.path.join(self.dir, "file")
+        open(blocker, "w").close()
+        err = io.StringIO()
+        with mock.patch.object(arm_policy.branch_size, "cache_path", return_value=os.path.join(blocker, "x", "R.json")), \
+                contextlib.redirect_stderr(err):
+            p = arm_policy.load("O/R", root=self.dir, registry={"projects": {"p": {"client": "c", "remotes": ["https://github.com/O/R"]}}},
+                                clients=CLIENTS, api=Api(contents({"commits": {"min": 2}})))
+        self.assertEqual(p["commits"]["min"], 2)
+        self.assertIn("the branch-size copy for O/R was not written", err.getvalue())
 
 
 class Load(Scratch):
@@ -649,21 +705,27 @@ class Render(unittest.TestCase):
 class PrGate(unittest.TestCase):
     CLEAR = {"mergeable": "MERGEABLE", "checks": "green", "unresolved": "0", "armed": "no", "queue": "", "mstate": "CLEAN"}
 
-    def v(self, work, policy=None):
+    def v(self, work, policy=None, size=None):
         commits = {"work": work, "fix": 0, "merge": 0, "netted": 0, "fix_subjects": [], "netted_subjects": []}
-        return pr_gate.verdict(1, "main", False, commits, self.CLEAR, "head reviewed: claude ✓ codex ✓ (head abcdef01)", [], policy)
+        # The branch's own count defaults to the arming count: they differ only by folds and fixes.
+        return pr_gate.verdict(1, "main", False, commits, self.CLEAR, "head reviewed: claude ✓ codex ✓ (head abcdef01)", [], policy,
+                               False, [], work if size is None else size)
 
     def test_at_the_default_numbers_the_verdicts_are_the_ones_before(self):
         self.assertIn("ask the owner (7 work commits < 8)", self.v(7))
         self.assertIn("arm: post the basis (8 work commits", self.v(8))
-        self.assertIn("arm: post the basis (16 work commits", self.v(16))
-        self.assertIn("17 work commits, over 16", self.v(17))
+        self.assertIn("arm: post the basis (15 work commits", self.v(15))
+        # at advice_over now, not past it: the branch lands before more is added (ADR-019 section 5 rule 4)
+        self.assertIn("the branch holds 16 work commits (arming count 16), at or over commits.advice_over 16: this branch lands before more", self.v(16))
+        self.assertIn("the branch holds 17 work commits (arming count 17), at or over commits.advice_over 16", self.v(17))
 
     def test_the_numbers_are_the_policys(self):
         p = arm_policy.validate({"commits": {"min": 3, "advice_over": 5}})
         self.assertIn("ask the owner (2 work commits < 3)", self.v(2, p))
         self.assertIn("arm: post the basis (3 work commits", self.v(3, p))
-        self.assertIn("6 work commits, over 5", self.v(6, p))
+        self.assertIn("arm: post the basis (4 work commits", self.v(4, p))
+        self.assertIn("the branch holds 5 work commits (arming count 5), at or over commits.advice_over 5", self.v(5, p))
+        self.assertIn("the branch holds 6 work commits (arming count 6), at or over commits.advice_over 5", self.v(6, p))
 
     def test_below_the_minimum_a_named_authority_is_asked_never_the_owner(self):
         # ADR-019 rule 4: the gate's verdict agrees with arm's hint (#676 review 0b3aece7 §2)
@@ -709,7 +771,7 @@ class PrGateRun(unittest.TestCase):
     the policy's numbers, or that the policy could not be read."""
     HEAD = "abcdef1234567890abcdef1234567890abcdef12"
 
-    def rows(self, policy_load, work=5, review=None):
+    def rows(self, policy_load, work=5, review=None, no_word=(), size=None):
         pr = {"number": 7, "title": "t", "headRefName": "h/me/feat/x", "headRefOid": self.HEAD, "baseRefName": "main", "state": "OPEN",
               "isDraft": False, "body": ""}
         commits = {"work": work, "fix": 0, "merge": 0, "netted": 0, "fix_subjects": [], "netted_subjects": []}
@@ -724,6 +786,10 @@ class PrGateRun(unittest.TestCase):
             es.enter_context(mock.patch.object(pr_gate.landed, "origin_is", return_value=True))
             es.enter_context(mock.patch.object(pr_gate, "review_reader", return_value=None))
             es.enter_context(mock.patch.object(pr_gate, "count_commits", return_value=commits))
+            # No clone to walk here: the walk is one sentinel, and what it yields is what the test hands in.
+            es.enter_context(mock.patch.object(pr_gate, "branch_rows", return_value=["walk"]))
+            es.enter_context(mock.patch.object(pr_gate, "unworded", return_value=list(no_word)))
+            es.enter_context(mock.patch.object(pr_gate, "branch_count", return_value=work if size is None else size))
             es.enter_context(mock.patch.object(pr_gate, "gate_state", return_value=st))
             es.enter_context(mock.patch.object(pr_gate, "review_of_head", review or mock.Mock(return_value="head reviewed: claude ✓ codex ✓ (head abcdef01)")))
             es.enter_context(mock.patch.object(pr_gate.arm_policy, "load", policy_load))
@@ -739,8 +805,27 @@ class PrGateRun(unittest.TestCase):
             return arm_policy.validate({"commits": {"min": 3, "advice_over": 4}})
         row = self.rows(load, work=5)[0]
         self.assertEqual(asked, ["O/R"])
-        self.assertIn("5 work commits, over 4", row["verdict"])
+        self.assertIn("the branch holds 5 work commits (arming count 5), at or over commits.advice_over 4", row["verdict"])
         self.assertIn("arm: post the basis (5", self.rows(lambda r, **k: arm_policy.validate({"commits": {"min": 3, "advice_over": 9}}))[0]["verdict"])
+
+    def test_a_commit_without_its_owner_word_blocks_the_row_run_builds_and_names_it(self):
+        # Kills: run() passing None (or nothing) for verdict's no_word, which would leave the row MERGEABLE.
+        word = arm_policy.branch_size.Row("c" * 40, 33, 32, True, False, "")
+        pol = arm_policy.validate({"commits": {"min": 3, "advice_over": 4, "refuse_over": 8}})
+        row = self.rows(lambda r, **k: pol, work=33, no_word=[word], size=33)[0]
+        self.assertTrue(row["verdict"].startswith("BLOCKED:"), row["verdict"])
+        self.assertIn("cccccccccccc", row["verdict"])
+        self.assertIn("commits.refuse_over 8", row["verdict"])
+        self.assertEqual(row["no_owner_word"], ["c" * 40])
+        clear = self.rows(lambda r, **k: pol, work=33, size=33)[0]
+        self.assertTrue(clear["verdict"].startswith("MERGEABLE"), clear["verdict"])
+        self.assertEqual((clear["no_owner_word"], clear["branch_work_commits"]), ([], 33))
+
+    def test_the_advice_line_reads_the_branch_count_the_walk_gave_not_the_arming_count(self):
+        pol = arm_policy.validate({"commits": {"min": 3, "advice_over": 10, "refuse_over": 40}})
+        row = self.rows(lambda r, **k: pol, work=5, size=12)[0]
+        self.assertIn("the branch holds 12 work commits (arming count 5), at or over commits.advice_over 10", row["verdict"])
+        self.assertNotIn("advice_over", self.rows(lambda r, **k: pol, work=12, size=9)[0]["verdict"])
 
     def test_the_default_is_the_verdict_before_the_policy(self):
         self.assertIn("ask the owner (5 work commits < 8)", self.rows(lambda r, **k: arm_policy.default())[0]["verdict"])
@@ -834,9 +919,9 @@ class ArmRun(unittest.TestCase):
     def run_arm(self, policy, work, files=("docs/a.md",), basis="reviewed", body="", boundary_re=r"^policies/", classes=None,
                 load_error=None, extra=(), load_fn=None, drift=(), drift_error=None, role_trailers=None, checks="green", live=None,
                 replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x",
-                whoami=None, review_doc=None, workflows=NOT_FOUND):
+                whoami=None, review_doc=None, workflows=NOT_FOUND, no_word=(), branch_work=None):
         pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "baseRefName": "main", "headRefOid": self.HEAD, "body": body, "title": "t"}
-        gate = [{"commits_known": True, "work_commits": work, "checks": checks, "head": self.HEAD[:8]}]
+        gate = [{"commits_known": True, "work_commits": work, "branch_work_commits": work if branch_work is None else branch_work, "checks": checks, "head": self.HEAD[:8], "no_owner_word": no_word if isinstance(no_word, str) else list(no_word)}]
         review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}] if reviewed else []}, "unresolved_threads": unresolved}
         review = review_doc if review_doc is not None else review
         self.reads = reads = []
@@ -938,20 +1023,52 @@ class ArmRun(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("under 3, on the owner's word", out)
 
+    def test_a_commit_past_refuse_over_without_its_owner_word_is_refused_whatever_the_basis(self):
+        p = claude_only({"commits": {"min": 3, "advice_over": 5, "refuse_over": 9}})
+        for basis in ("reviewed", "the owner's word"):
+            rc, out = self.run_arm(p, 10, basis=basis, no_word=["d" * 40, "e" * 40], extra=("--dry-run",))
+            self.assertIn("over commits.refuse_over 9", str(rc), basis)
+            self.assertIn("dddddddddddd, eeeeeeeeeeee", str(rc), basis)
+            self.assertIn("no basis lifts it", str(rc), basis)
+        rc, out = self.run_arm(p, 10, no_word=[], extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+
+    def test_a_branch_the_gate_could_not_walk_is_not_armed_on_a_guess(self):
+        p = claude_only({"commits": {"min": 3}})
+        rc, _ = self.run_arm(p, 5, no_word="git log: bad", extra=("--dry-run",))
+        self.assertIn("unanswered: pr-gate could not walk #7's branch (git log: bad)", str(rc))
+
     def test_the_advice_threshold_is_the_policys(self):
         p = claude_only({"commits": {"min": 3, "advice_over": 5}})
         _, out = self.run_arm(p, 6, extra=("--dry-run",))
-        self.assertIn("6 work commits — over 5: smaller batches next time", out)
+        self.assertIn("the branch holds 6 work commits — at or over commits.advice_over 5: it should have landed", out)
         _, out = self.run_arm(p, 5, extra=("--dry-run",))
-        self.assertNotIn("smaller batches", out)
+        self.assertIn("5 work commits — at or over commits.advice_over 5", out)
+        _, out = self.run_arm(p, 4, extra=("--dry-run",))
+        self.assertNotIn("should have landed", out)
+
+    def test_the_advice_line_reads_the_branch_count_not_the_arming_count(self):
+        # review of #703, F8: folds, reverts and undeclared commits make the branch's own count the larger one.
+        p = claude_only({"commits": {"min": 3, "advice_over": 5}})
+        _, out = self.run_arm(p, 4, branch_work=6, extra=("--dry-run",))
+        self.assertIn("the branch holds 6 work commits — at or over commits.advice_over 5", out)
+        _, out = self.run_arm(p, 6, branch_work=4, extra=("--dry-run",))
+        self.assertNotIn("should have landed", out)
+        # F13: the count rule it armed under is said whatever the branch's size.
+        self.assertIn("count rule: 6 work commits — 3 or more, arms at the review gate", out)
+
+    def test_no_branch_count_in_the_gate_row_is_unanswered(self):
+        p = claude_only({"commits": {"min": 3, "advice_over": 5}})
+        rc, _ = self.run_arm(p, 4, branch_work="?", extra=("--dry-run",))
+        self.assertIn("unanswered: pr-gate reported no branch size for #7", str(rc))
 
     def test_a_minimum_above_the_default_advice_size_does_not_make_every_pull_request_too_big(self):
         p = claude_only({"commits": {"min": 20}})
         _, out = self.run_arm(p, 18, basis="the owner's word", extra=("--dry-run",))
-        self.assertNotIn("smaller batches", out)
+        self.assertNotIn("should have landed", out)
         _, out = self.run_arm(p, 21, extra=("--dry-run",))
         self.assertNotIn("over 16", out)
-        self.assertIn("21 work commits — over 20: smaller batches next time", out)
+        self.assertIn("the branch holds 21 work commits — at or over commits.advice_over 20: it should have landed", out)
 
     def test_below_min_refuse_is_a_refusal_the_owners_word_does_not_lift(self):
         p = claude_only({"commits": {"min": 3, "below_min": "refuse"}})

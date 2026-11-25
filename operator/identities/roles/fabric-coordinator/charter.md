@@ -45,7 +45,8 @@ guard see them.
 
 **How you change things.** Reviewable pull requests on agent-fabric —
 one open at a time, at least the repository's minimum (`fabric-pr arm
---dry-run`) and at most sixteen work commits, the next piece of work
+--dry-run`) and at most `commits.advice_over` work commits, refused
+past `commits.refuse_over` without the owner's word, the next piece of work
 another commit on it; never a PR per topic ("small, reviewable"
 stood here until 2026-09-19 and produced exactly that);
 every guard and suite green (`tests/run.sh`); a decision record

@@ -311,6 +311,18 @@ def watch_on_stop_hook() -> dict:
         "timeout": 5}]}
 
 
+# The same question mid-turn: after any tool call, a session whose watch is down is told once per spell to arm it
+# (hooks/watch-nudge.py, j1090, 2026-11-24). It refuses nothing. One PostToolUse entry for every tool, by script name.
+WATCH_NUDGE = "watch-nudge.py"
+
+
+def watch_nudge_hook() -> dict:
+    return {"hooks": [{
+        "type": "command",
+        "command": hook_command(WATCH_NUDGE),
+        "timeout": 5}]}
+
+
 # One ledger row per subagent run (hooks/subagent-ledger.py), at user scope
 # so every dispatch of the account is counted wherever its session started:
 # the subagent's transcript is the only source of its usage (review
@@ -346,6 +358,7 @@ def with_one(hooks: dict, event: str, script: str, entry: dict) -> dict:
 def with_fabric_hooks(hooks: dict) -> dict:
     hooks = with_one(with_freshness(with_session_state(with_memory_check(hooks))), "Stop", PR_COUNTS, pr_counts_hook())
     hooks = with_one(hooks, "Stop", WATCH_ON_STOP, watch_on_stop_hook())
+    hooks = with_one(hooks, "PostToolUse", WATCH_NUDGE, watch_nudge_hook())
     return with_one(hooks, "SubagentStop", SUBAGENT_LEDGER, subagent_ledger_hook())
 
 

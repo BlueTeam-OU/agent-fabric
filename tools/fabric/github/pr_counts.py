@@ -64,6 +64,8 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "guards"))
+import branch_size  # noqa: E402  a branch's count by its declarations, as the commit-msg hook and the gate read it
 from github import arm_policy, commit_class, evidence, review_coverage, review_posters  # noqa: E402
 from github.pr_split import split_rows  # noqa: E402
 from github.review_status.config import BUILTIN_LEGACY_MARKER, REVIEW_MARKER  # noqa: E402
@@ -392,7 +394,12 @@ def describe(label: str, repo: str, pid: str | None, number: int, pr: dict, budg
     # merged one, as the gate's two splits have it.
     folded = BudgetedFolds(repo, head, merge_base_of(pr) if merged else base, budget) if head else None
     c = split_rows(number, repo, rows, folded, lambda sha: bodies.get(sha, ""))
+    # The branch's own count (ADR-019 rule 4): every non-merge commit by its declaration, folds and reverts included,
+    # where `work` is the arming count; fabric-jobs judges the size of an open branch by this one (review of #703, F8).
+    branch_work = sum(1 for _sha, parents, _subject, answers, kind in rows
+                      if len(parents.split()) <= 1 and branch_size._work(kind, answers, False))
     row = {"ref": label, "repo": repo, "number": number, "ok": True, "work": c["work"], "fix": c["fix"],
+           "branch_work": branch_work,
            "merge": c["merge"], "netted": c["netted"], "fix_subjects": c["fix_subjects"],
            "netted_subjects": c["netted_subjects"], "state": "merged" if merged else "closed" if state == "CLOSED" else "open"}
     parts = [f"{label} ({c['work']} work, {c['fix']} fix)"]

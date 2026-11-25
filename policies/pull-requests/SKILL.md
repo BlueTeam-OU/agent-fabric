@@ -108,6 +108,14 @@ boundaries; a thing's documentation lands with it. A branch stops being
 addable when the next piece depends on something being *merged*, the
 branch is already queued or merged, it touches a slow or flaky surface
 that would hold the rest hostage, the urgency differs, or it holds
-sixteen work commits — then land, no second PR. Two exceptions, said in
+`commits.advice_over` work commits (the repository's arming policy;
+the fleet's 16) — then land, no second PR. The count runs from the
+branch's first commit, not from its PR, folded commits included, so a
+change whose pieces must land together opens its PR at its first fold,
+each fold reviewed as its own range. Past `commits.refuse_over` (the
+fleet's 32) a commit that adds work needs the owner's word in it, the
+trailer `Owner-Word: <YYYY-MM-DD> "<their words>"`. The `commit-msg`
+hook, CI and `fabric-pr gate` refuse one without it, and a review fix
+is never refused (agent-fabric ADR-019 §5 rule 4). Two exceptions, said in
 the new PR: a finding on the queued PR itself (better: `fabric-pr disarm` and fix on
 its head), and a user-visible or CI-blocking fix that must land now.

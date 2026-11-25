@@ -145,11 +145,12 @@ def main() -> int:
 
         # A copy of the tool with a ruleset file that is not JSON.
         copy = os.path.join(t, "copy", "tools", "fabric")
-        os.makedirs(os.path.join(copy, "github"))
+        os.makedirs(os.path.join(copy, "github")); os.makedirs(os.path.join(copy, "guards"))
         os.makedirs(os.path.join(t, "copy", "bin"))
         shutil.copy2(TOOL, os.path.join(t, "copy", "bin", "fabric-repo-settings"))
         for rel in ("gh.py", "gh_ledger.py", "roots.py", "workingcopy.py", os.path.join("github", "repo_settings.py"),
-                    os.path.join("github", "arm_policy.py"), os.path.join("github", "__init__.py")):
+                    os.path.join("github", "arm_policy.py"), os.path.join("github", "__init__.py"),
+                    os.path.join("guards", "branch_size.py")):   # arm_policy writes the thresholds copy through it
             shutil.copy2(os.path.join(ROOT, "tools", "fabric", rel), os.path.join(copy, rel))
         # gh_ledger takes the account's state directory from identity.
         os.makedirs(os.path.join(t, "copy", "runtime"))
