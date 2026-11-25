@@ -28,6 +28,7 @@
     "fabric-drift": "bin/fabric-drift",
     "fabric-gh-ledger": "bin/fabric-gh-ledger",
     "fabric-jobs": "bin/fabric-jobs",
+    "fabric-git-rules": "bin/fabric-git-rules",
     "fabric-history": "bin/fabric-history",
     "fabric-reflect": "bin/fabric-reflect",
     "fabric-reflect-jobs": "bin/fabric-reflect-jobs",
@@ -132,6 +133,9 @@
       },
       "host": {
         "command": "fabric-host"
+      },
+      "git-rules": {
+        "command": "fabric-git-rules"
       },
       "jobs": {
         "command": "fabric-jobs"

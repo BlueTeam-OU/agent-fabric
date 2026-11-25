@@ -6,7 +6,7 @@ were told to. A push that cannot complete (credentials, remote access,
 branch protection, environment limits) is said, never claimed. Commit
 messages are short, specific and scoped to the change; completed work
 is never left uncommitted. Work reaches `{repo.default_branch}` as a pull
-request, merged by {method}.
+request, merged with GitHub's `{method}` method.
 
 **Every commit declares its kind in its trailers**, because a PR is armed
 by its count of work commits: `Kind: work` for new work, a bug fix, docs
