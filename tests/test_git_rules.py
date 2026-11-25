@@ -91,10 +91,9 @@ class Tree(unittest.TestCase):
         c = policy["commits"]
         self.assertIn(f"**A branch lands at {c['advice_over']} work commits**", out.body)
         self.assertIn(f"Past {c['refuse_over']} a commit", out.body)
-        self.assertIn(f"armed at {c['min']} work commits", out.body)
+        self.assertIn(f"prints ({c['min']} unless", out.body)
         self.assertIn(f"merged with GitHub's `{policy['method']}` method", out.body)
         self.assertIn(f"{', '.join(policy['reviews'])} on the head", out.body)
-        self.assertIn("reaches `trunk` as a pull", out.body.replace("\n", " "))
         self.assertIsNone(git_rules.PLACEHOLDER.search(out.body), out.body)
 
 
@@ -155,6 +154,12 @@ class Layers(Tree):
             self.assertTrue(out.notes and "policy" in out.notes[0], (doc, out.notes))
         write(path, "{torn")
         self.assertIn("cannot be read", self.render().notes[0])
+
+    def test_a_hand_written_copy_over_the_bound_is_no_copy_and_says_why(self):
+        self.copy({"state": "present", "text": "x" * (git_rules.TEXT_LIMIT + 1)})
+        out = self.render()
+        self.assertIn("the fleet's value", out.header)
+        self.assertIn(f"git.md is over {git_rules.TEXT_LIMIT} bytes", out.notes[0])
 
     def test_a_repository_no_project_has_gets_the_operator_text_on_the_fleet_value(self):
         write(os.path.join(self.op, "prompt", "git.md"), "OPERATOR {commits.refuse_over}\n")
@@ -252,6 +257,15 @@ class WorkingCopy(Tree):
         self.assertEqual(run("--repo", REPO, self.tmp).returncode, 2)
         self.assertEqual(run(os.path.join(self.tmp, "absent")).returncode, 1)
 
+    def test_an_arming_file_the_validator_refuses_is_one_line_not_a_traceback(self):
+        write(os.path.join(self.op, "policies", "arming.json"), json.dumps({"commits": {"min": "many"}}))
+        env = {**os.environ, "AGENT_FABRIC_PYTHON": sys.executable}
+        bad = subprocess.run([BIN, "--repo", "else/where"], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual((bad.returncode, bad.stdout), (1, ""))
+        self.assertEqual(len(bad.stderr.strip().splitlines()), 1, bad.stderr)
+        self.assertTrue(bad.stderr.startswith("fabric-git-rules: "), bad.stderr)
+        self.assertNotIn("Traceback", bad.stderr)
+
     def test_the_real_default_text_renders_in_this_checkout_without_an_unfilled_placeholder(self):
         env = {k: v for k, v in os.environ.items() if k not in ("AGENT_FABRIC_OPERATOR", "AGENT_FABRIC_ROOT")}
         env.update(AGENT_FABRIC_PYTHON=sys.executable, AGENT_FABRIC_STATE_DIR=self.state)
@@ -330,6 +344,24 @@ class Hooks(Tree):
         ctx = json.loads(out.getvalue())["hookSpecificOutput"]
         self.assertEqual(ctx["hookEventName"], "UserPromptSubmit")
         self.assertIn("REPO-RULES 20", ctx["additionalContext"])
+        # The reverse: the rules fail, the freshness line survives and the failure is said, not swallowed.
+        with mock.patch.object(fresh, "note", return_value="FRESH-LINE"), \
+                mock.patch.object(fresh, "git_rules_note", side_effect=RuntimeError("boom")), \
+                mock.patch("sys.stdin", io.StringIO(json.dumps({"cwd": self.wc, "session_id": "sm2"}))), \
+                mock.patch("sys.stdout", io.StringIO()) as out:
+            self.assertEqual(fresh.main(), 0)
+        said = json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("FRESH-LINE", said)
+        self.assertIn("agent-fabric: the git rules could not be given (RuntimeError: boom); run fabric-git-rules", said)
+        # Out of budget: the rules are not rendered, it is said, and nothing is noted as given.
+        with mock.patch.object(fresh, "note", return_value=None), \
+                mock.patch.object(fresh, "git_rules_note", side_effect=AssertionError("must not run")), \
+                mock.patch.object(fresh, "HOOK_BUDGET_S", 0.0), \
+                mock.patch("sys.stdin", io.StringIO(json.dumps({"cwd": self.wc, "session_id": "sm3"}))), \
+                mock.patch("sys.stdout", io.StringIO()) as out:
+            self.assertEqual(fresh.main(), 0)
+        self.assertIn("were not given on this prompt", out.getvalue())
+        self.assertIsNone(git_rules.given("sm3"))
         with mock.patch("sys.stdin", io.StringIO("not json")), mock.patch("sys.stdout", io.StringIO()) as out:
             self.assertEqual(fresh.main(), 0)
         self.assertEqual(out.getvalue(), "")

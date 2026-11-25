@@ -47,6 +47,7 @@ import fcntl
 import importlib.util
 import json
 import os
+import re
 import sys
 import time
 
@@ -168,6 +169,22 @@ def reason_of(payload: dict) -> str | None:
     return "permission" if kind in ("permission_prompt", "worker_permission_prompt") else "question"
 
 
+# Per-session notes other hooks keep beside the state (tools/fabric/git_rules.py's record_given): a session that ends,
+# or is found dead here, leaves none behind. The name is spelled by its writer; the id is checked, being a path part.
+SESSION_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+SESSION_FILES = ("git-rules-{}.json",)
+
+
+def forget(directory: str, sid: str) -> None:
+    if not SESSION_ID.fullmatch(sid):
+        return
+    for name in SESSION_FILES:
+        try:
+            os.remove(os.path.join(directory, name.format(sid)))
+        except OSError:
+            pass
+
+
 def record(payload: dict, directory: str | None = None, now: float | None = None,
            process: tuple[int, int] | None = None, proc: str = "/proc") -> bool:
     """True when the file changed. `process` is the session's harness
@@ -191,12 +208,15 @@ def record(payload: dict, directory: str | None = None, now: float | None = None
             sessions = doc.get("sessions") if isinstance(doc, dict) and isinstance(doc.get("sessions"), dict) else {}
         except (OSError, ValueError):
             sessions = {}
-        before = len(sessions)
+        before = set(sessions)
         sessions = {k: v for k, v in sessions.items()
                     if k == sid or (isinstance(v, dict) and alive(v.get("pid"), v.get("start"), proc))}
-        pruned = len(sessions) != before
+        pruned = len(sessions) != len(before)
+        for dead in before - set(sessions):
+            forget(directory, dead)
         current = sessions.get(sid) if isinstance(sessions.get(sid), dict) else {}
         if state == "gone":
+            forget(directory, sid)
             if sid not in sessions and not pruned:
                 return False
             sessions.pop(sid, None)

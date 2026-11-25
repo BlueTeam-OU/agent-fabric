@@ -368,6 +368,31 @@ class RefuseOver(Scratch):
         for bad in (contents(""), contents("  \n"), {"type": "dir"}, {"type": "file", "encoding": "base64", "content": base64.b64encode(b"\xff\xfe").decode()}):
             self.assertEqual(read(bad)["state"], "unreadable", bad)
 
+    def test_an_api_that_raises_what_is_not_a_gherror_on_the_git_md_never_fails_the_load(self):
+        """pr_counts.required_engines passes an api whose budget raises its own error: the policy was read (F11)."""
+        class Budget(Exception):
+            pass
+
+        def api(path, **kw):
+            if path.endswith("/R.git.md"):
+                raise Budget("out of budget")
+            if path.endswith("/R.json"):
+                return contents({"commits": {"min": 2}})
+            return {"full_name": path}
+        reg = {"projects": {"p": {"client": "c", "remotes": ["https://github.com/O/R"]}}}
+        policy = arm_policy.load("O/R", root=self.dir, registry=reg, clients=CLIENTS, api=api)
+        self.assertEqual(policy["commits"]["min"], 2)
+        with open(os.path.join(self.dir, "cache.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["git_md"], {"state": "unreadable", "why": "Budget: out of budget"})
+
+    def test_a_git_md_over_the_bound_is_unreadable_and_a_text_at_it_is_not(self):
+        limit = arm_policy.GIT_MD_LIMIT
+        at = "x" * limit
+        self.assertEqual(arm_policy.git_md_state("o/settings", "O/R", Api(contents(at))), {"state": "present", "text": at})
+        over = arm_policy.git_md_state("o/settings", "O/R", Api(contents(at + "x")))
+        self.assertEqual(over["state"], "unreadable")
+        self.assertIn(f"over {limit} bytes", over["why"])
+
     def test_a_failed_write_says_so_on_stderr_and_does_not_fail_the_load(self):
         blocker = os.path.join(self.dir, "file")
         open(blocker, "w").close()

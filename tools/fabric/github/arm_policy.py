@@ -388,6 +388,11 @@ def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api
     return doc
 
 
+# One bound for a git.md: the fetch refuses a longer one, and git_rules reads the copy and each layer file under the same
+# number, so a text the fetch would not take is not given to a session by hand-writing it either.
+GIT_MD_LIMIT = 256 * 1024
+
+
 def fetch_repo_git_md(settings: str, repo: str, api: Callable[..., Any] = gh.api) -> str | None:
     """repos/<repo name>.git.md, the repository's own git rules (agent-fabric ADR-019 §5 rule 9), from the settings
     repository's default branch: its text, or None when it has none. PolicyUnavailable for every other outcome,
@@ -402,6 +407,8 @@ def fetch_repo_git_md(settings: str, repo: str, api: Callable[..., Any] = gh.api
         text = base64.b64decode(answer["content"], validate=False).decode("utf-8")
     except (ValueError, KeyError, TypeError, binascii.Error, UnicodeDecodeError) as e:
         raise PolicyUnavailable(f"{where} is not a text file ({type(e).__name__})") from None
+    if len(text.encode("utf-8")) > GIT_MD_LIMIT:
+        raise PolicyUnavailable(f"{where} is over {GIT_MD_LIMIT} bytes")
     if not text.strip():
         raise PolicyUnavailable(f"{where} is empty")
     return text
@@ -488,6 +495,8 @@ def git_md_state(settings: str, repo: str, api: Callable[..., Any]) -> dict:
         text = fetch_repo_git_md(settings, repo, api)
     except PolicyUnavailable as e:
         return {"state": "unreadable", "why": str(e)}
+    except Exception as e:  # noqa: BLE001 — a caller's api (pr_counts' budgeted one) raises what GhError is not
+        return {"state": "unreadable", "why": f"{type(e).__name__}: {e}"}
     return {"state": "absent"} if text is None else {"state": "present", "text": text}
 
 

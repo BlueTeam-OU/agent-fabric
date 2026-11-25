@@ -21,10 +21,16 @@ payload's `cwd`:
     count changed since this session last heard it, so a session is told
     once, not on every prompt.
 
-Nothing is printed when the copy is current, when `cwd` is no git working
-copy, or when anything fails: a hook must never stand in a session's
-way. It writes nothing but its own per-session note in the account's
-state directory, and starts nothing but that fetch.
+Nothing is printed by the freshness part when the copy is current, when
+`cwd` is no git working copy, or when it fails: a hook must never stand in
+a session's way. The same prompt also carries the git rules
+(tools/fabric/git_rules.py, ADR-019 §5 rule 9) when `cwd`'s working copy is
+another than the one the session was last given them for (in a directory
+that is no working copy too, where they are the operator layer on the
+fleet's policy), and one line saying so when they cannot be given. It
+writes nothing but its two per-session notes in the account's state
+directory (freshness-<session>.json, git-rules-<session>.json), reads the
+account's copy of the policy, and starts nothing but that fetch.
 """
 from __future__ import annotations
 
@@ -37,11 +43,16 @@ import sys
 import time
 
 FETCH_EVERY_S = 600
-# At most eight local git calls run in a prompt (the dangling-ref check
-# and both fallback refs included), inside the hook's 15 s budget
-# (user-settings.py) with room for Python's start: a hook past its timeout
-# says nothing at all. Each is a local read, milliseconds.
+# At most eight local git calls run in the freshness part of a prompt (the
+# dangling-ref check and both fallback refs included) and five in the rules
+# part (its own toplevel, then the renderer's toplevel, resolve's two and the
+# origin read), each bounded by GIT_TIMEOUT_S, inside the hook's 15 s budget
+# (user-settings.py): a hook past its timeout says nothing at all. Each is a
+# local read, milliseconds; but both parts at their worst take 19.5 s, so the
+# rules part starts only while RULES_NEEDS_S of the budget is left.
 GIT_TIMEOUT_S = 1.5
+HOOK_BUDGET_S = 14.0       # 15 s less Python's start
+RULES_NEEDS_S = 5 * GIT_TIMEOUT_S
 FETCH_TIMEOUT_S = 120
 SESSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
@@ -158,7 +169,7 @@ def git_rules_note(payload: dict, state: str | None = None) -> str | None:
     rules = git_rules()
     if not rules.changed(session, top, state):
         return None
-    text = rules.for_hook(top)
+    text = rules.for_hook(top, timeout=GIT_TIMEOUT_S)
     rules.record_given(session, top, state)
     return text
 
@@ -177,14 +188,24 @@ def main() -> int:
     except Exception:  # noqa: BLE001 - a hook never stands in a session's way
         return 0
     lines = []
+    started = time.monotonic()
     # Each on its own: a failure of the freshness note must not cost the session the rules, nor the reverse.
-    for part in (note, git_rules_note):
-        try:
-            line = part(payload)
-            if line:
-                lines.append(line)
-        except Exception:  # noqa: BLE001
-            pass
+    try:
+        line = note(payload)
+        if line:
+            lines.append(line)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        # Not recorded as given, so the next prompt asks again.
+        if HOOK_BUDGET_S - (time.monotonic() - started) < RULES_NEEDS_S:
+            line = "agent-fabric: the git rules were not given on this prompt (the hook's time was spent); they are given on the next."
+        else:
+            line = git_rules_note(payload)
+        if line:
+            lines.append(line)
+    except Exception as e:  # noqa: BLE001 - said, not raised: silence would read as "no rules apply"
+        lines.append(f"agent-fabric: the git rules could not be given ({type(e).__name__}: {e}); run fabric-git-rules")
     try:
         if lines:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",

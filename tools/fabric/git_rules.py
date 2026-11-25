@@ -3,7 +3,8 @@
 
 CONTRACT (bin/fabric-git-rules is the command; session-start.py and freshness.py call render()):
   fabric-git-rules [--repo <owner>/<name> | <path>]     default: the working directory
-  stdout   the header line, a blank line, the rendered text; nothing else, exit 0.
+  stdout   the header line, then one line per note (the repository's git.md unreadable, no usable copy of its
+           policy), a blank line, the rendered text; nothing else, exit 0.
   stderr   one `fabric-git-rules: <reason>` line on failure, nothing on stdout, exit 1; a usage error exits 2.
   No API call and no write: the account's copy of the policy and of the repository's git.md is read as
   arm_policy.load left it (write_threshold_cache).
@@ -42,7 +43,7 @@ from github import arm_policy  # noqa: E402
 
 PLACEHOLDER = re.compile(r"\{([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*)\}")
 REPO_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-TEXT_LIMIT = 256 * 1024
+TEXT_LIMIT = arm_policy.GIT_MD_LIMIT
 GIT_MD_STATES = ("present", "absent", "unreadable")
 
 
@@ -92,10 +93,10 @@ def _read_layer(path: str) -> str | None:
     return text
 
 
-def _repo_of(top: str) -> str | None:
+def _repo_of(top: str, timeout: float | None = None) -> str | None:
     """<owner>/<name> of the working copy's origin when it is a GitHub remote, in the spelling the account's copy is
     keyed by (branch_size.repository_of's, without its unbounded git call)."""
-    url = workingcopy.remote_url(top)
+    url = workingcopy.remote_url(top, timeout=timeout)
     parsed = workingcopy.parse_remote(url) if url else None
     if not parsed or parsed["host"] != "github.com" or not REPO_NAME.fullmatch(parsed["path"]):
         return None
@@ -108,7 +109,7 @@ class Target(NamedTuple):
     spec: dict | None
 
 
-def target_of(working_copy: str | None, repo: str | None, registry: dict) -> Target:
+def target_of(working_copy: str | None, repo: str | None, registry: dict, timeout: float | None = None) -> Target:
     """Which repository and registered project the text is for: the working copy's (its marker or its origin), or
     `repo`'s. No repository, or one no project has, is a Target without a project: the operator layer on the fleet
     policy."""
@@ -121,16 +122,16 @@ def target_of(working_copy: str | None, repo: str | None, registry: dict) -> Tar
         except arm_policy.PolicyUnavailable as e:
             raise GitRulesError(str(e)) from None
         return Target(repo, found[0], found[1]) if found else Target(repo, None, None)
-    top = workingcopy.toplevel(working_copy) if working_copy else None
+    top = workingcopy.toplevel(working_copy, timeout) if working_copy else None
     if not top:
         return Target(None, None, None)
     try:
-        got = workingcopy.resolve(top, registry)
+        got = workingcopy.resolve(top, registry, timeout)
     except SystemExit as e:
         raise GitRulesError(str(e.code)) from None
     project = got["project"]
     spec = projects.get(project) if project else None
-    return Target(_repo_of(top), project, spec if isinstance(spec, dict) else None)
+    return Target(_repo_of(top, timeout), project, spec if isinstance(spec, dict) else None)
 
 
 def _valid_copy(doc: Any, repo: str) -> bool:
@@ -139,7 +140,8 @@ def _valid_copy(doc: Any, repo: str) -> bool:
     policy, md = doc.get("policy"), doc.get("git_md")
     return (isinstance(policy, dict) and isinstance(policy.get("commits"), dict)
             and isinstance(md, dict) and md.get("state") in GIT_MD_STATES
-            and (md["state"] != "present" or isinstance(md.get("text"), str) and bool(md["text"].strip())))
+            and (md["state"] != "present" or isinstance(md.get("text"), str) and bool(md["text"].strip())
+                 and len(md["text"].encode("utf-8")) <= TEXT_LIMIT))
 
 
 def _copy_of(repo: str) -> tuple[dict | None, str | None]:
@@ -153,6 +155,9 @@ def _copy_of(repo: str) -> tuple[dict | None, str | None]:
         return None, f"no copy of {repo}'s policy has been read by this account yet"
     except (OSError, ValueError, RuntimeError) as e:
         return None, f"the copy of {repo}'s policy cannot be read ({e})"
+    md = doc.get("git_md") if isinstance(doc, dict) else None
+    if isinstance(md, dict) and isinstance(md.get("text"), str) and len(md["text"].encode("utf-8")) > TEXT_LIMIT:
+        return None, f"the copy of {repo}'s git.md is over {TEXT_LIMIT} bytes (the next read of the policy replaces it)"
     if not _valid_copy(doc, repo):
         return None, f"the copy of {repo}'s policy is not in the current shape (the next read of the policy replaces it)"
     return doc, None
@@ -206,14 +211,25 @@ def fill(text: str, scoped: dict[str, Any]) -> str:
 
 
 def render(working_copy: str | None = None, *, repo: str | None = None, operator: str | None = None,
-           engine: str | None = None) -> Rendered:
+           engine: str | None = None, timeout: float | None = None) -> Rendered:
     """The git rules for the working copy (or `repo`): see the module's header. GitRulesError, never a traceback, for
-    what cannot be rendered."""
+    what cannot be rendered: the readers of the policy, the registry and the signing file each have their own error
+    types, and the command prints one line for all of them. `timeout` bounds each git call (a hook's budget)."""
+    try:
+        return _render(working_copy, repo, operator, engine, timeout)
+    except GitRulesError:
+        raise
+    except (arm_policy.PolicyError, arm_policy.PolicyUnavailable, OSError, ValueError) as e:
+        raise GitRulesError(f"{type(e).__name__}: {e}") from None
+
+
+def _render(working_copy: str | None, repo: str | None, operator: str | None, engine: str | None,
+            timeout: float | None) -> Rendered:
     path = roots.projects_registry(root=operator, engine=engine)
     registry = _read_json(path)
     if registry is None:
         raise GitRulesError(f"{path} is missing")
-    target = target_of(working_copy, repo, registry)
+    target = target_of(working_copy, repo, registry, timeout)
     notes: list[str] = []
     copy: dict | None = None
     if target.repo and target.project:
@@ -252,11 +268,11 @@ def render(working_copy: str | None = None, *, repo: str | None = None, operator
 SESSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
-def for_hook(working_copy: str | None) -> str:
+def for_hook(working_copy: str | None, timeout: float | None = None) -> str:
     """The text a hook gives a session, or one line saying why it cannot. Rendering never stops a session (rule 9): a
     failure is a line and the hook goes on. Nothing is raised."""
     try:
-        return render(working_copy).text()
+        return render(working_copy, timeout=timeout).text()
     except GitRulesError as e:
         reason = str(e)
     except (Exception, SystemExit) as e:  # noqa: BLE001 — a state or tree oddity must not cost the session its start
