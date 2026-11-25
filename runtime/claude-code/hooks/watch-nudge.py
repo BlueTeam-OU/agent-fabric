@@ -19,9 +19,10 @@ afford a network wait, so a fresh relay-down marker simply keeps it silent
 Cost is bounded by a record per session, $STATE/watch-nudge.json:
   checked  when the process table was last read, or the session last re-armed.
            A call less than CHECK_S after it returns before reading /proc or
-           loading the predicates: it never reminds, so a reminder can come at
-           most every CHECK_S. A read that finds no harness ancestor is recorded
-           too, so no path reads /proc on every call.
+           loading the predicates (but for a Bash call that names
+           --until-delivery, which loads them to tell a re-arm): it never
+           reminds, so a reminder can come at most every CHECK_S. A read that
+           finds no harness ancestor is recorded too.
   down     the watch was seen down at that read
   nudged   this spell of "down" has been reminded, at nudged_at. A spell ends
            when a read sees the watch up, or when the call is the session's own
@@ -30,7 +31,9 @@ Cost is bounded by a record per session, $STATE/watch-nudge.json:
            it up. A spell reminded AGAIN_S ago is reminded again. A spell the
            hook stayed silent in (a fresh relay-down marker, no GZCoord) is not
            nudged, so it is reminded when the reason ends.
-  A record that cannot be written costs the bound on reads, never the reminder.
+  A record that cannot be written leaves the call silent, as the hook was
+  before the record existed: with nothing to remember a read or a reminder,
+  speaking would remind on every call. The bound on reads then cannot hold.
 
 Silent, printing nothing: a subagent's call (agent_id or agent_type: the watch
 is the session's, and a subagent's `Bash` is not the place to start it); a
@@ -60,7 +63,8 @@ _identity = None
 
 
 def on_stop():
-    """watch-on-stop.py, loaded by path (its name has a hyphen) and only when a read is due."""
+    """watch-on-stop.py, loaded by path (its name has a hyphen), only when a read is due or a Bash call names
+    --until-delivery (rearms() compares it with COMMAND)."""
     global _on_stop
     if _on_stop is None:
         spec = importlib.util.spec_from_file_location("fabric_watch_on_stop", os.path.join(HERE, "watch-on-stop.py"))
@@ -92,8 +96,13 @@ def read_state(path: str, now: float) -> dict:
     try:
         with open(path, encoding="utf-8") as fh:
             raw = json.load(fh)
-        return {k: v for k, v in raw.items()
+        kept = {k: dict(v) for k, v in raw.items()
                 if isinstance(v, dict) and isinstance(v.get("checked"), (int, float)) and now - v["checked"] < KEEP_S}
+        # A nudged_at that is no number is no time: dropped, so the spell falls back to `checked` (review of #705, F5).
+        for v in kept.values():
+            if "nudged_at" in v and (not isinstance(v["nudged_at"], (int, float)) or isinstance(v["nudged_at"], bool)):
+                del v["nudged_at"]
+        return kept
     except (OSError, ValueError, TypeError, AttributeError):
         return {}
 
@@ -104,13 +113,14 @@ def write_state(path: str, seen: dict) -> None:
     ident.atomic_write(path, json.dumps(seen), 0o600)
 
 
-def keep(path: str, seen: dict) -> None:
-    """write_state, whose failure (an unwritable state directory, a full disk) costs the bound on reads, never the
-    reminder this call computed (review of #705, F1)."""
+def keep(path: str, seen: dict) -> bool:
+    """write_state; False when it failed (an unwritable state directory, a full disk), which the caller answers with
+    silence (review of #705, F4)."""
     try:
         write_state(path, seen)
+        return True
     except Exception:  # noqa: BLE001 - a hook that refuses nothing also breaks nothing
-        pass
+        return False
 
 
 def rearms(payload: dict) -> bool:
@@ -167,8 +177,7 @@ def decide(payload: dict, now: float, path: str, procs=None, is_integrated=None,
         say = True
     seen[session_id] = {"checked": now, "down": True, "nudged": nudged or say,
                         **({"nudged_at": now} if say else {"nudged_at": nudged_at} if nudged else {})}
-    keep(path, seen)
-    if not say:
+    if not keep(path, seen) or not say:
         return None
     return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": message(ws.COMMAND)}}
 

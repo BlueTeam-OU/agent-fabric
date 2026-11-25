@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """runtime/claude-code/hooks/watch-nudge.py: a PostToolUse call with no live inbox
-watch under the session's harness is told once, per spell of "down", to re-arm it;
+watch under the session's harness is told once per spell of "down" (again after
+AGAIN_S) to re-arm it;
 a repeat inside the window, a watch up, a subagent, no binding and malformed
 input are silent; every path exits 0."""
 from __future__ import annotations
@@ -86,7 +87,7 @@ def main() -> int:
         check("a second call inside the window: silent, no process-table read",
               go(no_read, 1000.0 + nudge.CHECK_S - 1) is None)
         # after the window, still down: the same spell is not said again
-        check("after the window, still down: silent (once per spell)", go(table(), 1000.0 + nudge.CHECK_S + 1) is None)
+        check("after the window, still down: silent (the spell is reminded)", go(table(), 1000.0 + nudge.CHECK_S + 1) is None)
         check("…and still silent until AGAIN_S after the reminder", go(table(), 1000.0 + nudge.AGAIN_S - 1) is None)
         out = go(table(), 1000.0 + nudge.AGAIN_S + nudge.CHECK_S)
         check("…reminded again once AGAIN_S has passed (review of #705, F2)", out is not None and stop.COMMAND in ctx(out), out)
@@ -119,8 +120,24 @@ def main() -> int:
             out = go(table(), 1000.0)
         finally:
             nudge.write_state = orig_write
-        check("an unwritable record: still reminds", out is not None and stop.COMMAND in ctx(out), out)
+        check("an unwritable record: silent, as before the record existed (F4)", out is None, out)
+        # A re-arm-shaped command from another tool is no re-arm (F6).
         fresh()
+        check("down: reminded", go(table(), 1000.0) is not None)
+        check("a non-Bash call carrying the command: no re-arm, silent inside the window",
+              go(no_read, 1005.0, {"tool_name": "Write", "tool_input": {"command": stop.COMMAND}}) is None)
+        check("…the spell stays reminded", go(table(), 1100.0) is None)
+        # A reminded spell keeps its reminder across a read that finds no harness (F6: the kept spell).
+        check("a no-harness read keeps the spell", go(orphan, 1200.0) is None)
+        check("…and the next read is still silent", go(table(), 1300.0) is None)
+        # A damaged nudged_at is no time: the spell falls back to `checked` (F5).
+        fresh()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        for bad in ('"x"', "null", "true"):
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write('{"s1": {"checked": 1000.0, "down": true, "nudged": true, "nudged_at": %s}}' % bad)
+            check(f"a nudged_at of {bad}: no error, the spell is judged from checked",
+                  go(table(), 1100.0) is None and go(table(), 1000.0 + nudge.AGAIN_S + 1) is not None)
         # a watch holding the login's lock outside the tree counts as up (has_watch's rule)
         fresh()
         with open(os.path.join(run_dir, "agent-fabric", "gzcoord-inbox-x.lock"), "w", encoding="utf-8") as fh:
