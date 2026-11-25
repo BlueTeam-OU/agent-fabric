@@ -339,6 +339,35 @@ class RefuseOver(Scratch):
         self.assertRegex(doc["read_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$")
         self.assertEqual(os.listdir(os.path.dirname(cache)), ["R.json"], "no temp file left")
 
+    def test_the_copy_keeps_the_whole_merged_policy_and_the_repositorys_git_md_or_its_state(self):
+        """ADR-019 §5 rule 9: the git-rules renderer reads these from the account's copy, with no API call."""
+        reg = {"projects": {"p": {"client": "c", "remotes": ["https://github.com/O/R"]}}}
+        cache = os.path.join(self.dir, "cache.json")
+
+        def read(md) -> dict:
+            def api(path, **kw):
+                if path.endswith("/R.json"):
+                    return contents({"commits": {"advice_over": 20, "refuse_over": 50}})
+                if path.endswith("/R.git.md"):
+                    if isinstance(md, gh.GhError):
+                        raise md
+                    return md
+                return {"full_name": path}
+            policy = arm_policy.load("O/R", root=self.dir, registry=reg, clients=CLIENTS, api=api)
+            with open(cache, encoding="utf-8") as f:
+                doc = json.load(f)
+            self.assertEqual(doc["policy"], policy, "the whole merged policy, not two numbers")
+            self.assertEqual((doc["advice_over"], doc["refuse_over"]), (20, 50), "branch_size reads these two where they always were")
+            self.assertEqual(doc["policy"]["reviews"], ["claude"], "a key the repository's file did not state, from the fleet")
+            return doc["git_md"]
+        self.assertEqual(read(contents("RULES {commits.min}\n")), {"state": "present", "text": "RULES {commits.min}\n"})
+        self.assertEqual(read(ghe(404, "Not Found")), {"state": "absent"})
+        unreadable = read(ghe(502, "bad gateway"))
+        self.assertEqual(unreadable["state"], "unreadable")
+        self.assertIn("could not be read (bad gateway)", unreadable["why"])
+        for bad in (contents(""), contents("  \n"), {"type": "dir"}, {"type": "file", "encoding": "base64", "content": base64.b64encode(b"\xff\xfe").decode()}):
+            self.assertEqual(read(bad)["state"], "unreadable", bad)
+
     def test_a_failed_write_says_so_on_stderr_and_does_not_fail_the_load(self):
         blocker = os.path.join(self.dir, "file")
         open(blocker, "w").close()
