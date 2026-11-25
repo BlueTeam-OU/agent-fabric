@@ -339,6 +339,35 @@ class RefuseOver(Scratch):
         self.assertRegex(doc["read_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$")
         self.assertEqual(os.listdir(os.path.dirname(cache)), ["R.json"], "no temp file left")
 
+    def test_the_copy_keeps_the_whole_merged_policy_and_the_repositorys_git_md_or_its_state(self):
+        """ADR-019 §5 rule 9: the git-rules renderer reads these from the account's copy, with no API call."""
+        reg = {"projects": {"p": {"client": "c", "remotes": ["https://github.com/O/R"]}}}
+        cache = os.path.join(self.dir, "cache.json")
+
+        def read(md) -> dict:
+            def api(path, **kw):
+                if path.endswith("/R.json"):
+                    return contents({"commits": {"advice_over": 20, "refuse_over": 50}})
+                if path.endswith("/R.git.md"):
+                    if isinstance(md, gh.GhError):
+                        raise md
+                    return md
+                return {"full_name": path}
+            policy = arm_policy.load("O/R", root=self.dir, registry=reg, clients=CLIENTS, api=api)
+            with open(cache, encoding="utf-8") as f:
+                doc = json.load(f)
+            self.assertEqual(doc["policy"], policy, "the whole merged policy, not two numbers")
+            self.assertEqual((doc["advice_over"], doc["refuse_over"]), (20, 50), "branch_size reads these two where they always were")
+            self.assertEqual(doc["policy"]["reviews"], ["claude"], "a key the repository's file did not state, from the fleet")
+            return doc["git_md"]
+        self.assertEqual(read(contents("RULES {commits.min}\n")), {"state": "present", "text": "RULES {commits.min}\n"})
+        self.assertEqual(read(ghe(404, "Not Found")), {"state": "absent"})
+        unreadable = read(ghe(502, "bad gateway"))
+        self.assertEqual(unreadable["state"], "unreadable")
+        self.assertIn("could not be read (bad gateway)", unreadable["why"])
+        for bad in (contents(""), contents("  \n"), {"type": "dir"}, {"type": "file", "encoding": "base64", "content": base64.b64encode(b"\xff\xfe").decode()}):
+            self.assertEqual(read(bad)["state"], "unreadable", bad)
+
     def test_a_failed_write_says_so_on_stderr_and_does_not_fail_the_load(self):
         blocker = os.path.join(self.dir, "file")
         open(blocker, "w").close()
@@ -373,13 +402,15 @@ class Load(Scratch):
     def test_the_file_is_asked_for_by_the_repository_name_from_the_default_branch_never_a_ref(self):
         api = Api(contents({"commits": {"min": 2}}))
         p = self.load(api)
-        self.assertEqual(api.asked, ["repos/o/settings/contents/repos/R.json"])
+        # The second read is the repository's git.md (ADR-019 §5 rule 9), kept in the account's copy beside the policy.
+        self.assertEqual(api.asked, ["repos/o/settings/contents/repos/R.json", "repos/o/settings/contents/repos/R.git.md"])
         self.assertEqual(p["commits"]["min"], 2)
 
     def test_no_file_for_the_repository_is_the_fleet_policy_when_the_settings_repository_answers(self):
         api = Api(error=ghe(404, "Not Found"))
         self.assertEqual(self.load(api), arm_policy.default())
-        self.assertEqual(api.asked, ["repos/o/settings/contents/repos/R.json", "repos/o/settings"])
+        self.assertEqual(api.asked, ["repos/o/settings/contents/repos/R.json", "repos/o/settings",
+                                     "repos/o/settings/contents/repos/R.git.md", "repos/o/settings"])
 
     def test_a_404_with_the_settings_repository_unreadable_is_not_an_absence(self):
         for e in (ghe(404, "Not Found"), ghe(403), ghe(None, "i/o timeout")):
@@ -420,9 +451,9 @@ class Load(Scratch):
         b = self.load(api, cache=cache)
         b["commits"]["min"] = 77
         c = self.load(api, cache=cache)
-        self.assertEqual((len(api.asked), c["commits"]["min"]), (1, 2))
+        self.assertEqual((len(api.asked), c["commits"]["min"]), (2, 2), "one read of the policy and one of git.md")
         self.load(api)
-        self.assertEqual(len(api.asked), 2, "no cache, no reuse: nothing is kept between runs")
+        self.assertEqual(len(api.asked), 4, "no cache, no reuse: nothing is kept between runs")
 
     def test_a_repository_file_overrides_the_fleets_reviews(self):
         self.assertEqual(self.load(Api(contents({"reviews": ["claude", "codex"]})))["reviews"], ["claude", "codex"])
