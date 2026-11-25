@@ -489,6 +489,8 @@ class Source(unittest.TestCase):
                 if file is None:
                     raise gh.GhError("gh api GET x", "Not Found", status=404)
                 return {"type": "file", "encoding": "base64", "content": base64.b64encode(json.dumps(file).encode()).decode()}
+            if path == "repos/O/settings/contents/repos/R.git.md":   # load also reads the git.md (ADR-019 §5 rule 9); none here
+                raise gh.GhError("gh api GET x", "Not Found", status=404)
             if path == "repos/O/settings":
                 if settings_down:
                     raise gh.GhError("gh api GET x", "Not Found", status=404)

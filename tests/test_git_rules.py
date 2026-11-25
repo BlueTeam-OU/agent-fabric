@@ -92,7 +92,7 @@ class Tree(unittest.TestCase):
         self.assertIn(f"**A branch lands at {c['advice_over']} work commits**", out.body)
         self.assertIn(f"Past {c['refuse_over']} a commit", out.body)
         self.assertIn(f"armed at {c['min']} work commits", out.body)
-        self.assertIn(f"merged by {policy['method']}", out.body)
+        self.assertIn(f"merged with GitHub's `{policy['method']}` method", out.body)
         self.assertIn(f"{', '.join(policy['reviews'])} on the head", out.body)
         self.assertIn("reaches `trunk` as a pull", out.body.replace("\n", " "))
         self.assertIsNone(git_rules.PLACEHOLDER.search(out.body), out.body)
