@@ -199,6 +199,36 @@ def test_hook_gives_the_project_layer_from_the_working_copy(tmp: str) -> None:
     assert "agent-fabric: client" not in ctx, ctx
 
 
+def agents_md_ctx(tmp: str, claude: str | None, agents: str | None = "AGENTS-MD-MARKER rule\n") -> str:
+    state = os.path.join(tmp, "state")
+    wc = os.path.join(tmp, "fixture-proj")
+    git_repo(wc, "git@example.org:fixture-org/fixture-proj.git")
+    for name, body in (("CLAUDE.md", claude), ("AGENTS.md", agents)):
+        if body is not None:
+            with open(os.path.join(wc, name), "w", encoding="utf-8") as fh:
+                fh.write(body)
+    os.makedirs(os.path.join(state, "agents", id_un()))
+    with open(os.path.join(state, "agents", id_un(), "binding.json"), "w", encoding="utf-8") as fh:
+        json.dump({"agent": id_un(), "host": HOST, "role": "db-admin", "updated_at": "x"}, fh)
+    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_OPERATOR": operator(tmp)}
+    return context_of(run_hook({"cwd": wc}, env))
+
+
+def test_hook_loads_agents_md_when_there_is_no_claude_md(tmp: str) -> None:
+    ctx = agents_md_ctx(tmp, None)
+    assert ctx.count("AGENTS-MD-MARKER rule") == 1, ctx
+
+
+def test_hook_loads_agents_md_beside_a_claude_md_that_does_not_import_it(tmp: str) -> None:
+    ctx = agents_md_ctx(tmp, "# own rules\nmention AGENTS.md in prose, no import\n")
+    assert ctx.count("AGENTS-MD-MARKER rule") == 1, ctx
+
+
+def test_hook_does_not_load_agents_md_twice_through_an_import(tmp: str) -> None:
+    ctx = agents_md_ctx(tmp, "@AGENTS.md\n\n## Claude Code\n")
+    assert "AGENTS-MD-MARKER" not in ctx, ctx
+
+
 def test_hook_says_when_the_binding_drifted_from_the_launch(tmp: str) -> None:
     """Launched as one role (the stamp the launcher exports), bound to
     another since: the hook prints the drift line; same role, no line."""
@@ -1028,7 +1058,11 @@ def test_the_jobs_line_says_the_branch_size(tmp: str) -> None:
 
 
 def main() -> int:
-    cases = [test_the_jobs_line_says_the_branch_size, test_hook_names_the_client_of_the_project, test_hook_records_context_not_identity, test_a_subagent_start_never_rebinds_the_login,
+    cases = [test_the_jobs_line_says_the_branch_size,
+             test_hook_loads_agents_md_when_there_is_no_claude_md,
+             test_hook_loads_agents_md_beside_a_claude_md_that_does_not_import_it,
+             test_hook_does_not_load_agents_md_twice_through_an_import,
+             test_hook_names_the_client_of_the_project, test_hook_records_context_not_identity, test_a_subagent_start_never_rebinds_the_login,
              test_hook_gives_the_project_layer_from_the_working_copy,
              test_hook_says_when_the_binding_drifted_from_the_launch,
              test_hook_from_the_parent_directory_has_no_project,

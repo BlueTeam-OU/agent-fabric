@@ -155,6 +155,7 @@ def main() -> int:
         # another working copy's channel and secrets store (review of #269).
         lines += client_line(ctx["project"] if ctx["project_source"] == "working-copy" else None)
         lines += project_layer(role, ctx["project"], ctx["working_copy"])
+        lines += agents_md_layer(ctx["working_copy"])
         try:
             lines += trailing(ctx["working_copy"])
         except Exception:  # noqa: BLE001 — a git oddity must not cost the session its project layer
@@ -540,6 +541,43 @@ def project_layer(role: str | None, project: str | None, working_copy: str | Non
         out.append(f"agent-fabric: {project} has no distilled knowledge for {role} yet "
                    f"({os.path.relpath(os.path.dirname(index), working_copy)}/).")
     return out
+
+
+AGENTS_MD_LIMIT = 256 * 1024
+# CLAUDE.md's import syntax: a token @AGENTS.md at a word start, which Claude Code expands in place.
+AGENTS_IMPORT = re.compile(r"(?m)(?:^|\s)@(?:\./)?AGENTS\.md(?=\s|$)")
+
+
+def agents_md_layer(working_copy: str | None) -> list[str]:
+    """The project's AGENTS.md as context, when the harness would not load it.
+
+    Claude Code reads CLAUDE.md and never AGENTS.md; a project that keeps its
+    instructions in AGENTS.md alone, or beside a CLAUDE.md that does not import
+    it, would give the session none of them. A CLAUDE.md that imports it
+    (`@AGENTS.md`) already carries the text, and giving it again here would load
+    it twice. Unreadable or oversized is said in one line, never silently
+    dropped: unknown is not "no instructions"."""
+    if not working_copy:
+        return []
+    path = os.path.join(working_copy, "AGENTS.md")
+    if not os.path.isfile(path):
+        return []
+    for name in ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md")):
+        try:
+            with open(os.path.join(working_copy, name), encoding="utf-8", errors="replace") as fh:
+                if AGENTS_IMPORT.search(fh.read(AGENTS_MD_LIMIT)):
+                    return []
+        except OSError:
+            continue
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read(AGENTS_MD_LIMIT + 1)
+    except OSError as exc:
+        return [f"agent-fabric: AGENTS.md of this working copy could not be read ({exc.strerror or exc}); read it yourself."]
+    if len(raw) > AGENTS_MD_LIMIT:
+        return [f"agent-fabric: AGENTS.md of this working copy is over {AGENTS_MD_LIMIT} bytes and was not loaded; read it yourself."]
+    return [f"Contents of {path} (project instructions, loaded by the session-start hook):\n\n"
+            + raw.decode("utf-8", errors="replace").strip("\n")]
 
 
 if __name__ == "__main__":
