@@ -16,14 +16,15 @@ copy's `bin/fabric-ctl`.
 
 | command | outcome |
 |---|---|
-| `fabric-ctl python-dev-02 state` | exit 0; one row: `working  python-dev  1` (the caller's own record, read from its own file, as the contract says) |
+| `fabric-ctl python-dev-02 state` | exit 0; one row: `working  python-dev  1` (the caller's own record, answered by its own agentd) |
 | `fabric-ctl python-dev-01 state` | exit 0; one row: `working  python-dev  1`, asked of that account's agentd |
 | `fabric-ctl all state --json` | read for the first two accounts only: each `status: ok`, `op: state`, a v1 `state` record whose `from` and `address` agree with the account asked, `carrier: "interweave"`, `relay_copy: "same"`; the two answers took 10 and 11 ms. The other 28 accounts' JSON was not read; the next row covers all 30 |
 | `fabric-ctl all state` | 30 rows, one per placed account, none `unknown`; states working, idle or blocked, with role and session count |
 | `FABRIC_STATE_READ=op fabric-ctl all states` | stderr said `FABRIC_STATE_READ=op: state records are asked of the accounts, not read from the relay (control_carrier is 'dual')`; 30 rows, the same states as the `state` table taken seconds apart |
 
 - What the override does not touch: `state` is an op under any carrier, so
-  `FABRIC_STATE_READ` changes only `states`.
+  of the commands run here `FABRIC_STATE_READ` changes only `states`; it
+  also moves `fabric-jobs waits` and the pool holder's reads, not run here.
 
 ## Not verified
 

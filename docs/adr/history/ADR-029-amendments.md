@@ -567,7 +567,9 @@ alone, and answer it to a new op, `state`, with its own address. `fabric-ctl <lo
 `waits`, and the pool holder's state and role reads ask it instead of reading the channel when `control_carrier` names the second
 carrier alone, or when `FABRIC_STATE_READ=op` says so, which is said on
 stderr and exists to exercise the op while the fleet is on `dual`;
-`fabric-ctl` refuses another value, a control agent says it and ignores it. A
+`fabric-ctl` and `fabric-jobs` refuse another value, a control agent
+says it and ignores it. Rule 18's sentence that `waits` stays on the relay
+under `dual` now names the override. A
 silent account, a `null` record or a record not from the account asked
 reads as unknown, never as an empty record; under `relay` and `dual`
 without the override nothing a reader does changed.

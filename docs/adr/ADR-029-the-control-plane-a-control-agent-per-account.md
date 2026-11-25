@@ -300,7 +300,7 @@ with Doppler (ADR-038 §5 rule 8).
     which Fleet Deck reads before it re-enters a tab, never a path
     (A 2026-10-08); a session whose
     `claude` process is gone is left out. `fabric-ctl states` reads
-    those records, sending no request; a record older than two
+    those records on the channel, sending no request; a record older than two
     heartbeats reads as unknown, and `--follow` prints a row when it
     changes or goes stale. A display that shows the states
     consumes `fabric-ctl states --follow --json` and never polls the
@@ -314,8 +314,8 @@ with Doppler (ADR-038 §5 rule 8).
     queue's `waits`, and the pool holder's state and role reads ask it
     instead of reading the channel when `control_carrier` names the
     second carrier alone, or when `FABRIC_STATE_READ=op` says so (said on
-    stderr; `fabric-ctl` refuses any other value, a control agent says it
-    and ignores it). An account that is silent, answers `null` or answers
+    stderr; `fabric-ctl` and `fabric-jobs` refuse any other value, a
+    control agent says it and ignores it). An account that is silent, answers `null` or answers
     with a record not its own reads as unknown. Under `relay` and `dual`
     without the override the readers read the channel as before (#640;
     live read-back
@@ -381,7 +381,8 @@ with Doppler (ADR-038 §5 rule 8).
       `carrier-only` (ADR-064 §7) presence posts nothing on the relay
       and asks every expected address, itself included, through the
       socket, and with no socket it fails. `waits`, a read of the state
-      stream, stays on the relay;
+      stream, stays on the relay unless `FABRIC_STATE_READ=op` asks the
+      accounts (rule 16);
     - while a session is open on an agentd's socket (`fabric-ctl`'s,
       or a presence or job-queue leg's), that agentd's restart for new
       code waits for it as for a running action, for at most
