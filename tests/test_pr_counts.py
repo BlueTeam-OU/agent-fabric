@@ -177,6 +177,16 @@ def main() -> int:
           (want["work"], want["fix"], want["merge"], want["netted"]) == (4, 3, 1, 4), want)
     check("GitHub's commit list gives the same split: work, fix, merge and netted",
           (row["work"], row["fix"], row["merge"], row["netted"]) == (want["work"], want["fix"], want["merge"], want["netted"]), row)
+    # The branch's own count (review of #703, F12): the one definition, branch_size.count over the clone, where the
+    # netted reverts are work; the fixture makes it differ from the arming count, so `branch_work = work` fails here.
+    import importlib.util
+    bs_spec = importlib.util.spec_from_file_location("bs_for_counts", os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "fabric", "guards", "branch_size.py"))
+    bs = importlib.util.module_from_spec(bs_spec)
+    bs_spec.loader.exec_module(bs)
+    branch = bs.count(base, [shas[-1]], cwd=repo)
+    check("branch_work is branch_size's count of the same range, and differs from the arming count here",
+          row.get("branch_work") == branch and branch != row["work"], (row.get("branch_work"), branch, row["work"]))
     check("…and nets the same commits: which of a chain's three is netted shows in the subjects",
           (sorted(row["fix_subjects"]), sorted(row["netted_subjects"])) == (sorted(want["fix_subjects"]), sorted(want["netted_subjects"])),
           (row.get("fix_subjects"), row.get("netted_subjects"), want["netted_subjects"]))

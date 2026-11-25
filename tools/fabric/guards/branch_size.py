@@ -195,9 +195,12 @@ def count(base: str, heads: list[str], cwd: str | None = None) -> int:
                "%(trailers:key=Answers,valueonly,separator=%x20)%x1e", *heads, f"^{base}", cwd=cwd)
     n = 0
     for rec in out.split("\x1e"):
-        if not rec.strip():
+        # strip("\n") only: str.strip() takes \x1f for whitespace, and would drop every commit that declares nothing,
+        # which rule 3 counts as work (found by #703's round-3 fixture).
+        rec = rec.strip("\n")
+        if not rec:
             continue
-        kind, _, answers = rec.strip("\n").partition("\x1f")
+        kind, _, answers = rec.partition("\x1f")
         n += _work(kind, answers, False)
     return n
 

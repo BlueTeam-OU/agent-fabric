@@ -1425,7 +1425,9 @@ def arm(argv: list[str]) -> int:
     elif work < min_work:
         say(f"count rule: {work} work commits — under {min_work}, arms at the gate as {cls}" if cls and not boundary_unwaived
             else f"count rule: {work} work commits — under {min_work}, on the owner's word")
-    elif work < advice_over:
+    else:
+        # Said whatever the branch's size: the advice line above reads the branch's count, this one the arming count,
+        # and one may be at advice_over while the other is not (review of #703, F13).
         say(f"count rule: {work} work commits — {min_work} or more, arms at the review gate")
 
     # A repository with no required check has nothing server-side that makes the merge wait for green: arm waits

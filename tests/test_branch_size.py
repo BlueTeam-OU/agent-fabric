@@ -58,6 +58,8 @@ def cases() -> list[tuple[str, bool]]:
     rows = branch_size.walk("main", "HEAD", cwd=r)
     out.append(("work, a fix, an Answers-only fix and an undeclared commit count 3,3,3,4 at the end",
                 [x.count for x in rows] == [1, 2, 3, 3, 3, 4]))
+    out.append(("count() agrees with walk(): an undeclared commit is work there too",
+                branch_size.count("main", ["HEAD"], cwd=r) == 4))
     out.append(("under refuse_over nothing is an offender", branch_size.offenders(rows, 4) == []))
     bad = branch_size.offenders(rows, 2)
     out.append(("past refuse_over the work commits are offenders, the fixes never",

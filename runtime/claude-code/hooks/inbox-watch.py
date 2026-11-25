@@ -81,7 +81,7 @@ NON_CONSUMING = ("--replay", "--history", "--held")
 # #703, F3). timeout's duration is its one positional word before the command.
 LAUNCHERS = {"timeout": ("-s", "--signal", "-k", "--kill-after"), "nice": ("-n", "--adjustment"),
              "stdbuf": ("-i", "-o", "-e", "--input", "--output", "--error"), "nohup": (), "time": ("-f", "--format", "-o", "--output"),
-             "env": ("-u", "--unset", "-C", "--chdir", "-S", "--split-string")}
+             "env": ("-u", "--unset", "-C", "--chdir", "-S", "--split-string"), "exec": ("-a",)}
 POSITIONAL = {"timeout": 1}
 
 

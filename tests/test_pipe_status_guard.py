@@ -92,6 +92,16 @@ ALLOWED = [
 CHAINED = "check | tail -1 && git commit -m x"
 
 
+def _load_guard():
+    """The guard module itself, for the oracle, which asks drain_piped directly."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runtime", "claude-code", "hooks", "pipe-status-guard.py")
+    spec = importlib.util.spec_from_file_location("pipe_status_guard_oracle", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 class Guard(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="psg-test-")
@@ -145,7 +155,16 @@ class Guard(unittest.TestCase):
                   'jq . <<< "hello"\ngzcoord-inbox | head', "echo $((1<<N))\ngzcoord-inbox | head",
                   'echo "a <<EOF"\ngzcoord-inbox | head', "time -p gzcoord-inbox | head",
                   # a here-string is no here-document even when a later line equals its word
-                  "cat <<< X\ngzcoord-inbox | head\nX"]
+                  "cat <<< X\ngzcoord-inbox | head\nX",
+                  # review of #703 round 3: F14 and the comment hole, and the shapes the real-bash oracle below found.
+                  "time { gzcoord-inbox; } | head", "time ! gzcoord-inbox | head", "# note\ngzcoord-inbox | head",
+                  "ls # x\ngzcoord-inbox | head", "echo a#b; gzcoord-inbox | head", "exec gzcoord-inbox | head",
+                  'echo "usage: cat <<EOF"\ngzcoord-inbox | head -5\ncat > n <<EOF\nx\nEOF',
+                  "for i in 1; do gzcoord-inbox; done | head", "{ gzcoord-inbox; echo done; } | head",
+                  # refused by design: the rule errs on refusing. A pipe after a drain that does not read it, and a
+                  # here-document body or comment that holds a piped drain, are refused like a piped drain.
+                  "gzcoord-inbox; ls | head", "cat > notes.md <<'EOF'\ngzcoord-inbox | head hid two of three\nEOF",
+                  "git commit -F - <<'EOF'\ngzcoord-inbox | head\nEOF"]
         for c in drains:
             with self.subTest(command=c):
                 r = self.run_hook({"tool_name": "Bash", "tool_input": {"command": c}})
@@ -157,17 +176,49 @@ class Guard(unittest.TestCase):
         # not the command (grep's pattern, an echo's string) is no drain.
         for c in ("gzcoord-inbox", "gzcoord-inbox > log; cat log",
                   "gzcoord-inbox --history 5 | head", "gzcoord-inbox --held | head", "gzcoord-inbox --replay 3 | head",
-                  "grep gzcoord-inbox x | head",
-                  # F4: a here-document's body is text, not a command.
-                  "cat > notes.md <<'EOF'\ngzcoord-inbox | head hid two of three\nEOF",
-                  "git commit -F - <<'EOF'\ngzcoord-inbox | head\nEOF", "cat <<-X\n\tgzcoord-inbox | head\n\tX\nls",
-                  "( cd x; ls ) | head",
-                  # F4, round 2: a backslash-quoted delimiter and one holding a hyphen; two here-documents on one line.
-                  "cat <<\\EOF\ngzcoord-inbox | head\nEOF", "cat <<'END-X'\ngzcoord-inbox | head\nEND-X",
-                  "cat <<A <<B\nx\nA\ngzcoord-inbox | head\nB\nls",
-                  "echo 'gzcoord-inbox | head'", "gzcoord-inbox || echo none", "gzcoord-inbox; ls | head"):
+                  "grep gzcoord-inbox x | head", "grep -rn gzcoord-inbox . | head", "ls | gzcoord-inbox",
+                  "( cd x; ls ) | head", "echo 'gzcoord-inbox | head'", "gzcoord-inbox || echo none",
+                  "cat <<'EOF'\nno pipe here: gzcoord-inbox\nEOF"):
             with self.subTest(command=c):
                 self.assertEqual(self.decision(c), "allow")
+
+    def test_real_bash_never_pipes_a_drain_the_guard_allows(self):                         # review of #703 round 3
+        """The oracle: a stub gzcoord-inbox records whether its stdout is a pipe; each command runs under real bash with
+        its own stdout a file, and wherever the stub ran piped (and moved a cursor) the guard must refuse. The rounds of
+        #703 found a bypass each time the guard was read against a list; this reads it against bash."""
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("no bash")
+        pipe_guard = _load_guard()
+        stub_dir = os.path.join(self.tmp, "oracle-bin")
+        os.makedirs(stub_dir)
+        stub = os.path.join(stub_dir, "gzcoord-inbox")
+        with open(stub, "w", encoding="utf-8") as fh:
+            fh.write('#!/bin/sh\nif [ -p /dev/stdout ]; then echo piped >> "$ORACLE_LOG"; else echo plain >> "$ORACLE_LOG"; fi\necho m\n')
+        os.chmod(stub, 0o755)
+        heads = ["", "time ", "time -p ", "! ", "2>/dev/null ", "FOO=1 ", "env ", "exec "]
+        cores = ["gzcoord-inbox", "{ gzcoord-inbox; }", "(gzcoord-inbox)", "{ gzcoord-inbox; echo x; }",
+                 "for i in 1; do gzcoord-inbox; done", "gzcoord-inbox 2>&1"]
+        tails = [" | head -1", "| head -1", " |& head -1", "\n"]
+        pre = ["", "# c\n", "cat <<EOF\ndon't\nEOF\n", "echo \"x <<EOF\"\n"]
+        piped_seen = 0
+        for p in pre:
+            for h in heads:
+                for c in cores:
+                    for t in tails:
+                        cmd = p + h + c + t
+                        log = os.path.join(self.tmp, "oracle.log")
+                        with open(os.path.join(self.tmp, "oracle.out"), "w") as out:
+                            subprocess.run([bash, "-c", cmd], env={"PATH": stub_dir + ":/usr/bin:/bin", "ORACLE_LOG": log},
+                                           stdout=out, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=20)
+                        runs = open(log).read().split() if os.path.exists(log) else []
+                        if os.path.exists(log):
+                            os.remove(log)
+                        if "piped" in runs:
+                            piped_seen += 1
+                            with self.subTest(command=cmd):
+                                self.assertTrue(pipe_guard.drain_piped(cmd), "bash piped the drain and the guard allowed it")
+        self.assertGreater(piped_seen, 100, "the oracle's control: bash did pipe the stub")
 
     def test_a_malformed_input_allows_and_says_nothing(self):                                  # the first payload is the bash test's; the rest are NEW
         for payload in ("not json", "", "{}", '{"tool_input":{}}', '{"tool_input":{"command":""}}'):

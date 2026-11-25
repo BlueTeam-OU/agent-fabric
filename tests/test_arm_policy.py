@@ -1054,6 +1054,8 @@ class ArmRun(unittest.TestCase):
         self.assertIn("the branch holds 6 work commits — at or over commits.advice_over 5", out)
         _, out = self.run_arm(p, 6, branch_work=4, extra=("--dry-run",))
         self.assertNotIn("should have landed", out)
+        # F13: the count rule it armed under is said whatever the branch's size.
+        self.assertIn("count rule: 6 work commits — 3 or more, arms at the review gate", out)
 
     def test_no_branch_count_in_the_gate_row_is_unanswered(self):
         p = claude_only({"commits": {"min": 3, "advice_over": 5}})
