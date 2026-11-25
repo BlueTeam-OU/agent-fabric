@@ -1966,7 +1966,7 @@ class ArmRun(unittest.TestCase):
         self.assertEqual(rc, 0, out)
 
     def test_a_dry_run_without_a_basis_names_the_minimum_and_whom_to_ask(self):
-        # pr_gate's verdict and team.md cite a bare `fabric-pr arm N --dry-run` for this (#676 F9)
+        # pr_gate's verdict and git.md cite a bare `fabric-pr arm N --dry-run` for this (#676 F9)
         rc, _ = self.below(basis=None, extra=("--dry-run",), fleet=fleet_of(("arch1", "architect-cto", True)))
         self.assertTrue(str(rc).startswith("refused"), rc)
         self.assertIn("under 8", str(rc))

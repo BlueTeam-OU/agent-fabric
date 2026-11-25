@@ -121,8 +121,11 @@ def target_of(working_copy: str | None, repo: str | None, registry: dict, timeou
     if not isinstance(projects, dict):
         raise GitRulesError("projects/registry.json has no projects map")
     for pid, spec in projects.items():
-        if not isinstance(spec, dict) or not isinstance(spec.get("remotes", []), list):
-            raise GitRulesError(f"projects/registry.json: project {pid!r} is not a mapping with a list of remotes")
+        # null remotes is empty, as every other registry reader takes it (`or []`); a remote that is no string would
+        # reach workingcopy.parse_remote's .strip() on the working-copy route and leave a traceback.
+        remotes = spec.get("remotes") or [] if isinstance(spec, dict) else None
+        if not isinstance(remotes, list) or not all(isinstance(r, str) for r in remotes):
+            raise GitRulesError(f"projects/registry.json: project {pid!r} is not a mapping with a list of remote strings")
     if repo:
         try:
             found = arm_policy.project_of(registry, repo)

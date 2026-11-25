@@ -31,9 +31,10 @@ MARKER = ".agent-fabric-project"
 
 
 # A git that hangs (a stalled filesystem, a lock held elsewhere) must not
-# hold a session start or a control-plane scan: a timeout falls into the
-# SubprocessError clause and reads as "not a repository" (python-dev-03,
-# from the review of #126's tools-install scan).
+# hold a session start or a control-plane scan: under the default bound a
+# timeout reads as "not a repository" (python-dev-03, from the review of
+# #126's tools-install scan); under a bound the caller passed it raises
+# GitTimeout, so a renderer can say it rather than guess.
 GIT_TIMEOUT_S = 30
 
 

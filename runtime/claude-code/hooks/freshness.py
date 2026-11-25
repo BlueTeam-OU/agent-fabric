@@ -49,7 +49,9 @@ FETCH_EVERY_S = 600
 # origin read), each bounded by GIT_TIMEOUT_S, inside the hook's 15 s budget
 # (user-settings.py): a hook past its timeout says nothing at all. Each is a
 # local read, milliseconds; but both parts at their worst take 19.5 s, so the
-# rules part starts only while RULES_NEEDS_S of the budget is left.
+# rules part renders only while RULES_NEEDS_S of the budget is left; its own
+# toplevel, its module load and the given-note are read before that check,
+# whatever is left (RULES_NEEDS_S still counts that first call).
 GIT_TIMEOUT_S = 1.5
 HOOK_BUDGET_S = 14.0       # 15 s less Python's start
 RULES_NEEDS_S = 5 * GIT_TIMEOUT_S

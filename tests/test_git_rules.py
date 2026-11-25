@@ -296,6 +296,15 @@ class Malformed(Tree):
             self.assertEqual(len(bad.stderr.strip().splitlines()), 1, bad.stderr)
             self.assertNotIn("Traceback", bad.stderr)
             self.assertTrue(bad.stderr.startswith("fabric-git-rules: "), bad.stderr)
+        # A remote that is no string, through the working-copy route that resolves an origin (review 6065071013 F19).
+        wc = self.clone("wc", f"https://github.com/{REPO}")
+        write(os.path.join(self.op, "projects/registry.json"), json.dumps({"projects": {"fix": {"remotes": [3]}}}))
+        bad = subprocess.run([BIN, wc], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual((bad.returncode, bad.stdout, len(bad.stderr.strip().splitlines())), (1, "", 1), bad.stderr)
+        self.assertNotIn("Traceback", bad.stderr)
+        # null remotes is no remotes, as the other registry readers take it: no refusal.
+        write(os.path.join(self.op, "projects/registry.json"), json.dumps({"projects": {"fix": {"remotes": None}}}))
+        self.assertEqual(subprocess.run([BIN, wc], capture_output=True, text=True, env=env, timeout=60).returncode, 0)
 
     def test_the_engine_text_alone_renders_with_no_operator_layer_and_no_registered_project(self):
         self.assertFalse(os.path.exists(os.path.join(self.op, "prompt", "git.md")))
