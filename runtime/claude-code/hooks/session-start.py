@@ -550,32 +550,37 @@ AGENTS_MD_LIMIT = 256 * 1024
 AT_IMPORT = re.compile(r"(?m)(?:^|\s)@(\S+)")
 
 
-def tree_file_problem(path: str, root: str) -> str | None:
-    """Why `path` must not be read as a file of the tree at `root`, or None.
+def tree_file_problem(real: str, root: str) -> str | None:
+    """Why the resolved path `real` must not be read as a file of the tree at
+    `root`, or None.
 
     A committed symlink is the repository's say-so, not the owner's: following
-    one would put any file the reader can open (`/proc/self/environ`, a key)
-    into session context. So only a regular file whose real path is inside the
-    real root passes."""
+    one out of the tree would put any file the reader can open
+    (`/proc/self/environ`, a key) into session context. A link that stays
+    inside it is the repository's own layout (this one links policies/ into
+    operator/), so it is followed: only a regular file whose real path is
+    inside the real root passes."""
+    real_root = os.path.realpath(root)
+    if os.path.commonpath([real_root, real]) != real_root:
+        return "lies outside the working copy"
     try:
-        if not stat.S_ISREG(os.lstat(path).st_mode):
+        if not stat.S_ISREG(os.lstat(real).st_mode):
             return "is not a regular file"
     except OSError as exc:
         return exc.strerror or str(exc)
-    real_root = os.path.realpath(root)
-    if os.path.commonpath([real_root, os.path.realpath(path)]) != real_root:
-        return "lies outside the working copy"
     return None
 
 
 def read_tree_file(path: str, root: str, limit: int) -> bytes:
-    """At most `limit` bytes of a file `tree_file_problem` passed; OSError when
-    it is refused or unreadable. O_NOFOLLOW closes the window between the check
-    and the open in which the file could be swapped for a link."""
-    problem = tree_file_problem(path, root)
+    """At most `limit` bytes of `path`, read at its real path once
+    `tree_file_problem` passed that; OSError when it is refused or unreadable.
+    Opening the resolved name with O_NOFOLLOW closes the window between the
+    check and the open in which its last component could become a link."""
+    real = os.path.realpath(path)
+    problem = tree_file_problem(real, root)
     if problem:
         raise OSError(0, problem)
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, "rb") as fh:
         return fh.read(limit)
 

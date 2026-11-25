@@ -341,6 +341,23 @@ def test_hook_never_follows_a_remit_link_out_of_the_tree(tmp: str) -> None:
     assert "OUTSIDE-SECRET-TEXT" not in out and "no remit for db-admin" in out, out
 
 
+def test_hook_follows_links_that_stay_inside_the_tree(tmp: str) -> None:
+    hook = load_hook()
+    def link(wc: str) -> None:
+        os.makedirs(os.path.join(wc, "docs"))
+        os.rename(os.path.join(wc, "AGENTS.md"), os.path.join(wc, "docs", "agents.md"))
+        os.symlink(os.path.join("docs", "agents.md"), os.path.join(wc, "AGENTS.md"))
+    ctx = agents_md_ctx(_sub(tmp, "a"), None, setup=link)
+    assert ctx.count("AGENTS-MD-MARKER rule") == 1 and "could not be read" not in ctx, ctx
+    wc = os.path.join(tmp, "wc")
+    roles = os.path.join(wc, ".agent-fabric", "roles"); os.makedirs(roles)
+    with open(os.path.join(roles, "base.md"), "w", encoding="utf-8") as fh:
+        fh.write("IN-TREE-REMIT\n")
+    os.symlink("base.md", os.path.join(roles, "db-admin.md"))
+    out = "\n".join(hook.project_layer("db-admin", "p", wc))
+    assert "IN-TREE-REMIT" in out and "was not read" not in out, out
+
+
 def test_hook_says_when_the_binding_drifted_from_the_launch(tmp: str) -> None:
     """Launched as one role (the stamp the launcher exports), bound to
     another since: the hook prints the drift line; same role, no line."""
@@ -1180,6 +1197,7 @@ def main() -> int:
              test_hook_never_follows_an_agents_md_link_out_of_the_tree,
              test_hook_does_not_load_agents_md_when_claude_md_is_the_same_file,
              test_hook_never_follows_a_remit_link_out_of_the_tree,
+             test_hook_follows_links_that_stay_inside_the_tree,
              test_hook_survives_a_nul_in_an_import_token,
              test_hook_never_follows_a_remit_directory_link_out_of_the_tree,
              test_hook_strips_front_matter_from_a_crlf_remit,
