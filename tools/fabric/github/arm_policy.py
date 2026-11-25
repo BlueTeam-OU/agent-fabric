@@ -346,16 +346,18 @@ def settings_repo_of(registry: Any, clients: Any, repo: str) -> str | None:
     return value
 
 
-def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api) -> dict | None:
-    """repos/<repo name>.json from the settings repository's default branch, or None when it has none (404 while the
-    settings repository itself answers). Every other failure raises PolicyUnavailable."""
+def _fetch_contents(settings: str, repo: str, suffix: str, api: Callable[..., Any]) -> tuple[Any, str] | None:
+    """(the contents API's answer, a label for messages) for repos/<repo name><suffix> in the settings repository's
+    default branch, or None when it has none (404 while the settings repository itself answers). Every other failure
+    raises PolicyUnavailable. One reader for the policy and the repository's git.md, so the two never disagree on
+    what absent means."""
     if not is_repo_name(repo):
         raise PolicyUnavailable(f"{repo!r} is not an <owner>/<name>")
     name = repo.split("/", 1)[1]
-    where = f"{settings} repos/{name}.json"
+    where = f"{settings} repos/{name}{suffix}"
     try:
         # No `ref`: the contents API reads the default branch, which is the point.
-        answer = api(f"repos/{settings}/contents/repos/{name}.json")
+        return api(f"repos/{settings}/contents/repos/{name}{suffix}"), where
     except gh.GhError as e:
         if e.status != 404:
             raise PolicyUnavailable(f"{where} could not be read ({e.reason})") from None
@@ -366,6 +368,15 @@ def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api
         except gh.GhError as e2:
             raise PolicyUnavailable(f"{settings} cannot be read ({e2.reason}); {where} is not known to be absent") from None
         return None
+
+
+def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api) -> dict | None:
+    """repos/<repo name>.json from the settings repository's default branch, or None when it has none (404 while the
+    settings repository itself answers). Every other failure raises PolicyUnavailable."""
+    got = _fetch_contents(settings, repo, ".json", api)
+    if got is None:
+        return None
+    answer, where = got
     try:
         if not isinstance(answer, dict) or answer.get("type") != "file" or answer.get("encoding") != "base64":
             raise ValueError("not a file")
@@ -375,6 +386,25 @@ def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api
     if not isinstance(doc, dict):
         raise PolicyUnavailable(f"{where} is not an object")
     return doc
+
+
+def fetch_repo_git_md(settings: str, repo: str, api: Callable[..., Any] = gh.api) -> str | None:
+    """repos/<repo name>.git.md, the repository's own git rules (agent-fabric ADR-019 §5 rule 9), from the settings
+    repository's default branch: its text, or None when it has none. PolicyUnavailable for every other outcome,
+    an empty file included: a file that says nothing is not the owner's rules."""
+    got = _fetch_contents(settings, repo, ".git.md", api)
+    if got is None:
+        return None
+    answer, where = got
+    try:
+        if not isinstance(answer, dict) or answer.get("type") != "file" or answer.get("encoding") != "base64":
+            raise ValueError("not a file")
+        text = base64.b64decode(answer["content"], validate=False).decode("utf-8")
+    except (ValueError, KeyError, TypeError, binascii.Error, UnicodeDecodeError) as e:
+        raise PolicyUnavailable(f"{where} is not a text file ({type(e).__name__})") from None
+    if not text.strip():
+        raise PolicyUnavailable(f"{where} is empty")
+    return text
 
 
 def _registry_and_clients(root: str | None, registry: Any, clients: Any) -> tuple[Any, Any]:
@@ -444,22 +474,37 @@ def load(repo: str | None, *, root: str | None = None, registry: Any = None, cli
     doc = fetch_repo_policy(settings, repo, api) if settings else None
     policy = _compose(fleet, doc, settings, repo)
     if settings:
-        write_threshold_cache(repo, policy)
+        write_threshold_cache(repo, policy, git_md_state(settings, repo, api))
     if cache is not None:
         cache[repo] = copy.deepcopy(policy)
     return policy
 
 
-def write_threshold_cache(repo: str, policy: dict) -> None:
-    """Leave this account's reading of the repository's branch-size numbers where the commit-msg hook and the
-    session-start line find them without a GitHub call (branch_size.thresholds). Atomic, so a hook never reads half a
-    file; a failure is said and never fails the load, since the policy itself was read."""
+def git_md_state(settings: str, repo: str, api: Callable[..., Any]) -> dict:
+    """What this read found of the repository's git.md, for the account's copy: {"state": "present", "text": …},
+    {"state": "absent"} or {"state": "unreadable", "why": …}. Never raises: the policy was read, and a git.md that
+    cannot be is said in the copy, where the renderer turns it into a line (ADR-019 §5 rule 9)."""
+    try:
+        text = fetch_repo_git_md(settings, repo, api)
+    except PolicyUnavailable as e:
+        return {"state": "unreadable", "why": str(e)}
+    return {"state": "absent"} if text is None else {"state": "present", "text": text}
+
+
+def write_threshold_cache(repo: str, policy: dict, git_md: dict | None = None) -> None:
+    """Leave this account's reading of the repository's merged policy, and of its git.md, where the commit-msg hook,
+    the session-start line and the git-rules renderer find them without a GitHub call. One file, one atomic
+    replace: the policy and the text a session is given were read together. advice_over and refuse_over stay at
+    the top, beside `policy`, because branch_size (the guards' code, not this module's to change) reads them there.
+    Atomic, so a hook never reads half a file; a failure is said and never fails the load, since the policy itself
+    was read."""
     path = ""
     try:
         path = branch_size.cache_path(repo)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         doc = {"repository": repo, "read_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-               "advice_over": policy["commits"]["advice_over"], "refuse_over": policy["commits"]["refuse_over"]}
+               "advice_over": policy["commits"]["advice_over"], "refuse_over": policy["commits"]["refuse_over"],
+               "policy": policy, "git_md": git_md if git_md is not None else {"state": "unreadable", "why": "not read"}}
         tmp = f"{path}.{os.getpid()}.tmp"
         try:
             with open(tmp, "w", encoding="utf-8") as f:

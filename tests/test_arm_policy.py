@@ -373,13 +373,15 @@ class Load(Scratch):
     def test_the_file_is_asked_for_by_the_repository_name_from_the_default_branch_never_a_ref(self):
         api = Api(contents({"commits": {"min": 2}}))
         p = self.load(api)
-        self.assertEqual(api.asked, ["repos/o/settings/contents/repos/R.json"])
+        # The second read is the repository's git.md (ADR-019 §5 rule 9), kept in the account's copy beside the policy.
+        self.assertEqual(api.asked, ["repos/o/settings/contents/repos/R.json", "repos/o/settings/contents/repos/R.git.md"])
         self.assertEqual(p["commits"]["min"], 2)
 
     def test_no_file_for_the_repository_is_the_fleet_policy_when_the_settings_repository_answers(self):
         api = Api(error=ghe(404, "Not Found"))
         self.assertEqual(self.load(api), arm_policy.default())
-        self.assertEqual(api.asked, ["repos/o/settings/contents/repos/R.json", "repos/o/settings"])
+        self.assertEqual(api.asked, ["repos/o/settings/contents/repos/R.json", "repos/o/settings",
+                                     "repos/o/settings/contents/repos/R.git.md", "repos/o/settings"])
 
     def test_a_404_with_the_settings_repository_unreadable_is_not_an_absence(self):
         for e in (ghe(404, "Not Found"), ghe(403), ghe(None, "i/o timeout")):
@@ -420,9 +422,9 @@ class Load(Scratch):
         b = self.load(api, cache=cache)
         b["commits"]["min"] = 77
         c = self.load(api, cache=cache)
-        self.assertEqual((len(api.asked), c["commits"]["min"]), (1, 2))
+        self.assertEqual((len(api.asked), c["commits"]["min"]), (2, 2), "one read of the policy and one of git.md")
         self.load(api)
-        self.assertEqual(len(api.asked), 2, "no cache, no reuse: nothing is kept between runs")
+        self.assertEqual(len(api.asked), 4, "no cache, no reuse: nothing is kept between runs")
 
     def test_a_repository_file_overrides_the_fleets_reviews(self):
         self.assertEqual(self.load(Api(contents({"reviews": ["claude", "codex"]})))["reviews"], ["claude", "codex"])

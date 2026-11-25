@@ -147,12 +147,48 @@ def note(payload: dict, now: float | None = None, state: str | None = None) -> s
             f"`git log HEAD..{ref}` or `git show {ref}:<path>`.")
 
 
+def git_rules_note(payload: dict, state: str | None = None) -> str | None:
+    """The git rules (ADR-019 §5 rule 9) for the prompt's working copy when it is another than the one this session was
+    last given them for (session-start.py gives them and notes it), else None. Independent of the remote: a copy with
+    no origin has rules too. Outside a git working copy it is the operator layer on the fleet's policy, once."""
+    cwd, session = payload.get("cwd"), str(payload.get("session_id") or "")
+    if not isinstance(cwd, str) or not os.path.isdir(cwd) or not SESSION_RE.fullmatch(session):
+        return None
+    top = git(cwd, "rev-parse", "--show-toplevel").stdout.strip() or None
+    rules = git_rules()
+    if not rules.changed(session, top, state):
+        return None
+    text = rules.for_hook(top)
+    rules.record_given(session, top, state)
+    return text
+
+
+def git_rules():
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("fabric_git_rules", os.path.join(here, "..", "..", "..", "tools", "fabric", "git_rules.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main() -> int:
     try:
-        line = note(json.load(sys.stdin))
-        if line:
+        payload = json.load(sys.stdin)
+    except Exception:  # noqa: BLE001 - a hook never stands in a session's way
+        return 0
+    lines = []
+    # Each on its own: a failure of the freshness note must not cost the session the rules, nor the reverse.
+    for part in (note, git_rules_note):
+        try:
+            line = part(payload)
+            if line:
+                lines.append(line)
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        if lines:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
-                                                     "additionalContext": line}}))
+                                                     "additionalContext": "\n\n".join(lines)}}))
     except Exception:  # noqa: BLE001 - a hook never stands in a session's way
         pass
     return 0

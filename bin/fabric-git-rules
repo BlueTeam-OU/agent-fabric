@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# bin/fabric-git-rules — the git rules for a working copy, rendered (ADR-019 §5 rule 9). The path is the contract (the session-start
+# hook's text, the skills and any harness name it); the work and its contract are in tools/fabric/git_rules.py. Reached through
+# a symlink in ~/.local/bin, which no bash builtin resolves, so Python does: the real path of this file, the module beside its bin/.
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-git-rules: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" -I -c 'import os, sys
+real = os.path.realpath(sys.argv[1])
+module = os.path.join(os.path.dirname(os.path.dirname(real)), "tools", "fabric", "git_rules.py")
+sys.argv = [module] + sys.argv[2:]
+# Imported, not run_path: a module is compiled once and cached, a script run as __main__ is compiled on every start.
+sys.path.insert(0, os.path.dirname(module))
+import git_rules
+sys.exit(git_rules.main())' "${BASH_SOURCE[0]}" "$@"
