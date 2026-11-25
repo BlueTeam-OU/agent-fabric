@@ -131,8 +131,12 @@ def _judge(row: dict, repo: str, number: int, held_ok: bool = False) -> str | No
         return f"{repo}#{number} could not be read ({row.get('error') or row.get('line') or 'no row'})"
     if row.get("armed") != "unarmed" and not (held_ok and row.get("armed") == "armed"):
         return f"{repo}#{number} is {row.get('armed')}"
-    if row["work"] >= _advice_over(repo):
-        return f"{repo}#{number} holds {row['work']} work commits"
+    # The branch's own count, as the commit-msg hook and the gate read it, not the arming count (review of #703, F8).
+    size = row.get("branch_work")
+    if not isinstance(size, int):
+        return f"{repo}#{number}: its branch's size could not be read"
+    if size >= _advice_over(repo):
+        return f"{repo}#{number} holds {size} work commits"
     return None
 
 

@@ -107,24 +107,35 @@ def _is_drain(stage: list[str]) -> bool:
 
 
 # A shell reserved word that may open a simple command's position: the command is the word after it.
-RESERVED = frozenset(("if", "then", "else", "elif", "while", "until", "do", "!", "{", "time"))
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+# `time` is not one of them: it takes options (`time -p`), which inbox-watch.py's launcher table steps over (review of
+# #703, F11).
+RESERVED = frozenset(("if", "then", "else", "elif", "while", "until", "do", "!", "{"))
+# `<<` or `<<-` (never `<<<`, a here-string) and its delimiter: \WORD, 'any', "any" or a bare word (review of #703, F4).
+HEREDOC = re.compile(r"(?<!<)<<(?!<)(-?)\s*(?:\\([^\s;&|<>()]+)|'([^'\n]+)'|\"([^\"\n]+)\"|([^\s;&|<>()'\"]+))")
 
 
 def _without_heredoc_bodies(cmd: str) -> str:
     """The command with every here-document's body removed, its opening line kept: a body is text a command reads,
-    never a command, and shlex would otherwise split it into stages (review of #703, F4)."""
-    out: list[str] = []
-    ends: list[tuple[str, bool]] = []
-    for line in cmd.split("\n"):
-        if ends:
-            word, dash = ends[0]
-            if (line.lstrip("\t") if dash else line) == word:
-                ends.pop(0)
-            continue
-        out.append(line)
-        ends.extend((m.group(2), "<<-" in m.group(0)) for m in HEREDOC.finditer(line))
-    return "\n".join(out)
+    never a command, and shlex would otherwise split it into stages (review of #703, F4). A body is dropped only when
+    its delimiter line is found: `<<` inside quotes, `$((1<<N))` or any other text that opens no here-document finds
+    none, and then every line stays to be judged, as if nothing had matched (review of #703, F10)."""
+    lines = cmd.split("\n")
+    drop: set[int] = set()
+    i = 0
+    while i < len(lines):
+        opened = [(m.group(2) or m.group(3) or m.group(4) or m.group(5), m.group(1) == "-")
+                  for m in HEREDOC.finditer(lines[i])]
+        j = i + 1
+        for word, dash in opened:
+            k = j
+            while k < len(lines) and (lines[k].lstrip("\t") if dash else lines[k]) != word:
+                k += 1
+            if k == len(lines):
+                break                       # no delimiter: not a here-document after all, nothing is dropped
+            drop.update(range(j, k + 1))
+            j = k + 1
+        i = max(j, i + 1)
+    return "\n".join(line for n, line in enumerate(lines) if n not in drop)
 
 
 def drain_piped(cmd: str) -> bool:
@@ -144,6 +155,9 @@ def drain_piped(cmd: str) -> bool:
     stage: list[str] = []
     last: list[str] = []                    # the simple command a separator just ended, for a group's closer
     skip_target = False
+    # shlex fuses adjacent punctuation (`)|`, `;|`): split it into the shell's operators first (review of #703, F3).
+    tokens = [op for t in tokens for op in (re.findall(r"\|\||&&|\|&|;;|[;&|()]", t)
+                                              if t and set(t) <= set(";&|()") and len(t) > 1 else [t])]
     for t in tokens:
         if skip_target:
             skip_target = False

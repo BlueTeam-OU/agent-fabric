@@ -62,7 +62,7 @@ def main() -> int:
     # A pull request a job may ride holds fewer work commits than the repository's own commits.advice_over, read from the policy,
     # not a number of this module's: the cached read of "o/r" says 3.
     judge = sys.modules["fabric_jobs"].branching._judge
-    row = lambda n: {"ok": True, "state": "open", "armed": "unarmed", "work": n}  # noqa: E731
+    row = lambda n: {"ok": True, "state": "open", "armed": "unarmed", "work": n, "branch_work": n}  # noqa: E731
     state = tempfile.mkdtemp(prefix="jobs-advice-")
     saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
     os.environ["AGENT_FABRIC_STATE_DIR"] = state

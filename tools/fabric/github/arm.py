@@ -1299,10 +1299,14 @@ def arm(argv: list[str]) -> int:
         raise refuse(f"over commits.refuse_over {policy['commits']['refuse_over']}, no Owner-Word: <YYYY-MM-DD> \"<the owner's"
                      f" words>\" trailer on {', '.join(str(sha)[:12] for sha in no_word)}; no basis lifts it, each commit"
                      f" carries its own (ADR-019 §5 rule 4) — land the branch smaller, or have the owner's word recorded on them")
-    # At or over advice_over the branch should have landed before more was added: said, never refused here.
-    if work >= advice_over:
-        say(f"{work} work commits — at or over commits.advice_over {advice_over}: the branch should have landed before more"
-            f" was added; arming on the basis given")
+    # At or over advice_over the branch should have landed before more was added: said, never refused here. Judged by
+    # the branch's own count (branch_size's, which the gate's row carries), not the arming count (review of #703, F8).
+    size = row.get("branch_work_commits")
+    if not isinstance(size, int):
+        raise Unanswered(f"pr-gate reported no branch size for #{num}")
+    if size >= advice_over:
+        say(f"the branch holds {size} work commits — at or over commits.advice_over {advice_over}: it should have landed"
+            f" before more was added; arming on the basis given")
     cls = stated_class(body, classes)
     if cls:
         offlist = [f for f in files if not classes[cls].search(f)]

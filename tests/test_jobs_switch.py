@@ -1073,16 +1073,21 @@ def main() -> int:
                 return real_addable("o/r", 7)
             finally:
                 branching._load = saved
-        base = {"ok": True, "state": "open", "armed": "unarmed", "work": 15}
+        base = {"ok": True, "state": "open", "armed": "unarmed", "work": 15, "branch_work": 15}
         check("a pull request with 15 work commits, unarmed, takes more", addable_with(base) is None)
-        check("…16 work commits are landed, not added to", "16 work commits" in (addable_with({**base, "work": 16}) or ""))
+        check("…16 work commits are landed, not added to", "16 work commits" in (addable_with({**base, "work": 16, "branch_work": 16}) or ""))
+        # review of #703, F8: the branch's own count decides, not the arming count.
+        check("…a branch of 16 whose arming count is 12 is landed, not added to",
+              "16 work commits" in (addable_with({**base, "work": 12, "branch_work": 16}) or ""))
+        check("…a row without the branch count is not added to",
+              "size could not be read" in (addable_with({k: v for k, v in base.items() if k != "branch_work"}) or ""))
         check("…armed or queued is not added to", "is armed" in (addable_with({**base, "armed": "armed"}) or "") and "is queued" in (addable_with({**base, "armed": "queued"}) or ""))
         check("…a row that could not be read, or a closed one, is unknown, never addable",
               "could not be read" in (addable_with({"ok": False, "line": "x cannot be read: y"}) or "") and "could not be read" in (addable_with({**base, "state": "merged"}) or "")
-              and "could not be read" in (addable_with({**base, "work": None}) or ""))
+              and "could not be read" in (addable_with({**base, "work": None, "branch_work": None}) or ""))
         branching._addable = lambda repo, number: counted.get(number)
         row_over: dict = {}      # --repoint reads the pull request's row itself (one read for the verdict and the armed note)
-        branching._row = lambda repo, number: row_over.get(number, {"ok": True, "state": "open", "armed": "unarmed", "work": 3})
+        branching._row = lambda repo, number: row_over.get(number, {"ok": True, "state": "open", "armed": "unarmed", "work": 3, "branch_work": 3})
 
         # j105: what the repository says of itself (gh api), keyed by path: the workflow file, then the rules on the default branch.
         api_says: dict = {}
@@ -1528,7 +1533,7 @@ def main() -> int:
         # F2: a pull request that cannot take commits.
         w, ((ja, a), (jb, b)) = two_with_branches()
         gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
-        row_over[40] = {"ok": True, "state": "open", "armed": "unarmed", "work": 16}
+        row_over[40] = {"ok": True, "state": "open", "armed": "unarmed", "work": 16, "branch_work": 16}
         try:
             rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
         finally:
@@ -1543,7 +1548,7 @@ def main() -> int:
         for armed, taken in (("armed", True), ("queued", False), ("unarmed", True)):
             w, ((ja, a), (jb, b)) = two_with_branches()
             gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
-            row_over[40] = {"ok": True, "state": "open", "armed": armed, "work": 3}
+            row_over[40] = {"ok": True, "state": "open", "armed": armed, "work": 3, "branch_work": 3}
             try:
                 rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
             finally:
@@ -1571,7 +1576,7 @@ def main() -> int:
                 ("the workflow unreadable, the rule present", {"contents/": gh_error("gh api GET x", "HTTP 500", status=500), **RULE}, True)):
             w, ((ja, a), (jb, b)) = two_with_branches()
             gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
-            row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3}
+            row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3, "branch_work": 3}
             api_says.clear()
             api_says.update(says)
             try:
@@ -1591,7 +1596,7 @@ def main() -> int:
         # The check is asked of an armed pull request only: an unarmed one makes no call (a rate-limited gh must not refuse it).
         w, ((ja, a), (jb, b)) = two_with_branches()
         gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
-        row_over[40] = {"ok": True, "state": "open", "armed": "unarmed", "work": 3}
+        row_over[40] = {"ok": True, "state": "open", "armed": "unarmed", "work": 3, "branch_work": 3}
         del api_asked[:]
         try:
             rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
@@ -1604,7 +1609,7 @@ def main() -> int:
         api_says.update(WORKFLOW)
         w, ((ja, a), (jb, b)) = two_with_branches()
         gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
-        row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3}
+        row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3, "branch_work": 3}
         try:
             rc, out, err = w.switch(ja, "--repoint", "--json", cwd=b["worktree"])
         finally:
@@ -1618,7 +1623,7 @@ def main() -> int:
         # Without the flag, a job with no branch is not put on an armed pull request: through `choose`, the real _addable.
         w, ((ja, a), (jb, b)) = two_with_branches()
         jc = w.add("gamma")
-        row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3}
+        row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3, "branch_work": 3}
         stubbed, branching._addable = branching._addable, real_addable
         try:
             rc, out, err = w.switch(jc, cwd=b["worktree"])

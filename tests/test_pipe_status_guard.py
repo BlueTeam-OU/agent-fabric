@@ -138,7 +138,14 @@ class Guard(unittest.TestCase):
                   "gzcoord-inbox \\\n  | head", "if gzcoord-inbox | grep -q x; then echo; fi", "(gzcoord-inbox) | head",
                   "{ gzcoord-inbox; } | head", "2>/dev/null gzcoord-inbox | head", "timeout -s KILL 60 gzcoord-inbox | head",
                   "env timeout 5 gzcoord-inbox | head", "nice -n 5 gzcoord-inbox | head", "! gzcoord-inbox | head",
-                  "cat <<EOF\ndon't\nEOF\ngzcoord-inbox | head"]
+                  "cat <<EOF\ndon't\nEOF\ngzcoord-inbox | head",
+                  # review of #703 round 2: F3, a fused `)|`; F10, `<<` that opens no here-document drops no line;
+                  # F11, `time -p`.
+                  "(gzcoord-inbox)|head", "(gzcoord-inbox)| head",
+                  'jq . <<< "hello"\ngzcoord-inbox | head', "echo $((1<<N))\ngzcoord-inbox | head",
+                  'echo "a <<EOF"\ngzcoord-inbox | head', "time -p gzcoord-inbox | head",
+                  # a here-string is no here-document even when a later line equals its word
+                  "cat <<< X\ngzcoord-inbox | head\nX"]
         for c in drains:
             with self.subTest(command=c):
                 r = self.run_hook({"tool_name": "Bash", "tool_input": {"command": c}})
@@ -155,6 +162,9 @@ class Guard(unittest.TestCase):
                   "cat > notes.md <<'EOF'\ngzcoord-inbox | head hid two of three\nEOF",
                   "git commit -F - <<'EOF'\ngzcoord-inbox | head\nEOF", "cat <<-X\n\tgzcoord-inbox | head\n\tX\nls",
                   "( cd x; ls ) | head",
+                  # F4, round 2: a backslash-quoted delimiter and one holding a hyphen; two here-documents on one line.
+                  "cat <<\\EOF\ngzcoord-inbox | head\nEOF", "cat <<'END-X'\ngzcoord-inbox | head\nEND-X",
+                  "cat <<A <<B\nx\nA\ngzcoord-inbox | head\nB\nls",
                   "echo 'gzcoord-inbox | head'", "gzcoord-inbox || echo none", "gzcoord-inbox; ls | head"):
             with self.subTest(command=c):
                 self.assertEqual(self.decision(c), "allow")

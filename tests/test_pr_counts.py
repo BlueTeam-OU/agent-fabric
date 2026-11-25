@@ -196,6 +196,9 @@ def main() -> int:
     rows = {r["number"]: r for r in run_counts([str(n) for n in docs], Hub({"o/this": docs}))}
     check("open, armed, pending, a marked review on the head", rows[1]["line"] == "#1 (1 work, 0 fix) open, armed, checks pending, review claude ✓ codex ✗ (head hhhhhhhh)", rows[1]["line"])
     check("open, unarmed, red, a merge commit is not work", rows[2]["line"] == "#2 (1 work, 0 fix) open, unarmed, checks red, review claude ✗ codex ✗ (head hhhhhhhh)", rows[2]["line"])
+    # The branch's own count beside the arming count (review of #703, F8): by declaration, a merge is not work.
+    check("the row carries branch_work, branch_size's count", rows[1].get("branch_work") == 1 and rows[2].get("branch_work") == 1,
+          (rows[1].get("branch_work"), rows[2].get("branch_work")))
     check("merged says only merged", rows[3]["line"] == "#3 (1 work, 0 fix) merged", rows[3]["line"])
     check("closed unmerged says closed", rows[4]["line"] == "#4 (1 work, 0 fix) closed", rows[4]["line"])
     check("a draft, queued, no checks yet", rows[5]["line"] == "#5 (1 work, 0 fix) draft, queued, checks none yet, review claude ✗ codex ✗ (head hhhhhhhh)", rows[5]["line"])

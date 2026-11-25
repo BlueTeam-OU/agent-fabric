@@ -919,9 +919,9 @@ class ArmRun(unittest.TestCase):
     def run_arm(self, policy, work, files=("docs/a.md",), basis="reviewed", body="", boundary_re=r"^policies/", classes=None,
                 load_error=None, extra=(), load_fn=None, drift=(), drift_error=None, role_trailers=None, checks="green", live=None,
                 replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x",
-                whoami=None, review_doc=None, workflows=NOT_FOUND, no_word=()):
+                whoami=None, review_doc=None, workflows=NOT_FOUND, no_word=(), branch_work=None):
         pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "baseRefName": "main", "headRefOid": self.HEAD, "body": body, "title": "t"}
-        gate = [{"commits_known": True, "work_commits": work, "checks": checks, "head": self.HEAD[:8], "no_owner_word": no_word if isinstance(no_word, str) else list(no_word)}]
+        gate = [{"commits_known": True, "work_commits": work, "branch_work_commits": work if branch_work is None else branch_work, "checks": checks, "head": self.HEAD[:8], "no_owner_word": no_word if isinstance(no_word, str) else list(no_word)}]
         review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}] if reviewed else []}, "unresolved_threads": unresolved}
         review = review_doc if review_doc is not None else review
         self.reads = reads = []
@@ -1041,11 +1041,24 @@ class ArmRun(unittest.TestCase):
     def test_the_advice_threshold_is_the_policys(self):
         p = claude_only({"commits": {"min": 3, "advice_over": 5}})
         _, out = self.run_arm(p, 6, extra=("--dry-run",))
-        self.assertIn("6 work commits — at or over commits.advice_over 5: the branch should have landed", out)
+        self.assertIn("the branch holds 6 work commits — at or over commits.advice_over 5: it should have landed", out)
         _, out = self.run_arm(p, 5, extra=("--dry-run",))
         self.assertIn("5 work commits — at or over commits.advice_over 5", out)
         _, out = self.run_arm(p, 4, extra=("--dry-run",))
         self.assertNotIn("should have landed", out)
+
+    def test_the_advice_line_reads_the_branch_count_not_the_arming_count(self):
+        # review of #703, F8: folds, reverts and undeclared commits make the branch's own count the larger one.
+        p = claude_only({"commits": {"min": 3, "advice_over": 5}})
+        _, out = self.run_arm(p, 4, branch_work=6, extra=("--dry-run",))
+        self.assertIn("the branch holds 6 work commits — at or over commits.advice_over 5", out)
+        _, out = self.run_arm(p, 6, branch_work=4, extra=("--dry-run",))
+        self.assertNotIn("should have landed", out)
+
+    def test_no_branch_count_in_the_gate_row_is_unanswered(self):
+        p = claude_only({"commits": {"min": 3, "advice_over": 5}})
+        rc, _ = self.run_arm(p, 4, branch_work="?", extra=("--dry-run",))
+        self.assertIn("unanswered: pr-gate reported no branch size for #7", str(rc))
 
     def test_a_minimum_above_the_default_advice_size_does_not_make_every_pull_request_too_big(self):
         p = claude_only({"commits": {"min": 20}})
@@ -1053,7 +1066,7 @@ class ArmRun(unittest.TestCase):
         self.assertNotIn("should have landed", out)
         _, out = self.run_arm(p, 21, extra=("--dry-run",))
         self.assertNotIn("over 16", out)
-        self.assertIn("21 work commits — at or over commits.advice_over 20: the branch should have landed", out)
+        self.assertIn("the branch holds 21 work commits — at or over commits.advice_over 20: it should have landed", out)
 
     def test_below_min_refuse_is_a_refusal_the_owners_word_does_not_lift(self):
         p = claude_only({"commits": {"min": 3, "below_min": "refuse"}})
