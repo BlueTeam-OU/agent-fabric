@@ -148,7 +148,8 @@ class Layers(Tree):
         for doc in ({"repository": REPO, "read_at": "x", "advice_over": 20, "refuse_over": 40},   # written before the whole policy was kept
                     {"repository": "other/repo", "policy": self.fleet(), "git_md": {"state": "absent"}},
                     {"repository": REPO, "policy": self.fleet(), "git_md": {"state": "present"}},
-                    {"repository": REPO, "policy": self.fleet(), "git_md": {"state": "nonsense"}}):
+                    {"repository": REPO, "policy": self.fleet(), "git_md": {"state": "nonsense"}},
+                    {"repository": REPO, "policy": {"method": "merge"}, "git_md": {"state": "absent"}}):   # no commits block
             write(path, json.dumps(doc))
             out = self.render()
             self.assertIn("the fleet's value", out.header, doc)
