@@ -161,6 +161,9 @@ class LateAndNoSession(unittest.TestCase):
             line = {"t": iso(1), "who": "agentd", "carrier": "interweave", "kind": None, "id": "x", "from": A, "verdict": verdict}
             self.assertEqual(run([sent("r1", 0, [A]), line])["skipped"], 0, verdict)
             self.assertEqual(run([sent("r1", 0, [A]), {**line, "who": "ctl"}])["skipped"], 1, verdict)
+            for bad in (5, ["reply"], {}):
+                self.assertEqual(run([sent("r1", 0, [A]), {**line, "kind": bad}])["skipped"], 1, (verdict, bad))
+            self.assertEqual(run([sent("r1", 0, [A]), {k: v for k, v in line.items() if k != "kind"}])["skipped"], 1, verdict)
         for verdict in ("ok", "held", "no-waiter"):
             line = {"t": iso(1), "who": "agentd", "carrier": "interweave", "kind": None, "id": "x", "from": A, "verdict": verdict}
             self.assertEqual(run([sent("r1", 0, [A]), line])["skipped"], 1, verdict)
