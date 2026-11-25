@@ -106,6 +106,7 @@
         "runtime/claude-code/hooks/statusline.sh",
         "runtime/claude-code/hooks/subagent-ledger.py",
         "runtime/claude-code/hooks/tab-title.sh",
+        "runtime/claude-code/hooks/watch-nudge.py",
         "runtime/claude-code/hooks/watch-on-stop.py",
         "runtime/claude-code/hooks/testdata/"
       ]
@@ -208,6 +209,7 @@
         "runtime/claude-code/hooks/statusline.sh",
         "runtime/claude-code/hooks/subagent-ledger.py",
         "runtime/claude-code/hooks/tab-title.sh",
+        "runtime/claude-code/hooks/watch-nudge.py",
         "runtime/claude-code/hooks/watch-on-stop.py",
         "runtime/claude-code/hooks/testdata/"
       ]
