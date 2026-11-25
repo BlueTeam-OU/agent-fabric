@@ -8,7 +8,7 @@ INPUT   `control-arrivals.jsonl` of the operator's account (control_link.Arrival
         one file of an account: `who` "ctl" (fabric-ctl: a `sent`/`sent-alone` line per request it made, with its
         `to` and `timeout_s`, one `no-session` or `session-lost` line when its session with agentd was never made or ended under it,
         and a line per reply copy it was shown, by carrier relay|interweave) and "agentd" (the replies its
-        carrier routed — verdict ok | no-waiter | held | forged-from — and the requests that came by InterWeave).
+        carrier routed — verdict ok | no-waiter | held | forged-from | relay-only-op — and the requests that came by InterWeave).
         A `sent` line with a `timeout_s` that is present but unusable is counted in `malformed_timeout`.
         `t` has a one-second resolution, so a latency is good to a second either way.
 PAIR    (request id, addressee) for every request sent by fabric-ctl in dual (the `sent` line's `to`), whose `t` is
@@ -127,8 +127,10 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
             who, kind, rid, verdict, carrier = r.get("who"), r.get("kind"), r.get("id"), r.get("verdict"), r.get("carrier")
             if login != operator:
                 continue
-            # agentd writes a `forged-from` line with a null kind when the forged record had none; the report reads no such line.
-            if who not in ("ctl", "agentd") or (not isinstance(kind, str) and verdict != "forged-from"):
+            # agentd writes a `forged-from` or `relay-only-op` line with a null kind when the dropped record had none; the report reads no such line.
+            # ArrivalLog.add writes the key, as null, for such a line; a missing key or any other non-string value is damage.
+            null_kind_ok = who == "agentd" and verdict in ("forged-from", "relay-only-op") and "kind" in r and kind is None
+            if who not in ("ctl", "agentd") or (not isinstance(kind, str) and not null_kind_ok):
                 skipped += 1       # a line whose writer is not ctl/agentd, or whose kind is not a string, cannot be read: counted, never an absence
                 continue
             if who == "ctl" and kind == "request" and isinstance(verdict, str) and verdict.startswith("sent"):
