@@ -215,9 +215,8 @@ replay too. An unreadable journal is one line and exit 1, never "the
 message is not there". Never pipe the watch, `--wait` or a drain into
 anything: each marks what it prints delivered, so a filter after it hides
 messages that will not come again (a `| head` once took three and showed
-one). The pipe-status guard refuses it; only
-`--replay`, `--history` and `--held` move no cursor. A message already
-taken is in `fabric-history`.
+one); only `--replay`, `--history` and `--held` move no cursor. A message
+already taken is in `fabric-history`.
 
 To catch up on what was addressed to you — after a restart, or to find
 a message whose seq you do not have — list it in one call rather than
