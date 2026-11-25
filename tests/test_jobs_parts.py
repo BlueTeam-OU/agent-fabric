@@ -13,6 +13,7 @@ import glob
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -83,6 +84,8 @@ def main() -> int:
             os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
         else:
             os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+        # The suite names what a test leaves behind (tests/run.sh: "scratch left behind").
+        shutil.rmtree(state, ignore_errors=True)
 
     r = subprocess.run([sys.executable, "-I", JOBS, "--help"], cwd=tempfile.gettempdir(), capture_output=True, text=True, timeout=60)
     check("run under -I from another directory (the shim's way), it prints its usage", r.returncode == 0 and "fabric-jobs" in r.stdout, (r.returncode, r.stderr))
