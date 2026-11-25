@@ -5,8 +5,9 @@ loop: push when the work asks for it — the branch is finished, or you
 were told to. A push that cannot complete (credentials, remote access,
 branch protection, environment limits) is said, never claimed. Commit
 messages are short, specific and scoped to the change; completed work
-is never left uncommitted. Work reaches `{repo.default_branch}` as a pull
-request, merged with GitHub's `{method}` method.
+is never left uncommitted. Work reaches the default branch as a
+pull request, merged with GitHub's `{method}` method, unless the
+repository's policy pushes directly (`fabric-pr arm --dry-run` says).
 
 **Every commit declares its kind in its trailers**, because a PR is armed
 by its count of work commits: `Kind: work` for new work, a bug fix, docs
@@ -25,14 +26,15 @@ at its first fold.
 that only work together land as one PR, integrated by the concern's
 owning role; a supplier delivers commits or a `for/` branch to it and
 opens no PR. While your PR is open, the next piece of work, any topic,
-is another commit on it. A PR is armed at {commits.min} work commits or
-more, never without the review gate ({reviews} on the head); under the
-minimum, bundle queued jobs first, then it arms on a word: the arming
-authority's that `fabric-pr arm --dry-run` names, asked by `REQUEST`
-while you work in another repository, else the owner's. Any PR status
-you state carries its counts ("#215: 6 work, 2 fix, minimum
-{commits.min}"). Load the `pull-requests` skill before you open, supply,
-fold, add to or arm a PR.
+is another commit on it. A PR is armed at the minimum of work commits
+`fabric-pr arm --dry-run` prints ({commits.min} unless a role, a class
+or a security boundary sets another), never without the review gate
+({reviews} on the head); under the minimum, bundle queued jobs first,
+then it arms on a word: the arming authority's that `fabric-pr arm
+--dry-run` names, asked by `REQUEST` while you work in another
+repository, else the owner's. Any PR status you state carries its counts
+("#215: 6 work, 2 fix, minimum 8"). Load the `pull-requests` skill
+before you open, supply, fold, add to or arm a PR.
 
 **No machine attribution, anywhere.** No `Co-authored-by:` trailer, no
 `Claude-Session:` trailer, no session URL and no "Generated with …"

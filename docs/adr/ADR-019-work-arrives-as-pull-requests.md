@@ -266,8 +266,8 @@ not on a pipe's exit status.
    from `policies/signing.json` and `integration.*` from the project's
    `integration/gh/arm.json`; a name without a value is an error, never
    a blank. The hook calls no API: it reads the account's copy of the
-   policy and of the repository's `git.md`, which every API read of the
-   policy writes; with no copy it gives the operator's text on the
+   policy and of the repository's `git.md`, which `arm_policy.load`
+   writes on each read (every `fabric-pr` gate and arm); with no copy it gives the operator's text on the
    fleet policy, and with an unreadable repository layer the operator's
    text, each said so. Prose never stops a session. Session start gives
    it, and the first prompt in another working copy gives it again;
@@ -306,7 +306,7 @@ not on a pipe's exit status.
   requires only `ci-ok`, the job that needs them all, and a leg renamed
   or added changes nothing there.
 - Nothing on GitHub enforces rules 1, 2, 4 or 5 on agent-fabric; they are
-  practice, read to every session in `team.md` and the pull-requests skill, and visible in the history.
+  practice, given to every session in `git.md` (rule 9) and the pull-requests skill, and visible in the history.
 - A managed project's CI checks this public repository out without a
   credential, at the commit its `fabric-ref` pins (ADR-011).
 
@@ -327,7 +327,7 @@ stub pointing here.
 ## References
 
 - `policies/pull-requests/SKILL.md` (the band, one open PR, the gate's
-  conditions), `AGENTS.md` §"Git discipline".
+  conditions), `identities/prompt/git.md` (rule 9).
 - `fabric-pr gate`, `tools/fabric/github/commit_class.py`,
   `fabric-pr review-status`, and their tests.
 - `policies/ban_generated_by_attribution.sh`, `policies/githooks/commit-msg`.

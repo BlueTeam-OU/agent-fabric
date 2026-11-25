@@ -59,10 +59,7 @@ decision written only on your own screen reaches no one.
 
 **Git, branches and pull requests: the repository's `git.md`**, given
 at session start for your working copy and again when you move to
-another (`fabric-git-rules` prints it). One change, one owner, one open
-PR per agent and repository; any PR status you state carries its counts.
-Load the `pull-requests` skill before you open, supply, fold, add to or
-arm a PR.
+another; `fabric-git-rules` prints it.
 
 **A review finding is judged before it is answered** — by the review
 class, not the session that wrote the code — and when it is real you fix
