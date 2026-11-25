@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md and policies/pull-requests/SKILL.md (the PR rules every session reads); fabric-pr gate, tools/fabric/github/commit_class.py, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; `fabric-repo-settings` and the GitHub-side settings of gzapi-org/agent-fabric
+**Scope:** identities/prompt/git.md, identities/prompt/team.md and policies/pull-requests/SKILL.md (the PR rules every session reads); fabric-pr gate, tools/fabric/github/commit_class.py, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; `fabric-repo-settings` and the GitHub-side settings of gzapi-org/agent-fabric
 **Pillar:** P3
 **Class:** engine
 
@@ -251,6 +251,29 @@ not on a pipe's exit status.
 8. agent-fabric's GitHub settings are the table in §6. A change to them
    is a change to this record, and `fabric-repo-settings`
    is changed with it.
+9. (A 2026-11-25) How a session works with git, branches and pull
+   requests in a repository is one text, `git.md`, given to the session
+   by hook for the working copy it is in; never the instruction file,
+   read from a working copy at its own commit, and never the launch
+   prompt. Three layers, the first found wins and replaces the others
+   whole: the repository's `repos/<repo>.git.md` in its client's
+   settings repository, read from that repository's default branch and
+   written by the owner; `operator/prompt/git.md`; the engine's
+   `identities/prompt/git.md`. A `{dotted.name}` in it is filled from
+   that repository's merged arming policy (`{commits.min}`,
+   `{commits.advice_over}`, `{commits.refuse_over}`, `{reviews}`,
+   `{method}`), `repo.*` from `projects/registry.json`, `signing.*`
+   from `policies/signing.json` and `integration.*` from the project's
+   `integration/gh/arm.json`; a name without a value is an error, never
+   a blank. The hook calls no API: it reads the account's copy of the
+   policy and of the repository's `git.md`, which every API read of the
+   policy writes; with no copy it gives the operator's text on the
+   fleet policy, and with an unreadable repository layer the operator's
+   text, each said so. Prose never stops a session. Session start gives
+   it, and the first prompt in another working copy gives it again;
+   `fabric-git-rules` prints it for any harness. agent-fabric's
+   `AGENTS.md` keeps its own rules and a pointer; a managed project's
+   instruction file holds no git section, removed by its own role.
 
 ## 6. Consequences
 
@@ -341,3 +364,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-11-21 | nobody waits idle on a word | §5 rule 4: the agent asks the arming authority the dry-run names by `REQUEST`, never the owner, and works on a job in another repository until the word arrives |
 | 2026-11-21 | the AlmaLinux leg runs nightly | §6: the almalinux:10 platform leg leaves `ci.yml` and `ci-ok` for the scheduled `stripped-nightly.yml`; an EL 10 break merges green; scheduled-red files one job per workflow, so an open job for the stripped run hides it until python-dev-02's j176 |
 | 2026-11-24 | a branch is refused past `commits.refuse_over` | §5 rule 4: counted from the branch's first commit, folds included; warned at `advice_over`; past `refuse_over` a commit needs an `Owner-Word:` trailer, checked by the hook, CI and the gate; sixteen stops being advice only |
+| 2026-11-25 | the git rules are `git.md`, by hook | §5 rule 9: repository, operator and engine layers, first found whole; placeholders from the repository's merged policy; delivered by session start and on a working-copy change, `fabric-git-rules` for any harness; AGENTS.md and `team.md` give their git prose to it |
