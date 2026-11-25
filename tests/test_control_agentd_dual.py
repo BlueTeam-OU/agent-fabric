@@ -182,6 +182,36 @@ class AgentdDual(Base):
         self.barrier("other-relay", via="relay")
         self.assertEqual((len(got), len(self.relay_replies("dup"))), (1, 1), "one seen-set across both carriers")
 
+    def arrival_lines(self) -> list[dict]:
+        from control.upgrade import state_dir
+        try:
+            with open(os.path.join(state_dir(), "control-arrivals.jsonl"), encoding="utf-8") as fh:
+                return [json.loads(l) for l in fh]
+        except FileNotFoundError:
+            return []
+
+    def request_lines(self, rid: str) -> list[tuple[str, str]]:
+        return [(l["carrier"], l["verdict"]) for l in self.arrival_lines() if l["kind"] == "request" and l["id"] == rid]
+
+    def test_the_relay_copy_of_a_request_is_logged_beside_the_carriers_and_a_copy_for_nobody_here_is_not(self):
+        # j163: only the second carrier's copy had a line, so control-parity could not say which carriers carried a request.
+        got = self.watch("rl")
+        self.relay.add("h/op", json.dumps(body("rl")))
+        self.assertTrue(until(lambda: got and self.relay_replies("rl")), self.logs)
+        self.assertEqual(self.request_lines("rl"), [("relay", "ok")])
+        # the control and the bound: a request for someone else on the relay writes nothing, and a later one is read after it
+        self.relay.add("h/op", json.dumps(body("elsewhere", to=["h/bob"])))
+        self.barrier("after", via="relay")
+        self.assertEqual(self.request_lines("elsewhere"), [])
+
+    def test_the_relay_copy_of_a_request_the_carrier_brought_first_is_logged_as_seen(self):
+        got = self.watch("both")
+        self.send_iw(body("both"))
+        self.assertTrue(until(lambda: got and self.relay_replies("both")), self.logs)
+        self.relay.add("h/op", json.dumps(body("both")))
+        self.barrier("after-both", via="relay")
+        self.assertEqual(sorted(self.request_lines("both")), [("interweave", "ok"), ("relay", "seen")])
+
     def test_two_requests_of_one_minute_are_two_answers_and_their_lines_tell_them_apart(self):
         # j150: agentd logged "answered ping (01a1ddcd)" twice, 7 s apart, for one `fabric-ctl all ping`. A UUIDv7's first 8
         # characters are its clock to within about 65 s, so two requests print the same there. The seen-set keys the whole id.

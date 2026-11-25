@@ -1333,6 +1333,18 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     def finish_inflight() -> None:
         join_inflight(inflight)
 
+    def relay_arrival(rec: dict, a: dict) -> None:
+        """The relay's copy of a request, in this account's arrival file beside the InterWeave copy's line (Carrier.inbound):
+        control-parity reads the file for the carriers that carried each request (rule 18). A copy that accept() refused as already
+        seen is the second carrier's arrival and counts; one refused for any other reason (forged, expired, not for this account)
+        is no arrival of that request and is not written."""
+        iw = carrier_box[0]
+        if iw is None or not (a["ok"] or a["why"] == "seen"):
+            return
+        # accept() returns the parsed request only when it accepted; a refusal as "seen" parsed it too, so parse again.
+        request = a["request"] if a["ok"] else js.json_parse(js.string(rec.get("content")))
+        iw.carrier.arrivals.add("relay", request, "ok" if a["ok"] else "seen")
+
     decide_lock = threading.Lock()   # accept + remember: one decision for a request, whichever carrier brought it first
 
     def handle(rec: dict, via: str) -> None:
@@ -1347,6 +1359,8 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
                 _stderr(f"agentd: ignored a record {_shown(rec.get('id'), 40)} that could not be decided on "
                         f"({type(e).__name__}: {js.slice(str(e), 200)}){tag}")
                 return
+            if via == "relay":
+                relay_arrival(rec, a)
             if not a["ok"]:
                 if a["why"] not in QUIET:
                     _stderr(f"agentd: ignored a record {js.stringify(a['why'])}{tag}")
@@ -1389,8 +1403,9 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         running = control_link.start_for_agentd(
             me=me["address"], placed=lambda: operator_addresses() | account_addresses(),
             on_request=lambda request, sender: handle({"id": request.get("id"), "content": js.stringify(request)}, control_link.VIA),
-            hold=hold_for_ctl, relay_off=alone)
+            hold=hold_for_ctl, relay_off=alone, ready_wait_s=control_link.READY_WAIT_S, begin=False)
         carrier_box[0] = running
+        running.begin()
         EXIT_HOOKS.append(running.stop)
         if not alone:
             _stderr(f"agentd: also on {CARRIER_LABEL} ({control_link.ENDPOINT}); the relay stays the record")
