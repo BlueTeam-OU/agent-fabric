@@ -7,7 +7,9 @@ branch protection, environment limits) is said, never claimed. Commit
 messages are short, specific and scoped to the change; completed work
 is never left uncommitted. Work reaches the default branch as a
 pull request, merged with GitHub's `{method}` method, unless the
-repository's policy pushes directly (`fabric-pr arm --dry-run` says).
+project's `arm.json` `direct` names your role: then you push, and only
+the files its `pr_paths` match go by pull request (the `pre-push` hook
+holds it).
 
 **Every commit declares its kind in its trailers**, because a PR is armed
 by its count of work commits: `Kind: work` for new work, a bug fix, docs

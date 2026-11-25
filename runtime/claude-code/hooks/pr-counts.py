@@ -4,7 +4,7 @@ request's status carries its commit counts, or it goes back to the agent.
 
 The owner decides whether to arm a pull request from what the agent says,
 and asked, again and again, how many commits of each kind it held: the
-rule "any PR status you state carries its counts" (team.md) did not hold
+rule "any PR status you state carries its counts" (git.md) did not hold
 in prose (the owner, 2026-10-08: "everytime I have to ask, really
 irritating"). Registered at user scope (runtime/claude-code/user-settings.py)
 on Stop, so it runs for every session of the account.
