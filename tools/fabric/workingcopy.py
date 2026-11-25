@@ -37,10 +37,20 @@ MARKER = ".agent-fabric-project"
 GIT_TIMEOUT_S = 30
 
 
+class GitTimeout(Exception):
+    """A git call did not answer within the bound a caller gave. Raised only under an explicit `timeout`: without
+    one, the default bound's expiry stays None, as it always was. A caller with a budget (a hook) must tell "git did
+    not answer" from "not a repository", which would otherwise send it the fleet's text as if it were the repository's."""
+
+
 def _git(args: list[str], cwd: str, timeout: float | None = None) -> str | None:
     try:
         out = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True,
                              timeout=GIT_TIMEOUT_S if timeout is None else timeout).stdout
+    except subprocess.TimeoutExpired:
+        if timeout is not None:
+            raise GitTimeout(f"git {args[0]} did not answer within {timeout:g} s") from None
+        return None
     except (OSError, subprocess.SubprocessError):
         return None
     return out.strip() or None
@@ -186,12 +196,14 @@ def resolve(path: str, registry: dict[str, Any] | None = None, timeout: float | 
     the working copy containing `path`; `operator` is the operator root
     this module's defaults read, which a caller passing its own `registry`
     may not have used. Outside a repository every field is None."""
-    top = toplevel(path, timeout)
+    # The bound is passed by keyword and only when given, so a one-argument stand-in for either reader still works.
+    bound = {} if timeout is None else {"timeout": timeout}
+    top = toplevel(path, **bound)
     if not top:
         return {"path": None, "id": None, "remote": None, "project": None, "project_source": None,
                 "client": None, "operator": None}
     registry = registry if registry is not None else load_registry()
-    remote = remote_url(top, timeout=timeout)
+    remote = remote_url(top, **bound)
     project, source = None, None
     marker = os.path.join(top, MARKER)
     if os.path.isfile(marker):

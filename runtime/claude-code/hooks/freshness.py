@@ -158,7 +158,7 @@ def note(payload: dict, now: float | None = None, state: str | None = None) -> s
             f"`git log HEAD..{ref}` or `git show {ref}:<path>`.")
 
 
-def git_rules_note(payload: dict, state: str | None = None) -> str | None:
+def git_rules_note(payload: dict, state: str | None = None, budget_left=None) -> str | None:
     """The git rules (ADR-019 §5 rule 9) for the prompt's working copy when it is another than the one this session was
     last given them for (session-start.py gives them and notes it), else None. Independent of the remote: a copy with
     no origin has rules too. Outside a git working copy it is the operator layer on the fleet's policy, once."""
@@ -169,8 +169,13 @@ def git_rules_note(payload: dict, state: str | None = None) -> str | None:
     rules = git_rules()
     if not rules.changed(session, top, state):
         return None
+    if budget_left is not None and budget_left() < RULES_NEEDS_S:
+        # Not recorded as given, so a later prompt asks again.
+        return "agent-fabric: the git rules were not given on this prompt (the hook's time was spent); they are given on a later prompt."
     text = rules.for_hook(top, timeout=GIT_TIMEOUT_S)
-    rules.record_given(session, top, state)
+    # Only text that was rendered is noted as given: a failure line says no rules, so the next prompt tries again.
+    if not text.startswith(rules.FAILURE_PREFIX):
+        rules.record_given(session, top, state)
     return text
 
 
@@ -197,11 +202,8 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         pass
     try:
-        # Not recorded as given, so the next prompt asks again.
-        if HOOK_BUDGET_S - (time.monotonic() - started) < RULES_NEEDS_S:
-            line = "agent-fabric: the git rules were not given on this prompt (the hook's time was spent); they are given on the next."
-        else:
-            line = git_rules_note(payload)
+        # The budget is applied only once rules are due: a session already given them hears nothing about them.
+        line = git_rules_note(payload, budget_left=lambda: HOOK_BUDGET_S - (time.monotonic() - started))
         if line:
             lines.append(line)
     except Exception as e:  # noqa: BLE001 - said, not raised: silence would read as "no rules apply"

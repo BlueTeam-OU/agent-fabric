@@ -39,7 +39,8 @@ that could not be written is lost; the next event says it again.
 
 A hook must never stand in a session's way: any failure is swallowed,
 nothing is printed, the exit is 0. It runs nothing and reaches nothing
-but that one file; the control agent decides what leaves the account.
+but that one file, plus the per-session notes other hooks keep beside it (SESSION_FILES), which it removes when a session
+ends or is found dead; the control agent decides what leaves the account.
 """
 from __future__ import annotations
 

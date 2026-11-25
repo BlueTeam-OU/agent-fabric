@@ -275,6 +275,37 @@ class WorkingCopy(Tree):
         self.assertIn("lands at", done.stdout)
 
 
+class Malformed(Tree):
+    def test_a_malformed_policy_document_is_one_line_not_a_traceback(self):
+        env = {**os.environ, "AGENT_FABRIC_PYTHON": sys.executable}
+        good = {"projects/registry.json": {"projects": {"fix": {
+                    "client": "c", "remotes": [f"git@github.com:{REPO}.git"], "default_branch": "trunk"}}},
+                "policies/signing.json": {"default": {"format": "ssh"}},
+                "projects/fix/integration/gh/arm.json": {"boundary": {"paths": "^x/"}}}
+        cases = (("policies/signing.json", {"default": {"format": "ssh"}, "repositories": ["x"]}),
+                 ("policies/signing.json", {"default": {"format": "ssh"}, "repositories": {REPO: ["x"]}}),
+                 ("projects/fix/integration/gh/arm.json", ["x"]),
+                 ("projects/registry.json", {"projects": {"fix": {"remotes": 3}}}),
+                 ("projects/registry.json", {"projects": {"fix": ["x"]}}))
+        for rel, doc in cases:
+            for name, ok in good.items():
+                write(os.path.join(self.op, name), json.dumps(ok))
+            write(os.path.join(self.op, rel), json.dumps(doc))
+            bad = subprocess.run([BIN, "--repo", REPO], capture_output=True, text=True, env=env, timeout=60)
+            self.assertEqual((bad.returncode, bad.stdout), (1, ""), (rel, doc, bad.stderr))
+            self.assertEqual(len(bad.stderr.strip().splitlines()), 1, bad.stderr)
+            self.assertNotIn("Traceback", bad.stderr)
+            self.assertTrue(bad.stderr.startswith("fabric-git-rules: "), bad.stderr)
+
+    def test_the_engine_text_alone_renders_with_no_operator_layer_and_no_registered_project(self):
+        self.assertFalse(os.path.exists(os.path.join(self.op, "prompt", "git.md")))
+        for out in (git_rules.render(self.tmp, operator=self.op, engine=self.eng),
+                    git_rules.render(repo="x/unregistered", operator=self.op, engine=self.eng)):
+            self.assertIn("the engine's git.md", out.header)
+            self.assertIsNone(git_rules.PLACEHOLDER.search(out.body), out.body)
+            self.assertIn("lands at", out.body)
+
+
 class Hooks(Tree):
     def setUp(self):
         super().setUp()
@@ -308,6 +339,7 @@ class Hooks(Tree):
         ctx = json.loads(done.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("the git rules could not be rendered (the placeholder {repo.nothing} has no value here)", ctx)
         self.assertIn("agent-fabric: agent=", ctx)
+        self.assertIsNone(git_rules.given("sg2"), "a failure line is not the rules: not noted as given")
 
     def test_the_prompt_gives_the_rules_again_only_when_the_working_copy_changes(self):
         fresh = load_hook("freshness")
@@ -353,18 +385,43 @@ class Hooks(Tree):
         said = json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"]
         self.assertIn("FRESH-LINE", said)
         self.assertIn("agent-fabric: the git rules could not be given (RuntimeError: boom); run fabric-git-rules", said)
-        # Out of budget: the rules are not rendered, it is said, and nothing is noted as given.
+        # Out of budget with rules due: they are not rendered, it is said, and nothing is noted as given.
         with mock.patch.object(fresh, "note", return_value=None), \
-                mock.patch.object(fresh, "git_rules_note", side_effect=AssertionError("must not run")), \
+                mock.patch.object(git_rules, "for_hook", side_effect=AssertionError("must not run")), \
+                mock.patch.object(fresh, "git_rules", return_value=git_rules), \
                 mock.patch.object(fresh, "HOOK_BUDGET_S", 0.0), \
                 mock.patch("sys.stdin", io.StringIO(json.dumps({"cwd": self.wc, "session_id": "sm3"}))), \
                 mock.patch("sys.stdout", io.StringIO()) as out:
             self.assertEqual(fresh.main(), 0)
         self.assertIn("were not given on this prompt", out.getvalue())
+        self.assertIn("on a later prompt", out.getvalue())
         self.assertIsNone(git_rules.given("sm3"))
+        # Out of budget with nothing owed: not a word about the rules.
+        git_rules.record_given("sm4", self.wc)
+        with mock.patch.object(fresh, "note", return_value=None), mock.patch.object(fresh, "HOOK_BUDGET_S", 0.0), \
+                mock.patch("sys.stdin", io.StringIO(json.dumps({"cwd": self.wc, "session_id": "sm4"}))), \
+                mock.patch("sys.stdout", io.StringIO()) as out:
+            self.assertEqual(fresh.main(), 0)
+        self.assertEqual(out.getvalue(), "")
         with mock.patch("sys.stdin", io.StringIO("not json")), mock.patch("sys.stdout", io.StringIO()) as out:
             self.assertEqual(fresh.main(), 0)
         self.assertEqual(out.getvalue(), "")
+
+    def test_a_call_that_times_out_is_a_failure_line_and_is_not_noted_as_given(self):
+        with self.assertRaisesRegex(git_rules.GitRulesError, r"did not answer within"):
+            git_rules.render(self.wc, operator=self.op, engine=self.eng, timeout=1e-6)
+        line = git_rules.for_hook(self.wc, timeout=1e-6)
+        self.assertTrue(line.startswith(git_rules.FAILURE_PREFIX), line)
+        self.assertNotIn("OPERATOR-RULES", line)
+        fresh = load_hook("freshness")
+        real = git_rules.for_hook
+        with mock.patch.object(fresh, "git_rules", return_value=git_rules), \
+                mock.patch.object(git_rules, "for_hook", lambda wc, timeout=None: real(wc, timeout=1e-6)):
+            said = fresh.git_rules_note({"cwd": self.wc, "session_id": "st1"})
+        self.assertTrue(said.startswith(git_rules.FAILURE_PREFIX), said)
+        self.assertIsNone(git_rules.given("st1"))
+        # Control: an unbounded render works.
+        self.assertIn("REPO-RULES 20", git_rules.render(self.wc, operator=self.op, engine=self.eng).body)
 
 
 if __name__ == "__main__":

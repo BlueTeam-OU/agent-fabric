@@ -96,11 +96,15 @@ def _read_layer(path: str) -> str | None:
 def _repo_of(top: str, timeout: float | None = None) -> str | None:
     """<owner>/<name> of the working copy's origin when it is a GitHub remote, in the spelling the account's copy is
     keyed by (branch_size.repository_of's, without its unbounded git call)."""
-    url = workingcopy.remote_url(top, timeout=timeout)
+    url = workingcopy.remote_url(top, **_bound(timeout))
     parsed = workingcopy.parse_remote(url) if url else None
     if not parsed or parsed["host"] != "github.com" or not REPO_NAME.fullmatch(parsed["path"]):
         return None
     return parsed["path"]
+
+
+def _bound(timeout: float | None) -> dict:
+    return {} if timeout is None else {"timeout": timeout}
 
 
 class Target(NamedTuple):
@@ -116,13 +120,16 @@ def target_of(working_copy: str | None, repo: str | None, registry: dict, timeou
     projects = registry.get("projects") if isinstance(registry, dict) else None
     if not isinstance(projects, dict):
         raise GitRulesError("projects/registry.json has no projects map")
+    for pid, spec in projects.items():
+        if not isinstance(spec, dict) or not isinstance(spec.get("remotes", []), list):
+            raise GitRulesError(f"projects/registry.json: project {pid!r} is not a mapping with a list of remotes")
     if repo:
         try:
             found = arm_policy.project_of(registry, repo)
         except arm_policy.PolicyUnavailable as e:
             raise GitRulesError(str(e)) from None
         return Target(repo, found[0], found[1]) if found else Target(repo, None, None)
-    top = workingcopy.toplevel(working_copy, timeout) if working_copy else None
+    top = workingcopy.toplevel(working_copy, **_bound(timeout)) if working_copy else None
     if not top:
         return Target(None, None, None)
     try:
@@ -167,7 +174,12 @@ def _signing(repo: str | None, operator: str | None) -> dict | None:
     doc = _read_json(roots.policy("signing.json", root=operator))
     if not isinstance(doc, dict) or not isinstance(doc.get("default"), dict):
         return None
-    entry = (doc.get("repositories") or {}).get(repo) if repo else None
+    repositories = doc.get("repositories", {})
+    if not isinstance(repositories, dict):
+        raise GitRulesError("policies/signing.json: `repositories` is not a mapping")
+    entry = repositories.get(repo) if repo else None
+    if entry is not None and not isinstance(entry, dict):
+        raise GitRulesError(f"policies/signing.json: the entry for {repo} is not a mapping")
     return arm_policy.merge(doc["default"], entry) if isinstance(entry, dict) else dict(doc["default"])
 
 
@@ -177,7 +189,9 @@ def scopes(target: Target, policy: dict, operator: str | None) -> dict[str, Any]
     if target.spec is not None:
         out["repo"] = {**target.spec, "id": target.project}
         integration = _read_json(roots.project_integration(target.project, "gh", "arm.json", root=operator))
-        if isinstance(integration, dict):
+        if integration is not None and not isinstance(integration, dict):
+            raise GitRulesError(f"integration/gh/arm.json of project {target.project} is not a mapping")
+        if integration is not None:
             out["integration"] = integration
     signing = _signing(target.repo, operator)
     if signing is not None:
@@ -219,6 +233,8 @@ def render(working_copy: str | None = None, *, repo: str | None = None, operator
         return _render(working_copy, repo, operator, engine, timeout)
     except GitRulesError:
         raise
+    except workingcopy.GitTimeout as e:
+        raise GitRulesError(f"a git call did not answer within {timeout:g} s ({e})") from None
     except (arm_policy.PolicyError, arm_policy.PolicyUnavailable, OSError, ValueError) as e:
         raise GitRulesError(f"{type(e).__name__}: {e}") from None
 
@@ -268,6 +284,9 @@ def _render(working_copy: str | None, repo: str | None, operator: str | None, en
 SESSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
+FAILURE_PREFIX = "agent-fabric: the git rules could not be rendered ("
+
+
 def for_hook(working_copy: str | None, timeout: float | None = None) -> str:
     """The text a hook gives a session, or one line saying why it cannot. Rendering never stops a session (rule 9): a
     failure is a line and the hook goes on. Nothing is raised."""
@@ -277,7 +296,7 @@ def for_hook(working_copy: str | None, timeout: float | None = None) -> str:
         reason = str(e)
     except (Exception, SystemExit) as e:  # noqa: BLE001 — a state or tree oddity must not cost the session its start
         reason = f"{type(e).__name__}: {e.code if isinstance(e, SystemExit) else e}"
-    return f"agent-fabric: the git rules could not be rendered ({reason}); run `fabric-git-rules` and read what it says."
+    return f"{FAILURE_PREFIX}{reason}); run `fabric-git-rules` and read what it says."
 
 
 def _given_path(session: str, state: str | None) -> str | None:

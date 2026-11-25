@@ -546,6 +546,13 @@ def project_layer(role: str | None, project: str | None, working_copy: str | Non
     return out
 
 
+# The SessionStart hook's timeout is 15 s (runtime/claude-code/workspace/settings.json). The renderer makes at most four
+# local git calls (toplevel in target_of and again in resolve, origin's URL in resolve and in _repo_of), so 1.5 s each
+# is 6 s at the worst, leaving 9 s of the 15 for the rest of the start; each is a local read of milliseconds, and a
+# hook past its timeout says nothing at all.
+GIT_RULES_CALL_S = 1.5
+
+
 def git_rules_layer(working_copy: str | None, session: str | None) -> list[str]:
     """The git rules of the working copy (ADR-019 §5 rule 9), rendered by tools/fabric/git_rules.py from the account's
     copy of the repository's policy: no API call here. Noted for the session, so freshness.py gives them again only on
@@ -555,8 +562,9 @@ def git_rules_layer(working_copy: str | None, session: str | None) -> list[str]:
         spec = importlib.util.spec_from_file_location("fabric_git_rules", os.path.join(FABRIC_ROOT, "tools", "fabric", "git_rules.py"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        text = mod.for_hook(working_copy)
-        if session:
+        text = mod.for_hook(working_copy, timeout=GIT_RULES_CALL_S)
+        # A failure line is not the rules: not noted as given, so the next prompt (freshness.py) tries again.
+        if session and not text.startswith(mod.FAILURE_PREFIX):
             mod.record_given(session, working_copy)
         return [text]
     except Exception as exc:  # noqa: BLE001 — the module itself failing to load
