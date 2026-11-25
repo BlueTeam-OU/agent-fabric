@@ -17,15 +17,20 @@ afford a network wait, so a fresh relay-down marker simply keeps it silent
 (the Stop hook probes before it asks).
 
 Cost is bounded by a record per session, $STATE/watch-nudge.json:
-  checked  when the process table was last read. A call less than CHECK_S after
-           it returns before reading /proc or loading the predicates: it never
-           reminds, so a reminder can come at most every CHECK_S.
+  checked  when the process table was last read, or the session last re-armed.
+           A call less than CHECK_S after it returns before reading /proc or
+           loading the predicates: it never reminds, so a reminder can come at
+           most every CHECK_S. A read that finds no harness ancestor is recorded
+           too, so no path reads /proc on every call.
   down     the watch was seen down at that read
-  nudged   this spell of "down" has been reminded. A reminder is said once per
-           spell; it is said again only after a read saw the watch up and a
-           later one saw it down. A spell the hook stayed silent in (a fresh
-           relay-down marker, no GZCoord) is not nudged, so it is reminded when
-           the reason ends.
+  nudged   this spell of "down" has been reminded, at nudged_at. A spell ends
+           when a read sees the watch up, or when the call is the session's own
+           re-arm (a Bash run of watch-on-stop.py's COMMAND): the watch it starts
+           can end on a delivery while the session is idle, before any read sees
+           it up. A spell reminded AGAIN_S ago is reminded again. A spell the
+           hook stayed silent in (a fresh relay-down marker, no GZCoord) is not
+           nudged, so it is reminded when the reason ends.
+  A record that cannot be written costs the bound on reads, never the reminder.
 
 Silent, printing nothing: a subagent's call (agent_id or agent_type: the watch
 is the session's, and a subagent's `Bash` is not the place to start it); a
@@ -43,6 +48,9 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHECK_S = 30
+# A spell reminded this long ago is reminded again: reads happen only during tool calls, and a watch re-armed and then
+# ended by a delivery while the session was idle can be down at every read (review of #705, F2).
+AGAIN_S = 1800
 KEEP_S = 86400
 STATE_FILE = "watch-nudge.json"
 # The tree this file is in: reading AGENT_FABRIC_ROOT would be a root lookup outside tools/fabric/roots.py (ADR-045 §5 rule 1).
@@ -96,6 +104,24 @@ def write_state(path: str, seen: dict) -> None:
     ident.atomic_write(path, json.dumps(seen), 0o600)
 
 
+def keep(path: str, seen: dict) -> None:
+    """write_state, whose failure (an unwritable state directory, a full disk) costs the bound on reads, never the
+    reminder this call computed (review of #705, F1)."""
+    try:
+        write_state(path, seen)
+    except Exception:  # noqa: BLE001 - a hook that refuses nothing also breaks nothing
+        pass
+
+
+def rearms(payload: dict) -> bool:
+    """The call is the session's own re-arm: a Bash run of watch-on-stop.py's COMMAND. Prefiltered on the flag so an
+    ordinary call does not pay for watch-on-stop.py's imports."""
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    return payload.get("tool_name") == "Bash" and isinstance(command, str) and "--until-delivery" in command \
+        and on_stop().COMMAND in command
+
+
 def state_path() -> str:
     return os.path.join(identity().agent_state_dir(), STATE_FILE)
 
@@ -112,24 +138,36 @@ def decide(payload: dict, now: float, path: str, procs=None, is_integrated=None,
     # Two parallel tool calls may both read before either writes; the worst case is one reminder twice.
     seen = read_state(path, now)
     mine = seen.get(session_id)
+    # The re-arm itself ends the spell, whatever a later read sees: the watch it starts may end on a delivery before
+    # any read finds it up (review of #705, F2).
+    if rearms(payload):
+        seen[session_id] = {"checked": now, "down": False, "nudged": False}
+        keep(path, seen)
+        return None
     if mine is not None and 0 <= now - mine["checked"] < CHECK_S:
         return None
     ws = on_stop()
     table = (procs() if callable(procs) else procs) if procs is not None else ws.read_procs()
     session = ws.harness_pid(table, own_pid or os.getpid())
     if session is None:
+        # The read is recorded on this path too, or a session the walk cannot place reads /proc on every call
+        # (review of #705, F1); what the record knew of the spell is kept.
+        seen[session_id] = {**(mine or {"down": False, "nudged": False}), "checked": now}
+        keep(path, seen)
         return None
     if ws.has_watch(table, session, run_dir):
         seen[session_id] = {"checked": now, "down": False, "nudged": False}
-        write_state(path, seen)
+        keep(path, seen)
         return None
-    nudged = bool(mine and mine.get("down") and mine.get("nudged"))
+    nudged_at = mine.get("nudged_at", mine["checked"]) if mine else now
+    nudged = bool(mine and mine.get("down") and mine.get("nudged")) and 0 <= now - nudged_at < AGAIN_S
     say = False
     if not nudged and not ws.relay_down(now, run_dir) \
             and (is_integrated or ws.integrated)(payload.get("cwd"), session_id):
         say = True
-    seen[session_id] = {"checked": now, "down": True, "nudged": nudged or say}
-    write_state(path, seen)
+    seen[session_id] = {"checked": now, "down": True, "nudged": nudged or say,
+                        **({"nudged_at": now} if say else {"nudged_at": nudged_at} if nudged else {})}
+    keep(path, seen)
     if not say:
         return None
     return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": message(ws.COMMAND)}}
