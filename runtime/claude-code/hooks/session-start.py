@@ -36,6 +36,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import time
@@ -526,13 +527,14 @@ def project_layer(role: str | None, project: str | None, working_copy: str | Non
     index = os.path.join(working_copy, ".agent-fabric", "memory", role, "INDEX.md")
     out: list[str] = []
     try:
-        with open(remit, encoding="utf-8") as fh:
-            body = fh.read()
+        # Text-mode newline translation, kept from the open() this replaced: front matter is matched on \n.
+        body = read_tree_file(remit, working_copy, 1 << 30).decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
         body = re.sub(r"\A---\n.*?\n---\n", "", body, count=1, flags=re.DOTALL).strip("\n")
         out.append(f"# {role} — remit in {project} ({os.path.relpath(remit, working_copy)})\n\n{body}")
-    except OSError:
+    except OSError as exc:
+        why = "is missing" if not os.path.lexists(remit) else f"was not read: {exc.strerror or exc}"
         out.append(f"agent-fabric: {project} has no remit for {role} "
-                   f"({os.path.relpath(remit, working_copy)} is missing); the charter is the whole definition here.")
+                   f"({os.path.relpath(remit, working_copy)} {why}); the charter is the whole definition here.")
     if os.path.isfile(index):
         out.append(f"Your knowledge of {project}: ask `memory_find` before changing code, config or a decision here "
                    "(it answers the slices whose cue matches, with their age), `memory_read` for the sections you "
@@ -544,8 +546,60 @@ def project_layer(role: str | None, project: str | None, working_copy: str | Non
 
 
 AGENTS_MD_LIMIT = 256 * 1024
-# CLAUDE.md's import syntax: a token @AGENTS.md at a word start, which Claude Code expands in place.
-AGENTS_IMPORT = re.compile(r"(?m)(?:^|\s)@(?:\./)?AGENTS\.md(?=\s|$)")
+# CLAUDE.md's import syntax: an @token at a word start, which Claude Code expands in place.
+AT_IMPORT = re.compile(r"(?m)(?:^|\s)@(\S+)")
+
+
+def tree_file_problem(path: str, root: str) -> str | None:
+    """Why `path` must not be read as a file of the tree at `root`, or None.
+
+    A committed symlink is the repository's say-so, not the owner's: following
+    one would put any file the reader can open (`/proc/self/environ`, a key)
+    into session context. So only a regular file whose real path is inside the
+    real root passes."""
+    try:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            return "is not a regular file"
+    except OSError as exc:
+        return exc.strerror or str(exc)
+    real_root = os.path.realpath(root)
+    if os.path.commonpath([real_root, os.path.realpath(path)]) != real_root:
+        return "lies outside the working copy"
+    return None
+
+
+def read_tree_file(path: str, root: str, limit: int) -> bytes:
+    """At most `limit` bytes of a file `tree_file_problem` passed; OSError when
+    it is refused or unreadable. O_NOFOLLOW closes the window between the check
+    and the open in which the file could be swapped for a link."""
+    problem = tree_file_problem(path, root)
+    if problem:
+        raise OSError(0, problem)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as fh:
+        return fh.read(limit)
+
+
+def imports_agents_md(working_copy: str, agents: str) -> bool:
+    """Whether CLAUDE.md or .claude/CLAUDE.md already carries `agents` through
+    an @import. Claude Code resolves an import against the importing file's own
+    directory, so `@AGENTS.md` in .claude/CLAUDE.md names .claude/AGENTS.md and
+    the root file there is `@../AGENTS.md`."""
+    target = os.path.realpath(agents)
+    for name in ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md")):
+        full = os.path.join(working_copy, name)
+        try:
+            with open(full, encoding="utf-8", errors="replace") as fh:
+                text = fh.read(AGENTS_MD_LIMIT)
+        except OSError:
+            continue
+        base = os.path.dirname(full)
+        for tok in AT_IMPORT.findall(text):
+            if "\0" in tok:  # realpath raises on it; a committed file must not crash the hook
+                continue
+            if os.path.realpath(os.path.join(base, tok)) == target:
+                return True
+    return False
 
 
 def agents_md_layer(working_copy: str | None) -> list[str]:
@@ -554,24 +608,25 @@ def agents_md_layer(working_copy: str | None) -> list[str]:
     Claude Code reads CLAUDE.md and never AGENTS.md; a project that keeps its
     instructions in AGENTS.md alone, or beside a CLAUDE.md that does not import
     it, would give the session none of them. A CLAUDE.md that imports it
-    (`@AGENTS.md`) already carries the text, and giving it again here would load
-    it twice. Unreadable or oversized is said in one line, never silently
-    dropped: unknown is not "no instructions"."""
+    already carries the text, and giving it again here would load it twice.
+    Unreadable, oversized, or not a file of the tree is said in one line, never
+    silently dropped: unknown is not "no instructions"."""
     if not working_copy:
         return []
     path = os.path.join(working_copy, "AGENTS.md")
-    if not os.path.isfile(path):
+    if not os.path.lexists(path):
         return []
     for name in ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md")):
         try:
-            with open(os.path.join(working_copy, name), encoding="utf-8", errors="replace") as fh:
-                if AGENTS_IMPORT.search(fh.read(AGENTS_MD_LIMIT)):
-                    return []
+            # Either one a link to the other is the same file the harness loads.
+            if os.path.samefile(os.path.join(working_copy, name), path):
+                return []
         except OSError:
             continue
+    if imports_agents_md(working_copy, path):
+        return []
     try:
-        with open(path, "rb") as fh:
-            raw = fh.read(AGENTS_MD_LIMIT + 1)
+        raw = read_tree_file(path, working_copy, AGENTS_MD_LIMIT + 1)
     except OSError as exc:
         return [f"agent-fabric: AGENTS.md of this working copy could not be read ({exc.strerror or exc}); read it yourself."]
     if len(raw) > AGENTS_MD_LIMIT:

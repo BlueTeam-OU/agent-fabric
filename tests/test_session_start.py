@@ -199,7 +199,7 @@ def test_hook_gives_the_project_layer_from_the_working_copy(tmp: str) -> None:
     assert "agent-fabric: client" not in ctx, ctx
 
 
-def agents_md_ctx(tmp: str, claude: str | None, agents: str | None = "AGENTS-MD-MARKER rule\n") -> str:
+def agents_md_ctx(tmp: str, claude: str | None, agents: str | None = "AGENTS-MD-MARKER rule\n", setup=None) -> str:
     state = os.path.join(tmp, "state")
     wc = os.path.join(tmp, "fixture-proj")
     git_repo(wc, "git@example.org:fixture-org/fixture-proj.git")
@@ -207,6 +207,8 @@ def agents_md_ctx(tmp: str, claude: str | None, agents: str | None = "AGENTS-MD-
         if body is not None:
             with open(os.path.join(wc, name), "w", encoding="utf-8") as fh:
                 fh.write(body)
+    if setup:
+        setup(wc)
     os.makedirs(os.path.join(state, "agents", id_un()))
     with open(os.path.join(state, "agents", id_un(), "binding.json"), "w", encoding="utf-8") as fh:
         json.dump({"agent": id_un(), "host": HOST, "role": "db-admin", "updated_at": "x"}, fh)
@@ -227,6 +229,116 @@ def test_hook_loads_agents_md_beside_a_claude_md_that_does_not_import_it(tmp: st
 def test_hook_does_not_load_agents_md_twice_through_an_import(tmp: str) -> None:
     ctx = agents_md_ctx(tmp, "@AGENTS.md\n\n## Claude Code\n")
     assert "AGENTS-MD-MARKER" not in ctx, ctx
+
+
+def _sub(tmp: str, name: str) -> str:
+    path = os.path.join(tmp, name)
+    os.makedirs(path)
+    return path
+
+
+def load_hook():
+    spec = importlib.util.spec_from_file_location("session_start_hook_agents", os.path.join(ROOT, "runtime", "claude-code", "hooks", "session-start.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _notice_only(ctx: str, secret: str = "") -> None:
+    assert ctx.count("AGENTS.md of this working copy") == 1, ctx
+    assert "AGENTS-MD-MARKER" not in ctx and (not secret or secret not in ctx), ctx
+
+
+def test_hook_agents_md_import_from_dot_claude_resolves_against_that_directory(tmp: str) -> None:
+    def claude_dir(wc: str) -> None:
+        os.makedirs(os.path.join(wc, ".claude"))
+    def put(body: str):
+        def setup(wc: str) -> None:
+            claude_dir(wc)
+            with open(os.path.join(wc, ".claude", "CLAUDE.md"), "w", encoding="utf-8") as fh:
+                fh.write(body)
+        return setup
+    ctx = agents_md_ctx(_sub(tmp, "a"), None, setup=put("@../AGENTS.md\n"))
+    assert "AGENTS-MD-MARKER" not in ctx, ctx
+    # @AGENTS.md there names .claude/AGENTS.md, so the root file is still not carried.
+    ctx = agents_md_ctx(_sub(tmp, "b"), None, setup=put("@AGENTS.md\n"))
+    assert ctx.count("AGENTS-MD-MARKER rule") == 1, ctx
+
+
+def test_hook_says_when_agents_md_is_over_the_limit(tmp: str) -> None:
+    hook = load_hook()
+    ctx = agents_md_ctx(tmp, None, agents="x" * (hook.AGENTS_MD_LIMIT + 1))
+    assert ctx.count("AGENTS.md of this working copy is over") == 1, ctx
+
+
+def test_hook_says_when_agents_md_is_unreadable(tmp: str) -> None:
+    if os.geteuid() == 0:
+        return
+    def lock(wc: str) -> None:
+        os.chmod(os.path.join(wc, "AGENTS.md"), 0)
+    _notice_only(agents_md_ctx(tmp, None, setup=lock))
+
+
+def test_hook_never_follows_an_agents_md_link_out_of_the_tree(tmp: str) -> None:
+    secret = os.path.join(tmp, "outside.txt")
+    with open(secret, "w", encoding="utf-8") as fh:
+        fh.write("OUTSIDE-SECRET-TEXT\n")
+    def link(wc: str) -> None:
+        os.remove(os.path.join(wc, "AGENTS.md"))
+        os.symlink(secret, os.path.join(wc, "AGENTS.md"))
+    _notice_only(agents_md_ctx(_sub(tmp, "out"), None, setup=link), "OUTSIDE-SECRET-TEXT")
+    def dangling(wc: str) -> None:
+        os.remove(os.path.join(wc, "AGENTS.md"))
+        os.symlink(os.path.join(wc, "nowhere"), os.path.join(wc, "AGENTS.md"))
+    _notice_only(agents_md_ctx(_sub(tmp, "dang"), None, setup=dangling))
+
+
+def test_hook_does_not_load_agents_md_when_claude_md_is_the_same_file(tmp: str) -> None:
+    def link(wc: str) -> None:
+        os.symlink("AGENTS.md", os.path.join(wc, "CLAUDE.md"))
+    ctx = agents_md_ctx(tmp, None, setup=link)
+    assert "AGENTS-MD-MARKER" not in ctx and "AGENTS.md of this working copy" not in ctx, ctx
+
+
+def test_hook_survives_a_nul_in_an_import_token(tmp: str) -> None:
+    ctx = agents_md_ctx(tmp, "@foo\0bar and @AGENTS.md\n")
+    assert "AGENTS-MD-MARKER" not in ctx, ctx
+    ctx = agents_md_ctx(_sub(tmp, "n2"), "@x\0y\n")
+    assert ctx.count("AGENTS-MD-MARKER rule") == 1, ctx
+
+
+def test_hook_never_follows_a_remit_directory_link_out_of_the_tree(tmp: str) -> None:
+    hook = load_hook()
+    outside = os.path.join(tmp, "outside"); os.makedirs(outside)
+    with open(os.path.join(outside, "db-admin.md"), "w", encoding="utf-8") as fh:
+        fh.write("OUTSIDE-SECRET-TEXT\n")
+    wc = os.path.join(tmp, "wc")
+    os.makedirs(os.path.join(wc, ".agent-fabric"))
+    os.symlink(outside, os.path.join(wc, ".agent-fabric", "roles"))
+    out = "\n".join(hook.project_layer("db-admin", "p", wc))
+    assert "OUTSIDE-SECRET-TEXT" not in out and "no remit for db-admin" in out, out
+
+
+def test_hook_strips_front_matter_from_a_crlf_remit(tmp: str) -> None:
+    hook = load_hook()
+    wc = os.path.join(tmp, "wc")
+    os.makedirs(os.path.join(wc, ".agent-fabric", "roles"))
+    with open(os.path.join(wc, ".agent-fabric", "roles", "db-admin.md"), "wb") as fh:
+        fh.write(b"---\r\nname: x\r\n---\r\nREMIT-BODY\r\n")
+    out = "\n".join(hook.project_layer("db-admin", "p", wc))
+    assert "REMIT-BODY" in out and "name: x" not in out, out
+
+
+def test_hook_never_follows_a_remit_link_out_of_the_tree(tmp: str) -> None:
+    hook = load_hook()
+    secret = os.path.join(tmp, "outside.txt")
+    with open(secret, "w", encoding="utf-8") as fh:
+        fh.write("OUTSIDE-SECRET-TEXT\n")
+    wc = os.path.join(tmp, "wc")
+    os.makedirs(os.path.join(wc, ".agent-fabric", "roles"))
+    os.symlink(secret, os.path.join(wc, ".agent-fabric", "roles", "db-admin.md"))
+    out = "\n".join(hook.project_layer("db-admin", "p", wc))
+    assert "OUTSIDE-SECRET-TEXT" not in out and "no remit for db-admin" in out, out
 
 
 def test_hook_says_when_the_binding_drifted_from_the_launch(tmp: str) -> None:
@@ -1062,6 +1174,15 @@ def main() -> int:
              test_hook_loads_agents_md_when_there_is_no_claude_md,
              test_hook_loads_agents_md_beside_a_claude_md_that_does_not_import_it,
              test_hook_does_not_load_agents_md_twice_through_an_import,
+             test_hook_agents_md_import_from_dot_claude_resolves_against_that_directory,
+             test_hook_says_when_agents_md_is_over_the_limit,
+             test_hook_says_when_agents_md_is_unreadable,
+             test_hook_never_follows_an_agents_md_link_out_of_the_tree,
+             test_hook_does_not_load_agents_md_when_claude_md_is_the_same_file,
+             test_hook_never_follows_a_remit_link_out_of_the_tree,
+             test_hook_survives_a_nul_in_an_import_token,
+             test_hook_never_follows_a_remit_directory_link_out_of_the_tree,
+             test_hook_strips_front_matter_from_a_crlf_remit,
              test_hook_names_the_client_of_the_project, test_hook_records_context_not_identity, test_a_subagent_start_never_rebinds_the_login,
              test_hook_gives_the_project_layer_from_the_working_copy,
              test_hook_says_when_the_binding_drifted_from_the_launch,
