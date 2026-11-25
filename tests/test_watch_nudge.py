@@ -112,7 +112,7 @@ def main() -> int:
         check("no harness ancestor: silent", go(orphan, 1000.0) is None)
         check("…the read recorded: the next call inside the window reads nothing",
               os.path.exists(path) and go(no_read, 1001.0) is None)
-        # A record that cannot be written costs the bound, never the reminder (F1).
+        # A record that cannot be written leaves the call silent (F4).
         fresh()
         orig_write = nudge.write_state
         nudge.write_state = lambda p, seen: (_ for _ in ()).throw(OSError("read-only"))
@@ -120,7 +120,7 @@ def main() -> int:
             out = go(table(), 1000.0)
         finally:
             nudge.write_state = orig_write
-        check("an unwritable record: silent, as before the record existed (F4)", out is None, out)
+        check("an unwritable record: silent, nothing to remember a reminder by (F4)", out is None, out)
         # A re-arm-shaped command from another tool is no re-arm (F6).
         fresh()
         check("down: reminded", go(table(), 1000.0) is not None)
@@ -133,11 +133,13 @@ def main() -> int:
         # A damaged nudged_at is no time: the spell falls back to `checked` (F5).
         fresh()
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        # checked 5000 is over AGAIN_S, so a nudged_at kept as the number 1 (a bool read as a number) would remind at
+        # once, where judged from checked the spell is still reminded (review of #705, F8).
         for bad in ('"x"', "null", "true"):
             with open(path, "w", encoding="utf-8") as fh:
-                fh.write('{"s1": {"checked": 1000.0, "down": true, "nudged": true, "nudged_at": %s}}' % bad)
+                fh.write('{"s1": {"checked": 5000.0, "down": true, "nudged": true, "nudged_at": %s}}' % bad)
             check(f"a nudged_at of {bad}: no error, the spell is judged from checked",
-                  go(table(), 1100.0) is None and go(table(), 1000.0 + nudge.AGAIN_S + 1) is not None)
+                  go(table(), 5100.0) is None and go(table(), 5000.0 + nudge.AGAIN_S + 1) is not None)
         # a watch holding the login's lock outside the tree counts as up (has_watch's rule)
         fresh()
         with open(os.path.join(run_dir, "agent-fabric", "gzcoord-inbox-x.lock"), "w", encoding="utf-8") as fh:

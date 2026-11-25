@@ -31,9 +31,9 @@ Cost is bounded by a record per session, $STATE/watch-nudge.json:
            it up. A spell reminded AGAIN_S ago is reminded again. A spell the
            hook stayed silent in (a fresh relay-down marker, no GZCoord) is not
            nudged, so it is reminded when the reason ends.
-  A record that cannot be written leaves the call silent, as the hook was
-  before the record existed: with nothing to remember a read or a reminder,
-  speaking would remind on every call. The bound on reads then cannot hold.
+  A record that cannot be written leaves the call silent: with nothing to
+  remember a reminder, speaking would remind on every call. The bound on reads
+  then cannot hold.
 
 Silent, printing nothing: a subagent's call (agent_id or agent_type: the watch
 is the session's, and a subagent's `Bash` is not the place to start it); a
