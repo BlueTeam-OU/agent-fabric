@@ -479,10 +479,17 @@ class LegReady(Net):
         # when the hook is given, not only that it was: inside the wait (0.3 s), not after it
         at_hook: list = []
         t0 = time.monotonic()
-        running, _d, _logs, _c, _s = self.start(ready_wait_s=0.3, on_started=lambda f: at_hook.append((f, time.monotonic() - t0)))
-        self.assertEqual([f for f, _t in at_hook], [running.carrier.stop])
+        running, _d, _logs, _c, _s = self.start(ready_wait_s=0.3, on_started=lambda f: at_hook.append((f, time.monotonic() - t0, os.path.exists(self.sock))))
+        self.assertEqual([f for f, _t, _e in at_hook], [running.carrier.stop])
+        self.assertFalse(at_hook[0][2], "the hook was given after fabric-ctl's socket was bound")
         self.assertLess(at_hook[0][1], 0.25, "the hook was given after the readiness wait")
         self.assertGreaterEqual(time.monotonic() - t0, 0.3, "positive control: the wait did take its 0.3 s")
+
+    def test_the_inbox_waits_for_begin_when_the_caller_asks(self):
+        running, _d, logs, _c, _s = self.start(begin=False)
+        self.assertFalse(running.carrier.inbox._thread.is_alive())
+        running.begin()
+        self.assertTrue(running.carrier.inbox._thread.is_alive())
 
     def test_a_send_whose_budget_is_spent_says_0_s_not_a_negative_one(self):
         s = cc.Send("r")

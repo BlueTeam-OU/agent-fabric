@@ -222,6 +222,25 @@ class AgentdDual(Base):
         self.barrier("after-sn", via="relay")
         self.assertEqual(self.request_lines("sn"), [("interweave", "ok")])
 
+    def test_a_seen_relay_copy_whose_to_is_one_address_is_logged_as_accept_reads_it(self):
+        # j163 review round 3: accept() reads a `to` that is no list as one address
+        got = self.watch("ss")
+        self.send_iw(body("ss"))
+        self.assertTrue(until(lambda: got and self.relay_replies("ss")), self.logs)
+        self.relay.add("h/op", json.dumps(body("ss", to="h/alice")))
+        self.barrier("after-ss", via="relay")
+        self.assertEqual(sorted(self.request_lines("ss")), [("interweave", "ok"), ("relay", "seen")])
+
+    def test_a_seen_relay_copy_whose_from_is_no_string_does_not_stop_the_relay_loop(self):
+        # j163 review round 3: `[] in set` raises TypeError; the loop would have backed off for a record that is only odd
+        got = self.watch("sf")
+        self.send_iw(body("sf"))
+        self.assertTrue(until(lambda: got and self.relay_replies("sf")), self.logs)
+        self.relay.add("h/op", json.dumps(body("sf", **{"from": []})))
+        self.barrier("after-sf", via="relay")
+        self.assertEqual(self.request_lines("sf"), [("interweave", "ok")])
+        self.assertFalse([l for l in self.logs if "unreachable" in l], self.logs)
+
     def test_two_requests_of_one_minute_are_two_answers_and_their_lines_tell_them_apart(self):
         # j150: agentd logged "answered ping (01a1ddcd)" twice, 7 s apart, for one `fabric-ctl all ping`. A UUIDv7's first 8
         # characters are its clock to within about 65 s, so two requests print the same there. The seen-set keys the whole id.

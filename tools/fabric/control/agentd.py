@@ -1337,7 +1337,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         """The relay's copy of a request, in this account's arrival file beside the second carrier's copy's line (Carrier.inbound):
         control-parity reads the file for the carriers that carried each request (rule 18). A copy that accept() refused as already
         seen is the second carrier's arrival and counts, if it is addressed to this account and comes from an operator or a placed account;
-        one refused for any other reason is not written. A seen copy is not judged on its op, signature or age: the request it repeats was."""
+        one refused for any other reason is not written. A seen copy is not judged on its op, signature or age: the request whose id it shares was."""
         iw = carrier_box[0]
         if iw is None or not (a["ok"] or a["why"] == "seen"):
             return
@@ -1348,8 +1348,9 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         if not a["ok"]:
             # As accept() reads it: a `to` that is no list is one address.
             to = (request.get("to") if isinstance(request.get("to"), list) else [request.get("to")]) if isinstance(request, dict) else None
+            sender = request.get("from") if isinstance(request, dict) else None
             if not (to and ("*" in to or me["address"] in to)
-                    and request.get("from") in operator_addresses() | account_addresses()):
+                    and isinstance(sender, str) and sender in operator_addresses() | account_addresses()):
                 return
         iw.carrier.arrivals.add("relay", request, "ok" if a["ok"] else "seen")
 
