@@ -1187,11 +1187,11 @@ def coordinator_timers() -> None:
 
     files = [f"{a.units}/{u}.{x}" for u in COORDINATOR_UNITS for x in ("service", "timer")]
     r = bootstrap(a)
-    check("unbound: neither unit installed, nothing said of them (the control: the step reads the role)",
+    check("unbound: no unit installed, nothing said of them (the control: the step reads the role)",
           r.rc == 0 and not any(os.path.exists(f) for f in files) and not any(u in r.out for u in COORDINATOR_UNITS), r)
     bind("fabric-coordinator")
     r = bootstrap(a)
-    check("fabric-coordinator, no user manager: both units' files installed, the fabric's, mode 644",
+    check("fabric-coordinator, no user manager: every unit's files installed, the fabric's, mode 644",
           r.rc == 0 and all(f"  +  {f}" in r.lines and mode(f) == 0o644
                             and read(f) == read(f"{a.fr}/runtime/control/{os.path.basename(f)}") for f in files), r)
     check("…each timer's enabling refused for want of a manager, said",

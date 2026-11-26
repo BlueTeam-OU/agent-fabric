@@ -98,12 +98,12 @@ repository whose policy names `reviews`.
    `remote_plugin`, `plugin_sharing`, `apps`, `in_app_updates`) are off
    in the engine's configuration, so the gateway is the only place it
    connects to (A 2026-10-13).
-4. **The answer is structured or nothing.** Codex answers with one JSON
-   object of findings (level P1-P3, file, line, scenario, expected,
-   fix). Anything else is no review: the head's unavailable marker is
-   posted with the reason, never a review, as ADR-055 rule 8 says
-   (A 2026-11-26). A posted review names the engine and model on its
-   first line and is posted with `fabric-pr post-review <PR> --model
+4. **The answer is structured, or the run is no review.** Codex answers
+   with one JSON object of findings (level P1-P3, file, line, scenario,
+   expected, fix). Anything else is no review: the head's unavailable
+   marker is posted with the reason, never a review, as ADR-055 rule 8
+   says (A 2026-11-26). A posted review names the engine and model on
+   its first line and is posted with `fabric-pr post-review <PR> --model
    codex`, the report carrying the brief's dispatch header and a
    coverage block built from the answer's required `coverage` field
    (ADR-020 §5 rule 6, ADR-065 §5 rule 4).

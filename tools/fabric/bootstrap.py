@@ -1296,12 +1296,13 @@ class Bootstrap:
 
     def coordinator_timers(self, role: str) -> None:
         # 6d. The coordinator's timers (COORDINATOR_UNITS): installed on an
-        #     account whose binding holds fabric-coordinator, mechanics the state
-        #     backup's (6a). Elsewhere a job they file lands where nobody acts on
-        #     it, so an account rebound away has the fabric's copies disabled and
-        #     removed; a file the fabric did not write is a person's and stays,
-        #     as tree_skills keeps one. The role is the binding at bootstrap: a
-        #     rebind takes effect at the next `fabric-ctl upgrade fabric`.
+        #     account whose binding holds fabric-coordinator, mechanics the
+        #     state backup's (6a). Elsewhere a job or message they file lands
+        #     where nobody acts on it, so an account rebound away has the
+        #     fabric's copies disabled and removed; a file the fabric did not
+        #     write is a person's and stays, as tree_skills keeps one. The role
+        #     is the binding at bootstrap: a rebind takes effect at the next
+        #     `fabric-ctl upgrade fabric`.
         for unit in COORDINATOR_UNITS:
             files = [os.path.join(self.units, f"{unit}.{suffix}") for suffix in ("service", "timer")]
             if role == COORDINATOR_ROLE:
