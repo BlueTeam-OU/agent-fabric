@@ -243,8 +243,8 @@ rule 1 wants that in the same pull request).
 **Gate 3: the relay is retired.** The control parity report ADR-029 rule 18 asks for was filed
 (`operator/docs/live-checks/2026-11-26-control-parity-rule-18.md`, j1071) and the owner's word
 given on it on 2026-11-26 ("Interweave must become the only transport as soon as you have
-completed eventual remaining steps"): ADR-029 was amended that day, InterWeave control's
-transport of record with `control_carrier` still `dual`. What remains is the state stream's
+completed eventual remaining steps"): ADR-029 was amended that day to record it, with
+`control_carrier` still `dual` and the relay still the record. What remains is the state stream's
 replacement (Fleet Deck's dots read idle with the relay down) and the four relay-only ops read
 back over `fabric-op`'s SSH backend; then `control_carrier` names InterWeave alone. Records: a
 further amendment of ADR-029 (rule 18, §2, §8) for that switch, and a new record that

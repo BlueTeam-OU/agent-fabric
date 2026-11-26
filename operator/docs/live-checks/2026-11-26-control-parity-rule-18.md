@@ -9,12 +9,17 @@ mid-window. The interim record
 [2026-11-25-control-parity.md](2026-11-25-control-parity.md) found one gap, the
 minutes after an `upgrade fabric`. python-dev-04 closed it in #709 (j163). The tool's
 output is filed unedited as
-[2026-11-26-control-parity-rule-18-computed.md](2026-11-26-control-parity-rule-18-computed.md).
+[2026-11-26-control-parity-rule-18-computed.md](2026-11-26-control-parity-rule-18-computed.md),
+and the same run's `--json` as
+[2026-11-26-control-parity-rule-18-computed.json](2026-11-26-control-parity-rule-18-computed.json).
+The JSON has the per-pair fields the Markdown leaves out: each pair's op and time, its
+latency per carrier, and the request carriers of the drill's pairs.
 The tool measures and the owner decides. The owner's word is quoted at the end.*
 
 ## What was run
 
-Every account ran fabric 50e27625 (#709) from its upgrade at 09:16:44Z. Each of the 30
+The fleet was sent `upgrade fabric` to 50e27625 (#709) at 09:16:44Z. The accounts' agentds
+ran #709's code from the times shown under *The request's carriers* below. Each of the 30
 roster accounts' `control-arrivals.jsonl` was read as that account with
 `fabric-host develop-qzapp run --as <login> -- grep -a …`, on the owner's one-time
 permission. The files were collected 2026-11-26 about 10:51Z. `-a` is there because
@@ -28,7 +33,7 @@ gzcoord-carrier control-parity --window 2026-11-26T09:10:00Z 2026-11-26T10:30:00
 ```
 
 Re-running the command on the same files at 11:03Z gave byte-identical output. The
-same run with `--json` gives the per-pair figures below. Its counts:
+same run with `--json`, filed beside it, gives the per-pair figures below. Its counts:
 0 lines skipped, 0 pairs `unrecorded`, 0 malformed timeouts.
 
 ## Result, outside the drill
@@ -56,12 +61,16 @@ The slowest read here is identity at 22 s on the relay and 21 s on InterWeave.
 spans held 254 of the 255 pairs that were not `both`.
 
 **The request's carriers.** Of the 967 pairs, 781 had the request reach the
-addressee by both carriers. The other 186 are the 10 requests sent from 09:11:38Z to
-09:20:27Z. Their addressees log only the InterWeave arrival. They were sent before
-#709's agentd ran: the relay request line is #709's own addition, and older agentd
-code wrote none. python-dev-04 said so in its REPLY 01a2172b. From 09:20:27Z onward,
-every pair has both request lines. No pair in the window lacks an InterWeave request
-line.
+addressee by both carriers. The other 186 pairs, whose addressees log only the
+InterWeave arrival, belong to the ten requests sent from 09:11:38Z to 09:20:27Z. They
+are all the pairs of the first nine requests, and 3 of the 30 pairs of the tenth. The
+relay request line is #709's own addition, and older agentd code wrote none:
+python-dev-04 said so in its REPLY 01a2172b. So these pairs show addressees whose agentd
+was not yet on #709. The requests at 09:17:44Z and 09:18:23Z, after the upgrade was
+sent, are InterWeave-only for all 30 accounts. The request at 09:20:27Z is
+InterWeave-only for rust-ui-dev-01, rust-ui-dev-02 and `user`, and has both request
+lines for the other 27. Every pair after 09:20:27Z has both request lines. No pair in
+the window lacks an InterWeave request line.
 
 ## The interweave-stop drill
 
@@ -81,7 +90,8 @@ The tool keeps the drill's pairs out of the carrier rows above:
 | unanswered | 0 | |
 
 By op, the relay-only pairs are identity 15, gateway 14, state 11, ping 10 and
-presence 10. So **every request was still answered**, which is what rule 18 asks of
+presence 10. All 174 drill pairs have both request lines, InterWeave's and the relay's.
+The Markdown's drill list prints no request carrier, but the JSON's `in_drill` rows do. So **every request was still answered**, which is what rule 18 asks of
 the drill. For the 60 relay-only pairs, the answer came from the relay alone. Under
 `control_carrier` naming InterWeave alone, those reads would have gone unanswered, and
 the two accounts would have read as unknown for the 12 minutes of the stop.
@@ -115,7 +125,9 @@ They are still without a cause. Nothing like them occurs in this window.
 **The owner's word**, 2026-11-26 about 11:00Z, in the coordinator's session, after
 this report and gate 2's drills: "Interweave must become the only transport as soon as
 you have completed eventual remaining steps". ADR-029 is amended on the same pull
-request (A 2026-11-26). InterWeave becomes control's transport of record now. The
-switch of `control_carrier` to InterWeave alone waits for the steps gate 3 of
-`docs/proposals/gzcoord-interweave-only-cutover.md` names, because the deck's state
-dots and the relay-only ops still ride the relay.
+request (A 2026-11-26) to record the word and this report. Under `dual` nothing
+changes: the relay stays the record and is posted and read first, as the code's
+definition of `dual` says. InterWeave becomes the transport of record when
+`control_carrier` names it alone. That switch waits for the steps gate 3 of
+`docs/proposals/gzcoord-interweave-only-cutover.md` names, because the deck's state dots
+and the relay-only ops still ride the relay.

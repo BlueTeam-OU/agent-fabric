@@ -586,7 +586,7 @@ account and all 30 answered `state`, and `FABRIC_STATE_READ=op ... states`
 gave the same 30 states. Not read back: a fleet on the second carrier
 alone, and a silent account on the live fleet (the suite's).
 
-### Amendment 2026-11-26 — InterWeave is control's transport of record
+### Amendment 2026-11-26 — The owner's word on control parity is given
 
 Rule 18 kept the relay as control's transport of record until the
 owner's word on a parity report holding four parts: every request id
@@ -605,9 +605,12 @@ were answered, 60 by the relay alone. The owner's word followed, about
 11:00Z: "Interweave must become the only transport as soon as you have
 completed eventual remaining steps".
 
-§2's second-carrier bullet, rule 18's last bullet and §8 now say that
-InterWeave is the transport of record. `control_carrier` stays `dual`.
-The step to InterWeave alone is gate 3 of
+§2's second-carrier bullet, rule 18's last bullet and §8 now record
+the word and the report. Under `dual` nothing changes: the relay stays
+the transport of record, posted and read first, as `carrier_cfg.py`
+defines `dual`, and ADR-033 §7 stays true as written. InterWeave
+becomes the record when `control_carrier` names it alone. That step is
+gate 3 of
 `docs/proposals/gzcoord-interweave-only-cutover.md`, because two things
 still ride the relay. The state stream's readers, Fleet Deck's dots
 among them, read idle with the relay down on 2026-11-26. The four
