@@ -7,11 +7,22 @@ read-back. Both drills ran on the owner's word of 2026-11-26 ("Now,
 tonight", given in the coordinator's session), at night, so traffic was
 light. Every account ran fabric cfd65a1e and was in `carrier-record`
 beforehand, 0 stranded (`fabric-ctl all interweave`). Run and filed by
-fabric-coordinator on develop-qzapp (job j918). The computed report,
-`gzcoord-carrier parity` over the evidence collected again at 07:15Z (the first
-collection, at 03:20Z, is the one the UNSETTLED below was read from), is
+fabric-coordinator on develop-qzapp (job j918). The computed report is
 [2026-11-26-gate-2-drills-computed.md](2026-11-26-gate-2-drills-computed.md).
 This record decides nothing by itself: the gate is the owner's word.
+
+**How it was computed.** The evidence was collected twice with
+`fabric-ctl all interweave-evidence --since 2026-11-26T00:30:00Z --until <T>`,
+from all 30 accounts: first with `--until 2026-11-26T03:20:00Z` (the
+UNSETTLED reading below), then with `--until 2026-11-26T07:10:33Z`,
+which finished at 07:10:51Z. Both collections were judged with
+`gzcoord-carrier parity --window 2026-11-26T00:30:00Z 2026-11-26T02:20:00Z
+--collected <dir> --carrier-drill 2026-11-26T00:40:58Z 2026-11-26T01:11:46Z
+python-dev-03 --relay-drill 2026-11-26T01:15:56Z 2026-11-26T02:16:13Z`.
+The second collection's output is filed unedited. Its line "Arrivals were
+collected 60 minutes beyond each edge of the window" is the renderer's
+fixed margin. The collection itself reached 07:10:33Z, so it holds the
+07:09:06Z relay copies counted below.
 
 ## Drill A: python-dev-03's carrier stopped for 31 minutes
 
@@ -50,7 +61,7 @@ window: the night's traffic to that account was the probes.
 | replay (`gzcoord-inbox --replay`) | exit 0, the journal row, sender verified by a carrier | as python-dev-02 |
 | `fabric-jobs add --request` | exit 1, "already j188" (the intake had it) | exit 1, "already j187" |
 | `fabric-pr arm --authorization` | **not exercised**: see below | **not exercised** |
-| the watch | ended on delivery, re-armed; never gave up | ran through without ending |
+| the watch | ended on delivery, re-armed; never gave up | ended on delivery and re-armed (01:16:45Z), started again at 01:19:44Z after no end line, never gave up (watch log, in the computed report); its REPLY: armed 01:19Z and still running at 01:32Z |
 
 `fabric-pr arm 708 --dry-run --any-owner --authorization <id>` was the
 only PR the pair could name. It refused on #708's missing claude review
@@ -65,17 +76,26 @@ and their relay copy came back acknowledged. The backfill posted each
 one to the relay after its return, 414 s to 3618 s late. No watch on
 any of the 30 accounts gave up during the hour.
 
-Read first at 03:20Z, the drill was UNSETTLED on two pairs to
-ux-designer-01 (`01a21595-4ce7`, `01a2159d-f506`): its watch ended on a
-delivery at 02:10:05Z and logged no start until 07:09Z. The session was
-not deaf. It sat at a permission prompt from the fabric's own
-`self-kill-guard.py`, which read the quoted heredoc of a
-`gh pr create` body as commands (a false positive), so the session
-never got back to re-arm its watch. The coordinator declined the
-prompt in its pane at about 07:05Z on the owner's word. The session
-re-armed, and both relay copies were read and acknowledged at
-07:09:06Z. Collected again, the report's relay misses went from 3 to 0.
-The guard's defect is a job of its own.
+Read first from the 03:20Z collection, the drill was UNSETTLED on two
+pairs to ux-designer-01 (`01a21595-4ce7`, `01a2159d-f506`). What
+follows was observed by the coordinator:
+- **From ux-designer-01's watch log** (`fabric-ctl ux-designer-01
+  interweave-evidence`, read at 03:21Z, 06:10Z and 07:10Z): the watch
+  ended on a delivery at 02:10:05Z, and its next start was 07:09:32Z.
+- **In the session's pane** (read through the fleet deck at about 07:00Z):
+  it sat at a confirmation prompt from the fabric's own
+  `runtime/claude-code/hooks/self-kill-guard.py`. The prompt was raised
+  on a `gh pr create` whose body was written by a quoted heredoc.
+- **Replaying that command through the guard** reproduces the prompt.
+  It needs a `'` inside the double-quoted `--title` after the heredoc,
+  and the same body with a plain title passes. So the guard read data
+  as commands: a false positive, filed as job j1103.
+
+The coordinator declined the prompt in that pane at about 07:05Z, on
+the owner's word, and the session re-armed its watch. The second
+collection's acknowledgement log shows both relay copies read and
+acknowledged at 07:09:06Z, and its report puts relay misses at 0,
+down from 3.
 
 ## W12's read-back
 
