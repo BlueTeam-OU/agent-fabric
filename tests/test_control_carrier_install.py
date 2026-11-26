@@ -204,10 +204,12 @@ class Systemd:
 
     def __call__(self, argv, **kw):
         name = os.path.basename(argv[0])
-        if name not in ("systemctl", "gzcoord-carrier", "journalctl"):
+        if name not in ("systemctl", "gzcoord-carrier", "journalctl", "loginctl"):
             return subprocess.run(argv, **kw)
         self.calls.append(list(argv))
         done = lambda rc=0, out="": subprocess.CompletedProcess(argv, rc, out, "")   # noqa: E731
+        if name == "loginctl":                 # the start's linger question; the host's real answer is not the test's
+            return done(0, "yes\n")
         if name == "journalctl":
             if self.hang == "journal":
                 raise subprocess.TimeoutExpired(argv, kw["timeout"])
@@ -221,6 +223,8 @@ class Systemd:
         if not self.manager:
             raise FileNotFoundError("systemctl")
         verb = argv[2]
+        if verb in ("enable", "disable"):      # a start's and a stop's; UnitSystemd gives them their effect
+            return done()
         if verb == "show":
             if self.hang == "show":
                 raise subprocess.TimeoutExpired(argv, kw["timeout"])
@@ -1259,14 +1263,15 @@ class DownloadLease(Case):
         self.assertEqual(iw.DOWNLOAD_LEASE, "interweave-download")
 
 
-class Channel(Case):
-    """ADR-064 rule 14: the units that were running are restarted and checked; a check that fails puts the previous programs back."""
+class PreviousPrograms(Case):
+    """An account with programs of its own, which a failed install must put back."""
 
-    def seed_old(self, names=("transportctl", "transport-daemon")) -> dict:
+    def seed_old(self, names=("transportctl", "transport-daemon"), pinned=False) -> dict:
+        """pinned: the programs print what the current pin says, as an account does whose pin has not moved."""
         os.makedirs(self.bindir)
         old = {}
         for n in names:
-            body = program(n, f"{n} 0.0.9+old")
+            body = program(n, None if pinned and n in REPORTS else f"{n} 0.0.9+old")
             with open(os.path.join(self.bindir, n), "wb") as fh:
                 fh.write(body)
             os.chmod(os.path.join(self.bindir, n), 0o755)
@@ -1281,6 +1286,10 @@ class Channel(Case):
         self.assertIsNone(iw.read_marker(self.state), "no marker for programs that did not stay")
         self.assertFalse(os.path.exists(os.path.join(self.state, iw.WORK)))
         self.assertEqual([n for n in self.installed_names() if n.startswith(".")], [], "no temporary file in the bin directory")
+
+
+class Channel(PreviousPrograms):
+    """ADR-064 rule 14: the units that were running are restarted and checked; a check that fails puts the previous programs back."""
 
     def test_nothing_running_means_no_restart_and_the_reply_says_so(self):
         self.release()
@@ -1357,7 +1366,7 @@ class Channel(Case):
         r = self.install()
         self.assertEqual(r["status"], "failed")
         self.assertIn("status exited 3", r["checks"][0]["reason"])
-        self.assertEqual(self.systemd.restarts, [DAEMON_UNIT, CLIENT_UNIT, DAEMON_UNIT, CLIENT_UNIT])
+        self.assertEqual(self.systemd.restarts, [DAEMON_UNIT, CLIENT_UNIT], "restarted once; the stop-and-start retry is its own test")
         self.assert_previous_back(old)
 
     def test_a_carrier_that_answers_on_a_later_look_passes(self):
@@ -1588,6 +1597,99 @@ class Channel(Case):
 
     def read_channel(self):
         return iw.installed(self.home, self.state, root=self.root, run=self.systemd)["channel"]
+
+
+class Retry(PreviousPrograms):
+    """j165: a running pair that did not answer after the restart is stopped and started as a start does before any rollback, and a
+    rollback onto programs the pin refuses is said not to carry. UnitSystemd's manager (enable, disable, loginctl)."""
+
+    def setUp(self):
+        super().setUp()
+        self.systemd = UnitSystemd()
+        self.systemd.proc = os.path.join(self._tmp.name, "proc")
+        self.systemd.bindir = os.path.join(self.home, ".local", "bin")
+
+    def running_pair(self):
+        """What an account that has carried before has (the start refuses one without the client unit's program), both units running."""
+        path = os.path.join(self.home, iw.CLIENT_PROGRAM_REL)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(CLIENT_BYTES)
+        os.chmod(path, 0o755)
+        reserved = os.path.join(iw.PROC_ROOT, iw.RESERVED_PORTS_REL)
+        os.makedirs(os.path.dirname(reserved), exist_ok=True)
+        with open(reserved, "w") as fh:
+            fh.write("47100-47199\n")
+        self.systemd.states = {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}
+
+    def test_a_pair_that_did_not_answer_is_stopped_and_started_again_and_the_install_stays(self):
+        self.release()
+        self.seed_old()
+        self.running_pair()
+        self.systemd.status_rcs = [3] * iw.CHECK_POLLS + [0]      # the restart's check gives up, the start's longer wait is answered
+        r = self.install()
+        self.assertEqual(r["status"], "installed", r)
+        self.assertEqual(r["units"]["check"], "passed")
+        self.assertIn("stopped and started again", r["units"]["path"])
+        self.assertEqual(self.systemd.restarted, [DAEMON_UNIT, CLIENT_UNIT])
+        self.assertEqual(self.systemd.disabled, [CLIENT_UNIT, DAEMON_UNIT], "stopped, the client first")
+        self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT], "started as a start does")
+        self.assertIsNotNone(iw.read_marker(self.state), "the new programs stay")
+        self.assertEqual(digest_of(os.path.join(self.bindir, "transportctl")), r["programs"]["transportctl"])
+
+    def test_a_pair_that_answers_at_once_is_not_stopped(self):
+        self.release()
+        self.running_pair()
+        r = self.install()
+        self.assertEqual((r["status"], self.systemd.disabled, self.systemd.enabled), ("installed", [], []))
+        self.assertNotIn("path", r["units"])
+
+    def test_only_a_pair_that_ran_is_stopped_and_started(self):
+        self.release()
+        old = self.seed_old()
+        self.running_pair()
+        self.systemd.states = {DAEMON_UNIT: "active"}
+        self.systemd.exe = "/elsewhere/transport-daemon"          # the daemon does not run the installed program: the check fails
+        r = self.install()
+        self.assertEqual((r["status"], self.systemd.disabled, self.systemd.enabled), ("failed", [], []), "a start would start the unit that did not run")
+        self.assert_previous_back(old)
+
+    def test_a_retry_that_fails_too_rolls_back_says_both_and_leaves_the_units_running(self):
+        self.release()
+        old = self.seed_old()
+        self.running_pair()
+        self.systemd.status_rcs = [3]
+        r = self.install()
+        self.assertEqual((r["status"], r["restored"]), ("failed", True))
+        self.assertIn("stopped, started again and failed too", r["reason"])
+        self.assertEqual(r["retry"]["status"], "failed")
+        self.assertEqual([c["status"] for c in r["checks"]], ["failed", "failed"])
+        self.assertEqual(self.systemd.states, {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}, "not left stopped by the retry")
+        self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT] * 2, "the retry's start, then enabled again, which its disable had undone")
+        self.assertEqual(self.systemd.restarted, [DAEMON_UNIT, CLIENT_UNIT], "the units came up by enable --now, not a restart of disabled units")
+        self.assert_previous_back(old)
+
+    def test_previous_programs_the_pin_refuses_are_not_carrying_and_the_reply_says_so(self):
+        self.release()
+        old = self.seed_old()                                      # 0.0.9: the pin names another version
+        self.running_pair()
+        self.systemd.exe = "/elsewhere/transport-daemon"
+        r = self.install()
+        self.assertEqual((r["status"], r["restored"], r["carrying"]), ("failed", True, False))
+        self.assertIn("the previous programs are back", r["reason"])
+        self.assertIn("NOT carrying", r["reason"])
+        self.assertIn("the pin says", r["reason"], "the pin's own refusal is quoted")
+        self.assert_previous_back(old)
+
+    def test_previous_programs_the_pin_accepts_are_carrying(self):
+        self.release()
+        old = self.seed_old(pinned=True)
+        self.running_pair()
+        self.systemd.exe = "/elsewhere/transport-daemon"
+        r = self.install()
+        self.assertEqual((r["status"], r["restored"], r["carrying"]), ("failed", True, True))
+        self.assertNotIn("NOT carrying", r["reason"])
+        self.assert_previous_back(old)
 
 
 class ClientProgram(Case):
@@ -1928,6 +2030,40 @@ class StartStop(StartStopHarness):
         # the positive control: the same table without that socket, and one on a port that is not the account's, start
         self.tcp_table("   0: 0100007F:B81B 0100007F:0016 01 00000000:00000000 02:000957A2 00000000  1000        0 440987 2\n")
         self.assertEqual(self.start()["status"], "started")
+
+    def test_a_port_in_time_wait_is_waited_for_and_the_start_goes_on(self):
+        self.roster_row("agent", 47130)
+        row = "   0: 0100007F:B81A 0100007F:C8FE 06 00000000:00000000 03:00000A2C 00000000     0        0 0 3\n"
+        self.tcp_table(row)
+        naps = []
+
+        def nap(seconds):
+            naps.append(seconds)
+            if len(naps) == 3:
+                self.tcp_table()                                   # the kernel's 60 s are up
+        r = self.start(sleep=nap)
+        self.assertEqual(r["status"], "started", r)
+        self.assertEqual(naps[:3], [iw.PORT_POLL_S] * 3)
+        self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT])
+
+    def test_a_port_that_stays_in_time_wait_is_refused_after_the_bound_and_nothing_is_touched(self):
+        self.roster_row("agent", 47130)
+        self.tcp_table("   0: 0100007F:B81A 0100007F:C8FE 06 00000000:00000000 03:00000A2C 00000000     0        0 0 3\n")
+        naps = []
+        r = self.start(sleep=naps.append)
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("TIME_WAIT connection of uid 0", r["reason"])
+        self.assertIn(f"still there after {iw.PORT_WAIT_S} s", r["reason"])
+        self.assertEqual((len(naps), sum(naps)), (iw.PORT_WAIT_S // iw.PORT_POLL_S, iw.PORT_WAIT_S), "bounded, not forever")
+        self.nothing_touched()
+
+    def test_a_port_held_by_anything_but_time_wait_is_not_waited_for(self):
+        self.roster_row("agent", 47130)
+        self.tcp_table("   0: 0100007F:B81A 0100007F:C8FE 06 00000000:00000000 03:00000A2C 00000000     0        0 0 3\n",
+                       "   1: 0100007F:B81A 0100007F:0016 01 00000000:00000000 02:000957A2 00000000  1000        0 440987 2\n")
+        naps = []
+        r = self.start(sleep=naps.append)
+        self.assertEqual((r["status"], naps), ("refused", []), "a connection somebody holds is not cleared by time")
 
     def test_a_daemon_that_runs_holds_its_own_port_and_the_start_goes_on(self):
         self.roster_row("agent", 47130)
@@ -2418,7 +2554,8 @@ class StartStopWiring(Case):
                          + sysctl                                       # the restart of the one unit that ran
                          + 2 * sysctl                                   # enable --now, daemon then client
                          + c + (iw.STARTUP_STATUS_POLLS - polls) * (iw.STATUS_TIMEOUT_S + iw.POLL_S)
-                         + 2 * sysctl + 2 * settle + 20)                # a failure: disable --now both, settled
+                         + 2 * sysctl + 2 * settle                      # a failure: disable --now both, settled
+                         + iw.PORT_WAIT_S + 20)                         # the wait for a TIME_WAIT port to clear
         self.assertGreater(iw.CARRIER_STOP_BUDGET_S, 2 * iw.SYSTEMCTL_TIMEOUT_S)
 
     def test_the_daemon_answers_both_in_the_wires_reply_shape_and_a_refusal_is_one(self):
