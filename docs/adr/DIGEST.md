@@ -744,10 +744,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-18 — fabric-op admits one read, the signed `interweave` read, ADR-064 rule 14's fallback; action ttl cap (rule 19).
 - A 2026-11-22 — on dual, presence and pool/job-state holder asks also by the account's own agentd socket; the first reply read answers; self-asks by the relay, but presence in carrier-only by the socket alone (r18).
 - A 2026-11-25 — `state`, a public op: each account answers its newest state record from its own disk; `states` and the queue's readers ask it under the second carrier alone or `FABRIC_STATE_READ=op` (§2, r4, r16).
+- A 2026-11-26 — InterWeave is control's transport of record on the owner's word on the rule-18 parity report; `control_carrier` stays dual until gate 3's read-backs (§2, r18, §8).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, HOLD_MAX_S, interweave-mode,
-  state op, FABRIC_STATE_READ.
+  state op, FABRIC_STATE_READ, transport of record,
+  control parity.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process

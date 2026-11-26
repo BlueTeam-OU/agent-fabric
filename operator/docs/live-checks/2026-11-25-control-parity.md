@@ -1,5 +1,7 @@
 # Control parity after the no-waiter fix — 2026-11-25
 
+*Superseded for rule 18 by [2026-11-26-control-parity-rule-18.md](2026-11-26-control-parity-rule-18.md): #709 closed the upgrade gap found here, and that report is the one the owner's word was given on.*
+
 *Host develop-qzapp, account `user` (fabric-coordinator), job j1071. The
 second run of `gzcoord-carrier control-parity`, over 37.5 hours that start
 once python-dev-04's j160 fix (#697, follow-ups #701 and #704) was live.

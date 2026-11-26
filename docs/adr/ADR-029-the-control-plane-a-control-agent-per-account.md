@@ -7,7 +7,7 @@
 **Scope:** runtime/control/, every module and the unit file, and its Python package tools/fabric/control/ from its creation (ADR-040 Wave 8); bin/fabric-ctl; the control channel's refusal in GZCoord's inbox and send tools; the unit's installation in tools/fabric/bootstrap.py; tools/fabric/local_settings.py (rule 15) and runtime/claude-code/hooks/session-state.py (rule 16); account persistence (runtime/provisioning/persist-accounts.sh, runtime/provisioning/platform/qubes/agent-fabric-accounts.rc); the fallbacks bin/fabric-usage and bin/fabric-host; bin/fabric-op, the break-glass action path (rule 19)
 **Pillar:** P5
 **Class:** engine
-**Evidence:** docs/live-checks/2026-09-17-control-plane.md, docs/live-checks/2026-11-13-control-dual-two-accounts.md, docs/live-checks/2026-11-14-agentd-restart-held-by-ctl-session.md
+**Evidence:** docs/live-checks/2026-09-17-control-plane.md, docs/live-checks/2026-11-13-control-dual-two-accounts.md, docs/live-checks/2026-11-14-agentd-restart-held-by-ctl-session.md, docs/live-checks/2026-11-26-control-parity-rule-18.md
 
 ## 1. Context and Problem
 
@@ -44,8 +44,9 @@ sudo are in the loop.
   it, agentd also holds its InterWeave profile's `fabric-control`
   endpoint through the command-line client `interweave-human`, and the
   operator's agentd carries `fabric-ctl`'s sends. A record is the same
-  JSON object, one message each. On the relay's host the relay stays the
-  transport of record until the owner's word on a control parity report.
+  JSON object, one message each. InterWeave is the transport of record,
+  on the owner's word on the control parity report (A 2026-11-26); the
+  relay carries beside it until `control_carrier` names InterWeave alone.
 - **No delivery, only reading.** Every daemon reads every record and
   answers only what names it (`to`: its address, a list holding it, or
   `*`); the coordinator reads replies by `in_reply_to`. A daemon keeps no
@@ -394,12 +395,21 @@ with Doppler (ADR-038 §5 rule 8).
     - `interweave`, `interweave-install`, `interweave-start` and
       `interweave-stop` go on the relay only (ADR-064 rule 14);
       `interweave-evidence` goes by both, as any other op;
-    - the relay stays the transport of record. InterWeave becomes it on
-      the owner's word, given on a parity report in `docs/live-checks/`
+    - InterWeave is the transport of record (A 2026-11-26), on the
+      owner's word given on a parity report in `docs/live-checks/`
       (every request id and addressee with the carriers that carried
       the request and the reply, p50 and p95 per carrier, each miss
       with its cause, and an `interweave-stop` drill mid-window with
-      every request still answered), as an amendment of this record.
+      every request still answered):
+      `operator/docs/live-checks/2026-11-26-control-parity-rule-18.md`.
+      The relay still carries beside it under `dual`. `control_carrier`
+      names InterWeave alone once gate 3 of
+      `docs/proposals/gzcoord-interweave-only-cutover.md` is read back:
+      the state stream's readers, Fleet Deck's included, off the
+      relay, and the four relay-only ops above through `fabric-op`
+      (rule 19), over SSH to a second host included. Until then a read
+      to an account whose InterWeave leg is down is answered by the
+      relay alone; under InterWeave alone it would go unanswered.
 19. An action reaches an account with no relay only through
     `bin/fabric-op` (`tools/fabric/control/breakglass.py`), the
     break-glass path (A 2026-10-30). The operator runs `fabric-ctl
@@ -489,8 +499,10 @@ with Doppler (ADR-038 §5 rule 8).
 Accepted. The control agent, the channel, the read ops and the signed
 actions are in use on every placed account. Rule 18's second carrier is
 built (#571), its read path read back between two accounts of one host,
-and `control_carrier` is `dual` for the fleet (A 2026-11-13): the relay
-stays the transport of record, InterWeave the carrier beside it.
+and `control_carrier` is `dual` for the fleet (A 2026-11-13).
+InterWeave is the transport of record on the owner's word on the rule-18
+parity report (A 2026-11-26), and the relay carries beside it until gate
+3 of the cutover plan switches `control_carrier` to InterWeave alone.
 
 ## References
 
@@ -559,3 +571,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-11-18 | fabric-op admits the signed InterWeave read | §5 rule 19: the `interweave` read, ADR-064 rule 14's fallback under `control_carrier` naming InterWeave alone, admitted under an action's ttl cap, no replay-floor claim (#656) |
 | 2026-11-22 | Presence and the queue's holder asks also go through the account's own agentd on dual | §5 rule 18: under `dual`, the presence check and `pool-list`, `pool-claim` and `job-state` hand the request to the asking account's own socket beside the relay post; the first reply read answers, an InterWeave one attributed by PeerId, a relay one by its claimed `from`; a self-ask or no socket by the relay alone, except presence in `carrier-only`, socket only; `waits` relay-only (#586, j832) |
 | 2026-11-25 | Each account answers its newest state record | §2 table: `state`, a fifth public op; §5 rule 4: public, the record being the state channel's; rule 16: kept on the account's disk and asked by the readers under the second carrier alone or `FABRIC_STATE_READ=op`; built in #640 |
+| 2026-11-26 | InterWeave is control's transport of record | §2: the second-carrier bullet; §5 rule 18: its last bullet, the owner's word on the rule-18 parity report, `control_carrier` InterWeave alone after gate 3's read-backs; §8; Evidence: `2026-11-26-control-parity-rule-18.md` (j1071) |
