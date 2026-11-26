@@ -346,8 +346,15 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     the programs `release.json` `reports` pins printing their pinned
     version; the carrier, which is the fabric's own client and not an
     archive program, answering `status`. It reports done only after that
-    check. A failed check puts back the programs the account had,
-    restarts them, checks again and reports a failure with both results.
+    check. When both units were running and the manager answered, a
+    failed check is first answered by stopping both units and starting
+    them once more, with the start's own wait (A 2026-11-26), and only a
+    failed second check goes on. A failed check puts back the programs the
+    account had, restarts them, checks again and reports a failure with
+    every result; when the pin refuses the programs put back, the reply
+    says the account is not carrying, with the pin's refusal. A start
+    whose own port is held only by sockets in TIME_WAIT waits up to 75
+    seconds for them to clear; any other holder refuses it at once.
     On a first install no unit was running and there is nothing to put
     back: the check is the pinned programs' version, and the reply says
     that no unit was running. The same check is the control plane's read
@@ -483,3 +490,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-18 | The data plane's first gate: the record is the account's mode's | §2 dual run; §5 rule 7: in `carrier-record` the carrier's acceptance sets the row, the exit status the primary's alone; §5 rule 11: InterWeave is the record in `carrier-record` (gate 1, ADR-033) |
 | 2026-11-18 | The carrier's own ops when control rides InterWeave alone | rule 14: install, start and stop by the break-glass path; the read over InterWeave, read again by that path after 30 s (#656) |
 | 2026-11-18 | An account starts its own carrier | rule 14: its login starts its own carrier and daemon units when both are down but enabled and the pinned programs are installed, unsigned, under the account's install/start/stop lock, and only while no mark of a failed or interrupted self-start stands, with the same check; install, update, restart and stop stay control-plane actions |
+| 2026-11-26 | A pair that did not answer is started again before a rollback | rule 14: both running units that fail the check are stopped and started once before the programs are put back; a rollback onto programs the pin refuses is reported not carrying; a start waits up to 75 s for TIME_WAIT on its own port (#715) |
