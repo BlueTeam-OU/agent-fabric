@@ -157,6 +157,14 @@ class Section(Scratch):
         self.process(12, "gzcoord-inbox", "--until-delivery")
         self.assertFalse(self.run_section(unread=1)["deaf"])
 
+    def test_a_process_table_that_cannot_be_read_is_unknown_not_no_watch(self) -> None:
+        self.log({"t": iso(-4000), "event": "start", "pid": 11})
+        self.assertTrue(self.run_section(unread=1)["deaf"])   # the control: a readable table with no watch
+        ctx = {"deaf_opts": {"now": NOW, "state": self.state, "uid": UID, "proc": os.path.join(self.proc, "absent"), "is_watch": lambda argv: False}}
+        r = deaf.section(ctx, presence=lambda: {"status": "ok", "online": True, "since": None},
+                         inbox=lambda: {"status": "ok", "unread": 1}, jobs=lambda: {"status": "ok", "jobs": []})
+        self.assertEqual(r["status"], "unknown")
+
     def test_the_real_predicate_reads_a_fake_proc(self) -> None:
         self.process(21, "/usr/bin/python3", "/x/bin/gzcoord-inbox", "--until-delivery")
         is_watch = deaf.load_is_watch(HERE)
@@ -290,6 +298,9 @@ class Table(unittest.TestCase):
         self.assertIn("DEAF", text.split("\n")[1])
         self.assertIn("no (x)", text.split("\n")[2])
         self.assertIn("deaf", [v.name for v in ctl.VERBS])
+        # the status verb's own row carries it, beside the harness and inbox cells
+        self.assertIn("DEAF 50 min", ctl._drift_cells({"account": "a", "deaf": row("a", "end@1")["deaf"]}))
+        self.assertNotIn("DEAF", ctl._drift_cells({"account": "a", "deaf": row("a", None)["deaf"]}))
 
 
 class Cli(unittest.TestCase):
