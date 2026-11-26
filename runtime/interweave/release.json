@@ -1,7 +1,7 @@
 {
   "version": 1,
   "description": "The InterWeave release every account installs (agent-fabric ADR-064 §5 rule 4): a tagged release's Linux archive, pinned by the SHA-256 fabric-coordinator computed from its own download and matched against the release page, the page's .sha256 asset and the release run on the tag, never taken from the page alone. An account installs `current` by downloading `url` (the asset endpoint, asked with Accept: application/octet-stream) with its GitHub token, refusing any other digest or size, extracting the archive and running the archive's own `root`/install.sh with no argument (programs into ~/.local/bin, the two user-unit templates into ~/.config/systemd/user, nothing enabled, no profile touched); never a checkout build. `reports` is what the programs the fleet runs must print under --version: transportctl and transport-daemon, and from 0.3.0 interweave-human, which agentd runs as the control plane's carrier (ADR-029 rule 18, j422 F1); the archive's other programs (human-desktop) are installed by install.sh and not checked. `program_sha256` is the SHA-256 of those same programs as the archive carries them and install.sh copies them unchanged into ~/.local/bin, so a tool that runs one (roster-row) can refuse a lookalike, a checkout build of the same commit included, which prints the same --version. Moving the pin is a commit here, and the accounts install the new one. `minisign` is the owner's signature of the archive, which the installer checks before extracting, beside the digest: `public_key` is InterWeave packaging/release-keys.toml's [archive] minisign_public_key as it stood at `release_keys_commit` on InterWeave's main (the key its release job signs with), and `signature`, `trusted_comment` and `global_signature` are lines 2, 3 (after \"trusted comment: \") and 4 of the release's `<name>.minisig` asset; the signature is the prehashed kind (ED), the trusted comment must name `file:<name>`, and a release with `unsigned` in place of `minisign` (one that predates the key) is never installed.",
-  "current": "0.3.0",
+  "current": "0.4.0",
   "releases": {
     "0.1.0": {
       "tag": "v0.1.0",
@@ -83,6 +83,38 @@
           "signature": "RUThBWgfksKOW7unMaUimGYyi8qQVACkVeK5ZIc9uL8x423KXg03kUvlsWqLYxN47RHFYGLL2cje9gDs3ztJqX5t/Qn3mo0EqQI=",
           "trusted_comment": "timestamp:1794486226\tfile:interweave-0.3.0-x86_64-unknown-linux-gnu.tar.gz\thashed",
           "global_signature": "Hptjmfr6QAbVKDJLX5lI4UWNrTM3mnnomMgBxnSFbaaZ4wozVg4nH8hLZevDp0s8gJ/TX8MrIszwphv7Y+woAg=="
+        }
+      }
+    },
+    "0.4.0": {
+      "tag": "v0.4.0",
+      "commit": "1b285844952b0bacee8867fdab69714ea98be765",
+      "release_run": "BlueTeam-OU/InterWeave actions run 44354889876 attempt 1, success",
+      "minisign": {
+        "public_key": "RWThBWgfksKOWwyUdI0RKNXvsbRU5wqjGS3PPQc0oJ6R9rjV1kPoiJs4",
+        "key_id": "5B8EC2921F6805E1",
+        "release_keys_commit": "00eb473f5e20c9560a0f040d77966f3e5bc2e784"
+      },
+      "x86_64": {
+        "url": "https://api.github.com/repos/BlueTeam-OU/InterWeave/releases/assets/764291449",
+        "name": "interweave-0.4.0-x86_64-unknown-linux-gnu.tar.gz",
+        "size": 125730583,
+        "sha256": "22108168ae5c29a7336015f83eb9b0164efc77993c63ab8c819704cd0f65a2e9",
+        "root": "interweave-0.4.0-x86_64-unknown-linux-gnu",
+        "reports": {
+          "transportctl": "transportctl 0.4.0+1b285844952b",
+          "transport-daemon": "transport-daemon 0.4.0+1b285844952b",
+          "interweave-human": "interweave-human 0.4.0+1b285844952b"
+        },
+        "program_sha256": {
+          "transportctl": "a07d1dcf1d9c17e4bea078770850ad19001e86b49e7824e0ef2d34cd288fbff9",
+          "transport-daemon": "42a38f77a68ec129d4d49e6fa885430f4ed1e47de851d8985eaeb255883c5034",
+          "interweave-human": "309cf16001274ebb4408f25424505346f15db3d216731fa80cd86d232e6eca4b"
+        },
+        "minisig": {
+          "signature": "RUThBWgfksKOW/Ehy7ysDWmy6N8I6dqYaEHLrOMG1QJhTcVEDdBJ/xsuU8Lzr6opf5TbvljRCWJLSVALGx76p38Qosf9ywgl2wA=",
+          "trusted_comment": "timestamp:1795022487\tfile:interweave-0.4.0-x86_64-unknown-linux-gnu.tar.gz\thashed",
+          "global_signature": "PmKo43KlUywMRQ2WJlFA+nlCOtgbvfXtVvSj5/2yXKkiOpuwFOYIO39JBo0RXGfw5TSth/t3a025oWZgspURCg=="
         }
       }
     }

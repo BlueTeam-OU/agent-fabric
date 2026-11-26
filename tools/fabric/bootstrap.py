@@ -70,10 +70,12 @@ Writes, idempotently, and only machine-local files:
                                      agent-fabric ADR-034 §7), the timer enabled likewise
   <units>/agent-fabric-drain.{service,timer}
   <units>/agent-fabric-scheduled-red.{service,timer}
+  <units>/agent-fabric-deaf-alarm.{service,timer}
                                      ONLY on an account bound to fabric-coordinator: the weekly
-                                     collection of undrained memory (fabric-drain-due; ADR-034 §7)
-                                     and the daily read of the stripped nightly's scheduled run
-                                     (scheduled_red.py; j109), the timers enabled likewise; on any
+                                     collection of undrained memory (fabric-drain-due; ADR-034 §7),
+                                     the daily read of the stripped nightly's scheduled run
+                                     (scheduled_red.py; j109) and the 5-minute look for sessions
+                                     idle with no inbox watch (deaf_alarm.py; j188), the timers enabled likewise; on any
                                      other role the fabric's own copies are disabled and removed
   ~/.cache/agent-fabric/langid/venv/ the language detector (pycld2) for the control agent's
                                      script op (runtime/langid/), best effort
@@ -276,9 +278,9 @@ RELAY_UNIT = "gzcoord-relay"
 BACKUP_UNIT = "agent-fabric-state-backup"
 RELAY_BACKUP_UNIT = "agent-fabric-relay-backup"
 TIDY_UNIT = "agent-fabric-tidy"
-# The timers whose work is the coordinator's: each files a job only a
-# coordinator acts on (the drain, a red nightly's fixes to contract).
-COORDINATOR_UNITS = ("agent-fabric-drain", "agent-fabric-scheduled-red")
+# The timers whose work is the coordinator's: each files a job or a message only a
+# coordinator acts on (the drain, a red nightly's fixes to contract, a deaf session).
+COORDINATOR_UNITS = ("agent-fabric-drain", "agent-fabric-scheduled-red", "agent-fabric-deaf-alarm")
 COORDINATOR_ROLE = "fabric-coordinator"
 HARNESS_UNIT = "agent-fabric-harness"
 RELAY_STATUS = "http://127.0.0.1:8765/status"
@@ -1294,12 +1296,13 @@ class Bootstrap:
 
     def coordinator_timers(self, role: str) -> None:
         # 6d. The coordinator's timers (COORDINATOR_UNITS): installed on an
-        #     account whose binding holds fabric-coordinator, mechanics the state
-        #     backup's (6a). Elsewhere a job they file lands where nobody acts on
-        #     it, so an account rebound away has the fabric's copies disabled and
-        #     removed; a file the fabric did not write is a person's and stays,
-        #     as tree_skills keeps one. The role is the binding at bootstrap: a
-        #     rebind takes effect at the next `fabric-ctl upgrade fabric`.
+        #     account whose binding holds fabric-coordinator, mechanics the
+        #     state backup's (6a). Elsewhere a job or message they file lands
+        #     where nobody acts on it, so an account rebound away has the
+        #     fabric's copies disabled and removed; a file the fabric did not
+        #     write is a person's and stays, as tree_skills keeps one. The role
+        #     is the binding at bootstrap: a rebind takes effect at the next
+        #     `fabric-ctl upgrade fabric`.
         for unit in COORDINATOR_UNITS:
             files = [os.path.join(self.units, f"{unit}.{suffix}") for suffix in ("service", "timer")]
             if role == COORDINATOR_ROLE:

@@ -74,8 +74,9 @@ repository whose policy names `reviews`.
    against `ls-tree` of the head: its paths, modes and blob ids. Never
    `git archive`, whose `export-ignore` and `export-subst` attributes drop
    and rewrite tracked files; a path with a `.git` component or `..`, or
-   a link resolving outside the extract, refuses the review
-   (A 2026-11-05). Codex runs under a permission profile that writes
+   a link resolving outside the extract, is no review (A 2026-11-05) and
+   posts the head's unavailable marker, as ADR-055 rule 8 says
+   (A 2026-11-26). Codex runs under a permission profile that writes
    nothing and reads only Codex's platform defaults, the extract, the
    Codex binary and its tool host, and the repository's git history;
    never `--sandbox read-only`, which reads the whole filesystem
@@ -84,8 +85,10 @@ repository whose policy names `reviews`.
    write there, refuse to read a canary planted outside the allowlist,
    and read a control file in the extract; a sandbox that does not start,
    lets the write through, reads the canary or cannot read the control is
-   a failed review (A 2026-10-13). The scratch is removed on every path,
-   a timeout or failure included, and the working copy is never touched.
+   no review (A 2026-10-13) and posts the head's unavailable marker with
+   its reason, as ADR-055 rule 8 says (A 2026-11-26). The scratch is
+   removed on every path, a timeout or failure included, and the working
+   copy is never touched.
 3. **Its own gateway, never the session's credential.** Codex's base URL
    is the root of a gateway process serving `openai-responses`, and its
    key is that gateway's local key, passed by environment variable only.
@@ -95,11 +98,12 @@ repository whose policy names `reviews`.
    `remote_plugin`, `plugin_sharing`, `apps`, `in_app_updates`) are off
    in the engine's configuration, so the gateway is the only place it
    connects to (A 2026-10-13).
-4. **The answer is structured or nothing.** Codex answers with one JSON
-   object of findings (level P1-P3, file, line, scenario, expected,
-   fix). Anything else is a failed review: nothing is posted and the
-   reason is said. A posted review names the engine and model on its
-   first line and is posted with `fabric-pr post-review <PR> --model
+4. **The answer is structured, or the run is no review.** Codex answers
+   with one JSON object of findings (level P1-P3, file, line, scenario,
+   expected, fix). Anything else is no review: the head's unavailable
+   marker is posted with the reason, never a review, as ADR-055 rule 8
+   says (A 2026-11-26). A posted review names the engine and model on
+   its first line and is posted with `fabric-pr post-review <PR> --model
    codex`, the report carrying the brief's dispatch header and a
    coverage block built from the answer's required `coverage` field
    (ADR-020 §5 rule 6, ADR-065 §5 rule 4).
@@ -195,3 +199,4 @@ The body above reads current; each change's full note is in [history/ADR-053-ame
 | 2026-10-24 | Codex posts a v2 review with its coverage | §5 rule 4: the dispatch header and a coverage block from the answer's required `coverage`, no `--head` (ADR-065) |
 | 2026-11-05 | the extract is git's raw tree, verified; Codex reads an allowlist | §5 rule 2: ls-tree/cat-file extract verified against ls-tree; a read-allowlist permission profile, proved by a write and a canary-read probe |
 | 2026-11-05 | No engine reviews a record PR | §5 rule 6: a record PR on a direct project needs no engine's review, the owner's ruling being its approval (ADR-019 §5 rule 1, A 2026-11-05) |
+| 2026-11-26 | A run that is no review posts the unavailable marker | §5 rules 2 and 4: an extract refused, a failed sandbox proof or an answer that is not the JSON object posts the head's unavailable marker (ADR-055 rule 8, A 2026-11-13), no longer nothing |
