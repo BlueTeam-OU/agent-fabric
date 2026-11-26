@@ -585,3 +585,36 @@ Read back live on 2026-11-23 under `dual` by python-dev-02
 account and all 30 answered `state`, and `FABRIC_STATE_READ=op ... states`
 gave the same 30 states. Not read back: a fleet on the second carrier
 alone, and a silent account on the live fleet (the suite's).
+
+### Amendment 2026-11-26 — The owner's word on control parity is given
+
+Rule 18 kept the relay as control's transport of record until the
+owner's word on a parity report holding four parts: every request id
+and addressee with the carriers of the request and of the reply, p50
+and p95 per carrier, each miss with its cause, and an `interweave-stop`
+drill mid-window. The interim run of 2026-11-25 showed InterWeave
+lagging for the ten minutes after an `upgrade fabric`, and its agentd
+logged no relay request. python-dev-04 fixed both in #709 (j163).
+
+The report (`operator/docs/live-checks/2026-11-26-control-parity-rule-18.md`,
+j1071) covers 09:10–10:30Z on 2026-11-26 and all 30 accounts' arrival
+logs. Outside the drill, 967 pairs came by both carriers with 0 missed,
+300 of them in the ten minutes after two upgrades. In the drill
+(python-dev-02 and -03 stopped 09:32:01–09:43:51Z), all 174 pairs
+were answered, 60 by the relay alone. The owner's word followed, about
+11:00Z: "Interweave must become the only transport as soon as you have
+completed eventual remaining steps".
+
+§2's second-carrier bullet, rule 18's last bullet and §8 now record
+the word and the report. Under `dual` nothing changes: the relay stays
+the transport of record, posted and read first, as `carrier_cfg.py`
+defines `dual`, and ADR-033 §7 stays true as written. InterWeave
+becomes the record when `control_carrier` names it alone. That step is
+gate 3 of
+`docs/proposals/gzcoord-interweave-only-cutover.md`, because two things
+still ride the relay. The state stream's readers, Fleet Deck's dots
+among them, read idle with the relay down on 2026-11-26. The four
+relay-only ops reach an account by `fabric-op` only, and its SSH
+backend is not exercised (rule 19). The drill shows the cost of
+switching early: an account whose InterWeave leg is down answers no
+read.

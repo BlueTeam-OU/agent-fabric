@@ -240,9 +240,14 @@ alone" goes; the dual run ends), ADR-041 rule 7 (its relay-row half goes), ADR-0
 (the "messages between sessions" row is rewritten and the two new rows of §3 added: ADR-034
 rule 1 wants that in the same pull request).
 
-**Gate 3: the relay is retired.** A separate word, on the control parity report ADR-029 rule 18
-already asks for, plus the state stream's replacement and the four relay-only ops read back over
-`fabric-op`'s SSH backend. Records: an amendment of ADR-029 (rule 18, §2), and a new record that
+**Gate 3: the relay is retired.** The control parity report ADR-029 rule 18 asks for was filed
+(`operator/docs/live-checks/2026-11-26-control-parity-rule-18.md`, j1071) and the owner's word
+given on it on 2026-11-26 ("Interweave must become the only transport as soon as you have
+completed eventual remaining steps"): ADR-029 was amended that day to record it, with
+`control_carrier` still `dual` and the relay still the record. What remains is the state stream's
+replacement (Fleet Deck's dots read idle with the relay down) and the four relay-only ops read
+back over `fabric-op`'s SSH backend; then `control_carrier` names InterWeave alone. Records: a
+further amendment of ADR-029 (rule 18, §2, §8) for that switch, and a new record that
 retires the relay and supersedes ADR-033's deployment rules (5 and 6) and ADR-034 §7's first
 step; ADR-069 loses the relay rows. This plan sizes it only as far as §5's W16.
 
