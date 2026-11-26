@@ -415,6 +415,87 @@ class PinnedDigest(Scratch):
         self.assertFalse([l for l in logs if l.startswith("not starting")], logs)
 
 
+class LegReady(Net):
+    """j163: after a restart the first InterWeave replies failed or came 5-91 s late because the roster (gpg per row) was verified
+    inside the first send's budget and agentd took requests before its child had a session."""
+
+    def start(self, slow: float = 0.2, **kw):
+        sock_dir = self.scratch()
+        self.ready_file = os.path.join(self.scratch(), "ready")
+        logs: list[str] = []
+        calls: list[bool] = []
+        sock = self.sock = os.path.join(sock_dir, "agent-fabric", cc.SOCKET_NAME)
+
+        def rows():
+            calls.append(os.path.exists(sock))   # whether fabric-ctl could already connect while the roster was being verified
+            time.sleep(slow)
+            return ROWS
+        env = {"PATH": os.environ["PATH"], "XDG_RUNTIME_DIR": sock_dir, "HOME": self.scratch()}
+        child_env = {"PATH": os.environ["PATH"], "FAKE_NET": self.net, "FAKE_PEER": PEERS["alice"], "FAKE_READY_FILE": self.ready_file}
+        directory = cc.Directory(rows, "h", lambda: PLACED, log=logs.append)
+        with mock.patch.dict(os.environ, {"AGENT_FABRIC_STATE_DIR": self.scratch()}), mock.patch.object(cc, "child_env", lambda e=None: child_env):
+            running = cc.start_for_agentd(me="h/alice", on_request=lambda r, s: None, placed=lambda: PLACED, env=env, log=logs.append,
+                                          argv=[sys.executable, FAKE, *cc.LISTEN_ARGS], directory=directory, **kw)
+        self.addCleanup(running.stop)
+        return running, directory, logs, calls, sock
+
+    def test_it_returns_with_the_roster_verified_and_the_child_in_session_and_binds_the_socket_last(self):
+        threading.Timer(0.6, lambda: open(self.ready_file, "w").close()).start()
+        t0 = time.monotonic()
+        running, directory, logs, calls, sock = self.start(ready_wait_s=20)
+        self.assertGreaterEqual(time.monotonic() - t0, 0.5, "returned before the child had its session")
+        self.assertEqual(running.carrier.child.state, "ok", logs)
+        self.assertEqual(calls, [False], "the roster was verified once, and before the socket was bound")
+        self.assertTrue(os.path.exists(sock))
+        t1 = time.monotonic()
+        self.assertEqual(directory.address_of(PEERS["bob"]), "h/bob")
+        self.assertLess(time.monotonic() - t1, 0.1, "the first lookup after the start verified the roster again")
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(any("roster verified in" in l and "child ok" in l for l in logs), logs)
+
+    def test_a_leg_not_ready_in_time_is_said_and_the_socket_is_still_served(self):
+        # the positive control of the case above: the same child, its ready file never made
+        running, _d, logs, _calls, sock = self.start(ready_wait_s=0.5)
+        self.assertEqual(running.carrier.child.state, "restarting")
+        self.assertTrue(any("not ready in 0.5 s" in l for l in logs), logs)
+        self.assertTrue(os.path.exists(sock))
+
+    def test_without_a_wait_nothing_is_held_back(self):
+        t0 = time.monotonic()
+        running, _d, _logs, calls, sock = self.start()
+        self.assertLess(time.monotonic() - t0, 5)
+        self.assertEqual(calls, [], "the roster is left to the first lookup, as before the wait existed")
+        self.assertTrue(os.path.exists(sock))
+
+    def test_a_roster_check_that_outlasts_the_wait_does_not_hold_the_caller_past_it(self):
+        # j163 review F3: the check runs git and gpg with timeouts of their own; the bound is the caller's, not theirs
+        t0 = time.monotonic()
+        running, _d, logs, calls, sock = self.start(ready_wait_s=0.5, slow=3.0)
+        self.assertLess(time.monotonic() - t0, 2.5)
+        self.assertTrue(any("roster not verified" in l and "not ready in 0.5 s" in l for l in logs), logs)
+        self.assertTrue(os.path.exists(sock))
+
+    def test_the_stop_hook_is_given_before_the_wait_so_a_leave_during_it_stops_the_child(self):
+        # when the hook is given, not only that it was: inside the wait (0.3 s), not after it
+        at_hook: list = []
+        t0 = time.monotonic()
+        running, _d, _logs, _c, _s = self.start(ready_wait_s=0.3, on_started=lambda f: at_hook.append((f, time.monotonic() - t0, os.path.exists(self.sock))))
+        self.assertEqual([f for f, _t, _e in at_hook], [running.carrier.stop])
+        self.assertFalse(at_hook[0][2], "the hook was given after fabric-ctl's socket was bound")
+        self.assertLess(at_hook[0][1], 0.25, "the hook was given after the readiness wait")
+        self.assertGreaterEqual(time.monotonic() - t0, 0.3, "positive control: the wait did take its 0.3 s")
+
+    def test_the_inbox_waits_for_begin_when_the_caller_asks(self):
+        running, _d, logs, _c, _s = self.start(begin=False)
+        self.assertFalse(running.carrier.inbox._thread.is_alive())
+        running.begin()
+        self.assertTrue(running.carrier.inbox._thread.is_alive())
+
+    def test_a_send_whose_budget_is_spent_says_0_s_not_a_negative_one(self):
+        s = cc.Send("r")
+        self.assertEqual(s.wait(-10.9651), (False, "no answer from the child in 0 s"))
+
+
 class Inbound(Net):
     def deliver(self, frm: str, to: str, text: str) -> None:
         a = self.nodes[frm]

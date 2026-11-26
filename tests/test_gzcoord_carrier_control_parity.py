@@ -361,5 +361,52 @@ class Files(unittest.TestCase):
         self.assertIn("`d` → h/alice: relay", out)
 
 
+
+def arrived(rid: str, carrier: str, s: int = 1, verdict: str = "ok") -> dict:
+    return {"t": iso(s), "who": "agentd", "carrier": carrier, "kind": "request", "id": rid, "from": OP, "op": "ping", "verdict": verdict}
+
+
+class RequestCarriers(unittest.TestCase):
+    """j163 (rule 18 asks for the carriers that carried each request): read from the addressee's own arrival file."""
+
+    base = [sent("r1", 0, [A, B]), got("r1", A, "relay", 2), got("r1", A, "interweave", 3), got("r1", B, "relay", 2)]
+
+    def test_each_pair_lists_the_carriers_in_its_addressees_file(self):
+        rep = run(self.base, others={"alice": [arrived("r1", "relay"), arrived("r1", "interweave")], "bob": [arrived("r1", "relay")]})
+        self.assertEqual(pair(rep, "r1", A)["request_carriers"], ["interweave", "relay"])
+        self.assertEqual(pair(rep, "r1", B)["request_carriers"], ["relay"])
+
+    def test_a_relay_copy_seen_after_the_carriers_counts_and_a_refused_one_does_not(self):
+        rep = run(self.base, others={"alice": [arrived("r1", "interweave"), arrived("r1", "relay", verdict="seen")],
+                                     "bob": [arrived("r1", "relay", verdict="forged-from")]})
+        self.assertEqual(pair(rep, "r1", A)["request_carriers"], ["interweave", "relay"])
+        self.assertEqual(pair(rep, "r1", B)["request_carriers"], [])
+
+    def test_an_addressee_whose_file_was_not_given_is_unknown_never_empty(self):
+        rep = run(self.base, others={"alice": []})
+        self.assertEqual(pair(rep, "r1", A)["request_carriers"], [])
+        self.assertIsNone(pair(rep, "r1", B)["request_carriers"])
+
+    def test_another_requests_line_and_another_accounts_file_are_not_this_pairs(self):
+        rep = run(self.base, others={"alice": [arrived("r2", "relay")], "bob": [arrived("r1", "interweave")]})
+        self.assertEqual(pair(rep, "r1", A)["request_carriers"], [])
+        self.assertEqual(pair(rep, "r1", B)["request_carriers"], ["interweave"])
+
+    def test_a_no_waiter_pair_does_not_break_the_pairs_after_it(self):
+        # j163 review F1: a local of the no-waiter branch shared the request carriers' name, and the next pair read a number
+        rows = [{**sent("r1", 0, [A]), "timeout_s": 20}, got("r1", A, "relay", 2), got("r1", A, "interweave", 30, who="agentd", verdict="no-waiter"),
+                sent("r2", 50, [A]), got("r2", A, "relay", 52)]
+        rep = run(rows, others={"alice": [arrived("r2", "relay")]})
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
+        self.assertEqual(pair(rep, "r2", A)["request_carriers"], ["relay"])
+
+    def test_the_report_prints_them_beside_the_replies(self):
+        rep = run(self.base, others={"alice": [arrived("r1", "relay")]})
+        md = cp.render_markdown(rep)
+        self.assertIn("| request by | reply by |", md)
+        self.assertRegex(md, r"\| h/alice \| relay \| interweave, relay \|")
+        self.assertRegex(md, r"\| h/bob \| unknown \| relay \|")
+
+
 if __name__ == "__main__":
     unittest.main()

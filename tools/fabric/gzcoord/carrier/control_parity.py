@@ -4,11 +4,12 @@ long each took, and why the second carrier missed. It measures; whether InterWea
 the owner's word on a report made from it (docs/live-checks/), never this code's.
 
 INPUT   `control-arrivals.jsonl` of the operator's account (control_link.ArrivalLog), as `LOGIN=FILE`; only that file is
-        read for pairs and causes (other accounts' files are accepted and listed, and contribute nothing yet). One JSON line per record that arrived, written by two processes into the
+        read for pairs and causes. The other accounts' files are read for one thing, the carriers that carried each REQUEST to them
+        (see REQUEST CARRIERS). One JSON line per record that arrived, written by two processes into the
         one file of an account: `who` "ctl" (fabric-ctl: a `sent`/`sent-alone` line per request it made, with its
         `to` and `timeout_s`, one `no-session` or `session-lost` line when its session with agentd was never made or ended under it,
         and a line per reply copy it was shown, by carrier relay|interweave) and "agentd" (the replies its
-        carrier routed — verdict ok | no-waiter | held | forged-from | relay-only-op — and the requests that came by InterWeave).
+        carrier routed — verdict ok | no-waiter | held | forged-from | relay-only-op — and the requests that came by either carrier: relay with verdict ok or seen, interweave with ok).
         A `sent` line with a `timeout_s` that is present but unusable is counted in `malformed_timeout`.
         `t` has a one-second resolution, so a latency is good to a second either way.
 PAIR    (request id, addressee) for every request sent by fabric-ctl in dual (the `sent` line's `to`), whose `t` is
@@ -34,6 +35,12 @@ CAUSE   of a relay-only pair, first that the logs show:
         `sent-alone` requests (control_carrier names the second carrier alone) have no relay copy to be missed.
 DRILL   `--drill START END`: the interval the InterWeave units were stopped. A pair whose request is inside it is
         listed apart and counted in no carrier's delivered or missed: a relay-only answer is what the drill expects.
+REQUEST CARRIERS  per pair, the carriers that brought the request to its addressee: the `request` lines of the addressee's own file
+        (agentd writes one per copy that came, by relay or interweave, verdict ok, or seen for the relay copy of a request the
+        other carrier brought first). `request_carriers` is the sorted list, empty when the addressee's file was given and shows no
+        copy, and null (never empty) when its file was not given: UNKNOWN stays unknown. A file of an agentd from before j163 has no
+        relay lines, so a pair of that time reads as interweave-only there: say so when reporting. The login of an address is the part
+        after its last `/`.
 LATENCY the first copy of a carrier minus the `sent` line's `t`, p50 and p95 by nearest rank, per carrier over the
         pairs that carrier delivered.
 UNKNOWN stays unknown: a line that is not JSON, or lacks the keys it is read by, is counted in `skipped` and never
@@ -122,9 +129,12 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
     no_session: set[str] = set()                                  # requests fabric-ctl had no InterWeave session for
     lost_session: set[str] = set()                                # requests whose session fabric-ctl lost before its end
     bad_timeout = 0                                               # `sent` lines whose `timeout_s` is present but unusable
+    request_arrivals: dict[tuple[str, str], set[str]] = {}                 # (login, request id) -> carriers its agentd logged the request from
     for login, rows in files.items():
         for r in rows:
             who, kind, rid, verdict, carrier = r.get("who"), r.get("kind"), r.get("id"), r.get("verdict"), r.get("carrier")
+            if who == "agentd" and kind == "request" and carrier in CARRIERS and _is_str(rid) and verdict in ("ok", "seen"):
+                request_arrivals.setdefault((login, rid), set()).add(carrier)
             if login != operator:
                 continue
             # agentd writes a `forged-from` or `relay-only-op` line with a null kind when the dropped record had none; the report reads no such line.
@@ -180,7 +190,9 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
             continue
         key = (p["id"], p["addressee"])
         got = copies.get(key, {})
-        row = {"id": p["id"], "addressee": p["addressee"], "t": iso(p["t"]), "op": p["op"], "carriers": sorted(got)}
+        login = p["addressee"].rpartition("/")[2]
+        row = {"id": p["id"], "addressee": p["addressee"], "t": iso(p["t"]), "op": p["op"], "carriers": sorted(got),
+               "request_carriers": sorted(request_arrivals.get((login, p["id"]), ())) if login in files else None}
         if p.get("unrecorded"):
             row["unrecorded"] = True
         if drill and drill[0] <= p["t"] < drill[1]:
@@ -259,9 +271,10 @@ def render_markdown(rep: dict) -> str:
               f"{len(rep['in_drill'])} pair(s) inside it, counted in no carrier's row above:"]
         L += [f"- `{p['id']}` → {p['addressee']}: {p['outcome']}" for p in rep["in_drill"]] or ["- none"]
         L.append("")
-    L += ["## Pairs", "", "| request | addressee | carriers | outcome | cause |", "|---|---|---|---|---|"]
+    L += ["## Pairs", "", "| request | addressee | request by | reply by | outcome | cause |", "|---|---|---|---|---|---|"]
     for p in rep["pairs"]:
-        L.append(f"| `{p['id']}` | {p['addressee']} | {', '.join(p['carriers']) or '—'} | {p['outcome']} | {p.get('cause', '')} |")
+        asked = "unknown" if p["request_carriers"] is None else (", ".join(p["request_carriers"]) or "—")
+        L.append(f"| `{p['id']}` | {p['addressee']} | {asked} | {', '.join(p['carriers']) or '—'} | {p['outcome']} | {p.get('cause', '')} |")
     if rep["unrecorded"]:
         L += ["", f"{rep['unrecorded']} pair(s) have a reply but no `sent` line (a fabric-ctl from before it wrote them): "
                   "an account that never answered cannot be seen for those requests."]
