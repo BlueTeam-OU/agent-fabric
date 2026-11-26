@@ -1366,7 +1366,7 @@ class Channel(PreviousPrograms):
         r = self.install()
         self.assertEqual(r["status"], "failed")
         self.assertIn("status exited 3", r["checks"][0]["reason"])
-        self.assertEqual(self.systemd.restarts, [DAEMON_UNIT, CLIENT_UNIT], "restarted once; the stop-and-start retry is its own test")
+        self.assertEqual(self.systemd.restarts, [DAEMON_UNIT, CLIENT_UNIT] * 2, "restarted, then (the stop and start having failed too) restarted onto the restored programs")
         self.assert_previous_back(old)
 
     def test_a_carrier_that_answers_on_a_later_look_passes(self):
@@ -1631,6 +1631,7 @@ class Retry(PreviousPrograms):
         self.assertEqual(r["status"], "installed", r)
         self.assertEqual(r["units"]["check"], "passed")
         self.assertIn("stopped and started again", r["units"]["path"])
+        self.assertIn("status exited 3", r["units"]["path"], "the path says what the restart's check found")
         self.assertEqual(self.systemd.restarted, [DAEMON_UNIT, CLIENT_UNIT])
         self.assertEqual(self.systemd.disabled, [CLIENT_UNIT, DAEMON_UNIT], "stopped, the client first")
         self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT], "started as a start does")
@@ -1661,13 +1662,47 @@ class Retry(PreviousPrograms):
         self.systemd.status_rcs = [3]
         r = self.install()
         self.assertEqual((r["status"], r["restored"]), ("failed", True))
-        self.assertIn("stopped, started again and failed too", r["reason"])
+        self.assertIn("stopping and starting both units failed too", r["reason"])
         self.assertEqual(r["retry"]["status"], "failed")
         self.assertEqual([c["status"] for c in r["checks"]], ["failed", "failed"])
         self.assertEqual(self.systemd.states, {DAEMON_UNIT: "active", CLIENT_UNIT: "active"}, "not left stopped by the retry")
         self.assertEqual(self.systemd.enabled, [DAEMON_UNIT, CLIENT_UNIT] * 2, "the retry's start, then enabled again, which its disable had undone")
-        self.assertEqual(self.systemd.restarted, [DAEMON_UNIT, CLIENT_UNIT], "the units came up by enable --now, not a restart of disabled units")
+        self.assertEqual(self.systemd.restarted, [DAEMON_UNIT, CLIENT_UNIT] * 2, "restarted onto the restored files after enable --now left an active unit alone")
         self.assert_previous_back(old)
+
+    def test_a_restart_the_manager_never_answers_is_not_retried_as_a_failure_of_the_programs(self):
+        self.release()
+        old = self.seed_old()
+        self.running_pair()
+        self.systemd.hang = "restart"
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("did not finish", r["checks"][0]["reason"])
+        self.assertTrue(r["checks"][0]["unknown"])
+        self.assertEqual((self.systemd.disabled, self.systemd.enabled, "retry" in r), ([], [], False), "no stop and start on a manager that is not answering")
+        self.assert_previous_back(old)
+
+    def test_a_manager_that_stops_answering_after_the_restart_is_not_retried_either(self):
+        self.release()
+        old = self.seed_old()
+        self.running_pair()
+        self.systemd.on_restart = lambda unit: setattr(self.systemd, "hang", "show")
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertEqual((self.systemd.disabled, "retry" in r), ([], False))
+        self.assert_previous_back(old)
+
+    def test_a_retry_whose_stop_failed_says_what_failed_and_does_not_claim_a_start(self):
+        self.release()
+        self.seed_old()
+        self.running_pair()
+        self.systemd.status_rcs = [3]
+        self.systemd.stuck = {DAEMON_UNIT}
+        r = self.install()
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("the units are not both stopped", r["reason"])
+        self.assertNotIn("started again and failed", r["reason"])
+        self.assertIn("brought up again, check:", r["reason"], "the units were enabled and restarted, not 'restarted again'")
 
     def test_previous_programs_the_pin_refuses_are_not_carrying_and_the_reply_says_so(self):
         self.release()
@@ -1926,8 +1961,12 @@ class UnitSystemd(Systemd):
             self.rendered.append(argv[3])
             return subprocess.CompletedProcess(argv, self.render_rc, "", self.render_err)
         if name == "systemctl" and argv[2] == "restart":
+            if self.hang == "restart":
+                raise subprocess.TimeoutExpired(argv, kw["timeout"])
             self.calls.append(list(argv))
             self.restarted.append(argv[3])
+            if self.on_restart:
+                self.on_restart(argv[3])
             self.states[argv[3]] = "active"
             return subprocess.CompletedProcess(argv, 0, "", "")
         if name == "systemctl" and argv[2] in ("enable", "disable"):

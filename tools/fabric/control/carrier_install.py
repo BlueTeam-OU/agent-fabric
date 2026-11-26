@@ -198,11 +198,8 @@ DIAGNOSIS_BUDGET_S = SYSTEMCTL_TIMEOUT_S + JOURNAL_TIMEOUT_S
 # the daemon's MainPID, its --version, and CHECK_POLLS asks of the carrier's status with the same pauses.
 CHECK_BUDGET_S = (2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + SYSTEMCTL_TIMEOUT_S + VERSION_TIMEOUT_S
                   + CHECK_POLLS * STATUS_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S + DIAGNOSIS_BUDGET_S)
-# An install asks the units' states before, then twice (the install, the restore) restarts both and checks; a running pair whose
-# check failed is first stopped and started again as a start does (CARRIER_STOP_BUDGET_S + CARRIER_START_BUDGET_S, defined below), and
-# the restore then brings both units up with `enable --now` in place of a restart.
 # A start: the linger question, the programs' versions, the config render, at most two restarts (a running pair onto a changed file, or the one unit that ran), two
-# `enable --now`, one channel check, and on a failure two `disable --now` and the states.
+# `enable --now`, one channel check, and on a failure two `disable --now` and the states; a TIME_WAIT port adds PORT_WAIT_S (below, in the sum).
 LOGINCTL_TIMEOUT_S = 10
 RENDER_TIMEOUT_S = 30
 # `fabric-ctl all <carrier>-start` made 30 accounts render at once on 2026-10-26: each render verifies the roster's rows with gpg, and four
@@ -227,9 +224,13 @@ PORT_POLL_S = 5
 CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_LEASE_WAIT_S + LEASE_GRACE_S + RENDER_TIMEOUT_S + SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
                           + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + PORT_WAIT_S + 20)
 CARRIER_STOP_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20
+# An install asks the units' states before, then twice (the install, the restore) restarts both and checks. A running pair whose check
+# failed is first stopped and started again as a start does (CARRIER_STOP_BUDGET_S + CARRIER_START_BUDGET_S); the restore then brings
+# both units up again with `enable --now` and a restart (4 * SYSTEMCTL_TIMEOUT_S, the last term of the second line) and asks the
+# restored programs' versions once more for the "carrying" answer (4 * VERSION_TIMEOUT_S, room for the pin's reports).
 CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
                             + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S)
-                            + CARRIER_STOP_BUDGET_S + CARRIER_START_BUDGET_S + 2 * SYSTEMCTL_TIMEOUT_S)
+                            + CARRIER_STOP_BUDGET_S + CARRIER_START_BUDGET_S + 4 * SYSTEMCTL_TIMEOUT_S + 4 * VERSION_TIMEOUT_S)
 # A restart of the client unit alone (an upgrade moved the engine it runs): the unit states, the restart, the check with the start's patience
 # (the restarted carrier verifies the roster before it opens its socket, as a started one does), and the lock's open.
 CARRIER_RESTART_BUDGET_S = (3 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 20)
@@ -719,14 +720,18 @@ def daemon_process_problem(daemon: str, bindir: str, run: Callable[..., Any], ho
     return None
 
 
-def restart_units(units: list[str], run: Callable[..., Any], home: str) -> str | None:
-    """None when each unit was asked to restart and the manager took it; else why not."""
+def restart_units(units: list[str], run: Callable[..., Any], home: str, unknown_on_timeout: bool = False) -> str | None:
+    """None when each unit was asked to restart and the manager took it; else why not. `unknown_on_timeout`: a manager that does not
+    answer in time raises ChannelUnknown, which is not a failure of the programs a stop and start could mend."""
     for u in units:
         try:
             r = run(["systemctl", "--user", "restart", u], capture_output=True, encoding="utf-8", errors="replace", timeout=SYSTEMCTL_TIMEOUT_S, check=False,
                     stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
         except subprocess.TimeoutExpired:
-            return f"restarting {u} did not finish within {SYSTEMCTL_TIMEOUT_S} s"
+            reason = f"restarting {u} did not finish within {SYSTEMCTL_TIMEOUT_S} s"
+            if unknown_on_timeout:
+                raise ChannelUnknown(reason) from None
+            return reason
         except OSError as e:
             return f"restarting {u} could not be run ({_oneline(e)})"
         if r.returncode != 0:
@@ -978,7 +983,7 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
         if stuck:
             return _failed(version, stuck)
         reply = _install(version, pin["releases"][version], build, state, home, root, fetch, run, token, sleep, lease,
-                         _login() if login is None else login)
+                         login)
         return _with_client(reply, home, root)
     finally:
         os.close(lock_fd)
@@ -986,7 +991,7 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
 
 def _install(version: str, release: dict, build: dict, state: str, home: str, root: str, fetch: Callable[..., tuple[int, str]],
              run: Callable[..., Any], token: Callable[[str], str | None] | None, sleep: Callable[[float], None],
-             lease: Callable[..., Any], login: str) -> dict:
+             lease: Callable[..., Any], login: str | None) -> dict:
     bindir = bin_dir(home)
     work = os.path.join(state, WORK)
     # Under the lock nothing else is writing here: whatever is left is a killed install's, and it is removed before
@@ -1072,10 +1077,12 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
                 out["retry"] = retry
             if restarted:
                 # The retry disabled the units (a start that fails takes them down): they are enabled again with the restart.
-                again = restart_units(running, run, home) if not retry else _enable_now(running, run, home)
+                # enable --now leaves a unit that is still active on the program the restore replaced: the restart that follows puts it
+                # on the restored files.
+                again = restart_units(running, run, home) if not retry else _enable_now(running, run, home) or restart_units(running, run, home)
                 second = ({"status": "failed", "reason": again, "units": {}} if again
                           else channel_check(profile, running, build, root, run, home, sleep, pinned=False))
-                out["reason"] += f"; restarted again, check: {_channel_text(second)}"
+                out["reason"] += f"; brought up again, check: {_channel_text(second)}"
                 out["checks"] = [first, second]
             if running:
                 # The pin on main may already name the new programs: the carrier refuses what it restored (admit.py) and agentd
@@ -1103,8 +1110,12 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
         bad = check_reports(bindir, build["reports"], run, home)
         if bad:
             return roll_back(f"the installed programs disagree with the pin ({bad})")
-        restart_failed = restart_units(running, run, home) if running else None
-        check = ({"status": "failed", "reason": restart_failed, "units": {}} if restart_failed
+        try:
+            restart_failed = restart_units(running, run, home, unknown_on_timeout=True) if running else None
+            unknown = False
+        except ChannelUnknown as e:
+            restart_failed, unknown = str(e), True
+        check = ({"status": "failed", "reason": restart_failed, "units": {}, **({"unknown": True} if unknown else {})} if restart_failed
                  else channel_check(profile, running, build, root, run, home, sleep))
         path = None
         if check["status"] == "failed":
@@ -1114,10 +1125,10 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
             # verifies the roster before it opens its socket: by hand that brought 2 accounts up on the new programs at host load 40-53.
             # Both units must have run (a start would otherwise start the one that did not) and the manager must have answered.
             if len(running) == 2 and not first.get("unknown"):
-                retry = _stop_and_start(profile, build, root, home, run, sleep, login, lease)
+                retry = _stop_and_start(profile, build, root, home, run, sleep, _login() if login is None else login, lease)
                 if retry["status"] != "started":
-                    return roll_back(f"{reason}; then stopped, started again and failed too ({retry.get('reason')})", first, True, retry)
-                check, path = retry, "stop-start"
+                    return roll_back(f"{reason}; then stopping and starting both units failed too ({retry.get('reason')})", first, True, retry)
+                check, path = retry, f"the restart's check failed ({_channel_text(first)}); both units were stopped and started again, then passed"
             else:
                 return roll_back(reason, first, True)
         try:
@@ -1127,7 +1138,7 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
             return _failed(version, f"the programs are in place but could not be recorded ({_why(e, tok)}); a retry installs them again")
         return {"status": "installed", "version": version, "sha256": build["sha256"], "programs": programs,
                 "units": {"running_before": running, "check": "passed" if running else "not run: no unit was running",
-                          **({"path": "restarted, did not answer; stopped and started again, then passed"} if path else {})}}
+                          **({"path": path} if path else {})}}
     finally:
         try:
             shutil.rmtree(work)

@@ -1490,6 +1490,8 @@ def _table_carrier_install(rs: list) -> list[str]:
         digest = S(dig(u, "sha256"))[:12] if T(dig(u, "sha256")) else "-"
         # The units' check is the news on an installed row; a failure's reason already carries it.
         note = nullish(dig(u, "reason"), "") or (f"units: {S(dig(u, 'units', 'check'))}" if T(dig(u, "units", "check")) else "")
+        if T(dig(u, "units", "path")):      # an install that stayed only after the stop and start says so
+            note = f"{note} ({S(dig(u, 'units', 'path'))})"
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
                                   f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(note)}")))
     return lines
