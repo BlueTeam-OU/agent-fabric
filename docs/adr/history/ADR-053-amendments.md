@@ -141,7 +141,10 @@ JSON object, are a failed review that posts nothing. ADR-055 rule 8
 no review and posts the engine's unavailable marker for the head with
 its reason, so that the additional engine never blocks an arming by its
 silence. The code follows ADR-055; a reader of ADR-053 alone would have
-expected nothing posted. Rules 2 and 4 now defer to ADR-055 rule 8. What
+expected nothing posted. Rules 2 and 4 now defer to ADR-055 rule 8. Rule 2's extract refusal (a `.git` or `..`
+path, a link out of the extract) is the same case, "the head or the
+scratch not written" in ADR-055 rule 8, and now says so; the DIGEST
+summary bullet for rule 4 follows (#712 review round 1, F2). What
 is the caller's to fix (rule 3's missing settings, rule 8's missing or
 expired token) still posts nothing, as ADR-055 rule 8 also says. Found
 in #676's review (957752bd §2); job j1032.

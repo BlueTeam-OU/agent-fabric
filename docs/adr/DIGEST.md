@@ -1309,8 +1309,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Codex goes through its own gateway (`openai-responses`, key by env
   only); the session's Anthropic key and `~/.codex` never reach it (§5
   rule 3).
-- One JSON object of findings and coverage or nothing posted; posted as
-  v2 with `--model codex`, judged like any finding (§5 rules 4-5).
+- One JSON object of findings and coverage, else the head's unavailable
+  marker (ADR-055 rule 8); posted as v2 with `--model codex`, judged like
+  any finding (§5 rules 4-5).
 - A review is required: `fabric-pr arm` refuses until every engine the
   arming policy names (`reviews`, `boundary_reviews`; data, not this
   record) has reviewed the head with no open P1/P2 (§5 rule 6). Codex is
