@@ -644,8 +644,10 @@ def test_a_title_with_an_escaped_break_holds_the_drain_naming_its_memory_and_a_c
     broken["title"] = "Compose sections\nof a message"
     clean = {"class": "workflow", "topic": "clean-one", "title": "Clean title", "body": "C.", "evidence": ["h1"]}
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [broken, clean])})
+    ta.with_agents(drain, {"h1": "dev-01"})
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 1, proc.stderr
+    assert "(agent dev-01)" in proc.stderr and report(out)["titles_one_lined"][0]["agent"] == "dev-01", proc.stderr
     assert "TITLES WITH A LINE BREAK" in proc.stderr and "memory 'gzcoord-compose-sections'" in proc.stderr \
         and "'Compose sections of a message'" in proc.stderr and "clean-one" not in proc.stderr.split("TITLES WITH A LINE BREAK")[1], proc.stderr
     drain, claims_dir, out = ta.build(os.path.join(tmp, "clean"), {"alpha": ta.claims("alpha", [clean])})
@@ -905,7 +907,8 @@ def test_f4_the_notes_of_the_rehome_pass_reach_the_projects_report_and_its_files
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [claim])})
     bind(out, "alpha")
     proc = ta.run_assemble(drain, claims_dir, out)
-    assert proc.returncode == 1, proc.stderr
+    assert proc.returncode == 1 and f"{COORD}/workflow:moved: memory 'moved' (agent unresolved)" in proc.stderr \
+        and "[re-homed: not holdable]" in proc.stderr, proc.stderr
     rep = report(out)
     assert [r["slice"] for r in rep["titles_one_lined"]] == [f"{COORD}/workflow:moved"], rep["titles_one_lined"]
     assert "TITLES WITH A LINE BREAK" in proc.stderr, proc.stderr
