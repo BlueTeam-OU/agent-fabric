@@ -361,9 +361,6 @@ class Files(unittest.TestCase):
         self.assertIn("`d` → h/alice: relay", out)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 def arrived(rid: str, carrier: str, s: int = 1, verdict: str = "ok") -> dict:
     return {"t": iso(s), "who": "agentd", "carrier": carrier, "kind": "request", "id": rid, "from": OP, "op": "ping", "verdict": verdict}
@@ -395,9 +392,21 @@ class RequestCarriers(unittest.TestCase):
         self.assertEqual(pair(rep, "r1", A)["request_carriers"], [])
         self.assertEqual(pair(rep, "r1", B)["request_carriers"], ["interweave"])
 
+    def test_a_no_waiter_pair_does_not_break_the_pairs_after_it(self):
+        # j163 review F1: a local of the no-waiter branch shared the request carriers' name, and the next pair read a number
+        rows = [{**sent("r1", 0, [A]), "timeout_s": 20}, got("r1", A, "relay", 2), got("r1", A, "interweave", 30, who="agentd", verdict="no-waiter"),
+                sent("r2", 50, [A]), got("r2", A, "relay", 52)]
+        rep = run(rows, others={"alice": [arrived("r2", "relay")]})
+        self.assertEqual(pair(rep, "r1", A)["cause"], "no-waiter")
+        self.assertEqual(pair(rep, "r2", A)["request_carriers"], ["relay"])
+
     def test_the_report_prints_them_beside_the_replies(self):
         rep = run(self.base, others={"alice": [arrived("r1", "relay")]})
         md = cp.render_markdown(rep)
         self.assertIn("| request by | reply by |", md)
         self.assertRegex(md, r"\| h/alice \| relay \| interweave, relay \|")
         self.assertRegex(md, r"\| h/bob \| unknown \| relay \|")
+
+
+if __name__ == "__main__":
+    unittest.main()

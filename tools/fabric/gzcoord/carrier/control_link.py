@@ -1216,7 +1216,8 @@ def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed
                      env: dict[str, str] | None = None, log: Callable[[str], None] = say,
                      directory: Directory | None = None, argv: list[str] | None = None,
                      hold: Callable[[], Callable[[], None] | None] | None = None, relay_off: bool = False,
-                     ready_wait_s: float = 0.0, begin: bool = True) -> Running:
+                     ready_wait_s: float = 0.0, begin: bool = True,
+                     on_started: Callable[[Callable[[], None]], None] | None = None) -> Running:
     """Start the child, the router and fabric-ctl's socket. Nothing here can stop agentd answering on the relay:
     a program that is not installed, a roster that does not verify and a socket that cannot be bound are each
     said and the account is on the relay alone until they are mended. With `relay_off` (control_carrier names the
@@ -1239,12 +1240,20 @@ def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed
                       me=me, on_request=on_request, arrivals=ArrivalLog(os.path.join(state_dir(), "control-arrivals.jsonl"), "agentd", log=log), log=log,
                       relay_off=relay_off)
     carrier.start(begin)
-    t0 = time.monotonic()
-    took = carrier.directory.warm()
-    state = carrier.wait_ready(ready_wait_s - (time.monotonic() - t0)) if ready_wait_s > 0 else carrier.child.state
+    if on_started is not None:
+        # The child holds the profile's lease: whoever leaves during the wait below must still stop it.
+        on_started(carrier.stop)
     if ready_wait_s > 0:
-        log(f"InterWeave leg: roster verified in {took:.1f} s, child {state} after {time.monotonic() - t0:.1f} s"
-            + ("" if state != "restarting" else f"; not ready in {ready_wait_s:g} s, the relay carries until it is"))
+        t0 = time.monotonic()
+        checked: list[float] = []
+        # On a thread so the bound holds: the check runs git and gpg, each with a timeout of its own, and a slow one must not hold the relay loop past it.
+        warm = threading.Thread(target=lambda: checked.append(carrier.directory.warm()), name="control-carrier-roster", daemon=True)
+        warm.start()
+        warm.join(ready_wait_s)
+        state = carrier.wait_ready(ready_wait_s - (time.monotonic() - t0))
+        roster = f"roster verified in {checked[0]:.1f} s" if checked else "roster not verified"
+        log(f"InterWeave leg: {roster}, child {state} after {time.monotonic() - t0:.1f} s"
+            + ("" if checked and state != "restarting" else f"; not ready in {ready_wait_s:g} s, the relay carries until it is"))
     server: Server | None = None
     path = socket_path(env)
     if path is None:

@@ -1341,8 +1341,15 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         iw = carrier_box[0]
         if iw is None or not (a["ok"] or a["why"] == "seen"):
             return
-        # accept() returns the parsed request only when it accepted; a refusal as "seen" parsed it too, so parse again.
+        # accept() returns the parsed request only when it accepted. Its seen-set test comes before every other check, so a
+        # "seen" says nothing about the record's `to` or `from`: parse again and apply those two here (expiry and signature
+        # stay unchecked: the copy did arrive, and the carrier's own copy of it was judged on them).
         request = a["request"] if a["ok"] else js.json_parse(js.string(rec.get("content")))
+        if not a["ok"]:
+            to = request.get("to") if isinstance(request, dict) and isinstance(request.get("to"), list) else None
+            if not (to and ("*" in to or me["address"] in to)
+                    and request.get("from") in operator_addresses() | account_addresses()):
+                return
         iw.carrier.arrivals.add("relay", request, "ok" if a["ok"] else "seen")
 
     decide_lock = threading.Lock()   # accept + remember: one decision for a request, whichever carrier brought it first
@@ -1403,7 +1410,8 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         running = control_link.start_for_agentd(
             me=me["address"], placed=lambda: operator_addresses() | account_addresses(),
             on_request=lambda request, sender: handle({"id": request.get("id"), "content": js.stringify(request)}, control_link.VIA),
-            hold=hold_for_ctl, relay_off=alone, ready_wait_s=control_link.READY_WAIT_S, begin=False)
+            hold=hold_for_ctl, relay_off=alone, ready_wait_s=control_link.READY_WAIT_S, begin=False,
+            on_started=EXIT_HOOKS.append)
         carrier_box[0] = running
         running.begin()
         EXIT_HOOKS.append(running.stop)

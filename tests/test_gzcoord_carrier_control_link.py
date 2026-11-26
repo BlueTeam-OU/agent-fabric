@@ -419,7 +419,7 @@ class LegReady(Net):
     """j163: after a restart the first InterWeave replies failed or came 5-91 s late because the roster (gpg per row) was verified
     inside the first send's budget and agentd took requests before its child had a session."""
 
-    def start(self, **kw):
+    def start(self, slow: float = 0.2, **kw):
         sock_dir = self.scratch()
         self.ready_file = os.path.join(self.scratch(), "ready")
         logs: list[str] = []
@@ -428,7 +428,7 @@ class LegReady(Net):
 
         def rows():
             calls.append(os.path.exists(sock))   # whether fabric-ctl could already connect while the roster was being verified
-            time.sleep(0.2)
+            time.sleep(slow)
             return ROWS
         env = {"PATH": os.environ["PATH"], "XDG_RUNTIME_DIR": sock_dir, "HOME": self.scratch()}
         child_env = {"PATH": os.environ["PATH"], "FAKE_NET": self.net, "FAKE_PEER": PEERS["alice"], "FAKE_READY_FILE": self.ready_file}
@@ -464,8 +464,21 @@ class LegReady(Net):
         t0 = time.monotonic()
         running, _d, _logs, calls, sock = self.start()
         self.assertLess(time.monotonic() - t0, 5)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls, [], "the roster is left to the first lookup, as before the wait existed")
         self.assertTrue(os.path.exists(sock))
+
+    def test_a_roster_check_that_outlasts_the_wait_does_not_hold_the_caller_past_it(self):
+        # j163 review F3: the check runs git and gpg with timeouts of their own; the bound is the caller's, not theirs
+        t0 = time.monotonic()
+        running, _d, logs, calls, sock = self.start(ready_wait_s=0.5, slow=3.0)
+        self.assertLess(time.monotonic() - t0, 2.5)
+        self.assertTrue(any("roster not verified" in l and "not ready in 0.5 s" in l for l in logs), logs)
+        self.assertTrue(os.path.exists(sock))
+
+    def test_the_stop_hook_is_given_before_the_wait_so_a_leave_during_it_stops_the_child(self):
+        hooks: list = []
+        running, _d, _logs, _c, _s = self.start(ready_wait_s=0.3, on_started=hooks.append)
+        self.assertEqual(hooks, [running.carrier.stop])
 
     def test_the_inbox_waits_for_begin_when_the_caller_asks(self):
         running, _d, logs, _c, _s = self.start(begin=False)

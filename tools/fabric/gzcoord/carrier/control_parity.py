@@ -9,7 +9,7 @@ INPUT   `control-arrivals.jsonl` of the operator's account (control_link.Arrival
         one file of an account: `who` "ctl" (fabric-ctl: a `sent`/`sent-alone` line per request it made, with its
         `to` and `timeout_s`, one `no-session` or `session-lost` line when its session with agentd was never made or ended under it,
         and a line per reply copy it was shown, by carrier relay|interweave) and "agentd" (the replies its
-        carrier routed — verdict ok | no-waiter | held | forged-from | relay-only-op — and the requests that came by InterWeave).
+        carrier routed — verdict ok | no-waiter | held | forged-from | relay-only-op — and the requests that came by either carrier: relay with verdict ok or seen, interweave with ok).
         A `sent` line with a `timeout_s` that is present but unusable is counted in `malformed_timeout`.
         `t` has a one-second resolution, so a latency is good to a second either way.
 PAIR    (request id, addressee) for every request sent by fabric-ctl in dual (the `sent` line's `to`), whose `t` is
@@ -129,12 +129,12 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
     no_session: set[str] = set()                                  # requests fabric-ctl had no InterWeave session for
     lost_session: set[str] = set()                                # requests whose session fabric-ctl lost before its end
     bad_timeout = 0                                               # `sent` lines whose `timeout_s` is present but unusable
-    arrived: dict[tuple[str, str], set[str]] = {}                 # (login, request id) -> carriers its agentd logged the request from
+    request_arrivals: dict[tuple[str, str], set[str]] = {}                 # (login, request id) -> carriers its agentd logged the request from
     for login, rows in files.items():
         for r in rows:
             who, kind, rid, verdict, carrier = r.get("who"), r.get("kind"), r.get("id"), r.get("verdict"), r.get("carrier")
             if who == "agentd" and kind == "request" and carrier in CARRIERS and _is_str(rid) and verdict in ("ok", "seen"):
-                arrived.setdefault((login, rid), set()).add(carrier)
+                request_arrivals.setdefault((login, rid), set()).add(carrier)
             if login != operator:
                 continue
             # agentd writes a `forged-from` or `relay-only-op` line with a null kind when the dropped record had none; the report reads no such line.
@@ -192,7 +192,7 @@ def compute(files: dict[str, list[dict]], operator: str, window: tuple[float, fl
         got = copies.get(key, {})
         login = p["addressee"].rpartition("/")[2]
         row = {"id": p["id"], "addressee": p["addressee"], "t": iso(p["t"]), "op": p["op"], "carriers": sorted(got),
-               "request_carriers": sorted(arrived.get((login, p["id"]), ())) if login in files else None}
+               "request_carriers": sorted(request_arrivals.get((login, p["id"]), ())) if login in files else None}
         if p.get("unrecorded"):
             row["unrecorded"] = True
         if drill and drill[0] <= p["t"] < drill[1]:
