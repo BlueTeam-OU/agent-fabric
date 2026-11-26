@@ -370,8 +370,10 @@ def bucket_claims(run: Run) -> None:
                 # one_line made (a lookbehind such as "gh repo clone ") does not match across the break, so the old text could
                 # carry what hygiene replaced in the new one. The breaks are counted; the title shown is the one hygiene screened.
                 breaks = len(LINE_BREAK_RE.findall(before))
+                agents = sorted({o["agent"] for h in claim.get("evidence") or [] if (o := run.origins.get(h)) and o.get("agent")})
                 run.titles_one_lined.append({"slice": f"{'shared' if owners else role}/{claim['class']}:{claim['topic']}",
-                                             "breaks": breaks, "title": claim["title"]})
+                                             "breaks": breaks, "title": claim["title"], "memory": claim["topic"],
+                                             "agent": ", ".join(agents) or "unresolved"})
             if owners:
                 owners.add(role)
                 run.shared[key].append(claim)
