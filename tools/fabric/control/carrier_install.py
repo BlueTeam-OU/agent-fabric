@@ -226,7 +226,7 @@ CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_LE
 CARRIER_STOP_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20
 # An install asks the units' states before, then twice (the install, the restore) restarts both and checks. A running pair whose check
 # failed is first stopped and started again as a start does (CARRIER_STOP_BUDGET_S + CARRIER_START_BUDGET_S); the restore then brings
-# both units up again with `enable --now` and a restart (4 * SYSTEMCTL_TIMEOUT_S, the last term of the second line) and asks the
+# both units up again with `enable --now` and a restart (4 * SYSTEMCTL_TIMEOUT_S, the third line of the sum) and asks the
 # restored programs' versions once more for the "carrying" answer (4 * VERSION_TIMEOUT_S, room for the pin's reports).
 CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
                             + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S)
@@ -1125,7 +1125,13 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
             # verifies the roster before it opens its socket: by hand that brought 2 accounts up on the new programs at host load 40-53.
             # Both units must have run (a start would otherwise start the one that did not) and the manager must have answered.
             if len(running) == 2 and not first.get("unknown"):
-                retry = _stop_and_start(profile, build, root, home, run, sleep, _login() if login is None else login, lease)
+                try:
+                    who = _login() if login is None else login
+                except KeyError:
+                    # Resolved here, past install.sh: an exception would skip the rollback and the work directory's removal would delete
+                    # the only copies of the previous programs.
+                    return roll_back(f"{reason}; the account's login could not be resolved, so no stop and start was tried", first, True)
+                retry = _stop_and_start(profile, build, root, home, run, sleep, who, lease)
                 if retry["status"] != "started":
                     return roll_back(f"{reason}; then stopping and starting both units failed too ({retry.get('reason')})", first, True, retry)
                 check, path = retry, f"the restart's check failed ({_channel_text(first)}); both units were stopped and started again, then passed"

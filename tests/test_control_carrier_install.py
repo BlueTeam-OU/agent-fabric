@@ -1704,6 +1704,18 @@ class Retry(PreviousPrograms):
         self.assertNotIn("started again and failed", r["reason"])
         self.assertIn("brought up again, check:", r["reason"], "the units were enabled and restarted, not 'restarted again'")
 
+    def test_an_account_whose_login_cannot_be_resolved_is_rolled_back_not_left_on_the_new_programs(self):
+        self.release()
+        old = self.seed_old()
+        self.running_pair()
+        self.systemd.status_rcs = [3]
+        with unittest.mock.patch.object(iw, "_login", side_effect=KeyError("getpwuid(): uid not found")):
+            r = self.install()
+        self.assertEqual((r["status"], r["restored"]), ("failed", True))
+        self.assertIn("login could not be resolved", r["reason"])
+        self.assertEqual((self.systemd.disabled, "retry" in r), ([], False))
+        self.assert_previous_back(old)
+
     def test_previous_programs_the_pin_refuses_are_not_carrying_and_the_reply_says_so(self):
         self.release()
         old = self.seed_old()                                      # 0.0.9: the pin names another version
@@ -1867,11 +1879,14 @@ class Operator(unittest.TestCase):
                 {"account": "b", "status": "no answer"},
                 {"account": "c", "status": "ok", "interweaveInstall": {"status": "failed", "version": VERSION,
                                                                           "reason": "sha256 mismatch: x\u0007"},
-                 "interweave": {"status": "absent", "units": {u: False for u in UNITS}}}]
+                 "interweave": {"status": "absent", "units": {u: False for u in UNITS}}},
+                {"account": "d", "status": "ok", "interweaveInstall": {"status": "installed", "version": VERSION, "sha256": "cd" * 32,
+                                                          "units": {"running_before": [], "check": "passed", "path": "stopped and started again"}}}]
         install = ctl.table("interweave-install", rows).split("\n")
         self.assertRegex(install[1], r"^a +installed +0\.1\.0 +abababababab")
         self.assertIn("units: not run: no unit was running", install[1], "the news on an installed row")
         self.assertEqual(install[2].split()[:2], ["b", "no"])
+        self.assertIn("units: passed (stopped and started again)", install[4], "an install that stayed only after the retry says so")
         self.assertIn("sha256 mismatch", install[3])
         self.assertNotIn("\u0007", install[3], "an account's words reach the terminal escaped")
         read = ctl.table("interweave", rows).split("\n")
