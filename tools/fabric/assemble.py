@@ -87,6 +87,10 @@ text is the section another memory corrects in the same run is not written
 and is listed under `superseded_harvests`; a merge_target that two parts of
 one topic hold is ambiguous, like one two topics hold.
 
+A claim title that held a line break once decoded (a YAML `\\n` in the memory's description) is written as one line and the
+run exits 1 under TITLES WITH A LINE BREAK, naming each source memory, its agent and its title: the memory is fixed at its
+source. --hold of a project's own slice leaves it out; a re-homed slice cannot be held (--hold names the project's own).
+
 A correction of a shape that loses what it replaces is refused before anything is written (assembler/shapes.py): a body
 of one word, a body another correction of the run writes over a different section, a title that is a strict prefix of
 the heading it replaces. After the write, a section a correction replaced that stands in its slice again fails the run

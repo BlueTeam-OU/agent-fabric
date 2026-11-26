@@ -586,10 +586,15 @@ def report(run: Run) -> int:
                   f"from {', '.join(row['source']) or 'unknown'})", file=sys.stderr)
     lined = [row for row in run.titles_one_lined if row["slice"] not in run.held_back]
     if lined:
-        print("\nTITLES MADE ONE LINE (a line break in the title became a space; fix the memory's description if the break was an escape "
-              "meant literally):", file=sys.stderr)
+        # Refused, not told: a decoded break is text the title stood for, and the one-line title reaches the drain commit
+        # mangled (a drain of another project, F3 of its review). The source memory is where it is fixed. A re-homed claim is
+        # the control plane's pass's, which --hold cannot name, so its row says it cannot be held.
+        rehomed = {r["slice"] for r in run.rehomed}
+        print("\nTITLES WITH A LINE BREAK (refused: fix the memory's description; a slice of this project may instead be "
+              "--hold-ed; this run exits 1):", file=sys.stderr)
         for row in lined:
-            print(f"  {row['slice']}: {row['breaks']} break(s) in {row['title']!r}", file=sys.stderr)
+            print(f"  {row['slice']}: memory {row['memory']!r} (agent {row['agent']}): {row['breaks']} break(s) in {row['title']!r}"
+                  + (" [re-homed: not holdable]" if row["slice"] in rehomed else ""), file=sys.stderr)
     if run.superseded_harvests:
         print("\nSUPERSEDED HARVESTS (a memory whose text is a section a correction replaced, in this run or an earlier "
               "one; not written — update or delete the memory):", file=sys.stderr)
@@ -638,7 +643,7 @@ def report(run: Run) -> int:
         print("\nHYGIENE PROBLEMS in carried text:", file=sys.stderr)
         for problem in run.problems:
             print(f"  {problem}", file=sys.stderr)
-    if run.problems or run.rejected_hygiene:
+    if run.problems or run.rejected_hygiene or lined:
         return 1
     if run.args.commit_message:
         with open(run.args.commit_message, "w", encoding="utf-8") as fh:
