@@ -26,7 +26,7 @@ WHAT IS NOT KNOWN IS NOT DECIDED. A log that cannot be read, a process table tha
 inbox, jobs) that failed answers {"status": "unknown", "reason"}, never "not deaf". An account with no log line at all, or with
 no session, or with no waiting work, answers deaf False with the reason in `why`. The relay's cursor reader counts every message of the project channel past the account's cursor, others' traffic included (drift.py),
 and with no watch the cursor stops, so there "unread" would be true of any busy channel: it is not counted as work, and the alarm says
-only what was counted. Only the carrier's own-spool reading (source "interweave") counts unread messages.
+only what was counted. Only the carrier's own-spool reading (its `source` is the carrier's name) counts unread messages.
 
 The episode: `episode` is the watch-log line's own event and time, which does not change between polls, so the alarm
 (deaf_alarm.py) sends one message for it and not one per poll; a new `end` or `start` line, or a recovery, is a new episode.
@@ -126,7 +126,8 @@ def pending_work(inbox: Callable[[], Any], jobs: Callable[[], Any]) -> tuple[dic
         return None, f"jobs: {j.get('status') if isinstance(j, dict) else 'no answer'}"
     from control.jobs import _request_of   # the one reading of the title marker (job-state asks the same)
     queued = sum(1 for x in j["jobs"] if isinstance(x, dict) and x.get("state") == "queued" and _request_of(x.get("title")) is not None)
-    own = i.get("source") == "interweave"
+    from gzcoord.carrier import CARRIER_NAME   # position.section marks its own-spool reading with the carrier's name
+    own = i.get("source") == CARRIER_NAME
     if not own and i["unread"] and not queued:
         return None, "inbox: the relay's unread count is channel-wide, so whether any message is this account's is not known"
     return {"unread": i["unread"] if own else None, "queued_requests": queued}, None
