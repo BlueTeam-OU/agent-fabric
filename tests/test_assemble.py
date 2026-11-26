@@ -773,7 +773,7 @@ def test_a_title_containing_a_newline_is_not_truncated(tmp: str) -> None:
          "body": "b", "evidence": ["h1", "h2"]},
     ])})
     proc = run_assemble(drain, claims_dir, out)
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 1 and "TITLES WITH A LINE BREAK" in proc.stderr, proc.stderr   # told and refused; the file is still one line
 
     text = read(dom(out, "alpha", "domain.md"))
     meta = text.split("---")[1]

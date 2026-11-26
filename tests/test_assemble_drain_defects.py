@@ -629,9 +629,9 @@ def test_a_title_made_one_line_is_told_for_a_slice_written_with_an_unbound_co_ow
         {"class": "workflow", "topic": "own", "title": "C\nD", "body": "Own.", "evidence": ["h1"]}])})
     bind(out, "alpha")      # alpha owns "own" and shares "w" with the unbound beta: both are written
     proc = ta.run_assemble(drain, claims_dir, out)
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 1, proc.stderr
     assert sorted(r["slice"] for r in report(out)["titles_one_lined"]) == ["alpha/workflow:own", "shared/workflow:w"], report(out)["titles_one_lined"]
-    assert "TITLES MADE ONE LINE" in proc.stderr, proc.stderr
+    assert "TITLES WITH A LINE BREAK" in proc.stderr and "memory 'w'" in proc.stderr and "memory 'own'" in proc.stderr, proc.stderr
 
 
 def test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refused_claim(tmp: str) -> None:
@@ -656,6 +656,31 @@ def test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refuse
     assert "springfield" not in json.dumps(rows).lower() + proc.stderr.lower() and "someuser" not in json.dumps(rows) + proc.stderr, (rows, proc.stderr)
 
 
+def test_a_title_with_an_escaped_break_holds_the_drain_naming_its_memory_and_a_clean_one_passes(tmp: str) -> None:
+    """A drain of another project, F3 of its review: a description whose YAML escape read as a line break was made one line and only told, so the
+    mangled title reached the drain commit. The run exits 1 naming each source memory and its title; --hold of the slice
+    lets the rest through; a title without a break is unchanged."""
+    broken = {"class": "workflow", "topic": "gzcoord-compose-sections", "title": "x", "body": "B.", "evidence": ["h1"]}
+    broken["title"] = "Compose sections\nof a message"
+    clean = {"class": "workflow", "topic": "clean-one", "title": "Clean title", "body": "C.", "evidence": ["h1"]}
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [broken, clean])})
+    ta.with_agents(drain, {"h1": "dev-01"})
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1, proc.stderr
+    assert "(agent dev-01)" in proc.stderr and report(out)["titles_one_lined"][0]["agent"] == "dev-01", proc.stderr
+    assert "TITLES WITH A LINE BREAK" in proc.stderr and "memory 'gzcoord-compose-sections'" in proc.stderr \
+        and "'Compose sections of a message'" in proc.stderr and "clean-one" not in proc.stderr.split("TITLES WITH A LINE BREAK")[1], proc.stderr
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "clean"), {"alpha": ta.claims("alpha", [clean])})
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0 and "LINE BREAK" not in proc.stderr, proc.stderr
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "held"), {"alpha": ta.claims("alpha", [broken, clean])})
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/workflow:gzcoord-compose-sections"], fh)
+    proc = ta.run_assemble(drain, claims_dir, out, "--hold", hold)
+    assert proc.returncode == 0 and "LINE BREAK" not in proc.stderr, proc.stderr
+
+
 def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tmp: str) -> None:
     """Drain of 2026-11-08 (j670): a memory's description with a YAML `\\n` escape reaches the claim as a title with a
     line break, which split the section's heading and cut the INDEX entry at the break, so lint judged the entry
@@ -664,21 +689,21 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
         {"class": "domain", "topic": "one", "title": "Compose the sections\nof a message", "body": "The body.", "evidence": ["h1"]},
         {"class": "domain", "topic": "two", "title": "Double  space stays", "body": "Other.", "evidence": ["h1"]}])})
     proc = ta.run_assemble(drain, claims_dir, out)
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 1 and "TITLES WITH A LINE BREAK" in proc.stderr, proc.stderr   # refused, yet the file written is one line
     text = ta.read(ta.dom(out, "alpha", "domain", "one.md"))
     assert "\n## Compose the sections of a message\n" in text, text
     assert "\n## Double  space stays\n" in ta.read(ta.dom(out, "alpha", "domain", "two.md")), "only breaks are touched"
     assert "description: Compose the sections of a message\n" in text, text
     assert report(out)["titles_one_lined"] == [{"slice": "alpha/domain:one", "breaks": 1,
-                                                "title": "Compose the sections of a message"}], report(out)["titles_one_lined"]
+                                                "title": "Compose the sections of a message", "memory": "one", "agent": "unresolved"}], report(out)["titles_one_lined"]
     ta.lint_inputs(out)
     os.makedirs(os.path.join(out, "identities", "roles"), exist_ok=True)
     with open(os.path.join(out, "identities", "roles", "catalog.json"), "w", encoding="utf-8") as fh:
         json.dump({"version": 1, "roles": [{"id": "alpha", "title": "Alpha"}]}, fh)
     with open(ta.ident(out, "alpha", "charter.md"), "w", encoding="utf-8") as fh:
         fh.write("---\nrole: alpha\nclass: charter\ndescription: d\ntier: 1\ndistilled_at: 2026-01-01\n---\n\n# alpha\n")
-    proc = ta.run_assemble(drain, claims_dir, out)      # re-index with the charter present
-    assert proc.returncode == 0, proc.stderr
+    proc = ta.run_assemble(drain, claims_dir, out)      # re-index with the charter present; the bundle's break is still refused
+    assert proc.returncode == 1 and "TITLES WITH A LINE BREAK" in proc.stderr, proc.stderr
     index = ta.read(ta.proj(out, "alpha", "INDEX.md"))
     assert "— Compose the sections of a message\n" in index, index
     lint = ta.lint_run(out)
@@ -902,10 +927,11 @@ def test_f4_the_notes_of_the_rehome_pass_reach_the_projects_report_and_its_files
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [claim])})
     bind(out, "alpha")
     proc = ta.run_assemble(drain, claims_dir, out)
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 1 and f"{COORD}/workflow:moved: memory 'moved' (agent unresolved)" in proc.stderr \
+        and "[re-homed: not holdable]" in proc.stderr, proc.stderr
     rep = report(out)
     assert [r["slice"] for r in rep["titles_one_lined"]] == [f"{COORD}/workflow:moved"], rep["titles_one_lined"]
-    assert "TITLES MADE ONE LINE" in proc.stderr, proc.stderr
+    assert "TITLES WITH A LINE BREAK" in proc.stderr, proc.stderr
     assert [r["target"] for r in rep["unresolved_links"] if r["slice"].endswith(f"{COORD}/workflow.md")] == ["no-such-topic-anywhere"], \
         rep["unresolved_links"]
 
@@ -1082,6 +1108,7 @@ def main() -> int:
         test_a_toml_array_header_in_a_code_span_is_not_cited,
         test_a_title_made_one_line_is_told_for_a_slice_written_with_an_unbound_co_owner,
         test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refused_claim,
+        test_a_title_with_an_escaped_break_holds_the_drain_naming_its_memory_and_a_clean_one_passes,
         test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry,
         test_a_refusal_before_the_hygiene_screen_does_not_print_a_banned_name_from_a_claim,
         test_a_banned_text_that_repr_would_escape_is_screened_before_it_is_quoted,

@@ -1,0 +1,13 @@
+# runtime/control/agent-fabric-deaf-alarm.timer — every 5 minutes, for agent-fabric-deaf-alarm.service. The rule counts a session
+# deaf after 10 minutes (control/deaf.py MIN_AGE_S), so a poll every 5 says it within 15; the ledger keeps one message per
+# episode however often this runs. Not Persistent: a host that was off has no sessions to be deaf, and the first run after boot reads them.
+[Unit]
+Description=agent-fabric: every 5 minutes, look for sessions idle with no inbox watch
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

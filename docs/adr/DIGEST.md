@@ -1309,8 +1309,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Codex goes through its own gateway (`openai-responses`, key by env
   only); the session's Anthropic key and `~/.codex` never reach it (§5
   rule 3).
-- One JSON object of findings and coverage or nothing posted; posted as
-  v2 with `--model codex`, judged like any finding (§5 rules 4-5).
+- One JSON object of findings and coverage, else the head's unavailable
+  marker (ADR-055 rule 8); posted as v2 with `--model codex`, judged like
+  any finding (§5 rules 4-5).
 - A review is required: `fabric-pr arm` refuses until every engine the
   arming policy names (`reviews`, `boundary_reviews`; data, not this
   record) has reviewed the head with no open P1/P2 (§5 rule 6). Codex is
@@ -1324,6 +1325,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-24 — v2 posts: header, coverage block (rule 4).
 - A 2026-11-05 — ls-tree/cat-file extract, verified; read-allowlist profile, canary (rule 2).
 - A 2026-11-05 — record PR: no engine (rule 6).
+- A 2026-11-26 — no-review run posts the unavailable marker (rules 2/4, ADR-055 rule 8).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 

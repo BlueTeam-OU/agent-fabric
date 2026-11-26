@@ -57,7 +57,7 @@ RELAY = "gzcoord-relay"
 RBK = "agent-fabric-relay-backup"
 TIDY = "agent-fabric-tidy"
 HARNESS = "agent-fabric-harness"
-COORDINATOR_UNITS = ("agent-fabric-drain", "agent-fabric-scheduled-red")
+COORDINATOR_UNITS = ("agent-fabric-drain", "agent-fabric-scheduled-red", "agent-fabric-deaf-alarm")
 SCHEDULED_RED = "agent-fabric-scheduled-red"
 HOOK_REL = "policies/githooks"
 # The plain tools the script and what it runs call. Anything not here, and
@@ -1187,11 +1187,11 @@ def coordinator_timers() -> None:
 
     files = [f"{a.units}/{u}.{x}" for u in COORDINATOR_UNITS for x in ("service", "timer")]
     r = bootstrap(a)
-    check("unbound: neither unit installed, nothing said of them (the control: the step reads the role)",
+    check("unbound: no unit installed, nothing said of them (the control: the step reads the role)",
           r.rc == 0 and not any(os.path.exists(f) for f in files) and not any(u in r.out for u in COORDINATOR_UNITS), r)
     bind("fabric-coordinator")
     r = bootstrap(a)
-    check("fabric-coordinator, no user manager: both units' files installed, the fabric's, mode 644",
+    check("fabric-coordinator, no user manager: every unit's files installed, the fabric's, mode 644",
           r.rc == 0 and all(f"  +  {f}" in r.lines and mode(f) == 0o644
                             and read(f) == read(f"{a.fr}/runtime/control/{os.path.basename(f)}") for f in files), r)
     check("…each timer's enabling refused for want of a manager, said",
@@ -1215,6 +1215,11 @@ def coordinator_timers() -> None:
     check("…and its timer daily, in UTC, persistent",
           "OnCalendar=*-*-* 17:00:00 UTC\n" in read(f"{a.units}/{SCHEDULED_RED}.timer")
           and "Persistent=true\n" in read(f"{a.units}/{SCHEDULED_RED}.timer"), read(f"{a.units}/{SCHEDULED_RED}.timer"))
+    deaf_svc = read(f"{a.units}/agent-fabric-deaf-alarm.service")
+    check("the deaf-alarm service runs the alarm that exists, and its timer every 5 minutes",
+          "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/deaf_alarm.py" in deaf_svc
+          and os.path.exists(f"{a.fr}/tools/fabric/control/deaf_alarm.py")
+          and "OnUnitActiveSec=5min\n" in read(f"{a.units}/agent-fabric-deaf-alarm.timer"), deaf_svc)
     bind("python-dev")
     mine = f"{a.units}/{SCHEDULED_RED}.timer"
     put(mine, "[Timer]\nOnCalendar=hourly\n")
