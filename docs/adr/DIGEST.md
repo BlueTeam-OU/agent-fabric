@@ -745,6 +745,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-22 — on dual, presence and pool/job-state holder asks also by the account's own agentd socket; the first reply read answers; self-asks by the relay, but presence in carrier-only by the socket alone (r18).
 - A 2026-11-25 — `state`, a public op: each account answers its newest state record from its own disk; `states` and the queue's readers ask it under the second carrier alone or `FABRIC_STATE_READ=op` (§2, r4, r16).
 - A 2026-11-26 — the owner's word on the rule-18 control parity report; the relay stays the transport of record under dual; InterWeave becomes it with `control_carrier` naming it alone, after gate 3's read-backs (§2, r18, §8).
+- A 2026-11-26 — `interweave-install` 4639 s, `interweave-start` 1695 s: the stop and start before a rollback, the TIME_WAIT wait (rule 12, ADR-064 rule 14).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, HOLD_MAX_S, interweave-mode,
