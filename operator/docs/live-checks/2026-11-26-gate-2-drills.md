@@ -8,7 +8,8 @@ tonight", given in the coordinator's session), at night, so traffic was
 light. Every account ran fabric cfd65a1e and was in `carrier-record`
 beforehand, 0 stranded (`fabric-ctl all interweave`). Run and filed by
 fabric-coordinator on develop-qzapp (job j918). The computed report,
-`gzcoord-carrier parity` over the evidence collected at 03:20Z, is
+`gzcoord-carrier parity` over the evidence collected again at 07:15Z (the first
+collection, at 03:20Z, is the one the UNSETTLED below was read from), is
 [2026-11-26-gate-2-drills-computed.md](2026-11-26-gate-2-drills-computed.md).
 This record decides nothing by itself: the gate is the owner's word.
 
@@ -58,17 +59,23 @@ journal read of a grant with the relay down is still unshown. Before
 that, each session's job-copy hook refused the dry run as a publish
 until the session switched jobs.
 
-**Verdict (`--relay-drill`): UNSETTLED. Nothing failed, and 2 of 13 pairs
-cannot be told yet.** 11 pairs were held by the carrier alone, shown
-once, never shown again, and their relay copy came back acknowledged.
-The fourth property holds for all 13: the backfill posted each one to
-the relay after its return, 414 s to 3618 s late. The two open pairs
-(`01a21595-4ce7`, `01a2159d-f506`) are to ux-designer-01. Its watch
-ended on a delivery at 02:10:05Z and logged no start after that (read
-at 03:21Z), so no relay copy was ever read back. That is a
-session not re-arming, not a carrier fault. The same account accounts
-for the report's 3 relay misses (the third is `01a215a4`, after the
-drill). No watch on any of the 30 accounts gave up during the hour.
+**Verdict (`--relay-drill`): the three properties hold, and the fourth.**
+13 pairs were held by the carrier alone, shown once, never shown again,
+and their relay copy came back acknowledged. The backfill posted each
+one to the relay after its return, 414 s to 3618 s late. No watch on
+any of the 30 accounts gave up during the hour.
+
+Read first at 03:20Z, the drill was UNSETTLED on two pairs to
+ux-designer-01 (`01a21595-4ce7`, `01a2159d-f506`): its watch ended on a
+delivery at 02:10:05Z and logged no start until 07:09Z. The session was
+not deaf. It sat at a permission prompt from the fabric's own
+`self-kill-guard.py`, which read the quoted heredoc of a
+`gh pr create` body as commands (a false positive), so the session
+never got back to re-arm its watch. The coordinator declined the
+prompt in its pane at about 07:05Z on the owner's word. The session
+re-armed, and both relay copies were read and acknowledged at
+07:09:06Z. Collected again, the report's relay misses went from 3 to 0.
+The guard's defect is a job of its own.
 
 ## W12's read-back
 
@@ -92,12 +99,8 @@ the relay's outage path.
 
 Gate 2 lists four items. The day's soak was filed on 2026-11-19. The
 carrier-outage drill passes, and W12's read-back holds. The carrier-only
-pair's relay hour is short of passing on two counts:
-- ux-designer-01's two unsettled pairs;
-- one function not exercised: `arm --authorization`, against a PR
-  that reaches the grant check.
-
-The first settles by collecting again once ux-designer-01's watch has
-read the relay. The second needs one dry run on a reviewed PR below
-its minimum, in `carrier-only` with the relay down. The night window
-also exercised less traffic than "a working hour" implies.
+pair's relay hour passes on every message it carried, and five of the
+six functions were exercised. The sixth, `arm --authorization`, was not:
+it needs one dry run, in `carrier-only` with the relay down, against a
+reviewed PR below its minimum, so the arm reaches the grant check. The
+night window also carried less traffic than "a working hour" implies.

@@ -5,14 +5,12 @@ Pairs (MESSAGE-ID, addressee): 118; of them to a TO-ROLE recipient: 0.
 
 | carrier | delivered | missed | duplicate copies | FROM mismatches |
 |---|---|---|---|---|
-| relay | 115 | 3 | 0 | 0 |
+| relay | 118 | 0 | 0 | 0 |
 | interweave | 115 | 0 | 0 | 0 |
 
 ## Pairs a carrier missed, with the cause
 
-- 01a21595-4ce7-7165-914a-fe9221a23c86 to develop-qzapp/ux-designer-01, relay: the addressee's inbox recorded no relay copy
-- 01a2159d-f506-704f-81be-c83f89ddfa0e to develop-qzapp/ux-designer-01, relay: the addressee's inbox recorded no relay copy
-- 01a215a4-044b-759d-8b56-4e4729b33231 to develop-qzapp/ux-designer-01, relay: the addressee's inbox recorded no relay copy
+- none
 
 Not counted as InterWeave misses: 3 pair(s) whose addressee is the message's own sender (a broadcast or TO-ROLE: the relay returns the sender its copy, the carrier never sends to its sender).
 
@@ -24,9 +22,9 @@ Not counted as InterWeave misses: 3 pair(s) whose addressee is the message's own
 
 | kind | relay | interweave |
 |---|---|---|
-| direct | 14 | 2 |
+| direct | 16 | 2 |
 | role | 0 | 0 |
-| broadcast | 6 | 0 |
+| broadcast | 7 | 0 |
 | unknown | 0 | 0 |
 
 ## Collected from 30 account(s)
@@ -45,7 +43,7 @@ Per pair addressed to the account and made inside the drill: held by a sender's 
 - 01a2154d-5d54-7828-b24a-b09db529906c: held by user's outbox (done); delivered after the window's end (2026-11-26T01:12:24Z); 2 copy(ies) (1 interweave, 1 relay); shown once
 - 01a2154d-648a-7c53-b863-8a618ccd7978: held by user's outbox (done); delivered after the window's end (2026-11-26T01:12:24Z); 2 copy(ies) (1 interweave, 1 relay); shown once
 
-## Relay-outage drill (2026-11-26T01:15:56Z to 2026-11-26T02:16:13Z): UNSETTLED, none failed and 2 pair(s) cannot be told yet
+## Relay-outage drill (2026-11-26T01:15:56Z to 2026-11-26T02:16:13Z): the three properties hold
 
 Per pair made inside the drill: held by the carrier alone (the InterWeave copy arrived inside the drill and the relay's did not; otherwise the pair proves nothing), shown to the session once or not, shown again, the relay copy acknowledged.
 
@@ -60,8 +58,8 @@ Per pair made inside the drill: held by the carrier alone (the InterWeave copy a
 - 01a2157b-032c-7b7d-997f-38b2386344cd to develop-qzapp/user (user): carrier alone; shown once by interweave; shown again: no; relay record: posted (delay 2689 s); relay copy back, acknowledged: yes
 - 01a2157b-5d0a-7349-9e95-3d6f3fe65536 to develop-qzapp/user (user): carrier alone; shown once by interweave; shown again: no; relay record: posted (delay 2705 s); relay copy back, acknowledged: yes
 - 01a2157b-65b2-7446-9796-c4813b55b113 to develop-qzapp/user (user): carrier alone; shown once by interweave; shown again: no; relay record: posted (delay 2676 s); relay copy back, acknowledged: yes
-- 01a21595-4ce7-7165-914a-fe9221a23c86 to develop-qzapp/ux-designer-01 (ux-designer-01): carrier alone; shown once by interweave; shown again: no; relay record: posted (delay 941 s); relay copy not back, acknowledged: unknown -- UNKNOWN
-- 01a2159d-f506-704f-81be-c83f89ddfa0e to develop-qzapp/ux-designer-01 (ux-designer-01): carrier alone; shown once by interweave; shown again: no; relay record: posted (delay 414 s); relay copy not back, acknowledged: unknown -- UNKNOWN
+- 01a21595-4ce7-7165-914a-fe9221a23c86 to develop-qzapp/ux-designer-01 (ux-designer-01): carrier alone; shown once by interweave; shown again: no; relay record: posted (delay 941 s); relay copy back, acknowledged: yes
+- 01a2159d-f506-704f-81be-c83f89ddfa0e to develop-qzapp/ux-designer-01 (ux-designer-01): carrier alone; shown once by interweave; shown again: no; relay record: posted (delay 414 s); relay copy back, acknowledged: yes
 
 Watches inside the drill, from each account's watch log (every start with how the watch before it ended; a give-up is the watch's exit 5, after its primary transport, the relay or the carrier where it leads, did not answer for the give-up bound, 15 minutes unless set otherwise):
 
