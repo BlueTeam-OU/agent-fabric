@@ -16,7 +16,8 @@ THE RULE, per account, read by that account's control agent (the `deaf` section 
          The job is the REQUEST's marker, whatever its source: a deaf session never runs the receiver half of intake (that runs in
          its own watch, source "request"); the sender half (gzcoord/intake.py queue_for_addressee) files it through the jobs-add op
          as source "owner", and only when the sender is the addressee's host operator. A REQUEST from anyone else, to a session in
-         a relay mode, leaves no job and no own-spool count: that case is NOT detected here (the relay's reading is channel-wide).
+         a relay mode, leaves no job and no own-spool count; the relay's reading is channel-wide, so when it shows unread messages
+         and no REQUEST job is queued the section answers UNKNOWN (cannot tell whether any is this account's), never "no work".
 
 A start line followed by no end is also what a watch killed outright leaves (a SIGKILL, the reap), so "no live watch" is read
 from the process table, never from the log alone; a start while a watch process lives is a live watch.
@@ -125,7 +126,10 @@ def pending_work(inbox: Callable[[], Any], jobs: Callable[[], Any]) -> tuple[dic
         return None, f"jobs: {j.get('status') if isinstance(j, dict) else 'no answer'}"
     from control.jobs import _request_of   # the one reading of the title marker (job-state asks the same)
     queued = sum(1 for x in j["jobs"] if isinstance(x, dict) and x.get("state") == "queued" and _request_of(x.get("title")) is not None)
-    return {"unread": i["unread"] if i.get("source") == "interweave" else None, "queued_requests": queued}, None
+    own = i.get("source") == "interweave"
+    if not own and i["unread"] and not queued:
+        return None, "inbox: the relay's unread count is channel-wide, so whether any message is this account's is not known"
+    return {"unread": i["unread"] if own else None, "queued_requests": queued}, None
 
 
 def judge(*, session: Any, last: dict | None, watching: bool | None, now: float, ask_pending: Callable[[], tuple[dict | None, str | None]],

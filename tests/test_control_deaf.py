@@ -112,7 +112,11 @@ class Section(Scratch):
         # drift.inbox counts every message of the channel past the cursor, which a dead watch stops: busy channel, "unread" for all
         self.log({**END5, "t": iso(-3000)})
         relay = {"status": "ok", "unread": 40, "capped": True}
+        # nothing but the channel-wide count: not "no work" (a REQUEST from a non-operator leaves no job) and not deaf: unknown
         r = self.run_section(inbox=relay)
+        self.assertEqual(r["status"], "unknown")
+        self.assertIn("channel-wide", r["reason"])
+        r = self.run_section(inbox={"status": "ok", "unread": 0})   # a relay reading of nothing unread is "no work"
         self.assertEqual((r["deaf"], r["why"]), (False, "no work is waiting"))
         r = self.run_section(inbox=relay, queued_requests=1)   # the control: a queued REQUEST job is this account's own work
         self.assertEqual((r["deaf"], r["pending"]), (True, {"unread": None, "queued_requests": 1}))
