@@ -50,7 +50,9 @@ class Scratch(unittest.TestCase):
 
     def run_section(self, *, online: bool = True, since: str | None = None, unread: int = 0, queued_requests: int = 0,
                     inbox: dict | None = None, jobs: dict | None = None) -> dict:
-        job_list = [{"id": f"j{i}", "state": "queued", "source": "request"} for i in range(queued_requests)]
+        # the sender half's job (jobs-add, source "owner"): what a deaf account's list holds for a REQUEST that came after its watch died
+        job_list = [{"id": f"j{i}", "state": "queued", "source": "owner", "title": f"do it (REQUEST 01a2180d-ab5f-7fd1-82dd-a3347d5076f{i})"}
+                    for i in range(queued_requests)]
         ctx = {"deaf_opts": {"now": NOW, "state": self.state, "uid": UID, "proc": self.proc,
                              "is_watch": lambda argv: "gzcoord-inbox" in os.path.basename(argv[0]) and "--until-delivery" in argv}}
         return deaf.section(ctx, presence=lambda: {"status": "ok", "online": online, "sessions": int(online), "since": since},
@@ -139,9 +141,20 @@ class Section(Scratch):
         # a swap of the inbox and jobs readers would read the jobs dict as an inbox: unknown, not these counts
         self.assertEqual((got["deaf"], got["pending"]), (True, {"unread": 3, "queued_requests": 0}))
 
+    def test_a_request_job_counts_whatever_its_source_and_a_marker_in_the_middle_does_not(self) -> None:
+        self.log({**END5, "t": iso(-3000)})
+        req = "(REQUEST 01a2180d-ab5f-7fd1-82dd-a3347d5076f8)"
+        for source in ("owner", "request"):
+            jobs = {"status": "ok", "jobs": [{"id": "j1", "state": "queued", "source": source, "title": f"x {req}"}]}
+            self.assertTrue(self.run_section(jobs=jobs)["deaf"], source)
+        jobs = {"status": "ok", "jobs": [{"id": "j1", "state": "queued", "source": "owner", "title": f"x {req} and more"}]}
+        self.assertFalse(self.run_section(jobs=jobs)["deaf"])
+
     def test_a_queued_job_that_is_not_from_a_request_is_not_work(self) -> None:
         self.log({**END5, "t": iso(-3000)})
-        jobs = {"status": "ok", "jobs": [{"id": "j1", "state": "queued", "source": "self"}, {"id": "j2", "state": "active", "source": "request"}]}
+        req = "(REQUEST 01a2180d-ab5f-7fd1-82dd-a3347d5076f8)"
+        jobs = {"status": "ok", "jobs": [{"id": "j1", "state": "queued", "source": "self", "title": "a plain job"},
+                                          {"id": "j2", "state": "active", "source": "request", "title": f"taken {req}"}]}
         self.assertFalse(self.run_section(jobs=jobs)["deaf"])
 
     def test_under_ten_minutes_is_not_deaf_and_over_is(self) -> None:
@@ -347,6 +360,9 @@ class Table(unittest.TestCase):
         self.assertIn("end code 5 (gave-up)", cell)
         self.assertEqual(ctl._deaf_cell(row("a", None)["deaf"]), "")
         self.assertEqual(ctl._deaf_cell(None), "")
+        only = ctl._deaf_cell({**row("a", "end@1")["deaf"], "pending": {"unread": None, "queued_requests": 2}})
+        self.assertIn("2 queued REQUEST", only)
+        self.assertNotIn("unread", only)   # not counted, so not said (the relay's reading is channel-wide)
         self.assertIn("deaf ? (inbox: failed)", ctl._deaf_cell({"status": "unknown", "reason": "inbox: failed"}))
         self.assertIn("deaf ? (boom)", ctl._deaf_cell({"status": "failed", "error": "boom"}))
         text = ctl.table("deaf", [row("a", "end@1"), row("b", None), row("c", None, status="no answer")])

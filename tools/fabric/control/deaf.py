@@ -11,9 +11,12 @@ THE RULE, per account, read by that account's control agent (the `deaf` section 
              watch (inbox-watch.is_watch, the predicate the Stop hook and session-start ask)
          and that has held for more than MIN_AGE_S, counted from the line's own time, or from the session's start when the
              session is newer than the line (a session that has just begun has not yet had its first turn to arm one)
-         and the account has work waiting: a queued job taken from a REQUEST (send-time intake files one on the addressee's list
-             for every REQUEST, delivered or not, in every transport mode), or, where the reader counts the account's own
-             spool (the carrier's), an unread message.
+         and the account has work waiting: a queued job whose title ends "(REQUEST <id>)", or, where the reader counts the
+             account's own spool (the carrier's), an unread message.
+         The job is the REQUEST's marker, whatever its source: a deaf session never runs the receiver half of intake (that runs in
+         its own watch, source "request"); the sender half (gzcoord/intake.py queue_for_addressee) files it through the jobs-add op
+         as source "owner", and only when the sender is the addressee's host operator. A REQUEST from anyone else, to a session in
+         a relay mode, leaves no job and no own-spool count: that case is NOT detected here (the relay's reading is channel-wide).
 
 A start line followed by no end is also what a watch killed outright leaves (a SIGKILL, the reap), so "no live watch" is read
 from the process table, never from the log alone; a start while a watch process lives is a live watch.
@@ -120,7 +123,8 @@ def pending_work(inbox: Callable[[], Any], jobs: Callable[[], Any]) -> tuple[dic
         return None, f"inbox: {i.get('status') if isinstance(i, dict) else 'no answer'}"
     if not isinstance(j, dict) or j.get("status") != "ok" or not isinstance(j.get("jobs"), list):
         return None, f"jobs: {j.get('status') if isinstance(j, dict) else 'no answer'}"
-    queued = sum(1 for x in j["jobs"] if isinstance(x, dict) and x.get("source") == "request" and x.get("state") == "queued")
+    from control.jobs import _request_of   # the one reading of the title marker (job-state asks the same)
+    queued = sum(1 for x in j["jobs"] if isinstance(x, dict) and x.get("state") == "queued" and _request_of(x.get("title")) is not None)
     return {"unread": i["unread"] if i.get("source") == "interweave" else None, "queued_requests": queued}, None
 
 

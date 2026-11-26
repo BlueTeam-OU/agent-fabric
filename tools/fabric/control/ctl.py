@@ -2087,8 +2087,9 @@ def _deaf_cell(d: Any) -> str:
     if not d["deaf"]:
         return ""
     p = d.get("pending") if isinstance(d.get("pending"), dict) else {}
-    return (f"  DEAF {_age(d['age_s']) if _finite(d.get('age_s')) else '?'}: {esc(d.get('watch'))}; "
-            f"{S(p.get('unread', '?'))} unread, {S(p.get('queued_requests', '?'))} queued REQUEST")
+    unread = p.get("unread")
+    counted = f"{S(p.get('queued_requests', '?'))} queued REQUEST" + ("" if unread is None else f", {S(unread)} unread")
+    return f"  DEAF {_age(d['age_s']) if _finite(d.get('age_s')) else '?'}: {esc(d.get('watch'))}; {counted}"
 
 
 def _table_deaf(rs: list) -> list[str]:
