@@ -1336,8 +1336,8 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     def relay_arrival(rec: dict, a: dict) -> None:
         """The relay's copy of a request, in this account's arrival file beside the second carrier's copy's line (Carrier.inbound):
         control-parity reads the file for the carriers that carried each request (rule 18). A copy that accept() refused as already
-        seen is the second carrier's arrival and counts; one refused for any other reason (forged, expired, not for this account)
-        is no arrival of that request and is not written."""
+        seen is the second carrier's arrival and counts, if it is addressed to this account and comes from an operator or a placed account;
+        one refused for any other reason is not written. A seen copy is not judged on its op, signature or age: the request it repeats was."""
         iw = carrier_box[0]
         if iw is None or not (a["ok"] or a["why"] == "seen"):
             return
@@ -1346,7 +1346,8 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         # stay unchecked: the copy did arrive, and the carrier's own copy of it was judged on them).
         request = a["request"] if a["ok"] else js.json_parse(js.string(rec.get("content")))
         if not a["ok"]:
-            to = request.get("to") if isinstance(request, dict) and isinstance(request.get("to"), list) else None
+            # As accept() reads it: a `to` that is no list is one address.
+            to = (request.get("to") if isinstance(request.get("to"), list) else [request.get("to")]) if isinstance(request, dict) else None
             if not (to and ("*" in to or me["address"] in to)
                     and request.get("from") in operator_addresses() | account_addresses()):
                 return

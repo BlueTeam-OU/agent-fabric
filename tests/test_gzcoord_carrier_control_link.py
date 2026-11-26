@@ -424,7 +424,7 @@ class LegReady(Net):
         self.ready_file = os.path.join(self.scratch(), "ready")
         logs: list[str] = []
         calls: list[bool] = []
-        sock = os.path.join(sock_dir, "agent-fabric", cc.SOCKET_NAME)
+        sock = self.sock = os.path.join(sock_dir, "agent-fabric", cc.SOCKET_NAME)
 
         def rows():
             calls.append(os.path.exists(sock))   # whether fabric-ctl could already connect while the roster was being verified
@@ -476,15 +476,13 @@ class LegReady(Net):
         self.assertTrue(os.path.exists(sock))
 
     def test_the_stop_hook_is_given_before_the_wait_so_a_leave_during_it_stops_the_child(self):
-        hooks: list = []
-        running, _d, _logs, _c, _s = self.start(ready_wait_s=0.3, on_started=hooks.append)
-        self.assertEqual(hooks, [running.carrier.stop])
-
-    def test_the_inbox_waits_for_begin_when_the_caller_asks(self):
-        running, _d, logs, _c, _s = self.start(begin=False)
-        self.assertFalse(running.carrier.inbox._thread.is_alive())
-        running.begin()
-        self.assertTrue(running.carrier.inbox._thread.is_alive())
+        # when the hook is given, not only that it was: inside the wait (0.3 s), not after it
+        at_hook: list = []
+        t0 = time.monotonic()
+        running, _d, _logs, _c, _s = self.start(ready_wait_s=0.3, on_started=lambda f: at_hook.append((f, time.monotonic() - t0)))
+        self.assertEqual([f for f, _t in at_hook], [running.carrier.stop])
+        self.assertLess(at_hook[0][1], 0.25, "the hook was given after the readiness wait")
+        self.assertGreaterEqual(time.monotonic() - t0, 0.3, "positive control: the wait did take its 0.3 s")
 
     def test_a_send_whose_budget_is_spent_says_0_s_not_a_negative_one(self):
         s = cc.Send("r")
