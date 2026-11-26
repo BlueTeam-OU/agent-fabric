@@ -113,6 +113,7 @@ OUT_OF_TIME = "the time ran out before this send was handed to the child"
 SOCKET_NAME = "control.sock"
 EARLY_HOLD_S = 30.0        # how long a reply waits for its fabric-ctl's session to register
 EARLY_MAX = 256
+READY_WAIT_S = 60.0       # how long agentd holds back taking requests until its InterWeave leg is ready (roster verified, child's session open)
 EARLY_PER_ID = 128        # a fleet's replies to one request, parts of a memory reply included
 
 
@@ -212,6 +213,14 @@ class Directory:
             self._by_address = {a: p for p, a in by_peer.items()}
             self._seen = stamp
 
+    def warm(self) -> float:
+        """Verify the roster now, and say how long it took. Verification runs gpg per row (6 s for this host's 30 rows, and
+        tens of seconds with a fleet restarting at once, j163): left to the first send it spent that send's whole budget, and
+        the first InterWeave replies after every restart failed with the budget already gone."""
+        t0 = time.monotonic()
+        self._load()
+        return time.monotonic() - t0
+
     def address_of(self, peer_id: Any) -> str | None:
         self._load()
         return self._by_peer.get(peer_id) if isinstance(peer_id, str) else None
@@ -286,7 +295,9 @@ class Send:
             self._done.set()
 
     def wait(self, timeout_s: float) -> tuple[bool, str]:
-        if not self._done.wait(max(0.0, timeout_s)):
+        # A budget already spent (the hand-over itself ran past it) is said as 0 s: a caller's deadline minus the clock is negative then.
+        timeout_s = max(0.0, timeout_s)
+        if not self._done.wait(timeout_s):
             return False, f"no answer from the child in {timeout_s:g} s"
         return self.ok, self.why
 
@@ -593,13 +604,26 @@ class Carrier:
         self.inbox = Inbox(self.inbound, log)
         child._on_message = self.inbox.put
 
-    def start(self) -> None:
-        self.inbox.start()
+    def start(self, begin: bool = True) -> None:
+        """The child at once; the inbox with it, or later by `begin_inbox` when the caller has to be ready for what it hands on."""
         self.child.start()
+        if begin:
+            self.inbox.start()
+
+    def begin_inbox(self) -> None:
+        self.inbox.start()
 
     def stop(self) -> None:
         self.child.stop()
         self.inbox.close()
+
+    def wait_ready(self, budget_s: float) -> str:
+        """The child's state once it has a session (`ok`) or will not have one (`off`: not installed, refused by the pin),
+        or when `budget_s` is spent: `restarting` then."""
+        end = time.monotonic() + budget_s
+        while self.child.state == "restarting" and time.monotonic() < end:
+            time.sleep(0.05)
+        return self.child.state
 
     # -- in ------------------------------------------------------------
     def inbound(self, ev: dict) -> None:
@@ -1161,6 +1185,9 @@ class Running:
     def reply(self, request: dict, reply: dict) -> None:
         self.carrier.reply(request, reply)
 
+    def begin(self) -> None:
+        self.carrier.begin_inbox()
+
     def stop(self) -> None:
         if self.server is not None:
             self.server.stop()
@@ -1188,11 +1215,21 @@ def default_directory(host: str, placed: Callable[[], set[str]], log: Callable[[
 def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed: Callable[[], set[str]],
                      env: dict[str, str] | None = None, log: Callable[[str], None] = say,
                      directory: Directory | None = None, argv: list[str] | None = None,
-                     hold: Callable[[], Callable[[], None] | None] | None = None, relay_off: bool = False) -> Running:
+                     hold: Callable[[], Callable[[], None] | None] | None = None, relay_off: bool = False,
+                     ready_wait_s: float = 0.0, begin: bool = True,
+                     on_started: Callable[[Callable[[], None]], None] | None = None) -> Running:
     """Start the child, the router and fabric-ctl's socket. Nothing here can stop agentd answering on the relay:
     a program that is not installed, a roster that does not verify and a socket that cannot be bound are each
     said and the account is on the relay alone until they are mended. With `relay_off` (control_carrier names the
-    second carrier alone) there is no relay to fall back to: fabric-ctl cannot send, and what the child does without the socket is its own."""
+    second carrier alone) there is no relay to fall back to: fabric-ctl cannot send, and what the child does without the socket is its own.
+
+    The leg is READY before this returns, within `ready_wait_s` (j163): the roster is verified (the child starts meanwhile) and the child
+    has its session, and only then is fabric-ctl's socket bound and the caller free to take requests. Before, agentd answered requests
+    within a second of its restart while the first send still verified the roster inside its own 10 s budget: after every `upgrade fabric`,
+    the InterWeave replies of its first minute came late (5-91 s) or never, and a fabric-ctl that connected meanwhile lost its session.
+    A leg not ready in time is said and the relay carries; the supervisor and the socket go on regardless. With `begin` False the
+    messages the child has read wait in the inbox until `Running.begin()`: agentd must hold its Running before a request is handled,
+    or the reply to a request that came by InterWeave has no second carrier to go by."""
     env = os.environ if env is None else env
     from control.upgrade import state_dir
     host = me.partition("/")[0]
@@ -1202,6 +1239,21 @@ def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed
                                   check=program_check(env) if argv is None else None),
                       me=me, on_request=on_request, arrivals=ArrivalLog(os.path.join(state_dir(), "control-arrivals.jsonl"), "agentd", log=log), log=log,
                       relay_off=relay_off)
+    carrier.start(begin)
+    if on_started is not None:
+        # The child holds the profile's lease: whoever leaves during the wait below must still stop it.
+        on_started(carrier.stop)
+    if ready_wait_s > 0:
+        t0 = time.monotonic()
+        checked: list[float] = []
+        # On a thread so the bound holds: the check runs git and gpg, each with a timeout of its own, and a slow one must not hold the relay loop past it.
+        warm = threading.Thread(target=lambda: checked.append(carrier.directory.warm()), name="control-carrier-roster", daemon=True)
+        warm.start()
+        warm.join(ready_wait_s)
+        state = carrier.wait_ready(ready_wait_s - (time.monotonic() - t0))
+        roster = f"roster verified in {checked[0]:.1f} s" if checked else "roster not verified"
+        log(f"InterWeave leg: {roster}, child {state} after {time.monotonic() - t0:.1f} s"
+            + ("" if checked and state != "restarting" else f"; not ready in {ready_wait_s:g} s, the relay carries until it is"))
     server: Server | None = None
     path = socket_path(env)
     if path is None:
@@ -1214,7 +1266,6 @@ def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed
         except OSError as e:
             log(f"fabric-ctl's socket cannot be served ({e}); " + ("fabric-ctl cannot send to this account's agentd" if relay_off else "fabric-ctl sends by the relay alone"))
             server = None
-    carrier.start()
     return Running(carrier, server)
 
 

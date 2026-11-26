@@ -1333,6 +1333,27 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     def finish_inflight() -> None:
         join_inflight(inflight)
 
+    def relay_arrival(rec: dict, a: dict) -> None:
+        """The relay's copy of a request, in this account's arrival file beside the second carrier's copy's line (Carrier.inbound):
+        control-parity reads the file for the carriers that carried each request (rule 18). A copy that accept() refused as already
+        seen is the second carrier's arrival and counts, if it is addressed to this account and comes from an operator or a placed account;
+        one refused for any other reason is not written. A seen copy is not judged on its op, signature or age: the request whose id it shares was."""
+        iw = carrier_box[0]
+        if iw is None or not (a["ok"] or a["why"] == "seen"):
+            return
+        # accept() returns the parsed request only when it accepted. Its seen-set test comes before every other check, so a
+        # "seen" says nothing about the record's `to` or `from`: parse again and apply those two here (expiry and signature
+        # stay unchecked: the copy did arrive, and the carrier's own copy of it was judged on them).
+        request = a["request"] if a["ok"] else js.json_parse(js.string(rec.get("content")))
+        if not a["ok"]:
+            # As accept() reads it: a `to` that is no list is one address.
+            to = (request.get("to") if isinstance(request.get("to"), list) else [request.get("to")]) if isinstance(request, dict) else None
+            sender = request.get("from") if isinstance(request, dict) else None
+            if not (to and ("*" in to or me["address"] in to)
+                    and isinstance(sender, str) and sender in operator_addresses() | account_addresses()):
+                return
+        iw.carrier.arrivals.add("relay", request, "ok" if a["ok"] else "seen")
+
     decide_lock = threading.Lock()   # accept + remember: one decision for a request, whichever carrier brought it first
 
     def handle(rec: dict, via: str) -> None:
@@ -1347,6 +1368,8 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
                 _stderr(f"agentd: ignored a record {_shown(rec.get('id'), 40)} that could not be decided on "
                         f"({type(e).__name__}: {js.slice(str(e), 200)}){tag}")
                 return
+            if via == "relay":
+                relay_arrival(rec, a)
             if not a["ok"]:
                 if a["why"] not in QUIET:
                     _stderr(f"agentd: ignored a record {js.stringify(a['why'])}{tag}")
@@ -1389,8 +1412,10 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         running = control_link.start_for_agentd(
             me=me["address"], placed=lambda: operator_addresses() | account_addresses(),
             on_request=lambda request, sender: handle({"id": request.get("id"), "content": js.stringify(request)}, control_link.VIA),
-            hold=hold_for_ctl, relay_off=alone)
+            hold=hold_for_ctl, relay_off=alone, ready_wait_s=control_link.READY_WAIT_S, begin=False,
+            on_started=EXIT_HOOKS.append)
         carrier_box[0] = running
+        running.begin()
         EXIT_HOOKS.append(running.stop)
         if not alone:
             _stderr(f"agentd: also on {CARRIER_LABEL} ({control_link.ENDPOINT}); the relay stays the record")
