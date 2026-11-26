@@ -203,6 +203,10 @@ def _deaf(ctx: Mapping[str, Any]) -> Any:
     inbox-watch.py says what a watch is, the one the hooks ask."""
     import roots
     from control import deaf
+    # As _session: a context that injects `run` has faked the process table, and this reads the real /proc, state and relay.
+    if ctx.get("run") and ctx.get("deaf_opts") is None:
+        return {"status": "unknown", "reason": "a context with a faked process table has no real session to read"}
+    ctx = {**ctx, "deaf_opts": {**({"uid": ctx["uid"]} if ctx.get("uid") is not None else {}), **(ctx.get("deaf_opts") or {})}}
     root = ctx.get("root") or roots.checkout_root(ctx.get("home") or os.path.expanduser("~"))
     return deaf.section({**ctx, "root": root}, presence=lambda: presence(**(ctx.get("presence_opts") or {})),
                         inbox=lambda: _inbox(ctx), jobs=lambda: _jobs(ctx))

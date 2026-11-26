@@ -2082,7 +2082,8 @@ def _deaf_cell(d: Any) -> str:
     if not isinstance(d, dict):
         return ""
     if d.get("status") != "ok" or not isinstance(d.get("deaf"), bool):
-        return f"  deaf ? ({esc(nullish(d.get('reason'), nullish(d.get('status'), '?')))})" if d.get("status") == "unknown" else "  deaf ?"
+        why = nullish(d.get("reason"), d.get("error"))
+        return f"  deaf ? ({esc(why)})" if T(why) else "  deaf ?"
     if not d["deaf"]:
         return ""
     p = d.get("pending") if isinstance(d.get("pending"), dict) else {}

@@ -72,14 +72,24 @@ def read_rows(run: Callable[..., Any] = subprocess.run) -> list[dict]:
         r = run(["fabric-ctl", "all", "deaf", "--json"], capture_output=True, text=True, timeout=CTL_TIMEOUT_S, stdin=subprocess.DEVNULL, check=False)
     except (OSError, subprocess.SubprocessError) as e:
         raise RuntimeError(f"fabric-ctl all deaf: {e.__class__.__name__}: {e}") from e
-    if r.returncode != 0:
+    # fabric-ctl prints one JSON object per account per line, and exits 1 when any account did not answer while still printing
+    # that account's row ("no answer"): the rows of the others are the answer, and an unanswering account is what the ledger keeps.
+    # Any other code, or output that is not rows, is a failed read.
+    if r.returncode not in (0, 1):
         raise RuntimeError(f"fabric-ctl all deaf exited {r.returncode}: {(r.stderr or '').strip()[-200:]}")
-    try:
-        rows = json.loads(r.stdout)
-    except ValueError as e:
-        raise RuntimeError(f"fabric-ctl all deaf printed no JSON ({e})") from e
-    if not isinstance(rows, list) or not all(isinstance(x, dict) and isinstance(x.get("account"), str) for x in rows):
-        raise RuntimeError("fabric-ctl all deaf did not print a list of accounts")
+    rows = []
+    for line in r.stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError as e:
+            raise RuntimeError(f"fabric-ctl all deaf printed a line that is not JSON ({e})") from e
+        if not isinstance(row, dict) or not isinstance(row.get("account"), str):
+            raise RuntimeError("fabric-ctl all deaf printed a line that is not an account's row")
+        rows.append(row)
+    if not rows:
+        raise RuntimeError(f"fabric-ctl all deaf printed no rows (exit {r.returncode}: {(r.stderr or '').strip()[-200:]})")
     return rows
 
 
@@ -98,9 +108,11 @@ def recovered(row: dict) -> bool:
 
 def body(account: str, d: dict) -> tuple[str, str]:
     p = d.get("pending") if isinstance(d.get("pending"), dict) else {}
+    unread = p.get("unread")
+    waiting = (f"{p.get('queued_requests')} queued job(s) taken from a REQUEST" if unread is None
+               else f"{unread} unread message(s) of its own and {p.get('queued_requests')} queued job(s) taken from a REQUEST")
     context = (f"{account} has a session running and no inbox watch. Its watch log's last line is: {d.get('watch')}. "
-               f"It has been so since {d.get('since')} ({d.get('age_s')} s) and work waits for it: "
-               f"{p.get('unread')} unread inbox message(s) and {p.get('queued_requests')} queued job(s) taken from a REQUEST.")
+               f"It has been so since {d.get('since')} ({d.get('age_s')} s) and work waits for it: {waiting}.")
     notes = ("An idle session has no turn in which to arm its watch again; this one can be helped only from outside "
              f"(`fabric-ctl {account} restart`, or a message that makes the session act). One message per episode: "
              "it is not repeated while this deafness lasts. Rule: tools/fabric/control/deaf.py.")

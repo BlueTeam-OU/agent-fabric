@@ -11,16 +11,18 @@ THE RULE, per account, read by that account's control agent (the `deaf` section 
              watch (inbox-watch.is_watch, the predicate the Stop hook and session-start ask)
          and that has held for more than MIN_AGE_S, counted from the line's own time, or from the session's start when the
              session is newer than the line (a session that has just begun has not yet had its first turn to arm one)
-         and the account has work waiting: an unread inbox message, or a queued job taken from a REQUEST.
+         and the account has work waiting: a queued job taken from a REQUEST (send-time intake files one on the addressee's list
+             for every REQUEST, delivered or not, in every transport mode), or, where the reader counts the account's own
+             spool (the carrier's), an unread message.
 
 A start line followed by no end is also what a watch killed outright leaves (a SIGKILL, the reap), so "no live watch" is read
 from the process table, never from the log alone; a start while a watch process lives is a live watch.
 
 WHAT IS NOT KNOWN IS NOT DECIDED. A log that cannot be read, a process table that cannot be read, or a section (presence,
 inbox, jobs) that failed answers {"status": "unknown", "reason"}, never "not deaf". An account with no log line at all, or with
-no session, or with no waiting work, answers deaf False with the reason in `why`. The inbox counts every unread message, not
-only a REQUEST: the section reads positions, not bodies, so a deaf account with only an unread INFO is flagged too (the alarm
-says "unread", not "REQUEST").
+no session, or with no waiting work, answers deaf False with the reason in `why`. The relay's cursor reader counts every message of the project channel past the account's cursor, others' traffic included (drift.py),
+and with no watch the cursor stops, so there "unread" would be true of any busy channel: it is not counted as work, and the alarm says
+only what was counted. Only the carrier's own-spool reading (source "interweave") counts unread messages.
 
 The episode: `episode` is the watch-log line's own event and time, which does not change between polls, so the alarm
 (deaf_alarm.py) sends one message for it and not one per poll; a new `end` or `start` line, or a recovery, is a new episode.
@@ -103,14 +105,23 @@ def _no(why: str, **more: Any) -> dict:
     return {"status": "ok", "deaf": False, "why": why, **more}
 
 
-def pending_work(inbox: Any, jobs: Any) -> tuple[dict | None, str | None]:
-    """({"unread": n, "queued_requests": m}, None), or (None, why) when either section does not say."""
-    if not isinstance(inbox, dict) or inbox.get("status") != "ok" or not isinstance(inbox.get("unread"), int):
-        return None, f"inbox: {inbox.get('status') if isinstance(inbox, dict) else 'no answer'}"
-    if not isinstance(jobs, dict) or jobs.get("status") != "ok" or not isinstance(jobs.get("jobs"), list):
-        return None, f"jobs: {jobs.get('status') if isinstance(jobs, dict) else 'no answer'}"
-    queued = sum(1 for j in jobs["jobs"] if isinstance(j, dict) and j.get("source") == "request" and j.get("state") == "queued")
-    return {"unread": inbox["unread"], "queued_requests": queued}, None
+def pending_work(inbox: Callable[[], Any], jobs: Callable[[], Any]) -> tuple[dict | None, str | None]:
+    """({"unread": n or None, "queued_requests": m}, None), or (None, why) when either reader does not say or raises. `unread` is
+    None where the inbox reading is the relay's channel-wide one (not this account's own work)."""
+    try:
+        i = inbox()
+    except Exception as e:  # noqa: BLE001 — a reader that raised said nothing: unknown, with its reason
+        return None, f"inbox: {e.__class__.__name__}: {e}"
+    try:
+        j = jobs()
+    except Exception as e:  # noqa: BLE001
+        return None, f"jobs: {e.__class__.__name__}: {e}"
+    if not isinstance(i, dict) or i.get("status") != "ok" or not isinstance(i.get("unread"), int):
+        return None, f"inbox: {i.get('status') if isinstance(i, dict) else 'no answer'}"
+    if not isinstance(j, dict) or j.get("status") != "ok" or not isinstance(j.get("jobs"), list):
+        return None, f"jobs: {j.get('status') if isinstance(j, dict) else 'no answer'}"
+    queued = sum(1 for x in j["jobs"] if isinstance(x, dict) and x.get("source") == "request" and x.get("state") == "queued")
+    return {"unread": i["unread"] if i.get("source") == "interweave" else None, "queued_requests": queued}, None
 
 
 def judge(*, session: Any, last: dict | None, watching: bool | None, now: float, ask_pending: Callable[[], tuple[dict | None, str | None]],
@@ -143,7 +154,7 @@ def judge(*, session: Any, last: dict | None, watching: bool | None, now: float,
     pending, why = ask_pending()
     if pending is None:
         return _unknown(why or "pending work not read")
-    if not pending["unread"] and not pending["queued_requests"]:
+    if not pending["unread"] and not pending["queued_requests"]:   # None unread: not counted
         return _no("no work is waiting", age_s=age)
     return {"status": "ok", "deaf": True, "watch": how, "age_s": age,
             "since": datetime.datetime.fromtimestamp(began, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -170,4 +181,4 @@ def section(ctx: Mapping[str, Any], *, presence: Callable[[], Any], inbox: Calla
         except Exception:  # noqa: BLE001 — an unreadable command table or process table is unknown, never "no watch"
             watching = None
     return judge(session=presence(), last=last, watching=watching, now=now,
-                 ask_pending=lambda: pending_work(inbox(), jobs()))
+                 ask_pending=lambda: pending_work(inbox, jobs))

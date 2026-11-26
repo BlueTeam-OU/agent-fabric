@@ -54,7 +54,7 @@ class Scratch(unittest.TestCase):
         ctx = {"deaf_opts": {"now": NOW, "state": self.state, "uid": UID, "proc": self.proc,
                              "is_watch": lambda argv: "gzcoord-inbox" in os.path.basename(argv[0]) and "--until-delivery" in argv}}
         return deaf.section(ctx, presence=lambda: {"status": "ok", "online": online, "sessions": int(online), "since": since},
-                            inbox=lambda: inbox if inbox is not None else {"status": "ok", "unread": unread},
+                            inbox=lambda: inbox if inbox is not None else {"status": "ok", "source": "interweave", "unread": unread},
                             jobs=lambda: jobs if jobs is not None else {"status": "ok", "jobs": job_list})
 
 
@@ -105,6 +105,39 @@ class Section(Scratch):
         r = self.run_section(unread=0, queued_requests=0)
         self.assertEqual((r["deaf"], r["why"]), (False, "no work is waiting"))
         self.assertTrue(self.run_section(unread=1)["deaf"])   # the control
+
+    def test_the_relay_s_channel_wide_unread_is_not_this_accounts_work(self) -> None:
+        # drift.inbox counts every message of the channel past the cursor, which a dead watch stops: busy channel, "unread" for all
+        self.log({**END5, "t": iso(-3000)})
+        relay = {"status": "ok", "unread": 40, "capped": True}
+        r = self.run_section(inbox=relay)
+        self.assertEqual((r["deaf"], r["why"]), (False, "no work is waiting"))
+        r = self.run_section(inbox=relay, queued_requests=1)   # the control: a queued REQUEST job is this account's own work
+        self.assertEqual((r["deaf"], r["pending"]), (True, {"unread": None, "queued_requests": 1}))
+
+    def test_a_reader_that_raises_is_unknown_with_its_reason(self) -> None:
+        self.log({**END5, "t": iso(-3000)})
+        ctx = {"deaf_opts": {"now": NOW, "state": self.state}}
+        pres = lambda: {"status": "ok", "online": True, "since": None}  # noqa: E731
+
+        def boom():
+            raise OSError("relay unreachable")
+        for kw in ({"inbox": boom, "jobs": lambda: {"status": "ok", "jobs": []}}, {"inbox": lambda: {"status": "ok", "unread": 0}, "jobs": boom}):
+            r = deaf.section(ctx, presence=pres, **kw)
+            self.assertEqual(r["status"], "unknown")
+            self.assertIn("relay unreachable", r["reason"])
+
+    def test_the_op_wires_each_reader_to_its_own_section(self) -> None:
+        from unittest import mock
+        from control import ops
+        self.log({**END5, "t": iso(-3000)})
+        ctx = {"root": HERE, "deaf_opts": {"now": NOW, "state": self.state, "uid": UID, "proc": self.proc, "is_watch": lambda argv: False}}
+        with mock.patch.object(ops, "presence", lambda **k: {"status": "ok", "online": True, "since": None}), \
+                mock.patch.object(ops, "_inbox", lambda c: {"status": "ok", "source": "interweave", "unread": 3}), \
+                mock.patch.object(ops, "_jobs", lambda c: {"status": "ok", "jobs": []}):
+            got = ops.collect("deaf", ctx)["deaf"]
+        # a swap of the inbox and jobs readers would read the jobs dict as an inbox: unknown, not these counts
+        self.assertEqual((got["deaf"], got["pending"]), (True, {"unread": 3, "queued_requests": 0}))
 
     def test_a_queued_job_that_is_not_from_a_request_is_not_work(self) -> None:
         self.log({**END5, "t": iso(-3000)})
@@ -263,18 +296,41 @@ class Alarm(unittest.TestCase):
         deaf_alarm.send("a", d, "h/user", run)
         self.assertEqual([c[0] for c in calls], ["gzcoord-compose", "gzcoord-send"])
         self.assertIn("end code 5 (gave-up)", self.sent_text)
-        self.assertIn("1 unread inbox message(s) and 1 queued job(s)", self.sent_text)
+        self.assertIn("1 unread message(s) of its own and 1 queued job(s)", self.sent_text)
         self.assertFalse(os.path.exists(calls[1][1]))   # the scratch file is gone
+
+    def test_the_text_says_only_what_was_counted(self) -> None:
+        d = {**row("a", "end@1")["deaf"], "pending": {"unread": None, "queued_requests": 2}}
+        context, _ = deaf_alarm.body("a", d)
+        self.assertIn("work waits for it: 2 queued job(s) taken from a REQUEST.", context)
+        self.assertNotIn("unread", context)
 
     def test_send_failure_names_the_command(self) -> None:
         run = lambda argv, **kw: subprocess.CompletedProcess(argv, 3, "", "relay unreachable")  # noqa: E731
         with self.assertRaisesRegex(RuntimeError, "gzcoord-compose exited 3: relay unreachable"):
             deaf_alarm.send("a", row("a", "end@1")["deaf"], "h/user", run)
 
+    def test_the_rows_of_the_real_fabric_ctl_output_are_read(self) -> None:
+        # what `fabric-ctl all deaf --json` prints: ctl.rows, one JSON object per line (ctl.main), not one list
+        expected = [{"login": "a", "host": "h", "address": "h/a"}, {"login": "b", "host": "h", "address": "h/b"}, {"login": "c", "host": "h", "address": "h/c"}]
+        deaf_data = row("a", "end@1")["deaf"]
+        replies = [{"from": "h/a", "data": {"deaf": deaf_data}}, {"from": "h/b", "data": {"deaf": row("b", None)["deaf"]}}]
+        out = "\n".join(ctl.js.stringify(r) for r in ctl.rows(expected, replies)) + "\n"
+        run = lambda rc: (lambda argv, **kw: subprocess.CompletedProcess(argv, rc, out, "c did not answer"))  # noqa: E731
+        for rc in (0, 1):   # exit 1 is what ctl returns when an account did not answer; the rows are still the answer
+            rows = deaf_alarm.read_rows(run(rc))
+            self.assertEqual([r["account"] for r in rows], ["a", "b", "c"], rc)
+        self.assertEqual(deaf_alarm.episode_of(rows[0])[0], "end@1")   # the key the alarm needs survived ctl.rows
+        self.assertEqual(rows[2]["status"], "no answer")
+        sent: list = []
+        new, said, failed = deaf_alarm.alarm(rows, {"c": "end@0"}, "h/user", False, lambda a, d, to: sent.append(a))
+        self.assertEqual((sent, new), (["a"], {"a": "end@1", "c": "end@0"}))   # the silent account's entry kept
+
     def test_reading_the_accounts_distinguishes_failures(self) -> None:
-        ok = lambda out, rc=0: (lambda argv, **kw: subprocess.CompletedProcess(argv, rc, out, "boom"))  # noqa: E731
-        self.assertEqual(deaf_alarm.read_rows(ok(json.dumps([row("a", None)])))[0]["account"], "a")
-        for bad in (ok("", 1), ok("not json"), ok('{"a": 1}'), ok('[1]')):
+        ok = json.dumps(row("a", None))
+        mk = lambda out, rc=0: (lambda argv, **kw: subprocess.CompletedProcess(argv, rc, out, "boom"))  # noqa: E731
+        self.assertEqual(deaf_alarm.read_rows(mk(ok + "\n"))[0]["account"], "a")
+        for bad in (mk("", 1), mk("", 0), mk("not json\n"), mk("[1]\n"), mk("{\"a\": 1}\n"), mk(ok, 2), mk(ok, 3)):
             with self.assertRaises(RuntimeError):
                 deaf_alarm.read_rows(bad)
 
