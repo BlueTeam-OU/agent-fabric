@@ -9,7 +9,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login|all> upgrade claude [--version V] | upgrade fabric
     fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]
     fabric-ctl <login|all> restart
-    fabric-ctl <login|all> presence | jobs | tools | local | local-prune | secrets-selftest
+    fabric-ctl <login|all> deaf | presence | jobs | tools | local | local-prune | secrets-selftest
     fabric-ctl <login|all> branches [--sweep]
     fabric-ctl <login|all> drift
     fabric-ctl <login|all> tools-install <tool>
@@ -202,6 +202,8 @@ VERBS: tuple[Verb, ...] = (
          usage=(("<login|all> secrets-sync [--expect SHA12] [--restart]", None),), args="[--expect SHA12] [--restart]", signed="always",
          options=(("--expect SHA12", "the 12-hex setup-token fingerprint the account must hold (fabric-accounts templates)"),
                   ("--restart", "resume a session on the result")) + COMMON),
+    Verb("deaf", "Each account whose session is idle with no inbox watch while work waits (j188): how the watch ended and for how long.",
+         "fabric-ctl all deaf", usage=(("<login|all> deaf", None),), options=COMMON),
     Verb("presence", "Whether each account has a session running, since when, as which role.", "fabric-ctl all presence",
          usage=(("<login|all> presence", "any placed account may ask"),), options=COMMON),
     Verb("state", "Each account's newest state record, as the account itself keeps and answers it: one table row each, asked of the accounts under any carrier.",
@@ -969,7 +971,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), CARRIER_NAME: g(CARRIER_NAME), f"{CARRIER_NAME}Install": g(INSTALL_OP), f"{CARRIER_NAME}Start": g(START_OP), f"{CARRIER_NAME}Stop": g(STOP_OP), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
-                    **{k: g(k) for k in ("harness", "managed", "inbox", "switch", "drift", "state") if dig(d, k) is not UNDEFINED},
+                    **{k: g(k) for k in ("harness", "managed", "inbox", "switch", "drift", "state", "deaf") if dig(d, k) is not UNDEFINED},
                     **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), ("clone", "clone"), ("hold", "hold"), ("unhold", "unhold"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP), (f"{CARRIER_NAME}Mode", MODE_OP)) if dig(d, op) is not UNDEFINED}})
     return out
 
@@ -2074,6 +2076,34 @@ def _table_tokens(rs: list) -> list[str]:
     return lines
 
 
+def _deaf_cell(d: Any) -> str:
+    """The deaf section (control/deaf.py) as a status cell: said when the account is deaf or the reading failed, nothing otherwise
+    (an older control agent has no section; a not-deaf account has nothing to say)."""
+    if not isinstance(d, dict):
+        return ""
+    if d.get("status") != "ok" or not isinstance(d.get("deaf"), bool):
+        why = nullish(d.get("reason"), d.get("error"))
+        return f"  deaf ? ({esc(why)})" if T(why) else "  deaf ?"
+    if not d["deaf"]:
+        return ""
+    p = d.get("pending") if isinstance(d.get("pending"), dict) else {}
+    unread = p.get("unread")
+    counted = f"{S(p.get('queued_requests', '?'))} queued REQUEST" + ("" if unread is None else f", {S(unread)} unread")
+    return f"  DEAF {_age(d['age_s']) if _finite(d.get('age_s')) else '?'}: {esc(d.get('watch'))}; {counted}"
+
+
+def _table_deaf(rs: list) -> list[str]:
+    lines = [f"{pad_end('account', 22)} deaf"]
+    for r in rs:
+        if _unless(r, r.get("deaf")):
+            lines.append(_row(r))
+            continue
+        d = r["deaf"]
+        cell = _deaf_cell(d)
+        lines.append(trim_end(f"{pad_end(r['account'], 22)} " + (cell.strip() if cell else f"no ({esc(nullish(dig(d, 'why'), '-'))})")))
+    return lines
+
+
 def _drift_cells(r: dict) -> str:
     """The harness and inbox cells of a status row (tools/fabric/drift.py), named when they are wrong and
     empty for a control agent that does not answer them: Claude Code installed against the pin, and the
@@ -2105,6 +2135,7 @@ def _drift_cells(r: dict) -> str:
     n = dig(r.get("session"), "harness_server_replaced")
     if isinstance(n, int) and not isinstance(n, bool) and n > 0:
         out += f"  HARNESS SERVER OLDER THAN ITS BINARY (fabric-ctl {esc(r.get('account'))} harness-restart)"
+    out += _deaf_cell(r.get("deaf"))
     i = r.get("inbox")
     if isinstance(i, dict) and i.get("status") != "none":
         if i.get("status") != "ok" or i.get("lagging") is None:
@@ -2183,6 +2214,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_hold(rs, op)
     elif op == "pool-add":
         lines = _table_pool_add(rs)
+    elif op == "deaf":
+        lines = _table_deaf(rs)
     elif op == "presence":
         lines = _table_presence(rs)
     elif op == "state":
