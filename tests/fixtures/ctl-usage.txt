@@ -4,6 +4,7 @@ usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|
        fabric-ctl <login|all> upgrade claude [--version V]
        fabric-ctl <login|all> upgrade fabric   (every account to this checkout's origin/main, then bootstrap)
        fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]
+       fabric-ctl <login|all> deaf
        fabric-ctl <login|all> presence   (any placed account may ask)
        fabric-ctl <login|all> state   (any placed account may ask)
        fabric-ctl <login|all> jobs

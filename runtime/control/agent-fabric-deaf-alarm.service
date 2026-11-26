@@ -1,0 +1,19 @@
+# runtime/control/agent-fabric-deaf-alarm.service — one INFO to the coordinator for each account whose session sits idle with no
+# inbox watch while work waits (tools/fabric/control/deaf_alarm.py; j188), run by agent-fabric-deaf-alarm.timer. A systemd USER unit,
+# installed by bootstrap.py (COORDINATOR_UNITS) on the fabric-coordinator account(s) only, beside the drain's: the message is the coordinator's to act
+# on (`fabric-ctl <login> restart`), and fabric-ctl all answers only from an operator's account.
+# Oneshot: exit 3 (the accounts unreadable, or a message not sent) fails the unit, which is the journal's; the next run tries
+# again, and the ledger holds what went, so a retry never repeats a message.
+[Unit]
+Description=agent-fabric: tell the coordinator of sessions idle with no inbox watch while work waits
+
+[Service]
+Type=oneshot
+Environment=AGENT_FABRIC_ROOT=%h/projects/agent-fabric
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h/projects/agent-fabric
+ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/deaf_alarm.py
+# fabric-ctl waits up to 3 min for the accounts, and each send up to 1 min.
+TimeoutStartSec=10min
+Nice=10
+NoNewPrivileges=yes

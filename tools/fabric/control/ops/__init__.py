@@ -198,6 +198,16 @@ def _session(ctx: Mapping[str, Any]) -> Any:
     return out
 
 
+def _deaf(ctx: Mapping[str, Any]) -> Any:
+    """A session idle with no inbox watch while work waits (control/deaf.py, j188). The root is the checkout whose
+    inbox-watch.py says what a watch is, the one the hooks ask."""
+    import roots
+    from control import deaf
+    root = ctx.get("root") or roots.checkout_root(ctx.get("home") or os.path.expanduser("~"))
+    return deaf.section({**ctx, "root": root}, presence=lambda: presence(**(ctx.get("presence_opts") or {})),
+                        inbox=lambda: _inbox(ctx), jobs=lambda: _jobs(ctx))
+
+
 def _run_kw(ctx: Mapping[str, Any]) -> dict:
     return {"run": ctx["run"]} if ctx.get("run") else {}
 
@@ -230,13 +240,14 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "gateway": _gateway,
     CARRIER_NAME: _carrier,
     "switch": _switch,
+    "deaf": _deaf,
     "accounts": lambda c: c["accounts_cached"]() if c.get("accounts_cached") else accounts(c.get("home"), **(c.get("accounts_opts") or {})),
 }
 
 
 def _wants(op: str) -> list[str]:
     if op == "status":
-        return ["identity", "usage", "keys", "fabric", "session", "harness", "managed", "inbox"]
+        return ["identity", "usage", "keys", "fabric", "session", "harness", "managed", "inbox", "deaf"]
     if op == "tokens":
         return ["identity", "tokens"]
     return [op]
