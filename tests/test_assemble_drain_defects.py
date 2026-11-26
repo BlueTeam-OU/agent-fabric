@@ -91,7 +91,7 @@ def test_a_rehomed_claim_is_screened_by_the_control_planes_hygiene_view(tmp: str
 
 def test_a_rehomed_claim_carries_its_projects_own_scope_names_into_the_control_plane(tmp: str) -> None:
     """A name the drained project marks "scope": "own" is withheld in that project's slices, and a claim re-homed from it into
-    agent-fabric's memory takes the ban along (the owner, 2026-11-26): the control plane's view alone, which skips another
+    agent-fabric's memory takes the ban along (fabric-coordinator, 2026-11-26, j1012): the control plane's view alone, which skips another
     project's "own" entries, let it through unredacted. Control: the bound role's slice is redacted too, so the fixture's
     entry is live; a name the project did not list stays in both."""
     body = "The acme habit, and the plain habit."

@@ -65,7 +65,7 @@ BANNED_PATTERNS: list = []
 # say there, and withheld everywhere else (the owner, 2026-10-05); one
 # another project marks "scope": "own" is withheld in that project's slices
 # and in what is re-homed out of them (intake.load_hygiene carried_from), and
-# is absent from any other project's view (the owner, 2026-11-19, 2026-11-26).
+# is absent from any other project's view (the owner, 2026-11-19; fabric-coordinator, 2026-11-26, j1012).
 PROJECT_PATTERNS: list = []
 
 
