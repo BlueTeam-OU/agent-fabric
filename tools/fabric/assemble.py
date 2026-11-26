@@ -178,7 +178,7 @@ def rehome(run: Run, claims: list) -> int:
     other.references, other.origins, other.evidence_epoch, other.telemetry = run.references, run.origins, run.evidence_epoch, run.telemetry
     for claim in claims:
         other.all_claims.setdefault(claim["_role"], []).append(claim)
-    load_hygiene(other.args, other.project)
+    load_hygiene(other.args, other.project, carried_from=run.project)
     try:
         rc = assemble_project(other)
     finally:

@@ -121,7 +121,10 @@ def open_layout(args: argparse.Namespace) -> str:
     # every repository through the fabric's domains, and lint holds it to
     # every list — a name one project keeps out (a city, a deployment) is
     # out of the corpus everywhere (found 2026-09-18: a slice admitted here
-    # carried a city name another project bans). The working copies
+    # carried a city name another project bans). Everywhere but where the
+    # entry's "scope" says otherwise: "others" is allowed in its own project,
+    # "own" is held in its own project's slices and what is re-homed out of
+    # them, and only there (layout.load_hygiene_patterns). The working copies
     # beside the fabric are found the way lint finds them, so each list is
     # actually read, not skipped for want of a known checkout.
     # A checkout named PROJECT=DIR is found, and outranks one discovered beside the tree (the owner's decision on #544's open
@@ -146,12 +149,14 @@ def open_layout(args: argparse.Namespace) -> str:
     return project
 
 
-def load_hygiene(args: argparse.Namespace, project: str) -> None:
-    """The banned lists as `project` sees them: a name a project lists as its own is allowed in its own slices and out of every
-    other's, so a claim re-homed to another project is screened by that project's view, not the one it was read under."""
+def load_hygiene(args: argparse.Namespace, project: str, carried_from: str | None = None) -> None:
+    """The banned lists as `project` sees them: a name a project lists as its own ("scope": "others") is allowed in its own
+    slices and out of every other's; a name it marks "scope": "own" is withheld in its own slices and not in another project's.
+    A claim re-homed to another project is screened by that project's view, not the one it was read under, plus the "own"
+    names of `carried_from`, the project it was read under: they follow the claim (the owner, 2026-11-26)."""
     try:
         BANNED_PATTERNS[:] = layout.load_hygiene_patterns(args.hygiene_listed)
-        PROJECT_PATTERNS[:] = layout.load_hygiene_patterns(args.hygiene_listed, for_project=project)
+        PROJECT_PATTERNS[:] = layout.load_hygiene_patterns(args.hygiene_listed, for_project=project, carried_from=carried_from)
     except layout.HygieneError as exc:
         sys.exit(f"assemble: {exc}")
 

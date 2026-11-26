@@ -89,6 +89,26 @@ def test_a_rehomed_claim_is_screened_by_the_control_planes_hygiene_view(tmp: str
     assert "acme" not in ta.read(fabric_proj(out, COORD, "workflow.md")), "the control plane's view bans it"
 
 
+def test_a_rehomed_claim_carries_its_projects_own_scope_names_into_the_control_plane(tmp: str) -> None:
+    """A name the drained project marks "scope": "own" is withheld in that project's slices, and a claim re-homed from it into
+    agent-fabric's memory takes the ban along (the owner, 2026-11-26): the control plane's view alone, which skips another
+    project's "own" entries, let it through unredacted. Control: the bound role's slice is redacted too, so the fixture's
+    entry is live; a name the project did not list stays in both."""
+    body = "The acme habit, and the plain habit."
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [{**WF, "body": body}]), COORD: ta.claims(COORD, [
+        {**WF, "topic": "moved", "body": body, "evidence": ["h2"]}])})
+    bind(out, "alpha")
+    with open(os.path.join(ta.working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+        json.dump({"patterns": [{"pattern": "\\bacme\\b", "flags": "i", "label": "own place", "scope": "own"}]}, fh)
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "acme" not in ta.read(ta.proj(out, "alpha", "workflow.md")), "control: the project's own slice withholds its own name"
+    assert "plain habit" in ta.read(ta.proj(out, "alpha", "workflow.md"))
+    rehomed = ta.read(fabric_proj(out, COORD, "workflow.md"))
+    assert "acme" not in rehomed, "the re-homed slice carries the ban: " + rehomed
+    assert "plain habit" in rehomed
+
+
 def test_a_refusal_of_the_control_planes_pass_stops_the_run_with_the_projects_corpus_untouched(tmp: str) -> None:
     """Two re-homed claims under one heading are a collision the owner decides (the control plane's pass refuses): the run
     exits 1 and, the control plane's pass going first, nothing of the project's is written. Control: one claim writes."""
@@ -1033,6 +1053,7 @@ def main() -> int:
     cases = [
         test_a_coordinator_claim_of_a_project_that_does_not_bind_it_lands_in_the_control_plane,
         test_a_rehomed_claim_is_screened_by_the_control_planes_hygiene_view,
+        test_a_rehomed_claim_carries_its_projects_own_scope_names_into_the_control_plane,
         test_a_refusal_of_the_control_planes_pass_stops_the_run_with_the_projects_corpus_untouched,
         test_a_claim_of_another_unbound_role_refuses_the_run_before_anything_is_written,
         test_a_coordinator_claim_shared_with_another_unbound_role_is_refused,
