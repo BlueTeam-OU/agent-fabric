@@ -132,3 +132,16 @@ fabric-coordinator (OBSERVATION 01a1981f).
 ### Amendment 2026-11-05 — No engine reviews a record PR
 
 The review of #488 (round 1 on 2bf7557b, F1) found that rule 6 still said the review class's review is always required, with ADR-054 rule 10's substitution as the one exception, while ADR-019 §5 rule 1 (A 2026-11-05) arms a record PR on a direct project on the owner's ruling and `fabric-pr arm` asks no engine of it (gate 4b). Rule 6 now says no engine reviews a record PR, and calls ADR-054 rule 10's case a substitution, which it is: an engine is read as another, none is dropped.
+
+### Amendment 2026-11-26 — A run that is no review posts the unavailable marker
+
+Rules 2 and 4 said a failed sandbox proof, and an answer that is not one
+JSON object, are a failed review that posts nothing. ADR-055 rule 8
+(A 2026-11-13, #577) has since said the opposite for both: such a run is
+no review and posts the engine's unavailable marker for the head with
+its reason, so that the additional engine never blocks an arming by its
+silence. The code follows ADR-055; a reader of ADR-053 alone would have
+expected nothing posted. Rules 2 and 4 now defer to ADR-055 rule 8. What
+is the caller's to fix (rule 3's missing settings, rule 8's missing or
+expired token) still posts nothing, as ADR-055 rule 8 also says. Found
+in #676's review (957752bd §2); job j1032.

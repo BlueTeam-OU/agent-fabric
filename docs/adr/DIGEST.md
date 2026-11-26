@@ -1324,6 +1324,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-24 — v2 posts: header, coverage block (rule 4).
 - A 2026-11-05 — ls-tree/cat-file extract, verified; read-allowlist profile, canary (rule 2).
 - A 2026-11-05 — record PR: no engine (rule 6).
+- A 2026-11-26 — no-review run posts the unavailable marker (rules 2/4, ADR-055 rule 8).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 
