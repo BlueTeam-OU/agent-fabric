@@ -350,8 +350,18 @@ class Firewall(Case):
             rc, out, err = self.go()
             self.assertEqual((rc, self.calls()), (1, []), entry)
             self.assertIn("persist-host-settings: firewall:", err, entry)
+        self.set_entry({"interweave_address": "195.69.140.18"})
+        self.assertIn("interweave_address is set and interweave_admit is not", self.go()[2], "the cause is named, not a type error")
         self.set_entry({"interweave_admit": "10.0.0.0/24"})
         self.assertEqual(self.go()[0], 0, "positive control: an admit alone is a CIDR admission")
+
+    def test_an_unreadable_reserved_ports_value_does_not_stop_the_admission(self):
+        self.set_entry({"interweave_address": "195.69.140.18", "interweave_admit": "any"})
+        self.set_live("junk")
+        rc, out, err = self.go()
+        self.assertEqual((rc, self.get_live()), (1, "junk"))
+        self.assertIn("cannot be read", err)
+        self.assertEqual(self.sets()["perm.public"], [self.PORTS])
 
     def test_an_entry_or_registry_that_cannot_be_read_and_a_missing_default_route_are_failures(self):
         with open(self.registry, "w") as fh:
