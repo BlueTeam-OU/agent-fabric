@@ -490,6 +490,12 @@ def main() -> int:
                            ("a ref it does not have", {**op, "AGENT_FABRIC_OPERATOR_REF": "no-such-ref"})):
             rc, o, e = guard(env)
             check(label, rc == 2 and "refuses rather than narrow" in e and "operator repository" in e and not o)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "guards", "agent_fabric_dir_authority.py")],
+                           cwd=rr, env={**GIT_ENV, "AGENT_FABRIC_CHARTER_BASE": "main",
+                                        "AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")},
+                           capture_output=True, text=True, timeout=60)
+        check("…exit 2 from the entry, the refusal under the guard's name",
+              r.returncode == 2 and r.stderr.startswith(f"{da.NAME}: cannot read") and "Traceback" not in r.stderr)
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             try:
                 da.owner_role_of(rr, {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")}, "main")
