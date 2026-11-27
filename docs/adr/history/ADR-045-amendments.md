@@ -77,3 +77,36 @@ the case for the engine; it lost because the list would then sit in one
 repository and its files in another. Rule 2 names the folder, `roots`
 lists it among the paths that move, and CI's signing step archives it
 under main's operator prefix.
+
+### Amendment 2026-11-27 — After step D the authority guards read the operator's main, or refuse
+
+`docs/split/move-plan.md` precondition 6 named the one failure of the
+move that would pass instead of fail. Two guards read
+`policies/authority.json` at the base: `agent_fabric_dir_authority` and
+`charter_authority`. `agent_fabric_dir_authority` decided whether a
+repository is agent-fabric itself by whether that file was present.
+After step D the engine keeps no such file. The guard would then take
+agent-fabric for a managed project and check only `.agent-fabric/**`,
+and every other commit would pass unchecked, without a word.
+
+Rule 7 closes it in three parts. First, the engine is recognised by its
+own code at the base, `tools/fabric/roots.py`, and a branch cannot move
+that by adding or deleting an operator tree. Second, the file is read
+where the base keeps it: in the repository while the base has
+`operator/` or the old path, and from step D in the operator
+repository's committed `main`. In CI that is the deploy-key checkout
+`AGENT_FABRIC_OPERATOR_GIT` at `AGENT_FABRIC_OPERATOR_REF`. On an
+account it is the login's own clone (`roots.operator_clone`), found
+from the password database, never `$HOME`. Third, past step D a read of the
+operator's file that fails is a refusal, exit 2, naming what could not
+be read, and so is a git read at the base that cannot run. While the
+base still holds the tree, a file it lacks is read as before: the
+default role, no contributors, a charter refusal.
+
+CI's probe step fails the run when main has neither tree and the
+`OPERATOR_DEPLOY_KEY` secret is empty. The key's other use, the signing
+step's archive of the keys, holders and registry, is still the
+key-trust hazard in the plan's §4: step D cannot pass until the key
+exists. Dependabot runs read only Dependabot secrets, so the owner adds
+the key under both.
+

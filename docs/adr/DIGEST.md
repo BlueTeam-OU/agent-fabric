@@ -1144,10 +1144,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-11 — the operator repository is BlueTeam-OU/blueteam-fabric; the move list and order are docs/split/move-plan.md; settings repositories stay apart (§8); an organisation's record moves with its number, a mixed one is amended or split (rule 4).
 - A 2026-11-11 — rule 2: personas, the clients registry and routing/policies are instance; the guards' exception lists are engine (§5 rule 2).
 - A 2026-11-22 — from step B the operator root falls back to operator/ in the engine tree, until step D (§5 rule 1); the forge keys signing.json lists move with it (rule 2, the owner's choice).
+- A 2026-11-27 — rule 7: the authority guards know the engine by its code and read authority.json where the base keeps it, from step D the operator's main through the deploy key, which refuses, exit 2, when unreadable.
 - Keywords: split, engine, operator, client, engagement, roots, open
   source, publish, instance data, Blueteam, Gzapi,
   operator repository, blueteam-fabric, move plan, extraction,
-  step B, operator/, forge keys, fallback.
+  step B, operator/, forge keys, fallback, deploy key,
+  authority guard, narrow, step D.
 
 ### ADR-046 — Fleet views: the fleet's state read on demand, read-only (Accepted)
 
