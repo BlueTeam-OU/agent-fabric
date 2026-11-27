@@ -1,8 +1,8 @@
 # The harness's pressure reap is switched off at launch, and the deaf alarm reads the fleet — 2026-11-27
 
 *Host develop-qzapp, account `user` (fabric-coordinator), job j1052. Claude Code
-2.1.322 (`~/.local/share/claude/versions/2.1.322`). Every account ran fabric
-`2be440957` (`fabric-ctl all fabric`). Read between 14:30Z and 14:45Z.*
+2.1.322 (`~/.local/share/claude/versions/2.1.322`). Every account's fabric
+checkout was at `2be440957` (`fabric-ctl all fabric`). Read between 14:30Z and 14:45Z.*
 
 j1052 came from the reap of 2026-11-21 17:34Z
 (`2026-11-22-carrier-give-up-waves-and-idle-deafness.md`, "A second cause"). Five
@@ -48,10 +48,11 @@ off, nothing currently depends on it.
   account. All 30 accounts' `claude` processes started between 2026-11-25 13:56Z
   and 2026-11-27 14:29Z (`ps -eo user,lstart,comm`), each after the merge. A
   launch behind main is pulled to it first (`keep_fabric_current` in
-  `tools/fabric/launch.py`), but not every launch: offline, with
+  `tools/fabric/launch.py`), but not every launch: offline or with
   `AGENT_FABRIC_ALLOW_STALE=1` it launches on what is checked out, and under an
-  operator's pin it goes to the pin, not to main. So the inference rests on the read above, not on the launcher:
-  every account ran fabric `2be440957`, which carries `e4f1c6127`. Whether a
+  operator's pin it goes to the pin, not to main. So the inference rests on the
+  read above, not on the launcher: every account's checkout was at `2be440957`,
+  which carries `e4f1c6127`. Whether a
   session was launched before its account's checkout reached that is not read.
 
 ## The outside reader and its alarm are installed and answer
