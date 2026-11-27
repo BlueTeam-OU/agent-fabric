@@ -532,6 +532,41 @@ def main() -> int:
               r.returncode == 1 and "tests/run.py: 2 suite(s) FAILED" in r.stdout and "/nonexistent/command could not be started" in r.stderr,
               (r.returncode, r.stdout, r.stderr))
 
+        print("the authority guards past move-plan step D: an unreadable operator is NOT ENFORCED only where the gate is elsewhere")
+        # The guards say why they refused by status: 4 an unreadable operator (common.OPERATOR_UNREADABLE), 2 any other
+        # refusal, 1 a verdict. Stand-ins exit each; the guards' own tests pin which refusal gets which.
+        r = subprocess.run([sys.executable, "-I", "-c", "import sys\nsys.path[:0] = sys.argv[1:]\nimport run\nfrom guards import common\n"
+                            "print(run.OPERATOR_UNREADABLE, common.OPERATOR_UNREADABLE)", TESTS, os.path.join(ROOT, "tools", "fabric")],
+                           capture_output=True, text=True, timeout=60)
+        check("run.py's OPERATOR_UNREADABLE is the guards' own, 4", r.stdout.split() == ["4", "4"], (r.stdout, r.stderr))
+        base = fresh(files={"tests/placeholder": ""})
+        gated = {"AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE": "1"}
+
+        def authority_run(entries: str, **extra: str) -> subprocess.CompletedProcess:
+            script = ("import sys\nsys.path.insert(0, 'tests')\nimport run\nA, B = run.AUTHORITY_GUARDS\n"
+                      f"run.BASH_SUITES[:] = {entries}\nsys.exit(run.main(['bash']))\n")
+            return subprocess.run([sys.executable, "-c", script], cwd=base, env=env(base, **extra), capture_output=True,
+                                  text=True, timeout=120)
+
+        both_unreadable = "[(A, run.AUTHORITY_BASE, ['sh', '-c', 'exit 4']), (B, run.AUTHORITY_BASE, ['sh', '-c', 'exit 4'])]"
+        r = authority_run(both_unreadable, **gated)
+        check("gated elsewhere, each guard's exit 4 is one NOT ENFORCED line naming the status, and the run passes",
+              r.returncode == 0 and r.stdout.count("NOT ENFORCED") == 2 and "the operator is unreadable (exit 4" in r.stdout
+              and "tests/run.py: all suites passed" in r.stdout, (r.returncode, r.stdout, r.stderr))
+        r = authority_run(both_unreadable)
+        check("without the variable the same exit 4 fails the run: a local run stays loud",
+              r.returncode == 1 and "tests/run.py: 2 suite(s) FAILED" in r.stdout and "NOT ENFORCED" not in r.stdout,
+              (r.returncode, r.stdout, r.stderr))
+        r = authority_run("[(A, run.AUTHORITY_BASE, ['sh', '-c', 'exit 2']), (B, run.AUTHORITY_BASE, ['sh', '-c', 'exit 2'])]", **gated)
+        check("gated elsewhere, a guard's exit 2 (any other refusal, a diff that failed) counts",
+              r.returncode == 1 and "tests/run.py: 2 suite(s) FAILED" in r.stdout and "NOT ENFORCED" not in r.stdout,
+              (r.returncode, r.stdout, r.stderr))
+        r = authority_run("[(A, run.AUTHORITY_BASE, ['sh', '-c', 'exit 1']), ('another guard', run.AUTHORITY_BASE, ['sh', '-c', 'exit 4'])]",
+                          **gated)
+        check("gated elsewhere: a guard's verdict (exit 1) and another entry's exit 4 still count",
+              r.returncode == 1 and "tests/run.py: 2 suite(s) FAILED" in r.stdout and "NOT ENFORCED" not in r.stdout,
+              (r.returncode, r.stdout, r.stderr))
+
         print("a case whose run never reaches the state it signals in reports that, once, and ends the run")
         # wait_until reports through check(), which would fail this file: its calls are captured here, and judged below.
         global capture

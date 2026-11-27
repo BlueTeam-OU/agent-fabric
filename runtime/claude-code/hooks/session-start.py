@@ -414,7 +414,8 @@ WATCH_MISSING = ("agent-fabric: NO INBOX WATCH is running for this session ({sou
                  "as your first action: Bash(command: 'gzcoord-inbox --until-delivery', "
                  "run_in_background: true, timeout: 7200000, description: 'gzcoord inbox wait'); "
                  "when it completes, read its output, act on the delivery, and run it again after "
-                 "a delivery (exit 0), after its deadline ended it quiet (exit 0) or after its timeout stopped it; on any other exit, read the reason "
+                 "a delivery (exit 0), after its deadline ended it quiet (exit 0), after its timeout stopped it, or after it gave up on an "
+                 "unreachable relay (exit 5: its 15 minutes were the pause, and nothing else will run it); on any other exit, read the reason "
                  "and do not run it again until it is fixed (gzcoord-receive §1). Never a Monitor: its 30-minute cap rings every quiet half hour. "
                  "One at a time: never a second.")
 

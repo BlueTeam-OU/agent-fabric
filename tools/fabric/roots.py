@@ -90,6 +90,14 @@ def account_clone(home: str, *parts: str) -> str:
     return os.path.join(home, "projects", "agent-fabric", *parts)
 
 
+def operator_clone(home: str, *parts: str) -> str:
+    """<home>/projects/blueteam-fabric[/parts]: where provisioning clones the operator repository into an ACCOUNT's
+    home (operator_checkout.OPERATOR_DIR; ADR-045 §6). After docs/split/move-plan.md step D the engine keeps no
+    operator tree, and a reader of the operator's committed data on this account reads this clone's git objects.
+    As for account_clone, `home` is the account's, never the session's environment."""
+    return os.path.join(home, "projects", "blueteam-fabric", *parts)
+
+
 def sibling_checkout(working_copy: str, environ: Mapping[str, str] | None = None) -> str:
     """AGENT_FABRIC_ROOT when exported (non-empty), else the fabric checkout beside a working copy
     (<working copy>/../agent-fabric): the workspace's layout, for a tool that runs inside a project and has no

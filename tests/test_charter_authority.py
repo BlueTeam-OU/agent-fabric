@@ -17,6 +17,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from guards import charter_authority as ca  # noqa: E402
 from guards import common  # noqa: E402
+from guards import contributors  # noqa: E402
 import roots  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
@@ -196,6 +197,80 @@ def main() -> int:
         with redirect_stderr(io.StringIO()):
             rc = ca.run([os.path.join(tmp, "absent")], {})
         check("a missing root is exit 2", rc == 2)
+
+        print("after move-plan step D the holders are the operator main's, or the guard refuses")
+        opsrc, opclone = os.path.join(tmp, "op-src"), os.path.join(tmp, "op-clone")
+        os.makedirs(os.path.join(opsrc, "policies"))
+        sh(opsrc, "init", "-q", "-b", "main")
+        with open(os.path.join(opsrc, "policies", "authority.json"), "w") as f:
+            json.dump({"role_definitions": {"role": "fabric-coordinator", "holders": ["boss"]}}, f)
+        sh(opsrc, "add", "-A")
+        sh(opsrc, "commit", "-q", "-m", "the operator's authority")
+        sh(tmp, "clone", "-q", opsrc, opclone)
+        rr = os.path.join(tmp, "engine")
+        os.makedirs(os.path.join(rr, os.path.dirname(contributors.ENGINE_MARKER)))
+        sh(rr, "init", "-q", "-b", "main")
+        with open(os.path.join(rr, contributors.ENGINE_MARKER), "w") as f:
+            f.write("# the engine's code\n")
+        sh(rr, "add", "-A")
+        sh(rr, "commit", "-q", "-m", "base: the engine, no operator tree")
+        sh(rr, "checkout", "-q", "-b", "h/web-dev-01/feat/x")
+        # A definition the branch adds under operator/, with a list naming itself: neither is what is read.
+        authority = os.path.join(rr, roots.git_path("policies", "authority.json", base=rr, environ={}))
+        os.makedirs(os.path.join(rr, "operator", "identities", "roles", "r"))
+        with open(os.path.join(rr, "operator", "identities", "roles", "r", "charter.md"), "w") as f:
+            f.write("x\n")
+        os.makedirs(os.path.dirname(authority), exist_ok=True)
+        with open(authority, "w") as f:
+            json.dump({"role_definitions": {"role": "fabric-coordinator", "holders": ["web-dev-01"]}}, f)
+        sh(rr, "add", "-A")
+        sh(rr, "commit", "-q", "-m", "charter, and a list naming me")
+        op = {"AGENT_FABRIC_OPERATOR_GIT": opclone}
+        rc, _, e = run(**op)
+        check("a non-holder is refused by the operator's list, not the branch's", rc == 1 and "web-dev-01" in e)
+        rc, o, _ = run(**op, AGENT_FABRIC_CHARTER_BRANCH="h/boss/feat/x")
+        check("the operator's holder passes", rc == 0 and "OK" in o)
+        for label, env in (("a missing operator repository", {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")}),
+                           ("a ref it does not have", {**op, "AGENT_FABRIC_OPERATOR_REF": "no-such-ref"})):
+            try:
+                rc, _, _ = run(**env, AGENT_FABRIC_CHARTER_BRANCH="h/boss/feat/x")
+                said, status = f"exit {rc}", rc
+            except common.Refused as refusal:
+                said, status = str(refusal), common.refusal_status(refusal)
+            check(f"{label}: refused, naming the read, under the operator's own status", "refuses rather than narrow" in said
+                  and "operator repository" in said and "no holder can be named" in said and status == common.OPERATOR_UNREADABLE)
+        nowhere = {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")}
+
+        def entry(**env: str) -> subprocess.CompletedProcess:
+            return subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "guards", "charter_authority.py"), rr],
+                                  env={**GIT_ENV, "AGENT_FABRIC_CHARTER_BASE": "main", "AGENT_FABRIC_CHARTER_BRANCH": "h/boss/feat/x",
+                                       **env}, capture_output=True, text=True, timeout=60)
+
+        r = entry(**nowhere)
+        check("…exit 4 from the entry, never 0 and never 2", r.returncode == 4 and "refuses rather than narrow" in r.stderr)
+        # The base's own read that cannot run is any other refusal: exit 2, which a run gated elsewhere still counts.
+        real_read = contributors.fabric_authority
+
+        def base_unreadable(*_args: object, **_kw: object) -> None:
+            raise contributors.AuthorityUnreadable("cannot ask git whether main has policies/authority.json (stand-in)")
+
+        contributors.fabric_authority = base_unreadable
+        try:
+            try:
+                run(**nowhere, AGENT_FABRIC_CHARTER_BRANCH="h/boss/feat/x")
+                status = 0
+            except common.Refused as refusal:
+                status = common.refusal_status(refusal)
+        finally:
+            contributors.fabric_authority = real_read
+        check("an authority read at the base that cannot run is exit 2, not the operator's status", status == 2)
+        # The diff comes before the holders are read: with no merge base the refusal is the diff's, exit 2, though the
+        # operator is unreadable too (review of #717, F7).
+        sh(rr, "checkout", "-q", "--orphan", "h/boss/feat/unrelated")
+        sh(rr, "commit", "-q", "--allow-empty", "-m", "no merge base with main")
+        r = entry(**nowhere)
+        check("no merge base, the operator unreadable as well: the diff's refusal, exit 2, not 4",
+              r.returncode == 2 and "cannot diff" in r.stderr and "operator repository" not in r.stderr)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

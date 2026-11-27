@@ -12,7 +12,11 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   env       AGENT_FABRIC_CHARTER_BASE (the base ref, tried first),
             GITHUB_BASE_REF (origin/<it>, <it>, then one shallow fetch of it),
             AGENT_FABRIC_CHARTER_BRANCH, GITHUB_HEAD_REF (the head branch,
-            in that order; else the checked-out branch)
+            in that order; else the checked-out branch),
+            AGENT_FABRIC_OPERATOR_GIT, AGENT_FABRIC_OPERATOR_REF (where the
+            engine reads the holders once its base keeps no operator tree:
+            the operator repository, default <home>/projects/blueteam-fabric,
+            and its ref, default origin/main; contributors.fabric_authority)
   stdin     not read
   stdout    every verdict that is not a failure: OK, or not enforced
   stderr    the failure (`FAIL: ...`, the files, the reason); a refusal to
@@ -25,7 +29,13 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             bash passed silently, a guard that could not read: git missing,
             a diff that failed on a base it had resolved (a shallow clone
             with no merge base said "OK — no role definition changed"), a
-            git call that timed out
+            git call that timed out; an authority.json the base cannot show
+            4 the engine on a base with no operator tree, whose operator
+            repository cannot show its authority.json: refused, never
+            narrowed, under a status of its own (common.OPERATOR_UNREADABLE),
+            so a run whose authority gate is elsewhere sets aside this refusal
+            and no other (tests/run.py). A diff that fails comes first, and
+            stays 2
 
 A role's DEFINITION is fabric-coordinator's to change: `identities/roles/*/
 charter.md` and `brief.md`, the catalogue `identities/roles/catalog.json`, the
@@ -250,13 +260,18 @@ def run(argv: list[str], env: dict[str, str]) -> int:
     # the same change it uses the list to justify.
     # The path as the base stores it, from the toplevel: `root` may name a
     # subdirectory, and an operator nested in the repository is read there.
-    rel = contributors.authority_git_path_at(git.toplevel(root) or root, base, env)
-    shown = git.run(root, "show", f"{base}:{rel}", check=False)
-    if shown.returncode != 0:
-        raise Refused(f"cannot read {rel} at {base} -- no holder can be named")
-    text = shown.stdout
+    # After move-plan step D the base keeps no operator tree, and the holders are the operator repository's.
+    try:
+        authority = contributors.fabric_authority(git.toplevel(root) or root, base, env)
+    except contributors.OperatorUnreadable as e:
+        raise common.OperatorRefused(f"{e} -- no holder can be named") from None
+    except contributors.AuthorityUnreadable as e:
+        raise Refused(f"{e} -- no holder can be named") from None
+    if authority.text is None:
+        raise Refused(f"cannot read {authority.source} -- no holder can be named")
+    text = authority.text
     if not isinstance(_role_definitions(text), dict):
-        raise Refused(f"{rel} at {base} has no role_definitions -- no holder can be named")
+        raise Refused(f"{authority.source} has no role_definitions -- no holder can be named")
     owner_role = common.role_of(text) or common.DEFAULT_ROLE
     if is_holder(agent, holders_of(text)):
         say(f"check_charter_authority: OK — {len(changed)} role definition(s) "

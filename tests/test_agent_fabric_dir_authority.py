@@ -11,12 +11,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 from contextlib import redirect_stderr, redirect_stdout
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from guards import agent_fabric_dir_authority as da  # noqa: E402
 from guards import common  # noqa: E402
+from guards import contributors  # noqa: E402
 from guards.contributors import authority_git_path as authority_path  # noqa: E402
 import roots  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
@@ -297,6 +299,14 @@ def main() -> int:
                            capture_output=True, text=True, timeout=60)
         rc = r.returncode if r.stderr == "n: x\n" else -1
         check("a Refused is exit 2", rc == 2)
+        r = subprocess.run([sys.executable, "-c",
+                            "import sys; sys.path.insert(0, sys.argv[1]);"
+                            "from guards import common\n"
+                            "def body():\n    raise common.OperatorRefused('x')\n"
+                            "sys.exit(common.run_main('n', body))", os.path.join(HERE, "tools", "fabric")],
+                           capture_output=True, text=True, timeout=60)
+        rc = r.returncode if r.stderr == "n: x\n" else -1
+        check("an OperatorRefused is exit 4, said the same way", rc == 4)
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             try:
                 da.commits_to_examine(rr, "no-such-ref")
@@ -408,6 +418,174 @@ def main() -> int:
         rc, o, _ = run()
         check("a merge conflicting only in a locale file is judged on that file alone: the locale carve-out",
               merge.returncode != 0 and rc == 0 and "locale carve-out" in o)
+
+        print("after move-plan step D the engine keeps no authority.json: the operator's main is read, or it refuses")
+        # The operator repository as an account and CI hold it: a bare remote, and a clone whose origin/main is it.
+        opbare, opsrc, opclone = (os.path.join(tmp, n) for n in ("op.git", "op-src", "op-clone"))
+        sh(tmp, "init", "-q", "--bare", "-b", "main", opbare)
+        os.makedirs(os.path.join(opsrc, "policies"))
+        sh(opsrc, "init", "-q", "-b", "main")
+        with open(os.path.join(opsrc, "policies", "authority.json"), "w") as f:
+            json.dump({"role_definitions": {"role": "op-owner"}}, f)
+        sh(opsrc, "add", "-A")
+        sh(opsrc, "commit", "-q", "-m", "the operator's authority")
+        sh(opsrc, "push", "-q", opbare, "main")
+        sh(tmp, "clone", "-q", opbare, opclone)
+        # The engine: its own code and no operator tree, on either side.
+        rr = os.path.join(tmp, "engine")
+        os.mkdir(rr)
+        sh(rr, "init", "-q", "-b", "main")
+        commit(contributors.ENGINE_MARKER, "base: the engine's code, no operator tree")
+        sh(rr, "checkout", "-q", "-b", "work")
+        op = {"AGENT_FABRIC_OPERATOR_GIT": opclone}
+
+        def guard(env: dict[str, str]) -> tuple[int, str, str]:
+            # A refusal is an exception in da.run; run_main makes it common.refusal_status's exit (its own test is
+            # above), and cannot run on a StringIO, which has no reconfigure.
+            out, er = io.StringIO(), io.StringIO()
+            cwd = os.getcwd()
+            os.chdir(rr)
+            try:
+                with redirect_stdout(out), redirect_stderr(er):
+                    try:
+                        rc = da.run({**GIT_ENV, "AGENT_FABRIC_ROOT": os.path.join(tmp, "no-fabric"), **env})
+                    except common.Refused as refusal:
+                        common.err(f"{da.NAME}: {refusal}")
+                        rc = common.refusal_status(refusal)
+            finally:
+                os.chdir(cwd)
+            return rc, out.getvalue(), er.getvalue()
+
+        check("the engine's code alone makes it agent-fabric itself", da.is_fabric_itself(rr, "main", {}))
+        check("the owner is the operator main's", da.owner_role_of(rr, op, "main") == "op-owner")
+        check("the base's authority is the operator main's", "op-owner" in da.base_authority(rr, "main", op))
+        commit("src/a.py", "code, no trailer")
+        rc, _, e = guard(op)
+        check("an undeclared commit is refused, scope agent-fabric itself",
+              rc == 1 and "agent-fabric itself" in e and "Fabric-Role: op-owner" in e)
+        sh(rr, "commit", "-q", "--amend", "-m", "code\n\nFabric-Role: op-owner")
+        rc, o, e = guard(op)
+        check("a commit declaring the operator's owner passes", rc == 0 and "agent-fabric itself" in o)
+        rc, o, _ = guard({"AGENT_FABRIC_OPERATOR_GIT": opbare, "AGENT_FABRIC_OPERATOR_REF": "main"})
+        check("AGENT_FABRIC_OPERATOR_REF names the ref, here a bare repository's main", rc == 0)
+
+        print("…a branch moves neither the scope nor the read")
+        commit(authority_path(rr, {}), "add an operator tree naming myself\n\nFabric-Role: intruder")
+        with open(os.path.join(rr, authority_path(rr, {})), "w") as f:
+            json.dump({"role_definitions": {"role": "intruder"}}, f)
+        sh(rr, "commit", "-qam", "name myself the owner\n\nFabric-Role: intruder")
+        check("an operator tree the branch adds is not read", da.owner_role_of(rr, op, "main") == "op-owner")
+        rc, _, e = guard(op)
+        check("…and its commits are judged by the operator's owner", rc == 1 and "[Fabric-Role: intruder]" in e)
+        sh(rr, "reset", "-q", "--hard", "HEAD~2")
+        sh(rr, "rm", "-q", contributors.ENGINE_MARKER)
+        sh(rr, "commit", "-qm", "delete the engine's code\n\nFabric-Role: op-owner")
+        commit("src/b.py", "then code with no trailer")
+        check("a branch that deletes the engine's code keeps the scope", da.is_fabric_itself(rr, "main", {}))
+        rc, _, e = guard(op)
+        check("…and its undeclared commit is refused", rc == 1 and "then code with no trailer" in e)
+        sh(rr, "reset", "-q", "--hard", "HEAD~2")
+
+        print("…and an operator repository that cannot answer is a refusal, exit 4, never a pass")
+        os.makedirs(os.path.join(tmp, "op-empty-dir"))
+        os.makedirs(os.path.join(opclone, "sub"))   # inside a repository that could answer, were git let walk up
+        sh(tmp, "init", "-q", "-b", "main", os.path.join(tmp, "op-no-commit"))
+        for label, env in (("a missing repository", {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")}),
+                           ("a directory that is no repository", {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-empty-dir")}),
+                           ("a directory inside a repository, which is not that repository",
+                            {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(opclone, "sub")}),
+                           ("an empty repository", {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-no-commit")}),
+                           ("a ref it does not have", {**op, "AGENT_FABRIC_OPERATOR_REF": "no-such-ref"})):
+            rc, o, e = guard(env)
+            check(label, rc == common.OPERATOR_UNREADABLE and "refuses rather than narrow" in e and "operator repository" in e
+                  and not o)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "guards", "agent_fabric_dir_authority.py")],
+                           cwd=rr, env={**GIT_ENV, "AGENT_FABRIC_CHARTER_BASE": "main",
+                                        "AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")},
+                           capture_output=True, text=True, timeout=60)
+        check("…exit 4 from the entry, the refusal under the guard's name",
+              r.returncode == 4 and r.stderr.startswith(f"{da.NAME}: cannot read") and "Traceback" not in r.stderr)
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            try:
+                da.owner_role_of(rr, {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")}, "main")
+                refused = False
+            except common.Refused:
+                refused = True
+        check("owner_role_of refuses rather than name the default", refused)
+        try:
+            da.base_authority(rr, "main", {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")})
+            refused = False
+        except common.Refused:
+            refused = True
+        check("base_authority refuses rather than answer no contributors", refused)
+        # Any other read that cannot run is exit 2: a run whose gate is elsewhere sets aside the operator's 4 alone.
+        real_read = contributors.fabric_authority
+
+        def base_unreadable(*_args: object, **_kw: object) -> None:
+            raise contributors.AuthorityUnreadable("cannot ask git whether main has policies/authority.json (stand-in)")
+
+        contributors.fabric_authority = base_unreadable
+        try:
+            rc, o, e = guard(op)
+        finally:
+            contributors.fabric_authority = real_read
+        check("an authority read at the base that cannot run is exit 2, not the operator's status",
+              rc == 2 and "stand-in" in e and not o)
+
+        print("…unexported, the account's own clone, its home from the password database and never $HOME")
+        check("the clone's place", roots.operator_clone("/h") == "/h/projects/blueteam-fabric")
+        fake_home = os.path.join(tmp, "account")
+        os.makedirs(os.path.join(fake_home, "projects"))
+        sh(tmp, "clone", "-q", opbare, roots.operator_clone(fake_home))
+        real_pwd, real_home = contributors.pwd, os.environ.get("HOME")
+        contributors.pwd = types.SimpleNamespace(getpwuid=lambda uid: types.SimpleNamespace(pw_dir=fake_home))
+        os.environ["HOME"] = os.path.join(tmp, "op-nowhere")
+        try:
+            check("the login's home is read", da.owner_role_of(rr, {}, "main") == "op-owner")
+            contributors.pwd = types.SimpleNamespace(getpwuid=lambda uid: types.SimpleNamespace(pw_dir=os.path.join(tmp, "op-nowhere")))
+            os.environ["HOME"] = fake_home
+            rc, _, e = guard({})
+            check("$HOME naming a clone is not", rc == common.OPERATOR_UNREADABLE and "refuses rather than narrow" in e)
+        finally:
+            contributors.pwd = real_pwd
+            if real_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = real_home
+
+        print("…a git hook's GIT_DIR does not point the operator's read at the repository being judged")
+        # A hook runs the guard with GIT_DIR (and GIT_WORK_TREE) naming the engine; were they passed to the operator's
+        # git, `git -C <operator>` would answer from the engine, which has no origin/main (contributors._REPO_POINTING).
+        pointing = {"GIT_DIR": os.path.join(rr, ".git"), "GIT_WORK_TREE": rr}
+        saved = {k: os.environ.get(k) for k in pointing}
+        os.environ.update(pointing)
+        try:
+            try:
+                read = contributors.fabric_authority(rr, "main", op)
+                said = f"{read.source}: {read.text}"
+            except contributors.AuthorityUnreadable as e:
+                said = f"refused: {e}"
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        check("GIT_DIR in the environment: the read is still the operator's", "op-owner" in said and opclone in said)
+
+        print("…and a managed project's branch that adds the engine's code keeps the project's scope")
+        rr = os.path.join(tmp, "project")
+        os.mkdir(rr)
+        sh(rr, "init", "-q", "-b", "main")
+        commit("README.md", "base: a managed project")
+        sh(rr, "checkout", "-q", "-b", "work")
+        commit(contributors.ENGINE_MARKER, "add the engine's marker")
+        commit("src/c.py", "then code with no trailer")
+        nowhere = {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")}
+        check("the base decides: not agent-fabric itself", not da.is_fabric_itself(rr, "main", nowhere))
+        rc, o, e = guard(nowhere)
+        check("…exit 0, a commit outside .agent-fabric/ not examined, no operator read",
+              rc == 0 and "no commit changes .agent-fabric/" in o and not e)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
