@@ -201,6 +201,30 @@ def main() -> int:
         check("a showing that raises releases the lock and leaves the pending line", lines(lpath)[-1].get("pending") is True
               and lines(lpath)[-1]["mid"] == "W-1")
 
+        # stdout is a pipe its reader closed, and the page is a bare print (no flush of its own): the failure surfaces
+        # inside show_page, so the ledger is released with the pending line standing and the page is not acknowledged
+        r, _ = loop([[]], led, iw=FakeCarrier([urec("P-1")]))
+        acks: list[str] = []
+        r["ack_later"] = lambda: acks.append("acked")
+        rd, wr = os.pipe()
+        os.close(rd)
+        saved_stdout = sys.stdout
+        sys.stdout = os.fdopen(wr, "w")
+        raised = False
+        try:
+            show_page(r, lambda: print("a page that fits the pipe buffer"))
+        except BrokenPipeError:
+            raised = True
+        finally:
+            try:
+                sys.stdout.close()
+            except BrokenPipeError:
+                pass
+            sys.stdout = saved_stdout
+        led.exclusive().release()
+        check("a page into a pipe its reader closed raises, leaves the pending line and is not acknowledged",
+              raised and acks == [] and lines(lpath)[-1].get("pending") is True and lines(lpath)[-1]["mid"] == "P-1")
+
         # a message that reuses a shown id is another message
         r, _ = loop([[]], led, iw=FakeCarrier([urec("COL-1")]))
         show_page(r, lambda: None)

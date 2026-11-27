@@ -359,6 +359,9 @@ def show_page(res: dict, write: Callable[[], None]) -> None:
     held = res.get("ledger")
     try:
         write()
+        # stdout is block-buffered when piped: without this the bytes leave only at exit, after the ledger is
+        # finished and the page acknowledged, so a reader that closed early would lose a message already settled.
+        sys.stdout.flush()
     except BaseException:
         if held:
             held.release()
