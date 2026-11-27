@@ -354,10 +354,12 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     account had, restarts them, checks again and reports a failure with
     every result; when the pin refuses the programs put back, the reply
     says the account is not carrying, with the pin's refusal. The signed
-    start and the install's stop and start, when the daemon unit is not
-    active, wait up to 75 seconds for a port of their own held only by
-    sockets in TIME_WAIT to clear, and refuse at once for any other
-    holder; the account's self-start does not look at the port.
+    start and the install's stop and start, when the two units are not
+    both running (an activating unit counts as running) and the daemon
+    unit is not active, wait up to 75 seconds for a port of their own
+    held only by sockets in TIME_WAIT to clear, and refuse at once for
+    any other holder; the account's self-start does not look at the
+    port.
     On a first install no unit was running and there is nothing to put
     back: the check is the pinned programs' version, and the reply says
     that no unit was running. The same check is the control plane's read
@@ -493,4 +495,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-18 | The data plane's first gate: the record is the account's mode's | §2 dual run; §5 rule 7: in `carrier-record` the carrier's acceptance sets the row, the exit status the primary's alone; §5 rule 11: InterWeave is the record in `carrier-record` (gate 1, ADR-033) |
 | 2026-11-18 | The carrier's own ops when control rides InterWeave alone | rule 14: install, start and stop by the break-glass path; the read over InterWeave, read again by that path after 30 s (#656) |
 | 2026-11-18 | An account starts its own carrier | rule 14: its login starts its own carrier and daemon units when both are down but enabled and the pinned programs are installed, unsigned, under the account's install/start/stop lock, and only while no mark of a failed or interrupted self-start stands, with the same check; install, update, restart and stop stay control-plane actions |
-| 2026-11-26 | A pair that did not answer is started again before a rollback | rule 14: both running units that fail the check are stopped and started once before the programs are put back; a rollback onto programs the pin refuses is reported not carrying; a start waits up to 75 s for TIME_WAIT on its own port (#715) |
+| 2026-11-26 | A pair that did not answer is started again before a rollback | rule 14: both running units that fail the check, the login resolved, are stopped and started once before the programs are put back; a rollback onto programs the pin refuses is reported not carrying; the signed start, its pair not both running, waits up to 75 s for TIME_WAIT on its own port, the self-start never (#715) |
