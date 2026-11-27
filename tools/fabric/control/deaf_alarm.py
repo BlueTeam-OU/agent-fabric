@@ -26,8 +26,10 @@ Not decided here: what the coordinator does about it (restart the session, `fabr
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,6 +38,7 @@ from typing import Any, Callable
 CTL_TIMEOUT_S = 180
 SEND_TIMEOUT_S = 60
 LEDGER = "deaf-alarm.json"
+PENDING = "deaf-alarm-pending"
 
 
 def read_ledger(path: str) -> dict[str, str]:
@@ -119,7 +122,32 @@ def body(account: str, d: dict) -> tuple[str, str]:
     return context, notes
 
 
-def send(account: str, d: dict, to: str, run: Callable[..., Any] = subprocess.run) -> None:
+def pending_path(pending_dir: str, account: str, episode: str) -> str:
+    # Hashed: an account is an address and an episode has "@" and ":" in it; neither belongs in a file name.
+    h = lambda x: hashlib.sha256(x.encode("utf-8")).hexdigest()[:16]  # noqa: E731
+    return os.path.join(pending_dir, f"{h(account)}-{h(episode)}.txt")
+
+
+def _post(run: Callable[..., Any], path: str) -> None:
+    r = run(["gzcoord-send", path], capture_output=True, text=True, timeout=SEND_TIMEOUT_S, stdin=subprocess.DEVNULL, check=False)
+    if r.returncode != 0:
+        raise RuntimeError(f"gzcoord-send exited {r.returncode}: {(r.stderr or '').strip()[-200:]}")
+
+
+def send(account: str, d: dict, to: str, run: Callable[..., Any] = subprocess.run, pending_dir: str | None = None) -> None:
+    """Compose and post the INFO. With `pending_dir` the composed file is kept there until gzcoord-send exits 0, and the
+    next attempt for the same episode posts THAT file again instead of composing another.
+
+    WHY: gzcoord-send's exit 3 does not say "not sent": it also means "the relay refused but the carrier delivered it"
+    (to one login: send.py `carrier-took-it`) and "outcome unknown", and its only signal for them is a localized stderr line.
+    A message composed afresh per attempt is a new MESSAGE-ID each time, so the coordinator got the same alarm every 5 min
+    (j190). The file carries the id gzcoord-send wrote into it, so a resend is the same message and a reader discards the
+    copy (SPEC 7.2): whichever of the three exit 3 meant, posting the same file again is right."""
+    kept = pending_path(pending_dir, account, str(d.get("episode"))) if pending_dir else None
+    if kept and os.path.exists(kept):
+        _post(run, kept)
+        os.unlink(kept)
+        return
     context, notes = body(account, d)
     with tempfile.TemporaryDirectory(prefix="deaf-alarm-") as tmp:
         path = os.path.join(tmp, "message.txt")
@@ -135,9 +163,18 @@ def send(account: str, d: dict, to: str, run: Callable[..., Any] = subprocess.ru
             raise RuntimeError("gzcoord-compose's INFO has not the skeleton this expects")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text.replace(skeleton, f"CONTEXT:\n{context}\n\nNOTES:\n{notes}\n", 1))
-        r = run(["gzcoord-send", path], capture_output=True, text=True, timeout=SEND_TIMEOUT_S, stdin=subprocess.DEVNULL, check=False)
-        if r.returncode != 0:
-            raise RuntimeError(f"gzcoord-send exited {r.returncode}: {(r.stderr or '').strip()[-200:]}")
+        if kept:
+            # An earlier episode of this account is over: its file would otherwise stay for ever.
+            prefix = os.path.basename(kept).split("-")[0] + "-"
+            os.makedirs(pending_dir, mode=0o700, exist_ok=True)
+            for name in os.listdir(pending_dir):
+                if name.startswith(prefix):
+                    os.unlink(os.path.join(pending_dir, name))
+            shutil.copyfile(path, kept)
+            path = kept
+        _post(run, path)
+        if kept:
+            os.unlink(kept)
 
 
 def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = False,
@@ -188,7 +225,8 @@ def main(argv: list[str] | None = None) -> int:
     except (RuntimeError, ValueError, OSError) as e:
         print(f"deaf_alarm: {e}", file=sys.stderr)
         return 3
-    new, said, failed = alarm(rows, ledger, to, a.dry_run)
+    pending_dir = os.path.join(util.state_dir(), PENDING)
+    new, said, failed = alarm(rows, ledger, to, a.dry_run, lambda acc, d, t: send(acc, d, t, pending_dir=pending_dir))
     for line in said:
         print(line)
     if new != ledger:

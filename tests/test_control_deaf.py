@@ -316,6 +316,41 @@ class Alarm(unittest.TestCase):
         self.assertIn("1 unread message(s) of its own and 1 queued job(s)", self.sent_text)
         self.assertFalse(os.path.exists(calls[1][1]))   # the scratch file is gone
 
+    def test_a_send_that_exited_3_is_posted_again_as_the_same_file(self) -> None:
+        # j190: exit 3 may mean "the carrier delivered it"; a fresh compose would be a second message with a new id
+        composed, posted = [], []
+        fail = [True]
+
+        def run(argv, **kw):
+            if argv[0] == "gzcoord-compose":
+                composed.append(1)
+                with open(argv[argv.index("-o") + 1], "w") as fh:
+                    fh.write("[GZCOORD/1] INFO\nTO: h/user\nSUBJECT: s\n\nCONTEXT:\n\nNOTES:\n\nREFERENCES:\n")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            with open(argv[1]) as fh:
+                posted.append((argv[1], fh.read()))
+            if fail[0]:
+                with open(argv[1], "a") as fh:
+                    fh.write("MESSAGE-ID: written-by-send\n")   # what gzcoord-send does before it posts
+            return subprocess.CompletedProcess(argv, 3 if fail[0] else 0, "", "carrier took it")
+        d = row("a", "end@1")["deaf"]
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as pend:
+            with self.assertRaises(RuntimeError):
+                deaf_alarm.send("a", d, "h/user", run, pend)
+            fail[0] = False
+            deaf_alarm.send("a", d, "h/user", run, pend)
+            self.assertEqual(len(composed), 1)
+            self.assertIn("written-by-send", posted[1][1])
+            self.assertEqual(posted[0][0], posted[1][0])
+            self.assertEqual(os.listdir(pend), [])
+            fail[0] = True
+            with self.assertRaises(RuntimeError):
+                deaf_alarm.send("a", d, "h/user", run, pend)
+            with self.assertRaises(RuntimeError):
+                deaf_alarm.send("a", row("a", "end@2")["deaf"], "h/user", run, pend)   # new episode: composed anew
+            self.assertEqual(len(composed), 3)
+            self.assertEqual(len(os.listdir(pend)), 1)   # the old episode's file is gone
+
     def test_the_text_says_only_what_was_counted(self) -> None:
         d = {**row("a", "end@1")["deaf"], "pending": {"unread": None, "queued_requests": 2}}
         context, _ = deaf_alarm.body("a", d)
