@@ -245,9 +245,14 @@ def render(working_copy: str | None = None, *, repo: str | None = None, operator
 def _render(working_copy: str | None, repo: str | None, operator: str | None, engine: str | None,
             timeout: float | None) -> Rendered:
     path = roots.projects_registry(root=operator, engine=engine)
-    registry = _read_json(path)
-    if registry is None:
-        raise GitRulesError(f"{path} is missing")
+    # Absence is decided by the path, not by the parsed value: a file holding JSON null parses to None too, and
+    # that is a malformed registry (target_of refuses it), never an empty one.
+    if os.path.lexists(path):
+        registry = _read_json(path)
+    else:
+        # An operator without a registry (none written yet, or a stripped checkout) registers no project: the
+        # working copy matches none and the engine's text renders.
+        registry = {"projects": {}}
     target = target_of(working_copy, repo, registry, timeout)
     notes: list[str] = []
     copy: dict | None = None
