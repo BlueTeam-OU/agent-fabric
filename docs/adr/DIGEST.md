@@ -577,9 +577,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-27 — launch into the job's dirty copy (r12).
 - A 2026-10-28 — own merged origin branches swept (r11).
 - A 2026-10-30 — job's worktree first; AGENT_FABRIC_ROOT set (r12).
+- A 2026-11-27 — exit 5 (relay gave up) is re-run; others read (r2).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
-  hold, planning, presence, branch sweep, stale fabric root.
+  hold, planning, presence, branch sweep, stale fabric root,
+  gave up, exit 5, deaf.
 
 ### ADR-023 — An assignment goes to one login (Accepted)
 

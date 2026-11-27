@@ -711,6 +711,8 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     said = context_of(bare)
     assert "run_in_background: true" in said and "--until-delivery" in said and "Never a Monitor" in said, said
     assert "do not run it again until it is fixed" in said, said
+    # A relay give-up is run again: waiting for the relay to come back left idle sessions deaf for days (j1044).
+    assert "after it gave up on an unreachable relay (exit 5" in said, said
     bare_env = {k: v for k, v in env.items() if k not in ("CLAUDE_BRIDGE_URL", "GZCOORD_CHANNEL")}
     unconfigured = subprocess.run([fake], capture_output=True, text=True, env=bare_env)
     assert "NO INBOX WATCH" not in context_of(unconfigured), "GZCoord is not configured here: " + unconfigured.stdout
