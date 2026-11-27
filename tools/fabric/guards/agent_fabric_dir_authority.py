@@ -27,9 +27,13 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             2 invocation problem (cannot reach the repo root) — and, where the
             bash passed silently, a guard that could not read: git missing,
             a rev-list that failed on a base it had resolved, a git call that
-            timed out; and the engine on a base with no operator tree whose
-            operator repository cannot show its authority.json (a missing or
-            empty repository, no such ref): refused, never narrowed
+            timed out; an authority.json read at the base that cannot run
+            4 the engine on a base with no operator tree, whose operator
+            repository cannot show its authority.json (a missing or empty
+            repository, no such ref): refused, never narrowed, under a status
+            of its own (common.OPERATOR_UNREADABLE), so a run whose authority
+            gate is elsewhere sets aside this refusal and no other
+            (tests/run.py)
 
 `.agent-fabric/` in a repository is written by the fabric-coordinator
 ROLE. It holds the project's distilled knowledge (`memory/<role>/`,
@@ -207,6 +211,8 @@ def fabric_authority(top: str, base: str, env: dict[str, str] | None) -> str | N
     operator repository could answer, it is a refusal."""
     try:
         return contributors.fabric_authority(top, base, env).text
+    except contributors.OperatorUnreadable as e:
+        raise common.OperatorRefused(str(e)) from None
     except contributors.AuthorityUnreadable as e:
         raise Refused(str(e)) from None
 

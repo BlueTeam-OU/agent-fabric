@@ -234,16 +234,43 @@ def main() -> int:
                            ("a ref it does not have", {**op, "AGENT_FABRIC_OPERATOR_REF": "no-such-ref"})):
             try:
                 rc, _, _ = run(**env, AGENT_FABRIC_CHARTER_BRANCH="h/boss/feat/x")
-                said = f"exit {rc}"
+                said, status = f"exit {rc}", rc
             except common.Refused as refusal:
-                said = str(refusal)
-            check(f"{label}: refused, naming the read", "refuses rather than narrow" in said
-                  and "operator repository" in said and "no holder can be named" in said)
-        r = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "guards", "charter_authority.py"), rr],
-                           env={**GIT_ENV, "AGENT_FABRIC_CHARTER_BASE": "main", "AGENT_FABRIC_CHARTER_BRANCH": "h/boss/feat/x",
-                                "AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")},
-                           capture_output=True, text=True, timeout=60)
-        check("…exit 2 from the entry, never 0", r.returncode == 2 and "refuses rather than narrow" in r.stderr)
+                said, status = str(refusal), common.refusal_status(refusal)
+            check(f"{label}: refused, naming the read, under the operator's own status", "refuses rather than narrow" in said
+                  and "operator repository" in said and "no holder can be named" in said and status == common.OPERATOR_UNREADABLE)
+        nowhere = {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")}
+
+        def entry(**env: str) -> subprocess.CompletedProcess:
+            return subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "guards", "charter_authority.py"), rr],
+                                  env={**GIT_ENV, "AGENT_FABRIC_CHARTER_BASE": "main", "AGENT_FABRIC_CHARTER_BRANCH": "h/boss/feat/x",
+                                       **env}, capture_output=True, text=True, timeout=60)
+
+        r = entry(**nowhere)
+        check("…exit 4 from the entry, never 0 and never 2", r.returncode == 4 and "refuses rather than narrow" in r.stderr)
+        # The base's own read that cannot run is any other refusal: exit 2, which a run gated elsewhere still counts.
+        real_read = contributors.fabric_authority
+
+        def base_unreadable(*_args: object, **_kw: object) -> None:
+            raise contributors.AuthorityUnreadable("cannot ask git whether main has policies/authority.json (stand-in)")
+
+        contributors.fabric_authority = base_unreadable
+        try:
+            try:
+                run(**nowhere, AGENT_FABRIC_CHARTER_BRANCH="h/boss/feat/x")
+                status = 0
+            except common.Refused as refusal:
+                status = common.refusal_status(refusal)
+        finally:
+            contributors.fabric_authority = real_read
+        check("an authority read at the base that cannot run is exit 2, not the operator's status", status == 2)
+        # The diff comes before the holders are read: with no merge base the refusal is the diff's, exit 2, though the
+        # operator is unreadable too (review of #717, F7).
+        sh(rr, "checkout", "-q", "--orphan", "h/boss/feat/unrelated")
+        sh(rr, "commit", "-q", "--allow-empty", "-m", "no merge base with main")
+        r = entry(**nowhere)
+        check("no merge base, the operator unreadable as well: the diff's refusal, exit 2, not 4",
+              r.returncode == 2 and "cannot diff" in r.stderr and "operator repository" not in r.stderr)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

@@ -29,9 +29,13 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             bash passed silently, a guard that could not read: git missing,
             a diff that failed on a base it had resolved (a shallow clone
             with no merge base said "OK — no role definition changed"), a
-            git call that timed out; an authority.json the base cannot show,
-            or, for the engine on a base with no operator tree, one the
-            operator repository cannot show
+            git call that timed out; an authority.json the base cannot show
+            4 the engine on a base with no operator tree, whose operator
+            repository cannot show its authority.json: refused, never
+            narrowed, under a status of its own (common.OPERATOR_UNREADABLE),
+            so a run whose authority gate is elsewhere sets aside this refusal
+            and no other (tests/run.py). A diff that fails comes first, and
+            stays 2
 
 A role's DEFINITION is fabric-coordinator's to change: `identities/roles/*/
 charter.md` and `brief.md`, the catalogue `identities/roles/catalog.json`, the
@@ -259,6 +263,8 @@ def run(argv: list[str], env: dict[str, str]) -> int:
     # After move-plan step D the base keeps no operator tree, and the holders are the operator repository's.
     try:
         authority = contributors.fabric_authority(git.toplevel(root) or root, base, env)
+    except contributors.OperatorUnreadable as e:
+        raise common.OperatorRefused(f"{e} -- no holder can be named") from None
     except contributors.AuthorityUnreadable as e:
         raise Refused(f"{e} -- no holder can be named") from None
     if authority.text is None:

@@ -103,18 +103,21 @@ private, and this repository's CI logs are public. On an account it is
 the login's own clone (`roots.operator_clone`), found from the password
 database, never `$HOME`; the documented variables choose another.
 Third, past step D a read of the
-operator's file that fails is a refusal, exit 2, naming what could not
-be read, and so is a git read at the base that cannot run. While the
-base still holds the tree, a file it lacks is read as before: the
-default role, no contributors, a charter refusal.
+operator's file that fails is a refusal, exit 4, naming what could not
+be read. A git read at the base that cannot run is a refusal too, exit 2,
+as is every other refusal. While the base still holds the tree, a file
+it lacks is read as before: the default role, no contributors, a
+charter refusal.
 
 CI's probe step fails the run when main has neither tree and the
 `OPERATOR_DEPLOY_KEY` secret is empty. Once main lacks the operator's
 paths, the authority step archives only the paths main has. The
 suites' own run of the guards (`tests/run.py`'s bash section, in both
 CI jobs) is handed no operator, so past step D the guards refuse there;
-CI sets `AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE=1`, and with it that one
-refusal is a NOT ENFORCED line, the authority step being the gate. A
+CI sets `AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE=1`, and with it an exit 4
+from one of the two guards is a NOT ENFORCED line, the authority step
+being the gate. The status is the guard's own word for why it refused;
+any other status of those guards, exit 2 included, still counts. A
 run without the variable, as on an account, still fails on it. The
 key's other use, the signing step's archive of the keys, holders and
 registry, is still the key-trust hazard in the plan's §4 (job j1119):

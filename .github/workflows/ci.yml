@@ -241,8 +241,8 @@ jobs:
           # the branch's code, so none of that code can read or write the operator's data.
           git archive origin/main policies "${prefix}policies/forge-keys" $moved | tar -x -C "$base"
           AGENT_FABRIC_OPERATOR="$base/$prefix" /usr/bin/python3 -I "$base/tools/fabric/guards/ban_unsigned_commits.py"
-      # The branch's own authority guards run here with no operator: past step D they refuse, and the authority
-      # step above is this job's gate (tests/run.py, AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE).
+      # The branch's own authority guards run here with no operator: past step D they refuse with exit 4, and the
+      # authority step above is this job's gate (tests/run.py, AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE).
       - name: the bash suites
         env:
           AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE: "1"

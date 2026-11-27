@@ -36,7 +36,29 @@ DEFAULT_ROLE = "fabric-coordinator"
 
 class Refused(Exception):
     """The guard could not examine what it guards. A guard fails closed: this
-    is exit 2, never a pass."""
+    is exit 2 (`status`), never a pass."""
+    status = 2
+
+
+# Past docs/split/move-plan.md step D: the engine's base keeps no operator
+# tree and the operator repository could not be read. A status of its own,
+# not 2, so the one caller allowed to set this refusal aside, a run whose
+# authority gate is another step (tests/run.py's OPERATOR_UNREADABLE), can
+# tell it from every other refusal by the status alone: asking again whether
+# the operator is readable says nothing about why the guard refused (review
+# of #717, F7). Any caller that treats non-zero as failure still fails.
+OPERATOR_UNREADABLE = 4
+
+
+class OperatorRefused(Refused):
+    """The refusal for contributors.OperatorUnreadable: exit 4, never 2."""
+    status = OPERATOR_UNREADABLE
+
+
+def refusal_status(e: Exception) -> int:
+    """The exit status of a refusal run_main catches: a Refused's own, 2 for
+    a git failure."""
+    return e.status if isinstance(e, Refused) else 2
 
 
 def say(text: str = "") -> None:
@@ -105,14 +127,15 @@ def role_of(text: str) -> str | None:
 
 def run_main(name: str, body) -> int:
     """Run a guard's body. Refusals and git failures are exit 2, said on
-    stderr under the guard's name; a vanished reader is 141."""
+    stderr under the guard's name, except an unreadable operator, exit 4
+    (OPERATOR_UNREADABLE); a vanished reader is 141."""
     sys.stdout.reconfigure(errors="surrogateescape")
     sys.stderr.reconfigure(errors="surrogateescape")
     try:
         return body()
     except (Refused, git.GitError) as e:
         err(f"{name}: {e}")
-        return 2
+        return refusal_status(e)
     except BrokenPipeError:
         # The reader is gone; end as a pipe-killed run ends, with stdout on
         # /dev/null so the exit's own flush does not raise again.

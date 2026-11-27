@@ -299,6 +299,14 @@ def main() -> int:
                            capture_output=True, text=True, timeout=60)
         rc = r.returncode if r.stderr == "n: x\n" else -1
         check("a Refused is exit 2", rc == 2)
+        r = subprocess.run([sys.executable, "-c",
+                            "import sys; sys.path.insert(0, sys.argv[1]);"
+                            "from guards import common\n"
+                            "def body():\n    raise common.OperatorRefused('x')\n"
+                            "sys.exit(common.run_main('n', body))", os.path.join(HERE, "tools", "fabric")],
+                           capture_output=True, text=True, timeout=60)
+        rc = r.returncode if r.stderr == "n: x\n" else -1
+        check("an OperatorRefused is exit 4, said the same way", rc == 4)
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             try:
                 da.commits_to_examine(rr, "no-such-ref")
@@ -432,8 +440,8 @@ def main() -> int:
         op = {"AGENT_FABRIC_OPERATOR_GIT": opclone}
 
         def guard(env: dict[str, str]) -> tuple[int, str, str]:
-            # A refusal is an exception in da.run; run_main makes it exit 2 (its own test is above), and cannot
-            # run on a StringIO, which has no reconfigure.
+            # A refusal is an exception in da.run; run_main makes it common.refusal_status's exit (its own test is
+            # above), and cannot run on a StringIO, which has no reconfigure.
             out, er = io.StringIO(), io.StringIO()
             cwd = os.getcwd()
             os.chdir(rr)
@@ -443,7 +451,7 @@ def main() -> int:
                         rc = da.run({**GIT_ENV, "AGENT_FABRIC_ROOT": os.path.join(tmp, "no-fabric"), **env})
                     except common.Refused as refusal:
                         common.err(f"{da.NAME}: {refusal}")
-                        rc = 2
+                        rc = common.refusal_status(refusal)
             finally:
                 os.chdir(cwd)
             return rc, out.getvalue(), er.getvalue()
@@ -478,7 +486,7 @@ def main() -> int:
         check("…and its undeclared commit is refused", rc == 1 and "then code with no trailer" in e)
         sh(rr, "reset", "-q", "--hard", "HEAD~2")
 
-        print("…and an operator repository that cannot answer is a refusal, exit 2, never a pass")
+        print("…and an operator repository that cannot answer is a refusal, exit 4, never a pass")
         os.makedirs(os.path.join(tmp, "op-empty-dir"))
         os.makedirs(os.path.join(opclone, "sub"))   # inside a repository that could answer, were git let walk up
         sh(tmp, "init", "-q", "-b", "main", os.path.join(tmp, "op-no-commit"))
@@ -489,13 +497,14 @@ def main() -> int:
                            ("an empty repository", {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-no-commit")}),
                            ("a ref it does not have", {**op, "AGENT_FABRIC_OPERATOR_REF": "no-such-ref"})):
             rc, o, e = guard(env)
-            check(label, rc == 2 and "refuses rather than narrow" in e and "operator repository" in e and not o)
+            check(label, rc == common.OPERATOR_UNREADABLE and "refuses rather than narrow" in e and "operator repository" in e
+                  and not o)
         r = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "guards", "agent_fabric_dir_authority.py")],
                            cwd=rr, env={**GIT_ENV, "AGENT_FABRIC_CHARTER_BASE": "main",
                                         "AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")},
                            capture_output=True, text=True, timeout=60)
-        check("…exit 2 from the entry, the refusal under the guard's name",
-              r.returncode == 2 and r.stderr.startswith(f"{da.NAME}: cannot read") and "Traceback" not in r.stderr)
+        check("…exit 4 from the entry, the refusal under the guard's name",
+              r.returncode == 4 and r.stderr.startswith(f"{da.NAME}: cannot read") and "Traceback" not in r.stderr)
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             try:
                 da.owner_role_of(rr, {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")}, "main")
@@ -509,6 +518,19 @@ def main() -> int:
         except common.Refused:
             refused = True
         check("base_authority refuses rather than answer no contributors", refused)
+        # Any other read that cannot run is exit 2: a run whose gate is elsewhere sets aside the operator's 4 alone.
+        real_read = contributors.fabric_authority
+
+        def base_unreadable(*_args: object, **_kw: object) -> None:
+            raise contributors.AuthorityUnreadable("cannot ask git whether main has policies/authority.json (stand-in)")
+
+        contributors.fabric_authority = base_unreadable
+        try:
+            rc, o, e = guard(op)
+        finally:
+            contributors.fabric_authority = real_read
+        check("an authority read at the base that cannot run is exit 2, not the operator's status",
+              rc == 2 and "stand-in" in e and not o)
 
         print("…unexported, the account's own clone, its home from the password database and never $HOME")
         check("the clone's place", roots.operator_clone("/h") == "/h/projects/blueteam-fabric")
@@ -523,7 +545,7 @@ def main() -> int:
             contributors.pwd = types.SimpleNamespace(getpwuid=lambda uid: types.SimpleNamespace(pw_dir=os.path.join(tmp, "op-nowhere")))
             os.environ["HOME"] = fake_home
             rc, _, e = guard({})
-            check("$HOME naming a clone is not", rc == 2 and "refuses rather than narrow" in e)
+            check("$HOME naming a clone is not", rc == common.OPERATOR_UNREADABLE and "refuses rather than narrow" in e)
         finally:
             contributors.pwd = real_pwd
             if real_home is None:

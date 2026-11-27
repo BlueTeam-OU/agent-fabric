@@ -144,11 +144,12 @@ operator tree. Each one needs a design before it moves:
    both guards read `contributors.fabric_authority`. It knows the engine by
    `tools/fabric/roots.py` at the base. Past step D it reads
    `AGENT_FABRIC_OPERATOR_GIT` at `AGENT_FABRIC_OPERATOR_REF`, or else the account's clone,
-   and refuses with exit 2 when it cannot. CI's authority step checks out the operator's
-   `main` alone at depth 1, names it to the two guards only, archives only the paths main
-   has, and deletes the checkout before any of the branch's code runs. The suites' own run
-   of the guards has no operator; CI marks it with `AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE=1`,
-   so there that refusal is NOT ENFORCED, and anywhere else it fails. The signing step's
+   and refuses with exit 4 when it cannot; every other refusal is exit 2. CI's authority
+   step checks out the operator's `main` alone at depth 1, names it to the two guards only,
+   archives only the paths main has, and deletes the checkout before any of the branch's
+   code runs. The suites' own run of the guards has no operator; CI marks it with
+   `AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE=1`, so there a guard's exit 4 is NOT ENFORCED
+   and any other status still fails; anywhere else exit 4 fails too. The signing step's
    archive from the operator stays with the key-trust hazard (§4), job j1119; it will fetch
    its own copy the same way, before any of the branch's code runs. The owner adds the key
    as `OPERATOR_DEPLOY_KEY`, an Actions secret and a Dependabot secret both.
