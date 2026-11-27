@@ -58,6 +58,7 @@ RESTART_LEDGER = "deaf-restart.json"
 MAX_RESTARTS = 2
 RESTART_WINDOW_S = 24 * 3600
 RESTART_TAG = "#restart"
+ALREADY = "already restarted by another run: "
 
 
 def read_ledger(path: str) -> dict[str, str]:
@@ -195,9 +196,13 @@ class Restarter:
             fcntl.flock(lock, fcntl.LOCK_EX)
             self.ledger = self._read()
             again, note = self.plan(account, episode, {"idle": True})
+            if again == "already":
+                return ALREADY + note   # the run that held the lock restarted it: this INFO says so, under the same key
             if again != "restart":
                 return f"not restarted: {note}"
             return self._record_and_restart(account, episode)
+        except (OSError, ValueError) as e:   # the flock or the re-read failed before anything was recorded or run
+            return f"not restarted: the restart ledger cannot be read ({e.__class__.__name__})"
         finally:
             os.close(lock)
 
@@ -377,7 +382,13 @@ def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = Fal
                 outcome = restarter.execute(account, episode)
             except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as e:   # ValueError: the ledger would not parse; nothing ran
                 outcome = f"failed: {e.__class__.__name__}"
-            if outcome.startswith("not restarted"):
+            if outcome.startswith(ALREADY):
+                key = episode + RESTART_TAG
+                d = {**d, "action": f"The session was idle, so `fabric-ctl {account} restart` was run: {outcome[len(ALREADY):]}."}
+                what = f" (restart: {outcome[len(ALREADY):]})"
+                if new.get(account) == key:
+                    continue
+            elif outcome.startswith("not restarted"):
                 key = episode   # nothing was done: the alarm-only message is the true one
                 d = {**d, "action": f"{outcome}; read its pane."}
                 if new.get(account) == key:
@@ -402,8 +413,8 @@ def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = Fal
                 # After each confirmed send, not once at the end: a run that systemd stops after slow restarts must not send these again.
                 try:
                     save(new)
-                except OSError as e:
-                    failed.append(f"{account}: the ledger cannot be written ({e}); the next run sends this again")
+                except OSError:
+                    pass   # main's final write covers it, and reports when that fails too
         said.append(f"{account}: deaf since {d.get('since')} ({d.get('watch')}){what} -> {to}")
     return new, said, failed
 

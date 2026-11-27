@@ -834,7 +834,7 @@ class LockAndSave(unittest.TestCase):
             first = deaf_alarm.Restarter(path, "me", ctl=ctl, clock=lambda: NOW)
             second = deaf_alarm.Restarter(path, "me", ctl=ctl, clock=lambda: NOW)   # both read the ledger while it was empty
             self.assertEqual(first.execute("a", "end@1"), "restarted")
-            self.assertTrue(second.execute("a", "end@1").startswith("not restarted"))
+            self.assertTrue(second.execute("a", "end@1").startswith(deaf_alarm.ALREADY + "restarted"))
             self.assertEqual(calls, ["a"])
             self.assertEqual(len(json.load(open(path))["a"]["times"]), 1)
 
@@ -847,6 +847,40 @@ class LockAndSave(unittest.TestCase):
                 self.assertEqual(saved, [{"a": "end@1"}])   # a's record already written when b is sent
         deaf_alarm.alarm(rows, {}, "h/user", False, send_one, None, None, lambda s: saved.append(dict(s)))
         self.assertEqual(saved[-1], {"a": "end@1", "b": "end@2"})
+
+    def test_f6_a_run_that_lost_the_lock_tells_restarted_under_the_restart_key(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            path = os.path.join(d, "deaf-restart.json")
+            first = deaf_alarm.Restarter(path, "me", ctl=lambda a: ("restarted", ""), clock=lambda: NOW)
+            first.execute("a", "end@1")
+
+            class Stale(deaf_alarm.Restarter):   # built before the first run wrote: plans a restart, then the lock's re-read finds it
+                def plan(self, account, episode, d):
+                    return ("restart", "") if not getattr(self, "_replanned", False) and not setattr(self, "_replanned", True) else super().plan(account, episode, d)
+            stale = Stale(path, "me", ctl=lambda a: self.fail("restarted twice"), clock=lambda: NOW)
+            sent: list = []
+            ledger, _, _ = deaf_alarm.alarm([self.idle_row()], {}, "h/user", False, lambda a, dd, t: sent.append(dd), None, stale)
+            self.assertEqual(ledger, {"a": "end@1" + deaf_alarm.RESTART_TAG})
+            self.assertIn("was run: restarted", sent[0]["action"])
+
+    def idle_row(self):
+        r = row("a", "end@1")
+        r["deaf"].update(idle=True, idle_why="ended")
+        return r
+
+    def test_f7_an_unreadable_ledger_under_the_lock_is_not_a_restart_that_was_run(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            path = os.path.join(d, "deaf-restart.json")
+            rs = deaf_alarm.Restarter(path, "me", ctl=lambda a: self.fail("restarted"), clock=lambda: NOW)
+            with open(path, "w") as fh:
+                fh.write("not json")
+            self.assertTrue(rs.execute("a", "end@1").startswith("not restarted: the restart ledger cannot be read"))
+
+    def test_f8_a_failed_per_send_save_is_not_a_failure_when_the_final_write_covers_it(self) -> None:
+        def save(state):
+            raise OSError("ENOSPC")
+        _, _, failed = deaf_alarm.alarm([row("a", "end@1")], {}, "h/user", False, lambda *a: None, None, None, save)
+        self.assertEqual(failed, [])
 
 
 if __name__ == "__main__":
