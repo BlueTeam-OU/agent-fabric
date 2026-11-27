@@ -369,6 +369,73 @@ class Alarm(unittest.TestCase):
             deaf_alarm.send("a", d, "good", run, pend)
             self.assertEqual(os.listdir(pend), [])   # a first send that succeeds keeps nothing
 
+    def test_a_repost_after_exit_3_is_never_composed_anew_by_a_later_failure(self) -> None:
+        # review of #718, F3: exit 3 then 4 then 0 must post one id three times, never a second message
+        codes = iter([3, 4, 0])
+        composed, ids = [], []
+
+        def run(argv, **kw):
+            if argv[0] == "gzcoord-compose":
+                composed.append(1)
+                with open(argv[argv.index("-o") + 1], "w") as fh:
+                    fh.write("[GZCOORD/1] INFO\nTO: h/user\nSUBJECT: s\n\nCONTEXT:\n\nNOTES:\n\nREFERENCES:\n")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            with open(argv[1], "a") as fh:
+                fh.write(f"MESSAGE-ID: id-{len(composed)}\n") if "MESSAGE-ID" not in open(argv[1]).read() else None
+            ids.append(open(argv[1]).read().count("MESSAGE-ID"))
+            return subprocess.CompletedProcess(argv, next(codes), "", "")
+        d = row("a", "end@1")["deaf"]
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as pend:
+            for _ in range(2):
+                with self.assertRaises(RuntimeError):
+                    deaf_alarm.send("a", d, "h/user", run, pend)
+            deaf_alarm.send("a", d, "h/user", run, pend)
+            self.assertEqual(len(composed), 1)
+            self.assertEqual(os.listdir(pend), [])
+
+    def test_a_kept_file_for_another_addressee_is_composed_anew(self) -> None:
+        composed = []
+
+        def run(argv, **kw):
+            if argv[0] == "gzcoord-compose":
+                composed.append(argv[argv.index("--to") + 1])
+                with open(argv[argv.index("-o") + 1], "w") as fh:
+                    fh.write(f"[GZCOORD/1] INFO\nTO: {composed[-1]}\nSUBJECT: s\n\nCONTEXT:\n\nNOTES:\n\nREFERENCES:\n")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            return subprocess.CompletedProcess(argv, 3, "", "")
+        d = row("a", "end@1")["deaf"]
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as pend:
+            for to in ("old/x", "new/x"):
+                with self.assertRaises(RuntimeError):
+                    deaf_alarm.send("a", d, to, run, pend)
+            self.assertEqual(composed, ["old/x", "new/x"])
+            self.assertEqual(len(os.listdir(pend)), 1)
+
+    def test_an_unremovable_pending_file_is_a_failure_not_a_traceback(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as pend:
+            open(deaf_alarm.pending_path(pend, "a", "end@1"), "w").close()
+            real = deaf_alarm.drop_pending
+
+            def boom(*a):
+                raise PermissionError("denied")
+            deaf_alarm.drop_pending = boom
+            try:
+                new, _, failed = deaf_alarm.alarm([row("a", None)], {"a": "end@1"}, "h/user", False, lambda *a: None, pend)
+            finally:
+                deaf_alarm.drop_pending = real
+            self.assertEqual(new, {})
+            self.assertIn("denied", failed[0])
+
+    def test_a_pending_file_another_run_removed_first_is_not_an_error(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as pend:
+            gone = os.path.basename(deaf_alarm.pending_path(pend, "a", "end@1"))
+            real = os.listdir
+            deaf_alarm.os.listdir = lambda p: [gone]   # listed, then taken by the other run before the unlink
+            try:
+                deaf_alarm.drop_pending(pend, "a")
+            finally:
+                deaf_alarm.os.listdir = real
+
     def test_a_recovered_account_drops_its_pending_file(self) -> None:
         with tempfile.TemporaryDirectory(prefix="deaf-test-") as pend:
             kept = deaf_alarm.pending_path(pend, "a", "end@1")
@@ -463,7 +530,7 @@ class Cli(unittest.TestCase):
                 "fabric-ctl": f"#!/bin/sh\nprintf '%s\\n' '{rowjson}'\n",
                 "gzcoord-compose": '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n'
                                    "echo c >> \"$0.count\"\n"
-                                   "printf '[GZCOORD/1] INFO\\nTO: x\\nSUBJECT: s\\n\\nCONTEXT:\\n\\nNOTES:\\n\\nREFERENCES:\\n' > \"$out\"\n",
+                                   "printf '[GZCOORD/1] INFO\\nTO: h/user\\nSUBJECT: s\\n\\nCONTEXT:\\n\\nNOTES:\\n\\nREFERENCES:\\n' > \"$out\"\n",
                 "gzcoord-send": f'#!/bin/sh\ncat "$1" > "{d}/posted.$$"\nexit 3\n',
             }
             for name, text in scripts.items():
