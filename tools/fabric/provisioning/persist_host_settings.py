@@ -27,13 +27,14 @@ only after this step ran is in the file once the step runs again. A value that c
 The firewall (agent-fabric ADR-064 rule 1, A 2026-11-27): this host's entry in the hosts registry (roots.hosts_registry, found
 as the roster is: the tree this file is in, AGENT_FABRIC_HOSTS_REGISTRY first; the entry's id is the short hostname,
 identity.current_host) says who the carrier's wildcard listeners may be reached by.
-  neither interweave_address nor interweave_admit   nothing to admit: one line, no firewall-cmd run
-  interweave_admit "any"      the roster's port_range, TCP, as a port in the firewalld zone of the interface the default route
+  neither the address nor the admit field (gzcoord.carrier.roster ADDRESS_KEY, ADMIT_KEY)   nothing to admit: one line, no
+                              firewall-cmd run
+  admit "any"                 the roster's port_range, TCP, as a port in the firewalld zone of the interface the default route
                               (<proc>/net/route) uses
-  interweave_admit <ip|cidr>  the same range as a rich rule limited to that source (IPv4; a CIDR with host bits is refused)
+  admit <ip|cidr>             the same range as a rich rule limited to that source (IPv4; a CIDR with host bits is refused)
 Each is made live and permanent, only where it is not already (already admitted: one line, no write), then read back; a read-back
-that disagrees is a failure. Never wider than the field: "any" is never added for an address. interweave_address without
-interweave_admit, a value that is none of these, or an entry that cannot be found is a failure, not "nothing to admit".
+that disagrees is a failure. Never wider than the field: "any" is never added for an address. An address without
+an admit, a value that is none of these, or an entry that cannot be found is a failure, not "nothing to admit".
 Only firewalld is driven. A host whose firewalld is not running, whose firewall-cmd is absent or fails, or that has nftables or
 iptables only, is a FAILURE with nothing changed: its profiles listen on the wildcard and its firewall state is unknown. An
 admission an earlier, different range made is not removed by this step.
@@ -62,7 +63,7 @@ from collections.abc import Mapping
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from control import carrier_install  # noqa: E402
-from gzcoord.carrier import CARRIER_NAME  # noqa: E402
+from gzcoord.carrier import CARRIER_NAME, roster  # noqa: E402
 from provisioning import host_platform  # noqa: E402
 import roots  # noqa: E402
 
@@ -243,7 +244,7 @@ def _zone(env: Mapping[str, str], proc_root: str) -> str:
 
 
 def _admission(admit: object, low: int, high: int) -> tuple[str, str]:
-    """(firewall-cmd option suffix, the value): `port` or `rich-rule`, from the entry's interweave_admit."""
+    """(firewall-cmd option suffix, the value): `port` or `rich-rule`, from the entry's admit field."""
     ports = str(low) if low == high else f"{low}-{high}"
     if admit == "any":
         return "port", f"{ports}/tcp"
@@ -254,7 +255,7 @@ def _admission(admit: object, low: int, high: int) -> tuple[str, str]:
             net = None
         if net is not None:
             return "rich-rule", f'rule family="ipv4" source address="{admit}" port port="{ports}" protocol="tcp" accept'
-    raise FirewallError(f"interweave_admit {admit!r} is neither \"any\" nor an IPv4 address or CIDR without host bits")
+    raise FirewallError(f"{roster.ADMIT_KEY} {admit!r} is neither \"any\" nor an IPv4 address or CIDR without host bits")
 
 
 def host_entry(env: Mapping[str, str], root: str, host: str) -> Mapping[str, object]:
@@ -274,12 +275,12 @@ def _admit(env: Mapping[str, str], root: str, low: int, high: int) -> int:
     proc_root = env.get("AGENT_FABRIC_PROC_ROOT") or "/proc"
     try:
         entry = host_entry(env, root, identity.current_host())
-        admit, address = entry.get("interweave_admit"), entry.get("interweave_address")
+        admit, address = entry.get(roster.ADMIT_KEY), entry.get(roster.ADDRESS_KEY)
         if admit is None and address is None:
-            print("firewall: neither interweave_address nor interweave_admit: nothing to admit")
+            print(f"firewall: neither {roster.ADDRESS_KEY} nor {roster.ADMIT_KEY}: nothing to admit")
             return 0
         if admit is None:
-            raise FirewallError("interweave_address is set and interweave_admit is not: the profiles listen on the wildcard and "
+            raise FirewallError(f"{roster.ADDRESS_KEY} is set and {roster.ADMIT_KEY} is not: the profiles listen on the wildcard and "
                                 "nobody is said to be admitted")
         kind, value = _admission(admit, low, high)
         _fw(env, "--state")        # 252 and every other status: firewalld is not running, which is a failure
