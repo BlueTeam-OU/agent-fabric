@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
@@ -74,6 +75,9 @@ def main() -> int:
         ("a brace group piped", "{ gzcoord-inbox; } | head"),
         ("a subshell piped", "( gzcoord-inbox ) | head"),
         ("a loop piped", "while gzcoord-inbox --wait 5; do :; done | head"),
+        ("a substitution naming the command word", "$(which gzcoord-inbox) | head"),
+        ("`.` as a command word, its single-quoted text given back", ". /dev/stdin <<<'gzcoord-inbox' | head"),
+        ("a substitution beside it is blanked, the pipe still counts", 'cd "$(git rev-parse --show-toplevel)" && gzcoord-inbox | head'),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.refused(cmd), cmd)
@@ -93,6 +97,7 @@ def main() -> int:
         ("a substitution of a read-only mode", "echo $(gzcoord-inbox --history) | head"),
         ("the word as echo's argument: a mention, not a run", "echo gzcoord-inbox | cat"),
         ("the word in a grep", "grep -rn gzcoord-inbox docs | head"),
+        ("the word in a grep of `.`: a path, not source", "grep -rn gzcoord-inbox . | head"),
         ("the word in a double-quoted commit message", 'git commit -m "gzcoord-inbox | head lost messages"'),
         ("the self-kill guard's incident, single-quoted", "pgrep -f 'gzcoord-inbox --follow' | xargs kill"),
         ("a comment", "ls # gzcoord-inbox | head"),
@@ -101,11 +106,27 @@ def main() -> int:
         ("a pipe in another command after &&", "gzcoord-inbox && git log | head"),
         ("a subshell, no pipe", "(gzcoord-inbox)"),
         ("stdout to /dev/null: outside the contract, the coordinator's call", "gzcoord-inbox > /dev/null"),
+        ("the deny's own way out: a scratch file from mktemp, read whole", 'f=$(mktemp); gzcoord-inbox > "$f"; cat "$f"'),
+        ("a file named by a substitution", 'gzcoord-inbox > "$S/inbox-$(date +%s).txt"'),
+        ("the watch after a cd into a substitution", 'cd "$(git rev-parse --show-toplevel)" && gzcoord-inbox --until-delivery'),
+        ("a backtick naming no inbox", "cd `pwd` && gzcoord-inbox > f"),
+        ("the module read with sed", "sed -n 1,40p tools/fabric/gzcoord/inbox.py | head"),
+        ("the link read with nl", "nl -ba bin/gzcoord-inbox | sed -n 1,5p"),
+        ("the link resolved", "readlink -f ~/.local/bin/gzcoord-inbox | cat"),
         ("no inbox at all", "git log | head"),
         ("another inbox", "ls ~/inbox | head"),
     ]
     for label, cmd in allowed:
         check(f"allowed: {label}", not g.refused(cmd), cmd)
+
+    # A hook past its 5 s timeout is read as no objection: a long command holding the word, a runner, a pipe and
+    # nested substitutions is decided well inside it, end to end.
+    long = " ".join(["bash -c 'x' gzcoord-inbox --history $(echo $(date)) | grep inbox;"] * 1600) + " gzcoord-inbox | head"
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": long}}))
+    took = time.monotonic() - t0
+    check(f"a {len(long) // 1000} KB command is refused in under 2 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 2.0 and len(long) > 100_000, (took, r.stdout[-200:], r.stderr[-300:]))
 
     # The protocol, run the way the settings run it (-I -S, by path).
     deny = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "gzcoord-inbox | head -n 3"}}))

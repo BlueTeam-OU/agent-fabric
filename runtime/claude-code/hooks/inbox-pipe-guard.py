@@ -3,8 +3,8 @@
 
 Refuses a command that pipes the output of a CONSUMING gzcoord-inbox run into anything, and names the way out.
 
-WHY. On 2026-11-24 a session ran the bare drain piped into `head`/`tail`: it consumed three messages and the session
-saw only some of them. Reproduced on 2026-11-27 with the real show_page in tools/fabric/gzcoord/inbox.py: the page is
+WHY. On 2026-11-24 a session ran the bare drain piped into `head`/`tail`: it consumed three messages and the filter hid
+two of them. Reproduced on 2026-11-27 with the real show_page in tools/fabric/gzcoord/inbox.py: the page is
 printed, the shown ledger finished and the relay acknowledged BEFORE Python flushes stdout, so `| head -n 3` loses
 the rest of the page whatever its size; the BrokenPipe surfaces only at interpreter exit, after the messages are
 gone. A trailer line printed last would not survive `head` or `grep` either, so the fence is here, before the run.
@@ -36,13 +36,22 @@ bin/gzcoord-inbox | head` are runs. A double-quoted word is one word: `git commi
 pipe.
 
 FLAT, AND CLOSED WHERE IT IS NOT. The command is judged as pipelines of simple commands, split on `;`, `&&`, `||`,
-`&` and newlines. Groups, compound commands, substitutions and runners are not followed: when the command holds any
-of them (`(`, `{`, `}`, `fi`, `done`, `esac`, `$(`, a backtick, `<(`, `>(`, a RUNNERS word) and a consuming run found
-by a loose scan of every word (mention or run alike, readers not exempt), it is refused if it also holds a `|`
-anywhere or a substitution. Runners are in the list because live_text gives their quoted payload back at the end of
-the text, not where it stood, and a double-quoted `bash -c "…"` payload is one word to the lexer. A nesting-aware
+`&` and newlines. A `$( … )` or backtick span that names no inbox is blanked to a word first (`f=$(mktemp);
+gzcoord-inbox > "$f"` passes); a process substitution never is. Groups, compound commands, the substitutions left and
+runners are not followed: when the command holds any of them (`(`, `{`, `}`, `fi`, `done`, `esac`, `$(`, a backtick,
+`<(`, `>(`, a word of post-review-shape-guard's RUNNERS, `.`) and a consuming run found by a loose scan of every word
+(mention or run alike, readers not exempt), it is refused if it also holds a `|` anywhere or a substitution. Runners
+are in the list because live_text gives their quoted payload back at the end of the text, not where it stood, and a
+double-quoted `bash -c "…"` payload is one word to the lexer. A nesting-aware
 reading of bash lost review rounds in both directions for the two sibling guards that tried (their headers say so); a
 false deny costs a rephrase (`gzcoord-inbox; ( cd x && git log | head )` is one), a false allow costs messages.
+
+SCOPE. A fence against the habit of filtering the drain, not a sandbox. Not seen: a command word the shell builds
+(`$c | head`, `'gzcoord-inbox' | head`, whose quotes live_text drops as inert text), a script or alias that drains, a
+link to the command under another name. Each costs messages only when written on purpose.
+
+COST. Nothing is loaded unless `inbox` occurs in the command (the hook runs on every Bash call); canonical() is asked
+only where `inbox` stands in the words it reads; the rest is linear passes over the text.
 
 SUBAGENTS. Judged as the session is: a subagent's Bash call drains the same login's inbox, and a page it filters is
 lost to the session the same way.
@@ -72,13 +81,17 @@ NAMING_WORDS = 3
 READ_ONLY = {"--replay", "--history", "--held"}
 MODULE_SUFFIX = "/gzcoord/inbox.py"
 # Programs that only read or print their arguments: under one of these, a word that names the drain is a mention.
-# Short on purpose and owned here: post-review-shape-guard's PLAIN holds python, find, sed and make, each of which can
-# run a script or a command, which here is a run. A name missing from it costs one false deny beside a pipe.
+# Owned here, not post-review-shape-guard's PLAIN, which holds python, find and make: each runs a script or a command,
+# which here is a run. sed and awk are kept although each can run a command (`e`, system()): reading the module or the
+# link with them (`sed -n 1,40p tools/fabric/gzcoord/inbox.py | head`) is far more common than a drain run that way.
+# A name missing from it costs one false deny beside a pipe, and the reason says how to quote a mention.
 READERS = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "ag", "ack", "git", "gh", "cat", "less", "more", "head",
            "tail", "wc", "ls", "stat", "file", "diff", "type", "which", "man", "jq", "gzcoord-send", "gzcoord-compose",
-           "fabric-adr"}
-# Words that run their arguments as a command line (`bash -c "…"`): beside one, the closed reading applies.
-RUNNERS = {"bash", "sh", "dash", "zsh", "ksh", "eval", "source", "su", "ssh", "watch", "flock"}
+           "fabric-adr", "sed", "awk", "nl", "readlink", "realpath", "basename", "dirname", "sort", "uniq", "cut", "tr",
+           "od", "xxd", "sha256sum", "md5sum"}
+# A word that makes live_text give quoted text back (post-review-shape-guard's RUNNERS, read from it so the two
+# cannot drift) and `.`, which it gives back as a command word.
+DOT = "."
 # Before the command word, and not it.
 LEADING = {"!", "then", "do", "else", "elif", "if", "while", "until", "time"}
 ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")
@@ -94,7 +107,13 @@ LOOSE_CHUNK = re.compile(r"[;&|()<>`\n{}]")
 REASON = ("A consuming gzcoord-inbox run acknowledges its whole page before a pipe or a capture reads it, so what the "
           "filter drops is lost: run the drain bare so its whole page reaches the session, or redirect it to a file in "
           "your scratchpad and read the whole file. A message already consumed is read again with "
-          "`gzcoord-inbox --replay <MESSAGE-ID>`, never through a filter.")
+          "`gzcoord-inbox --replay <MESSAGE-ID>`, never through a filter; a command that only mentions the name puts it "
+          "in single quotes.")
+# An innermost $( … ) or backtick span, blanked to PLACEHOLDER when it names no inbox: `f=$(mktemp); gzcoord-inbox >
+# "$f"` is the way out the reason names, and `cd "$(git rev-parse --show-toplevel)"` beside the watch is no capture.
+# Never a <( … ) or >( … ): `gzcoord-inbox > >(head)` is a pipe by another name.
+INNER_SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+PLACEHOLDER = "_inbox_pipe_guard_subst_"
 
 
 def _load(name: str, file: str):
@@ -122,6 +141,10 @@ def _canonical():
 
 def inbox_args(words: list[str], k: int) -> list[str] | None:
     """The arguments of the gzcoord-inbox run that starts at words[k], or None when none starts there."""
+    # Only where the window canonical() reads holds the word: asking it at every word of a long command, a copy of
+    # the rest each time, is quadratic, and a hook past its timeout is read as no objection.
+    if not any("inbox" in w for w in words[k:k + NAMING_WORDS]):
+        return None
     word = words[k]
     if word.endswith(MODULE_SUFFIX) or os.path.basename(word) == _sibling("inbox-watch").NODE_SHIM:
         return words[k + 1:]
@@ -195,10 +218,21 @@ def loosely_consuming(text: str) -> bool:
     return False
 
 
+def blank_substitutions(text: str) -> str:
+    """The text with every substitution that names no inbox blanked, innermost first, until none is left to blank.
+    Each round shortens the text, so it ends; the spans left all hold `inbox` and stay for the closed reading."""
+    while True:
+        out = INNER_SUBST.sub(lambda m: m.group(0) if "inbox" in m.group(0) else PLACEHOLDER, text)
+        if out == text:
+            return text
+        text = out
+
+
 def refused(command: str) -> bool:
     if "inbox" not in command:
         return False
-    live = _sibling("post-review-shape-guard").live_text(command)[0].replace("\\\n", "")
+    shape = _sibling("post-review-shape-guard")
+    live = blank_substitutions(shape.live_text(command)[0].replace("\\\n", ""))
     if "inbox" not in live:
         return False
     piped_or_captured = "|" in live or bool(SUBSTITUTION.search(live))
@@ -207,12 +241,14 @@ def refused(command: str) -> bool:
         return piped_or_captured and loosely_consuming(live)
     # live_text gives a runner's quoted payload back at the end of the text, not where it stood, and a double-quoted
     # payload is one word here: beside a runner, as beside a group or a substitution, positions are not read.
+    commands = [(words[command_word(words):], piped) for words, piped in simple_commands(toks)]
+    # `.` only as a command word: as an argument it is a path (`grep -rn gzcoord-inbox . | head`).
     closed = (SUBSTITUTION.search(live) or "(" in toks or any(t in GROUP_WORDS for t in toks)
-              or any(os.path.basename(t) in RUNNERS for t in toks))
+              or any(os.path.basename(t) in shape.RUNNERS for t in toks)
+              or any(words[:1] == [DOT] for words, _ in commands))
     if closed and piped_or_captured and loosely_consuming(live):
         return True
-    for words, piped in simple_commands(toks):
-        words = words[command_word(words):]
+    for words, piped in commands:
         if piped and words and consuming(words, os.path.basename(words[0]) not in READERS):
             return True
     return False
