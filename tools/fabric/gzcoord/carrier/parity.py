@@ -298,8 +298,9 @@ def _login_of(address: str) -> str:
 def carrier_outage(arrivals: list[dict], senders: dict[str, list[dict]], shown: list[dict], drill: tuple[float, float], login: str) -> dict:
     """The carrier-outage drill (ADR-064 rule 11, gate 2): one account's carrier stopped for [drill) in carrier-record. A pair belongs to it when
     its MESSAGE-ID was made inside the window and it is addressed to `login` (a copy arrived for it, or a sender recorded a delivery to it).
-    Per pair: whether a sender's outbox recorded the delivery (`held`), whether a copy of any carrier reached the account before the
-    window ended (then the carrier did not hold it alone and the pair proves nothing), how many copies arrived and the
+    Per pair: whether a sender's outbox recorded the delivery (`held`), whether a copy of the carrier reached the account before the
+    window ended (then the carrier did not hold it alone and the pair proves nothing; a relay line of a collection made before W15 is no
+    copy, so the relay's early delivery is not read), how many copies arrived and the
     first of them, and how often the session was shown it. A property the files cannot show is `unknown`, never yes."""
     copies: dict[str, list[float]] = defaultdict(list)
     for a in copies_of(arrivals):

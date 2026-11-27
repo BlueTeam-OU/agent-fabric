@@ -226,7 +226,7 @@ def fetch_message(which: str) -> dict:
         p = subprocess.run([INBOX, "--replay", which, "--json"], capture_output=True, text=True, timeout=wait)
     except subprocess.TimeoutExpired:
         raise Refused(f"cannot read message {which}: the relay did not answer within {wait:g} s")
-    # Exit 2 is also inbox's refusal of a control channel: only its own
+    # Exit 2 is also a refusal the inbox gives for other reasons: only its own
     # {"addressed": false} answer means "not for this login".
     if p.returncode == 2:
         try:

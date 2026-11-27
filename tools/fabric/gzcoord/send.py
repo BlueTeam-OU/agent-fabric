@@ -109,6 +109,8 @@ import sys
 from typing import Any, Callable
 
 from . import bypass, gzmsg, i18n, inbox, intake, paths, placement, transport
+from .inbox_parts import config as inbox_config
+from .inbox_parts import tokens
 from .transport import carrier as carrier_transport
 from . import jsvalues as js
 from .carrier import CARRIER_LABEL, arrivals
@@ -278,7 +280,7 @@ def auto_intake(msg: dict, env: dict | None = None,
     answered = msg.get("metadata", {}).get("IN-REPLY-TO") if isinstance(msg, dict) else None
     if not isinstance(msg, dict) or msg.get("type") != "REPLY" or not answered:
         return None
-    # Bounded: it reads the relay, and a hung relay must not hold a send
+    # Bounded: it reads the journal, and a slow read must not hold a send
     # that has already succeeded.
     try:
         r = run(["python3", JOBS, "add", "--request", answered, "--auto"], capture_output=True, text=True,
@@ -572,8 +574,20 @@ def main(argv: list[str]) -> int:
     # An address no host places has been said and forced above; presence could
     # only say it again.
     if not unplaced:
-        # The presence child's stdin schema wants a token string; it asks the account's own agentd alone, so none is given.
-        pres = asked_presence(msg["metadata"], me["address"], "")
+        if os.environ.get(transport.mode.ENV) and (msg["metadata"].get("TO") or msg["metadata"].get("TO-ROLE")) \
+                and not msg["metadata"].get("BROADCAST"):
+            # The override reaches only the presence child, which does not say it: said here once, and a value that names no
+            # mode is a refusal before anything is posted. A message nobody is asked about reads no mode, so none is said.
+            try:
+                transport.mode.effective(say=transport.mode.say_stderr)
+            except transport.ModeError as e:
+                print(f"gzcoord: not sent: {e}", file=sys.stderr)
+                return 2
+        # The presence child is the control plane's, and asks the relay in relay-record and carrier-record (until W16), where it
+        # needs the account's token; in carrier-only it ignores it. A token that is not found is the empty string, which a
+        # relay mode answers with its own 401 (presence says so and the TO is reported unchecked), never a request without one.
+        pres = asked_presence(msg["metadata"], me["address"],
+                              tokens.token(root, inbox_config.integration_config(who.get("project"), os.environ, t)) or "")
         # Said, never silent: the contract is that a TO is checked.
         if pres.get("skipped"):
             print(t("send.presence-skipped"), file=sys.stderr)
@@ -629,8 +643,8 @@ def main(argv: list[str]) -> int:
     def refused_log(mid: str, outcome: str, detail: str) -> None:
         """The carrier did not accept: a durable line beside the sent ledger (arrivals.MirrorLog), because the stderr line
         of this send is gone with the session and the parity report needs the reason. It is evidence and never a condition of
-        the send: a log that cannot be written is said and the send goes on. With the journal off no mirror is asked (rule 8), so
-        a mirror leaves nothing; a carrier that is the primary is logged in every mode, journal off included."""
+        the send: a log that cannot be written is said and the send goes on. The carrier is the only transport, so the line
+        says "primary", journal off included."""
         try:
             arrivals.MirrorLog(mirror_log_path(who), iso_now=lambda: _now_iso()[:19] + "Z").append_refused(mid, outcome, detail)
         except OSError as e:

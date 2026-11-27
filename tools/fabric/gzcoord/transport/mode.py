@@ -6,7 +6,7 @@ a committed file: the operator moves one account at a time with the signed actio
 what that action writes.
 
 CONTRACT
-  MODES            relay-record (today's behaviour), carrier-record, carrier-only.
+  MODES            relay-record (the control plane's legacy stage until W16), carrier-record, carrier-only.
   DEFAULT          carrier-only: what an account with no transport-mode.json is in (W15, after gate 2 of the cutover plan; it was
                    relay-record). Absence is the normal state and a reader never creates the file. Since W15 the GZCoord send and
                    inbox build the carrier alone whatever this says; the file is read by the control plane's presence ask, the

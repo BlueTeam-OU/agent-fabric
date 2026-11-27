@@ -2365,6 +2365,43 @@ def _():
         pr.close()
 
 
+@case("send, addressed, in a relay mode: the presence child is given the account's token, says the override, and a mistyped one is refused before anything is posted")
+def _():
+    import http.server
+    import threading
+    seen: list[str] = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):          # noqa: N802 — the handler's name
+            seen.append(self.headers.get("Authorization", ""))
+            self.send_response(401)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    th = threading.Thread(target=srv.serve_forever, daemon=True)
+    th.start()
+    pr = Presence({})
+    try:
+        env = {**pr.env, "CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{srv.server_address[1]}", "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-fixture",
+               "GZCOORD_CHANNEL": "fixture:chan", "GZCOORD_TRANSPORT_MODE": "relay-record", "FABRIC_CONTROL_CARRIER": "relay"}
+        r = send_with(pr, addressed("TO: h/alpha"), **env)
+        has(r"transport mode relay-record for this command", r.err)
+        eq(seen, ["Bearer tok-fixture"], "the relay was asked with the account's token, never an empty one")
+        bad = send_with(pr, addressed("TO: h/alpha"), **{**env, "GZCOORD_TRANSPORT_MODE": "carrier_only"})
+        eq(bad.code, 2, bad.err)
+        has(r"not sent: GZCOORD_TRANSPORT_MODE=carrier_only is not a transport mode", bad.err)
+        eq(len(seen), 1, "a refused value posted nothing")
+    finally:
+        pr.close()
+        srv.shutdown()
+        srv.server_close()
+
+
 @case("send and inbox read no relay setting: a relay address, a token, a channel or a transport mode in the environment changes nothing and is never dialled")
 def _():
     # A listener standing where CLAUDE_BRIDGE_URL points: a connection to it is a relay call.

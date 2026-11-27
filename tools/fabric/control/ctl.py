@@ -252,7 +252,7 @@ VERBS: tuple[Verb, ...] = (
          options=(("--since T", "the window's start, YYYY-MM-DDTHH:MM:SSZ (required)"), ("--until T", "the window's end, exclusive (required)"),
                   ("--out DIR", "file the collection as DIR/<login>/{arrivals.jsonl,deliveries.jsonl,shown.jsonl,mirror.jsonl,kinds.json,meta.json}"),
                   ("--section S", "arrivals, deliveries, shown or mirror: one page of that section only, from --since; its `next` is the --since of the following page")) + COMMON),
-    Verb(MODE_OP, f"Move the account's GZCoord transport mode: relay-record (today's, and what an account with no mode file is in), carrier-record or carrier-only. The mode is the account's own state; {CARRIER_NAME} shows it.",
+    Verb(MODE_OP, f"Move the account's GZCoord transport mode: relay-record (the legacy stage), carrier-record or carrier-only (what an account with no mode file is in). The mode is the account's own state; {CARRIER_NAME} shows it.",
          f"fabric-ctl db-admin {MODE_OP} --mode carrier-record",
          usage=((f"<login|all> {MODE_OP} --mode M", f"an action: write the account's transport-mode.json (M one of {', '.join(mode_mod.MODES)}); carrier-only is refused while any placed account reports relay-record or does not report; an account that does not answer is not moved, and is named"),),
          args="--mode M", signed="always", options=(("--mode M", f"{', '.join(mode_mod.MODES)} (required)"),) + COMMON),

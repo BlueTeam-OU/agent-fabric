@@ -84,7 +84,7 @@ def _open_leg(request: dict, to: list, wait_s: float):
 
 def _read_mode() -> str:
     from gzcoord.transport import mode
-    # The command's own mode: the child inherits GZCOORD_TRANSPORT_MODE, which its parent has already said.
+    # The command's own mode: the child inherits GZCOORD_TRANSPORT_MODE, which gzcoord-send has already said and validated.
     return mode.effective()["mode"]
 
 

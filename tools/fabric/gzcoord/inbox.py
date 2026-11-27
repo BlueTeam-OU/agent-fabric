@@ -158,13 +158,13 @@ what a session sees is decided by `<state>/agents/<login>/gzcoord-shown.jsonl`
 ledger lines is shown once more, flagged "may repeat". The arrivals the carrier journaled
 come in the watch's page, titled from the roster's address. The watch log (gzcoord-watch.jsonl) gets a line when a --follow or --until-delivery watch starts and one when it
 ends, with the reason (delivery, quiet, session-ended, journal-held); a watch killed from outside writes no end line. A ledger that cannot be opened is
-said on stderr and the messages are shown without it.
+said on stderr and the carrier's messages wait: they are never shown without it.
 
 The rest of the Node's header — the modes, the hold, the addressee rule —
 is kept where each applies: below, or in the part that holds it
 (inbox_parts/). A watch is one consumer per address, run once per session
 (under a Monitor for --follow, a background Bash for --until-delivery).
-Never blocks a session start: relay down, no token, no catalogue — each is
+Never blocks a session start: carrier down, no catalogue — each is
 one line on stderr and exit 0.
 
 THE JOURNAL (ADR-041 rule 4), in this process now: a page's messages
@@ -177,7 +177,7 @@ GZCOORD_JOURNAL=off skips the journal, never the record: each of those
 messages gets a line in journal-bypass.jsonl (gzcoord/bypass.py) before it
 is shown or acknowledged, and a line that cannot be written holds the page
 as a journal that cannot keep it does. --replay and --history leave no
-bypass line, journal on or off: they show what the relay or the journal
+bypass line, journal on or off: they show what the journal
 already holds and acknowledge nothing, and the journal is only read by them
 (episodic.open_readonly), in either mode.
 A replay ahead of the drain shows a record no line or row records yet: it
@@ -372,12 +372,12 @@ def show_page(res: dict, write: Callable[[], None]) -> None:
         except OSError as e:
             print(f"gzcoord: the shown ledger could not be written ({e.strerror or e}); the message may repeat", file=sys.stderr)
     if res.get("ack_later"):
-        res["ack_later"]()          # after the lock is released: the relay's acknowledgement is a network call
+        res["ack_later"]()          # after the lock is released: the carrier's acknowledgement may be a call
 
 
 def with_queued(shown: str, classified: list[dict], me: dict) -> str:
     """A delivery, and below it a line for each REQUEST to this login it put
-    on the job list (intake.py). After the journal; the relay's acknowledgement
+    on the job list (intake.py). After the journal; the carrier's acknowledgement
     follows the showing (show_page): a job the list could not take is a line on stderr, never an unshown message."""
     lines = intake.queue_received(classified, me)
     return shown + "".join(f"\n{x}" for x in lines)
@@ -402,8 +402,8 @@ def main(argv: list[str]) -> int:
         wait_total = n if js.truthy_number(n) else 1800.0
     deadline_s = deadline_arg(argv) or DEFAULT_DEADLINE_S
     # Who this session is (the login) and which project it works in — the
-    # second selects the integration: relay, channel, where the token and
-    # runtime live, in the project's WORKING COPY.
+    # second names the project whose catalogue and roster are read, in the
+    # project's WORKING COPY.
     who = gzmsg.whoami()
     # From here every line is this login's: English, or the locale its name
     # ends in when that locale has an active dictionary (i18n).
@@ -448,7 +448,10 @@ def main(argv: list[str]) -> int:
     # asked. A message the journal does not hold, or a reference that is not a MESSAGE-ID, is a refusal in one line.
     if replay_which:
         if not MESSAGE_ID.fullmatch(replay_which):
-            print(f"gzcoord inbox: --replay takes a MESSAGE-ID, and {replay_which} is not one (a relay seq is no longer read)",
+            # Echoed bounded and escaped: the argument may have been copied out of a message body (mode.effective's convention).
+            shown = replay_which if len(replay_which) <= 40 and replay_which.isprintable() \
+                else replay_which[:40].encode("unicode_escape").decode("ascii") + "..."
+            print(f"gzcoord inbox: --replay takes a MESSAGE-ID, and {shown} is not one (a relay seq is no longer read)",
                   file=sys.stderr)
             return 1
         try:
@@ -536,14 +539,13 @@ def main(argv: list[str]) -> int:
         # The watch. Each arm waits an hour of slices (under --until-delivery
         # the time left to the deadline, when that is less); a delivery is
         # printed and the next arm starts at once; a quiet hour starts the next
-        # arm silently. Transport trouble is one line each way; a refused token
-        # ends the watch with exit 4 so the harness reports it once.
+        # arm silently. A carrier that does not answer is one line each way.
         # --until-delivery is the same loop that returns after the first
         # delivery: a Monitor is capped at 30 minutes and every expiry rings
         # the Fleet Deck, a background command is capped at 2 hours and ends
         # by delivering or, quiet, at its --deadline (the owner, 2026-10-10). Its output reaches the
-        # session only when it exits, so a relay down for long ends it too,
-        # rather than leaving a session believing it is watched.
+        # session only when it exits, so a carrier that stays down is said once and the watch
+        # keeps retrying to its deadline (the carrier is a local daemon that comes back by itself).
         down = False
         down_since = 0.0
         # When the primary last answered a slice. An arm lasts up to an hour of slices and returns only at its end, so `down`
@@ -565,8 +567,8 @@ def main(argv: list[str]) -> int:
         # call it so) and a watch started through main alone serves its session as one started through run.
         session = watch_session.current()
 
-        # The watch's own start and end, for the relay-outage drill's report (carrier/arrivals.WatchLog): written beside the
-        # shown ledger because the give-up's marker is deleted by the next fetch and nothing else says a watch ran. A log
+        # The watch's own start and end, for the deaf-watch report (carrier/arrivals.WatchLog, read by control/deaf.py): written beside the
+        # shown ledger because nothing else says a watch ran. A log
         # that cannot be written is said once and never ends the watch: it is evidence, not a part of what the watch does.
         watch_log = arrivals.WatchLog(os.path.join(ep.state_dir(), "gzcoord-watch.jsonl"), iso_now=ep.now)
         said = {"v": False}
@@ -577,7 +579,7 @@ def main(argv: list[str]) -> int:
             except OSError as e:
                 if not said["v"]:
                     said["v"] = True
-                    print(f"gzcoord-inbox: the watch log {watch_log.path} cannot be written ({e}); the relay-outage report will not hold this watch",
+                    print(f"gzcoord-inbox: the watch log {watch_log.path} cannot be written ({e}); the deaf-watch report will not hold this watch",
                           file=sys.stderr, flush=True)
 
         def ended(reason: str, code: int) -> int:
