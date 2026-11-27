@@ -19,8 +19,9 @@ is the failure this section exists to prevent.
 
 Work over a few lines that has a clear contract goes to a class agent
 with worktree isolation, dispatched in the background: `code-low` or
-`code-medium` by the work (the table below), `code-high` and `code-plan`
-only as the guard already asks. A search across many files ("find
+`code-medium` by the work (the table below), `code-high` for difficult
+or high-consequence work without asking, and `code-plan` only as the
+guard asks. A search across many files ("find
 everything that does X", an audit, a sweep) goes to `Explore`.
 Independent pieces run in parallel, each on its own file set. The
 isolation machinery below is what makes that safe; the default is what
@@ -54,8 +55,8 @@ tier decision is where the bill is actually made:
 |---|---|---|
 | `code-low` | `haiku` | mechanical, well-specified work: pattern-following edits, extraction, formatting, single-file lookups, structured search |
 | `code-medium` | `sonnet` | judgement work: multi-file reasoning, prose that must hold a convention |
-| `code-high` | `opus` | only on the user's explicit instruction for that dispatch (the guard asks) |
-| `code-plan` | `fable` | planning and design reasoning on the top tier; the guard asks, as for `code-high` |
+| `code-high` | `opus` | difficult or high-consequence work; the guard no longer asks (the owner, 2026-11-27) |
+| `code-plan` | `fable` | planning and design reasoning on the top tier; the guard asks |
 | `code-review` | `fable` | the review class; shares the tier with `code-plan` but never its export — its model reaches its agent file; see below |
 
 **The class decides the tier, and the call says both.** The binding is
@@ -73,7 +74,8 @@ decision into a hook that cannot read `routing/`.
 Pinning the tier on every call is also what keeps a campaign
 reproducible: if the session model changes while a batch is in flight,
 unset-field agents change with it. The hook denies an unset `model`, a
-class on the wrong alias, and prompts on a premium one. One exception:
+class on the wrong alias, and prompts on `code-plan` (no longer on
+`code-high`, the owner, 2026-11-27). One exception:
 under a fabric launch a review with no `model` passes, because that is
 the guard's own answer when the harness runs it a second time; write
 `fable` all the same.

@@ -210,6 +210,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-10 — architect-cto-01's session is Fable 5.2 again, with the pin on 2.1.322, which knows it (§2).
 - A 2026-11-12 — delegation to subagents is the default for every role: contract work to a worktree class agent, searches to Explore, the session commits (§5 rule 11).
 - A 2026-11-12 — `code-plan` is Fable 5.2 and the review class stays Opus 5.5, both at high effort; read-back pending (§2).
+- A 2026-11-27 — a `code-high` dispatch is no longer asked; `code-plan` still is (§5 rule 2).
 - Keywords: model, routing, capability class, alias, provider, OpenRouter,
   broker, review-grade, shim, preset, Opus 5.5, Sonnet 5.5, Fable 5.2, DeepSeek, GLM, profile.
 

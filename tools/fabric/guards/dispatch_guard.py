@@ -73,7 +73,9 @@ TWO CLASSES OF DISPATCH, decided in this order:
                      is what the harness resolves and what the broker
                      launcher exports per session; the class is the
                      vocabulary, the alias its binding, and the two
-                     must agree. code-high asks (premium).
+                     must agree. code-plan asks (premium); code-high
+                     is allowed without asking (the owner,
+                     2026-11-27).
   READ-ONLY types -> Explore, Plan, claude-code-guide: no writing
                      tool in their definition, and the clone guard
                      (subagent-clone-guard.sh) fences their Bash in
@@ -467,7 +469,9 @@ def decide(call) -> dict | None:
                         f'"{file_effort[kind]}" while this launch resolves {kind} to '
                         f'"{alt(routed_effort.get(kind), "none")}"; the agent would think at a level nothing chose '
                         "for this session. " + stale_file(f"~/.claude/agents/{kind}.md") + SKILL)
-        if kind in ("code-high", "code-plan"):
+        # code-high asked too until the owner lifted it (2026-11-27, ADR-005 A): its dispatches were authorised every
+        # time, so the prompt was cost without a decision. code-plan still asks; a review never reaches here.
+        if kind == "code-plan":
             return ask(f"Agent dispatch names {kind}, a premium class ({alias}). Per the subagent-dispatch skill, the "
                        "premium tier is for a subagent only when you explicitly asked for it -- the task looking hard "
                        "is not authorisation. Approve only if you did.")

@@ -118,7 +118,8 @@ profile layer or a local override.
 2. The dispatch guard (`runtime/claude-code/hooks/agent-dispatch-guard.sh`)
    refuses a class dispatch whose `model` is not its alias, unset
    included; a review on anything but `fable`; and a writing dispatch
-   without worktree isolation. `code-high` and `code-plan` ask. A guard
+   without worktree isolation. `code-plan` asks; `code-high` does not
+   (A 2026-11-27). A guard
    that infers the alias instead of checking it is not this design.
 3. The read-only harness types (`Explore`, `Plan`, `claude-code-guide`)
    name a model and no isolation.
@@ -214,3 +215,4 @@ The body above reads current; each change's full note is in [history/ADR-005-ame
 | 2026-11-10 | architect-cto-01's session is Fable 5.2 again, with the pin | §2's current mapping: the agent layer names `claude-fable-5-2` once more; the harness pin is 2.1.322, which knows it |
 | 2026-11-12 | Delegation to subagents is the default for every role | §2, §5 rule 11, §6: work with a contract goes to a worktree-isolated class agent, wide searches to Explore; the session commits what lands |
 | 2026-11-12 | code-plan on Fable 5.2, plan and review at high effort | §2's current mapping: `code-plan` is `claude-fable-5-2`, the `fable` alias binds to it, the review class stays `claude-opus-5-5`; plan and review ask `high`; the read-back of both dispatches is pending (rule 10) |
+| 2026-11-27 | A code-high dispatch is no longer asked | §5 rule 2: the guard still checks a code-high dispatch's alias and isolation and then allows it; `code-plan` still asks |
