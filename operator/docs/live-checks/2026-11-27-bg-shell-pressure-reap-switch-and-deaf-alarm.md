@@ -1,4 +1,4 @@
-# The harness's pressure reap is off on every session, and the deaf alarm reads the fleet — 2026-11-27
+# The harness's pressure reap is switched off at launch, and the deaf alarm reads the fleet — 2026-11-27
 
 *Host develop-qzapp, account `user` (fabric-coordinator), job j1052. Claude Code
 2.1.322 (`~/.local/share/claude/versions/2.1.322`). Every account ran fabric
@@ -36,7 +36,7 @@ for a re-arm argues against that text. That is consistent with the
 Why watch-on-stop did not ask on 11-21 is still not established. With the reap
 off, nothing currently depends on it.
 
-## The switch reaches every running session
+## The switch is set at launch; every account's checkout carries it
 
 - `tools/fabric/launch.py` has set `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`
   in the child's environment on every launch path since `e4f1c6127`
@@ -49,8 +49,8 @@ off, nothing currently depends on it.
   and 2026-11-27 14:29Z (`ps -eo user,lstart,comm`), each after the merge. A
   launch behind main is pulled to it first (`keep_fabric_current` in
   `tools/fabric/launch.py`), but not every launch: offline, with
-  `AGENT_FABRIC_ALLOW_STALE=1` or under an operator's pin it launches on what is
-  checked out. So the inference rests on the read above, not on the launcher:
+  `AGENT_FABRIC_ALLOW_STALE=1` it launches on what is checked out, and under an
+  operator's pin it goes to the pin, not to main. So the inference rests on the read above, not on the launcher:
   every account ran fabric `2be440957`, which carries `e4f1c6127`. Whether a
   session was launched before its account's checkout reached that is not read.
 
@@ -73,7 +73,8 @@ by the user timer `agent-fabric-deaf-alarm` on this account every 5 minutes.
 ## What this decides
 
 - The cause of the 11-21 and 11-23 deafness is switched off for every session
-  launched since 11-23. Nothing more is needed in the harness.
+  launched from a checkout that carries `e4f1c6127`: read for this session,
+  inferred for the other 29 (above). Nothing more is needed in the harness.
 - Re-arming a deaf session stays the coordinator's manual act on the alarm:
   `fabric-ctl <login> restart`, run bare. Automating it is not built.
   `deaf.py` does not establish that a session is idle, so an automatic restart

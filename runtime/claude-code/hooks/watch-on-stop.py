@@ -34,7 +34,8 @@ included, leaves the hook passing (j626, the 2026-11-05 relay-down drill). A
 session that runs the watch again on the turn the exit wakes it (ADR-022 rule 2)
 has a watch by its Stop and passes before the marker is read; so the marker
 only keeps the hook from reminding a session that did not, for up to
-RELAY_DOWN_S while the relay is silent. Dropping that check is j1122. The
+RELAY_DOWN_S while the relay is silent; watch-nudge.py reads the same marker with
+no probe. Dropping both checks is j1122. The
 hook never removes the marker: the next fetch the relay answers does; one that
 outlives RELAY_DOWN_S is asked again without a probe. Where the account's transport mode makes the carrier the primary (carrier-record, carrier-only:
 the relay is then a mirror whose silence ends no watch) the marker means the carrier, and the one probe is the
