@@ -55,7 +55,7 @@ tier decision is where the bill is actually made:
 |---|---|---|
 | `code-low` | `haiku` | mechanical, well-specified work: pattern-following edits, extraction, formatting, single-file lookups, structured search |
 | `code-medium` | `sonnet` | judgement work: multi-file reasoning, prose that must hold a convention |
-| `code-high` | `opus` | difficult or high-consequence work; the guard no longer asks (the owner, 2026-11-27) |
+| `code-high` | `opus` | difficult or high-consequence work; the guard does not ask |
 | `code-plan` | `fable` | planning and design reasoning on the top tier; the guard asks |
 | `code-review` | `fable` | the review class; shares the tier with `code-plan` but never its export — its model reaches its agent file; see below |
 
@@ -74,8 +74,8 @@ decision into a hook that cannot read `routing/`.
 Pinning the tier on every call is also what keeps a campaign
 reproducible: if the session model changes while a batch is in flight,
 unset-field agents change with it. The hook denies an unset `model`, a
-class on the wrong alias, and prompts on `code-plan` (no longer on
-`code-high`, the owner, 2026-11-27). One exception:
+class on the wrong alias, and prompts on `code-plan`, never on
+`code-high`. One exception:
 under a fabric launch a review with no `model` passes, because that is
 the guard's own answer when the harness runs it a second time; write
 `fable` all the same.
