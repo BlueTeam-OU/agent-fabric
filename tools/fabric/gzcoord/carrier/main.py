@@ -15,7 +15,6 @@ CONTRACT
                                recorded with this login as who
           parity --window START END (--arrivals FILE... --senders DIR...
                  [--journal DB...] | --collected PATH)
-                 [--drill START END] [--relay-drill START END]
                  [--carrier-drill START END LOGIN] [--host HOST]
                                  the ADR-064 rule 11 parity report as Markdown
                                  on stdout, computed from the files the
@@ -103,7 +102,7 @@ from gzcoord.carrier import CARRIER_NAME, admit, arrivals, engine, ipc, record, 
 ADMIT_LOCK_WAIT = 30.0
 USAGE = ("usage: gzcoord-carrier run [--profile P] | status | abandon <message-id> <recipient-login> | "
          "render-config [--write PATH] | self-start | roster-row | roster-admit ROW.json --port N | parity --window START END (--arrivals FILE... --senders DIR... "
-         "[--journal DB...] | --collected PATH) [--drill START END] [--relay-drill START END] [--carrier-drill START END LOGIN] [--host HOST] | "
+         "[--journal DB...] | --collected PATH) [--carrier-drill START END LOGIN] [--host HOST] | "
          "control-parity --window START END --operator LOGIN --arrivals LOGIN=FILE... [--drill START END] [--json]")
 
 
@@ -386,17 +385,11 @@ def cmd_parity(args: list[str]) -> int:
     p.add_argument("--senders", nargs="+", default=[])
     p.add_argument("--journal", nargs="+", default=[])
     p.add_argument("--collected")
-    p.add_argument("--drill", nargs=2)
-    p.add_argument("--relay-drill", nargs=2)
     p.add_argument("--carrier-drill", nargs=3)
     p.add_argument("--host", default="")
     try:
         a = p.parse_args(args)
         window = (parity.parse_t(a.window[0]), parity.parse_t(a.window[1]))
-        drill = (parity.parse_t(a.drill[0]), parity.parse_t(a.drill[1])) if a.drill else None
-        relay_drill = (parity.parse_t(a.relay_drill[0]), parity.parse_t(a.relay_drill[1])) if a.relay_drill else None
-        if relay_drill and a.collected is None:
-            raise ValueError("--relay-drill reads the shown ledgers, acknowledgement logs, backfill logs and watch logs, which only --collected holds")
         carrier_drill = (parity.parse_t(a.carrier_drill[0]), parity.parse_t(a.carrier_drill[1]), a.carrier_drill[2]) if a.carrier_drill else None
         if carrier_drill and a.collected is None:
             raise ValueError("--carrier-drill reads the account's shown ledger, which only --collected holds")
@@ -412,9 +405,7 @@ def cmd_parity(args: list[str]) -> int:
     if a.collected is not None:
         try:
             lines, senders, kinds, journals = parity.load_collected(a.collected, window)
-            rep = parity.compute(lines, senders, kinds, window, drill, host=a.host, mirror=parity.load_mirror(a.collected))
-            if relay_drill:
-                rep["relay_outage"] = parity.relay_outage(parity.load_relay_outage(a.collected, window), relay_drill, window[1])
+            rep = parity.compute(lines, senders, kinds, window, host=a.host, mirror=parity.load_mirror(a.collected))
             if carrier_drill:
                 rep["carrier_outage"] = parity.carrier_outage(lines, senders, parity.load_shown(a.collected, carrier_drill[2]), carrier_drill[:2], carrier_drill[2])
         except parity.CollectedError as e:
@@ -430,7 +421,7 @@ def cmd_parity(args: list[str]) -> int:
         for db in a.journal:
             kinds.update(parity.kinds_from_journal(db))
         senders = {os.path.basename(os.path.dirname(d.rstrip("/"))) or d: record.read_deliveries(d) for d in a.senders}
-        rep = parity.compute(lines, senders, kinds, window, drill, host=a.host)
+        rep = parity.compute(lines, senders, kinds, window, host=a.host)
     except (OSError, ValueError, KeyError, sqlite3.Error) as e:
         return _refuse(f"cannot compute the report: {type(e).__name__}: {e}")
     sys.stdout.write(parity.render_markdown(rep))

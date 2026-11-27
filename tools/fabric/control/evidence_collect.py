@@ -9,27 +9,18 @@ CONTRACT
              there with a reason, and the account is `incomplete`: parity refuses an
              incomplete account, because a report computed from half a log would read as
              carrier misses. At most MAX_PAGES pages of one section of one account.
-             The relay-outage drill's two sections (shown, acks) are paged the same way but
-             a failure of theirs ends only them: the account stays `complete` for the report
-             it already had and its meta says `relay_outage` {complete, reason}, which only
-             `parity --relay-drill` reads (an account whose daemon predates the sections
-             must not turn every rollback report into a refusal). Unknown stays unknown:
-             that account has no drill evidence, never an empty one.
-             The backfill log's section (backfills) is paged the same way and fails on its own: its
-             meta says `backfill_log` {complete, reason, skipped, send_rows} (send_rows: every page said its journal was read, from
-             which the rows of messages the relay took at send are derived; false or absent: "no row" proves nothing) and neither the report nor the
-             drill's other sections are touched (an account whose daemon predates it must still
-             yield the 11-12 drill's collection). No rows are claimed for it: the file is not written.
-             The sender's mirror-refusal log (mirror: the sends the second carrier did not accept, for the report's cause of a
-             pair with no second-carrier copy) is kept the same way: `mirror_log` {complete, reason, skipped}, its own failure, no
+             The shown ledger's section (shown, the carrier-outage drill's) is paged the same way but
+             a failure of its ends only it: the account stays `complete` for the report it already had and its meta
+             says `relay_outage` {complete, reason, skipped}, which only `parity --carrier-drill` reads (an account whose
+             daemon predates the section must not turn every report into a refusal; the key keeps the name collections
+             already on disk were filed under). Unknown stays unknown: that account has no drill evidence, never an empty one.
+             The sender's mirror-refusal log (mirror: the sends the carrier did not accept, for the report's cause of a
+             pair with no InterWeave copy) is kept the same way: `mirror_log` {complete, reason, skipped}, its own failure, no
              mirror.jsonl for a daemon that predates it, which the report reads as "not collected", never as "no refusal".
-             The watch log's section (watch: when watches started and ended, for the relay-outage report's restarts and give-ups)
-             is the same: its meta says `watch_log` {complete, reason, skipped}, it fails on its own, and an account whose
-             daemon predates it has no watch.jsonl, which the report reads as "not collected", never as "no watch ran".
-  write_dir  <out>/<login>/arrivals.jsonl, deliveries.jsonl, shown.jsonl, acks.jsonl, backfills.jsonl
-             watch.jsonl and mirror.jsonl (each only when the section was collected whole), kinds.json and
+  write_dir  <out>/<login>/arrivals.jsonl, deliveries.jsonl, shown.jsonl
+             and mirror.jsonl (the last only when the section was collected whole), kinds.json and
              meta.json ({login, since, until, margin_s, complete, journal, pages, counts,
-             relay_outage, backfill_log, watch_log, mirror_log}), the
+             relay_outage, mirror_log}), the
              directories 0700 and the files 0600 (other accounts' traffic is not for
              everyone), each replaced atomically; a login's directory is written whole or
              not touched. Every account asked has one, an account that never answered with
@@ -51,12 +42,10 @@ Send = Callable[[list[str], str, str, str], dict]
 
 
 def _fresh() -> dict:
-    return {"arrivals": [], "deliveries": [], "shown": [], "acks": [], "backfills": [], "kinds": {}, "journal": "ok",
+    return {"arrivals": [], "deliveries": [], "shown": [], "kinds": {}, "journal": "ok",
             "pages": {s: 0 for s in ev.ALL_SECTIONS}, "skipped": 0, "undated": 0, "complete": True, "reason": None,
             "answered": False, "relay_outage": {"complete": True, "reason": None, "skipped": 0},
             "drill_skipped": {s: 0 for s in ev.DRILL_SECTIONS},
-            "backfill_log": {"complete": True, "reason": None, "skipped": 0, "send_rows": None},
-            "watch": [], "watch_log": {"complete": True, "reason": None, "skipped": 0},
             "mirror": [], "mirror_log": {"complete": True, "reason": None, "skipped": 0}}
 
 
@@ -79,14 +68,10 @@ def collect(logins: list[str], since: str, until: str, send: Send, max_pages: in
 
 
 def got_meta(section: str) -> Callable[[dict], dict]:
-    """Where a section's failure is kept: the drill's two share one record, the backfill log has its own, the
+    """Where a section's failure is kept: the shown ledger's is `relay_outage`, the mirror log has its own, the
     report's two (which the account's `complete` is) have none."""
     if section in ev.DRILL_SECTIONS:
         return lambda acct: acct["relay_outage"]
-    if section == ev.BACKFILL_SECTION:
-        return lambda acct: acct["backfill_log"]
-    if section == ev.WATCH_SECTION:
-        return lambda acct: acct["watch_log"]
     if section == ev.MIRROR_SECTION:
         return lambda acct: acct["mirror_log"]
     return lambda acct: {"complete": True}
@@ -115,18 +100,9 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
                 acct["undated"] += int(r.get("undated") or 0)
             elif section == ev.MIRROR_SECTION:
                 acct["mirror_log"]["skipped"] = max(acct["mirror_log"]["skipped"], int(r.get("skipped") or 0))      # every page repeats the one file's count
-            elif section == ev.WATCH_SECTION:
-                acct["watch_log"]["skipped"] = max(acct["watch_log"]["skipped"], int(r.get("skipped") or 0))      # every page repeats the one file's count
-            elif section == ev.BACKFILL_SECTION:
-                # True only when every page said the journal was read: a daemon that predates the derived rows says nothing, and
-                # parity then cannot read "no row" as "the relay never had it" (the pair is not judged, never passed).
-                said = r.get("send_rows") == "ok"
-                acct["backfill_log"]["send_rows"] = said if acct["backfill_log"]["send_rows"] is None else acct["backfill_log"]["send_rows"] and said
-                acct["backfill_log"]["skipped"] = max(acct["backfill_log"]["skipped"], int(r.get("skipped") or 0))      # every page repeats the one file's count; a line torn on one page is not forgotten by the next
             else:
                 # Unreadable lines of the drill's files: carried to meta, where parity refuses a drill it cannot judge.
-                # Every page of a section reports its whole file's count: the largest is that file's count, their sum is
-                # not; the two files' counts are added, since they are two files.
+                # Every page of a section reports its whole file's count: the largest is that file's count, their sum is not.
                 acct["drill_skipped"][section] = max(acct["drill_skipped"][section], int(r.get("skipped") or 0))
                 acct["relay_outage"]["skipped"] = sum(acct["drill_skipped"].values())
             n = r.get("next")
@@ -141,28 +117,22 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
 
 def _stop(acct: dict, reason: str) -> None:
     section = reason.split(":", 1)[0]
-    if section == ev.BACKFILL_SECTION:
-        acct["backfill_log"]["complete"], acct["backfill_log"]["reason"] = False, acct["backfill_log"]["reason"] or reason
-        return
-    if section == ev.WATCH_SECTION:
-        acct["watch_log"]["complete"], acct["watch_log"]["reason"] = False, acct["watch_log"]["reason"] or reason
-        return
     if section == ev.MIRROR_SECTION:
         acct["mirror_log"]["complete"], acct["mirror_log"]["reason"] = False, acct["mirror_log"]["reason"] or reason
         return
     if section in ev.DRILL_SECTIONS:
         acct["relay_outage"]["complete"], acct["relay_outage"]["reason"] = False, acct["relay_outage"]["reason"] or reason
         return
-    # An account stopped in a report section is never asked for the drill's sections: they were not collected, whatever
+    # An account stopped in a report section is never asked for the other sections: they were not collected, whatever
     # their fresh state says, and a filed "complete, empty" would read as "nothing logged".
-    for meta in (acct["relay_outage"], acct["backfill_log"], acct["watch_log"], acct["mirror_log"]):
+    for meta in (acct["relay_outage"], acct["mirror_log"]):
         meta["complete"], meta["reason"] = False, meta["reason"] or reason
     acct["complete"], acct["reason"] = False, acct["reason"] or reason
 
 
 def counts(acct: dict) -> dict:
     return {"arrivals": len(acct["arrivals"]), "deliveries": len(acct["deliveries"]), "kinds": len(acct["kinds"]),
-            "shown": len(acct["shown"]), "acks": len(acct["acks"]), "backfills": len(acct["backfills"]), "watch": len(acct["watch"]), "mirror": len(acct["mirror"])}
+            "shown": len(acct["shown"]), "mirror": len(acct["mirror"])}
 
 
 def _atomic(path: str, data: bytes) -> None:
@@ -195,7 +165,7 @@ def write_dir(out: str, login: str, acct: dict, since: str, until: str) -> str:
     meta = {"login": login, "since": since, "until": until, "margin_s": ev.LOOKBACK_S, "complete": acct["complete"],
             "reason": acct["reason"], "journal": acct["journal"], "pages": acct["pages"], "counts": counts(acct),
             "skipped": acct["skipped"], "undated": acct["undated"], "relay_outage": acct["relay_outage"],
-            "backfill_log": acct["backfill_log"], "watch_log": acct["watch_log"], "mirror_log": acct["mirror_log"]}
+            "mirror_log": acct["mirror_log"]}
     # meta.json last: a reader that finds it finds the files it describes (a crash between leaves no meta, and parity refuses that).
     for name in ("meta.json",):
         try:
@@ -205,25 +175,10 @@ def write_dir(out: str, login: str, acct: dict, since: str, until: str) -> str:
     _atomic(os.path.join(d, "arrivals.jsonl"), _lines(acct["arrivals"]))
     _atomic(os.path.join(d, "deliveries.jsonl"), _lines(acct["deliveries"]))
     _atomic(os.path.join(d, "shown.jsonl"), _lines(acct["shown"]))
-    _atomic(os.path.join(d, "acks.jsonl"), _lines(acct["acks"]))
-    if acct["backfill_log"]["complete"]:
-        _atomic(os.path.join(d, "backfills.jsonl"), _lines(acct["backfills"]))
-    else:
-        # An earlier run's file must not outlive a run that could not collect it: an absent file reads "not collected".
-        try:
-            os.unlink(os.path.join(d, "backfills.jsonl"))
-        except FileNotFoundError:
-            pass
-    if acct["watch_log"]["complete"]:
-        _atomic(os.path.join(d, "watch.jsonl"), _lines(acct["watch"]))
-    else:
-        try:
-            os.unlink(os.path.join(d, "watch.jsonl"))
-        except FileNotFoundError:
-            pass
     if acct["mirror_log"]["complete"]:
         _atomic(os.path.join(d, "mirror.jsonl"), _lines(acct["mirror"]))
     else:
+        # An earlier run's file must not outlive a run that could not collect it: an absent file reads "not collected".
         try:
             os.unlink(os.path.join(d, "mirror.jsonl"))
         except FileNotFoundError:
@@ -250,14 +205,10 @@ def row_of(login: str, host: Any, acct: dict, since: str, until: str, *, full: b
     """The row `--json` prints: the whole collection when it is not filed, its counts when it is."""
     body = {"since": since, "until": until, "margin_s": ev.LOOKBACK_S, "complete": acct["complete"], "reason": acct["reason"],
             "journal": acct["journal"], "pages": acct["pages"], "counts": counts(acct), "skipped": acct["skipped"], "undated": acct["undated"],
-            "relay_outage": acct["relay_outage"], "backfill_log": acct["backfill_log"], "watch_log": acct["watch_log"], "mirror_log": acct["mirror_log"]}
+            "relay_outage": acct["relay_outage"], "mirror_log": acct["mirror_log"]}
     if full:
-        body.update(arrivals=acct["arrivals"], deliveries=acct["deliveries"], shown=acct["shown"], acks=acct["acks"], kinds=acct["kinds"])
-        if acct["backfill_log"]["complete"]:      # absent, as in the filed form, when it was not collected
-            body["backfills"] = acct["backfills"]
-        if acct["watch_log"]["complete"]:
-            body["watch"] = acct["watch"]
-        if acct["mirror_log"]["complete"]:
+        body.update(arrivals=acct["arrivals"], deliveries=acct["deliveries"], shown=acct["shown"], kinds=acct["kinds"])
+        if acct["mirror_log"]["complete"]:      # absent, as in the filed form, when it was not collected
             body["mirror"] = acct["mirror"]
     return {"account": login, "host": host, "status": "ok" if acct["answered"] else "no answer",
             f"{ev.CARRIER_NAME}Evidence": body}

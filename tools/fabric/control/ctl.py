@@ -244,14 +244,14 @@ VERBS: tuple[Verb, ...] = (
          f"fabric-ctl db-admin {STOP_OP}",
          usage=((f"<login|all> {STOP_OP}", f"an action: disable --now the {CARRIER_LABEL} client and daemon units and confirm both are inactive (the rollback of {START_OP})"),),
          signed="always", options=COMMON),
-    Verb(EVIDENCE_OP, f"Each account's {CARRIER_LABEL} parity evidence for a window: the arrival lines, the delivery records and the kind of each message, and for the relay-outage drill the shown ledger's lines, the relay acknowledgements made, the relay backfill log's lines, the watch log's starts and ends and the sender's log of mirror sends the carrier did not accept, metadata only, never a body. Paged by itself.",
+    Verb(EVIDENCE_OP, f"Each account's {CARRIER_LABEL} parity evidence for a window: the arrival lines, the delivery records and the kind of each message, and the shown ledger's lines (the carrier-outage drill's) and the sender's log of sends the carrier did not accept, metadata only, never a body. Paged by itself.",
          f"fabric-ctl all {EVIDENCE_OP} --since 2026-10-26T05:20:00Z --until 2026-10-27T05:20:00Z --out ./evidence",
          usage=((f"<login|all> {EVIDENCE_OP} --since T --until T [--out <dir>]",
-                 f"a signed read: each account's gzcoord-arrivals.jsonl lines, {CARRIER_LABEL} delivery records and message kinds, and its shown ledger, acknowledgement log, relay backfill log and watch log lines (the relay-outage drill's) and its mirror-refusal log (the report's cause of a miss with no sender record), for [T, T) as YYYY-MM-DDTHH:MM:SSZ, paged until complete; with --out filed as <dir>/<login>/ for gzcoord-carrier parity --collected; a body never leaves an account"),),
+                 f"a signed read: each account's gzcoord-arrivals.jsonl lines, {CARRIER_LABEL} delivery records and message kinds, and its shown ledger lines (the carrier-outage drill's) and its mirror-refusal log (the report's cause of a miss with no sender record), for [T, T) as YYYY-MM-DDTHH:MM:SSZ, paged until complete; with --out filed as <dir>/<login>/ for gzcoord-carrier parity --collected; a body never leaves an account"),),
          args="--since T --until T [--out <dir>] [--section S]", signed="always",
          options=(("--since T", "the window's start, YYYY-MM-DDTHH:MM:SSZ (required)"), ("--until T", "the window's end, exclusive (required)"),
-                  ("--out DIR", "file the collection as DIR/<login>/{arrivals.jsonl,deliveries.jsonl,shown.jsonl,acks.jsonl,backfills.jsonl,watch.jsonl,mirror.jsonl,kinds.json,meta.json}"),
-                  ("--section S", "arrivals, deliveries, shown, acks, backfills, watch or mirror: one page of that section only, from --since; its `next` is the --since of the following page")) + COMMON),
+                  ("--out DIR", "file the collection as DIR/<login>/{arrivals.jsonl,deliveries.jsonl,shown.jsonl,mirror.jsonl,kinds.json,meta.json}"),
+                  ("--section S", "arrivals, deliveries, shown or mirror: one page of that section only, from --since; its `next` is the --since of the following page")) + COMMON),
     Verb(MODE_OP, f"Move the account's GZCoord transport mode: relay-record (today's, and what an account with no mode file is in), carrier-record or carrier-only. The mode is the account's own state; {CARRIER_NAME} shows it.",
          f"fabric-ctl db-admin {MODE_OP} --mode carrier-record",
          usage=((f"<login|all> {MODE_OP} --mode M", f"an action: write the account's transport-mode.json (M one of {', '.join(mode_mod.MODES)}); carrier-only is refused while any placed account reports relay-record or does not report; an account that does not answer is not moved, and is named"),),
@@ -1525,15 +1525,9 @@ def _table_carrier_evidence(rs: list) -> list[str]:
         if isinstance(c, dict):       # a whole collection
             cells = [S(c.get(k)) for k in ("arrivals", "deliveries", "kinds")]
             note = nullish(dig(u, "reason"), "")
-            drill = dig(u, "relay_outage")
+            drill = dig(u, "relay_outage")      # the shown ledger's record, under the name collections were filed with
             if not note and isinstance(drill, dict) and drill.get("complete") is not True:
-                note = f"relay-outage sections: {S(nullish(drill.get('reason'), 'incomplete'))}"      # the rollback report stands; --relay-drill is refused
-            backfill = dig(u, "backfill_log")
-            if not note and isinstance(backfill, dict) and backfill.get("complete") is not True:
-                note = f"backfill log: {S(nullish(backfill.get('reason'), 'incomplete'))}"      # the drill's fourth property reads "not collected"
-            watch = dig(u, "watch_log")
-            if not note and isinstance(watch, dict) and watch.get("complete") is not True:
-                note = f"watch log: {S(nullish(watch.get('reason'), 'incomplete'))}"      # the drill's restarts and give-ups read "not collected"
+                note = f"shown ledger: {S(nullish(drill.get('reason'), 'incomplete'))}"      # the report stands; --carrier-drill is refused
             mirror = dig(u, "mirror_log")
             if not note and isinstance(mirror, dict) and mirror.get("complete") is not True:
                 note = f"mirror log: {S(nullish(mirror.get('reason'), 'incomplete'))}"      # the report's cause of a miss reads "not collected"

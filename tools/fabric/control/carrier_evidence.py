@@ -8,11 +8,11 @@ CONTRACT
             every op's, so what it carries is metadata a channel reader could already
             infer from the traffic, and never a body. With
             args {section, since, until}:
-              section  `arrivals` | `deliveries` | `shown` | `acks` | `backfills` | `watch` | `mirror`
+              section  `arrivals` | `deliveries` | `shown` | `mirror`
               since, until  YYYY-MM-DDTHH:MM:SSZ, since < until
             No other key, no other value: an argument never names a path.
   reply     data["<carrier>-evidence"] = {status: "ok", section, since, until,
-            rows: [...], next: <ISO time> | null, journal?, skipped?, send_rows?} or
+            rows: [...], next: <ISO time> | null, journal?, skipped?} or
             {status: "refused", reason}. A page is at most PAGE_BYTES of rows; a
             `next` says the window holds more and is the `since` of the next
             page: this request again, from there.
@@ -27,40 +27,21 @@ CONTRACT
             (gzcoord-shown.jsonl) with `t` in [since, until): one line per step of a
             showing (carrier/ledger.py), `via` the carrier that brought the copy shown,
             `pending` and `flagged` present as true when set. The ledger's `h`, a hash
-            of the text, does not leave.
-  acks      rows {mid, addressee, t, ok} of gzcoord-acks.jsonl (carrier/arrivals.py
-            AckLog): the relay's acknowledgements this account made, `ok` whether the
-            relay answered the call. Both feed the relay-outage drill (ADR-064 rule 11)
-            and nothing else.
-  backfills rows {mid, outcome, at, delay_s, channel} of gzcoord-backfill.jsonl (gzcoord/backfill.py): the SENDER's
-            record of what became of each message only the second carrier delivered once the relay returned: posted,
-            found already present, or over the age bound and not posted, with `at` in [since, until).
-            `outcome` is posted | present | over-age, `delay_s` a finite number, `channel` a short
-            string or null; any other line is skipped and counted. Read by the parity report's relay-outage drill
-            (its fourth property) and nothing else. A failure of this section ends only this section.
-            Beside the log's lines the page carries one derived row {mid, outcome: "relay-took-send", at, channel: null} per
-            outbound message the sender's journal holds as accepted by the relay (carrier episodic.DEFAULT_CARRIER) with `at` (the send's time)
-            in the window: the relay's record had it from the send, so the log has no line for it. It has no delay_s. The
-            reply says `send_rows`: ok | absent | unreadable, the state of the journal it was derived from; a reply without
-            the key is from a daemon that did not derive them, and "no row" cannot then be read as "never reached the relay".
-  watch     rows {t, event, pid, reason?, code?} of gzcoord-watch.jsonl (carrier/arrivals.py WatchLog): one `start` line when a
-            watch began and one `end` line when it ended, `reason` one of WATCH_REASONS (delivery, quiet, session-ended,
-            gave-up, token-refused, journal-held), `code` its exit status, with `t` in [since, until). Read by the relay-outage
-            drill's report (restarts and give-ups inside the outage) and nothing else. A failure of this section ends only this
-            section, as the backfill log's does; a line of another shape is skipped and counted.
+            of the text, does not leave. Read by the carrier-outage drill (ADR-064 rule 11) and nothing else.
+            A collection filed by an earlier daemon also holds the relay's acknowledgement, backfill and watch sections;
+            this op no longer serves them and the parity report ignores them.
   mirror    rows {mid, t, outcome, reason, as} of gzcoord-mirror.jsonl (carrier/arrivals.py MirrorLog): the SENDER's line for each send the
-            second carrier did not accept, `outcome` one of MIRROR_OUTCOMES (absent, not-carried, failed, no-answer), `as` "mirror"
-            (a relay-record send's second copy) or "primary" (the transport of record: carrier-record, carrier-only; a line written
+            carrier did not accept, `outcome` one of MIRROR_OUTCOMES (absent, not-carried, failed, no-answer), `as` "mirror"
+            (a send from before the relay left GZCoord, whose second copy the carrier refused) or "primary" (the transport of record: carrier-record, carrier-only; a line written
             before the field has none and is sent as "mirror"), `reason` a short line of words (what the sender's stderr said, kept),
             with `t` in [since, until). Read by the parity
-            report to name the cause of a pair with no second-carrier copy and no sender record, and nothing else. A failure of this
-            section ends only this section, as the watch log's does; a line of another shape is skipped and counted.
+            report to name the cause of a pair with no InterWeave copy and no sender record, and nothing else. A failure of this
+            section ends only this section; a line of another shape is skipped and counted.
   never     a body. Rows are built key by key from a closed list, each value a
-            short string (but a backfill row's `delay_s`, a number, and its `channel`, a string or null): a line of the log with a text, a path or a key in it
+            short string: a line of the log with a text, a path or a key in it
             that a later version adds does not leave. The journal is opened
             read-only and only message_id and the header fields that make a
-            kind are read from it (and, for backfills, message_id and happened_at of
-            outbound accepted rows).
+            kind are read from it.
 
 A page is cut on a second boundary, because `next` is a time: rows that share
 the second the page ends on go to the next page whole, never half (a cursor
@@ -70,7 +51,6 @@ second with more rows than a page holds is refused by name, not cut.
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 import sqlite3
@@ -81,23 +61,13 @@ from gzcoord.carrier import CARRIER_NAME, arrivals, parity, record
 
 EVIDENCE_OP = f"{CARRIER_NAME}-evidence"
 SECTIONS = ("arrivals", "deliveries")
-# Collected beside the two the report counts: the relay-outage drill's evidence (parity.relay_outage). Kept
-# apart so an account whose daemon predates them still yields a collection the rollback report is computed from.
-DRILL_SECTIONS = ("shown", "acks")
-BACKFILL_SECTION = "backfills"
-WATCH_SECTION = "watch"
+# Collected beside the two the report counts: the carrier-outage drill's evidence (parity.carrier_outage). Kept
+# apart so an account whose daemon predates it still yields a collection the report is computed from.
+DRILL_SECTIONS = ("shown",)
 MIRROR_SECTION = "mirror"
 MIRROR_OUTCOMES = arrivals.MirrorLog.OUTCOMES
-ALL_SECTIONS = SECTIONS + DRILL_SECTIONS + (BACKFILL_SECTION, WATCH_SECTION, MIRROR_SECTION)
-WATCH_EVENTS = ("start", "end")
-WATCH_REASONS = parity.WATCH_REASONS
+ALL_SECTIONS = SECTIONS + DRILL_SECTIONS + (MIRROR_SECTION,)
 SHOWN_KEYS = ("mid", "via", "t")
-ACK_KEYS = ("mid", "addressee", "t")
-BACKFILL_KEYS = ("mid", "outcome", "at")
-BACKFILL_OUTCOMES = ("posted", "present", "over-age")
-# Not a line of the log: derived from the sender's journal for a message the relay took when it was sent, which backfill.py
-# never writes a row for. A log line that says it is refused, so a reader can tell the two by the outcome alone.
-RELAY_TOOK_SEND = "relay-took-send"
 ARRIVAL_KEYS = ("mid", "addressee", "carrier", "t", "verdict")
 DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state", "code", "by")
 # The relay's message limit is 128 KiB and a record is posted as a JSON string inside a JSON record, which
@@ -199,7 +169,7 @@ def _read_lines(path: str, convert) -> tuple[list[dict], int]:
     return rows, skipped
 
 
-# A line the drill's sections leave out on purpose, which is not an unreadable one (it is not counted as skipped).
+# A line the shown section leaves out on purpose, which is not an unreadable one (it is not counted as skipped).
 DROP = object()
 
 
@@ -212,49 +182,6 @@ def _shown_row(o: dict):
     return {**r, **{k: True for k in ("pending", "flagged") if o.get(k) is True}}
 
 
-def _ack_row(o: dict):
-    r = _row(o, ACK_KEYS, ACK_KEYS)
-    if r is None or _time(r["t"]) is None or not isinstance(o.get("ok"), bool):
-        return None
-    if not parity.UUID7.fullmatch(r["mid"]):
-        return DROP
-    return {**r, "ok": o["ok"]}
-
-
-def _finite(d: int | float) -> bool:
-    try:
-        return math.isfinite(d)
-    except OverflowError:      # a JSON integer beyond the float range: an ill-shaped line, counted, never a crash of the page
-        return False
-
-
-def _backfill_row(o: dict):
-    r = _row(o, BACKFILL_KEYS, BACKFILL_KEYS)
-    d, ch = o.get("delay_s"), o.get("channel")
-    # bool is an int in Python: a `true` is no delay. NaN and infinity parse from JSON and would not survive a reader that sorts.
-    if (r is None or _time(r["at"]) is None or r["outcome"] not in BACKFILL_OUTCOMES
-            or isinstance(d, bool) or not isinstance(d, (int, float)) or not _finite(d)
-            or not (ch is None or isinstance(ch, str))):
-        return None
-    if not parity.UUID7.fullmatch(r["mid"]):
-        return DROP
-    return {**r, "delay_s": d, "channel": _short(ch)}
-
-
-def _watch_row(o: dict):
-    """A start is {t, event, pid}; an end adds the reason it ended for and its exit code. Anything else is no line of this log:
-    a reason this version does not know is skipped and counted, never filed as a reason the report would then print."""
-    pid, code = o.get("pid"), o.get("code")
-    if (o.get("event") not in WATCH_EVENTS or not isinstance(o.get("t"), str) or _time(o["t"]) is None
-            or isinstance(pid, bool) or not isinstance(pid, int) or pid < 1):
-        return None
-    if o["event"] == "start":
-        return {"t": o["t"], "event": "start", "pid": pid}
-    if o.get("reason") not in WATCH_REASONS or isinstance(code, bool) or not isinstance(code, int):
-        return None
-    return {"t": o["t"], "event": "end", "pid": pid, "reason": o["reason"], "code": code}
-
-
 def _mirror_row(o: dict):
     """{mid, t, outcome, reason, as}: a line of another shape, or an outcome this version does not know, is skipped and counted, never
     filed as one the report would then print."""
@@ -264,7 +191,7 @@ def _mirror_row(o: dict):
         return None
     if not parity.UUID7.fullmatch(o["mid"]):
         # A sender accepts any id-shaped MESSAGE-ID (a v4, the old <instance>-NNNN): its line is the account's, not an unreadable
-        # one, which would make the whole log read "not collected" (as _backfill_row does).
+        # one, which would make the whole log read "not collected".
         return DROP
     # The carrier's own error can name a file of the sender's (an OSError on its outbox): a path never leaves the account.
     return {"mid": _short(o["mid"]), "t": o["t"], "outcome": o["outcome"], "reason": _short(re.sub(r"\S*/\S*", "<path>", o["reason"])), "as": role}
@@ -310,34 +237,6 @@ def kinds_for(db_path: str, mids: list[str]) -> tuple[dict[str, str], str]:
     return out, "ok"
 
 
-def relay_took_send(db_path: str) -> tuple[list[dict], str]:
-    """The derived rows (see `backfills` above) and the journal's state: ok | absent | unreadable. The journal is opened
-    read-only; only message_id and happened_at are read. An unreadable one yields no rows and says so, never an empty "ok"."""
-    # Loaded here, not at module load: episodic pulls in the secret store, and agentd and fabric-ctl import this module at startup
-    # for an op only this function serves (review of #592).
-    import episodic
-    # The relay is the primary transport and send.py marks its accept without --carrier, so the journal holds the default's name
-    # (not transport/relay.py's NAME, which no journal row carries); the second carrier's accept leaves that provenance alone.
-    relay_carrier = episodic.DEFAULT_CARRIER
-    if not os.path.isfile(db_path):
-        return [], "absent"
-    try:
-        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
-    except sqlite3.Error:
-        return [], "unreadable"
-    rows: list[dict] = []
-    try:
-        for mid, at in con.execute("SELECT message_id, happened_at FROM episodes WHERE source='gzcoord' AND direction='outbound' "
-                                   "AND state='accepted' AND carrier=? ORDER BY happened_at, rowid", (relay_carrier,)):
-            if isinstance(mid, str) and parity.UUID7.fullmatch(mid) and _time(at) is not None:
-                rows.append({"mid": mid, "outcome": RELAY_TOOK_SEND, "at": at, "channel": None})
-    except sqlite3.Error:
-        return [], "unreadable"
-    finally:
-        con.close()
-    return rows, "ok"
-
-
 def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | None = None, page_bytes: int | None = None) -> dict:
     """One page of one section. Every refusal is one line of a reply."""
     args = request.get("args") if isinstance(request, dict) else None
@@ -347,24 +246,12 @@ def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | N
     state = util.state_dir() if state is None else state
     section, since, until = args["section"], args["since"], args["until"]
     start, end = _time(since), _time(until)
-    if section == BACKFILL_SECTION:
-        every, skipped = _read_lines(os.path.join(state, "gzcoord-backfill.jsonl"), _backfill_row)
-        derived, journal = relay_took_send(db_path or _db_path(state))
-        inside = sorted([r for r in every if start <= _time(r["at"]) < end] + [r for r in derived if start <= _time(r["at"]) < end],
-                        key=lambda r: r["at"])
-        key, extra = "at", {"skipped": skipped, "send_rows": journal}
-    elif section == WATCH_SECTION:
-        every, skipped = _read_lines(os.path.join(state, "gzcoord-watch.jsonl"), _watch_row)
-        # File order breaks a tie on the second: a watch's start line comes before its end line.
-        inside = sorted((r for r in every if start <= _time(r["t"]) < end), key=lambda r: r["t"])
-        key, extra = "t", {"skipped": skipped}
-    elif section == MIRROR_SECTION:
+    if section == MIRROR_SECTION:
         every, skipped = _read_lines(os.path.join(state, "gzcoord-mirror.jsonl"), _mirror_row)
         inside = sorted((r for r in every if start <= _time(r["t"]) < end), key=lambda r: r["t"])
         key, extra = "t", {"skipped": skipped}
     elif section in DRILL_SECTIONS:
-        name, convert = ("gzcoord-shown.jsonl", _shown_row) if section == "shown" else ("gzcoord-acks.jsonl", _ack_row)
-        every, skipped = _read_lines(os.path.join(state, name), convert)
+        every, skipped = _read_lines(os.path.join(state, "gzcoord-shown.jsonl"), _shown_row)
         # File order breaks a tie on the second: a ledger's pending line comes before its final line.
         inside = sorted((r for r in every if start <= _time(r["t"]) < end), key=lambda r: r["t"])
         key, extra = "t", {"skipped": skipped}
