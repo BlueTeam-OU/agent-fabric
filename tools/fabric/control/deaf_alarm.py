@@ -17,7 +17,7 @@ THE LEDGER, <state>/deaf-alarm.json: {account: episode}. An episode is the watch
     already sent is not sent again because the account was unreachable for one poll.
 
 EXIT  0 read; each new episode's message sent (or, with --dry-run, printed)
-      3 the accounts could not be read (fabric-ctl failed, timed out or printed no list), or a message could not be sent
+      3 the accounts could not be read (fabric-ctl failed, timed out or printed no list), or a message could not be confirmed sent
         (the others still went, and the ledger holds what went)
       2 bad command line
 STDOUT one line per message sent (or that --dry-run would send); STDERR the reasons for exit 3.
@@ -26,8 +26,10 @@ Not decided here: what the coordinator does about it (restart the session, `fabr
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,6 +38,7 @@ from typing import Any, Callable
 CTL_TIMEOUT_S = 180
 SEND_TIMEOUT_S = 60
 LEDGER = "deaf-alarm.json"
+PENDING = "deaf-alarm-pending"
 
 
 def read_ledger(path: str) -> dict[str, str]:
@@ -119,7 +122,49 @@ def body(account: str, d: dict) -> tuple[str, str]:
     return context, notes
 
 
-def send(account: str, d: dict, to: str, run: Callable[..., Any] = subprocess.run) -> None:
+def pending_path(pending_dir: str, account: str, episode: str) -> str:
+    # Hashed: an account is an address and an episode has "@" and ":" in it; neither belongs in a file name.
+    h = lambda x: hashlib.sha256(x.encode("utf-8")).hexdigest()[:16]  # noqa: E731
+    return os.path.join(pending_dir, f"{h(account)}-{h(episode)}.txt")
+
+
+def _post(run: Callable[..., Any], path: str, keep: bool = False, fresh: bool = False) -> None:
+    """Post `path`. `keep`: the file is the episode's kept message. It is removed on exit 0, kept on exit 3 (may be delivered
+    or unknown), and removed on another non-zero exit only when `fresh`: a file composed in this attempt that sent nothing,
+    whose TO would otherwise outlive a corrected --to (review of #718, F1). A file that has already seen an exit 3 is never
+    removed by a later failure: its id may be at the addressee, and composing again would be a second message (F3)."""
+    r = run(["gzcoord-send", path], capture_output=True, text=True, timeout=SEND_TIMEOUT_S, stdin=subprocess.DEVNULL, check=False)
+    if r.returncode == 0:
+        if keep:
+            os.unlink(path)
+        return
+    if keep and fresh and r.returncode != 3:
+        os.unlink(path)
+    raise RuntimeError(f"gzcoord-send exited {r.returncode}: {(r.stderr or '').strip()[-200:]}")
+
+
+def _kept_to(path: str) -> str | None:
+    # A kept file for another addressee (the operator corrected --to since) is not this send's message: it is composed anew.
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if line.startswith("TO:"):
+                return line[3:].strip()
+    return None
+
+
+def send(account: str, d: dict, to: str, run: Callable[..., Any] = subprocess.run, pending_dir: str | None = None) -> None:
+    """Compose and post the INFO. With `pending_dir` the composed file is kept there while gzcoord-send's last exit was 3, and the
+    next attempt for the same episode posts THAT file again instead of composing another.
+
+    WHY: gzcoord-send's exit 3 does not say "not sent": it also means "the relay refused but the carrier delivered it"
+    (to one login: send.py `carrier-took-it`) and "outcome unknown", and its only signal for them is a localized stderr line.
+    A message composed afresh per attempt is a new MESSAGE-ID each time, so the coordinator got the same alarm every 5 min
+    (j190). The file carries the id gzcoord-send wrote into it, so a resend is the same message and a reader discards the
+    copy (SPEC 7.2): whichever of the three exit 3 meant, posting the same file again is right."""
+    kept = pending_path(pending_dir, account, str(d.get("episode"))) if pending_dir else None
+    if kept and os.path.exists(kept) and _kept_to(kept) == to:
+        _post(run, kept, keep=True)
+        return
     context, notes = body(account, d)
     with tempfile.TemporaryDirectory(prefix="deaf-alarm-") as tmp:
         path = os.path.join(tmp, "message.txt")
@@ -135,14 +180,32 @@ def send(account: str, d: dict, to: str, run: Callable[..., Any] = subprocess.ru
             raise RuntimeError("gzcoord-compose's INFO has not the skeleton this expects")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text.replace(skeleton, f"CONTEXT:\n{context}\n\nNOTES:\n{notes}\n", 1))
-        r = run(["gzcoord-send", path], capture_output=True, text=True, timeout=SEND_TIMEOUT_S, stdin=subprocess.DEVNULL, check=False)
-        if r.returncode != 0:
-            raise RuntimeError(f"gzcoord-send exited {r.returncode}: {(r.stderr or '').strip()[-200:]}")
+        if kept:
+            # An earlier episode of this account is over: its file would otherwise stay for ever.
+            os.makedirs(pending_dir, mode=0o700, exist_ok=True)
+            drop_pending(pending_dir, account)
+            shutil.copyfile(path, kept)
+            path = kept
+        _post(run, path, keep=bool(kept), fresh=True)
+
+
+def drop_pending(pending_dir: str, account: str) -> None:
+    prefix = os.path.basename(pending_path(pending_dir, account, "")).split("-")[0] + "-"
+    try:
+        names = os.listdir(pending_dir)
+    except FileNotFoundError:
+        return
+    for name in names:
+        if name.startswith(prefix):
+            try:
+                os.unlink(os.path.join(pending_dir, name))
+            except FileNotFoundError:
+                pass   # a second run took it first
 
 
 def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = False,
-          send_one: Callable[[str, dict, str], None] = send) -> tuple[dict[str, str], list[str], list[str]]:
-    """(the new ledger, the lines said, the failures). Pure over its inputs apart from `send_one`."""
+          send_one: Callable[[str, dict, str], None] = send, pending_dir: str | None = None) -> tuple[dict[str, str], list[str], list[str]]:
+    """(the new ledger, the lines said, the failures). Apart from `send_one`, its only effect is removing a recovered account's pending file."""
     new = dict(ledger)
     said: list[str] = []
     failed: list[str] = []
@@ -152,6 +215,11 @@ def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = Fal
         if hit is None:
             if recovered(row):
                 new.pop(account, None)
+                if pending_dir and not dry_run:
+                    try:
+                        drop_pending(pending_dir, account)
+                    except OSError as e:
+                        failed.append(f"{account}: its pending file cannot be removed: {e}")
             continue
         episode, d = hit
         if new.get(account) == episode:
@@ -188,7 +256,8 @@ def main(argv: list[str] | None = None) -> int:
     except (RuntimeError, ValueError, OSError) as e:
         print(f"deaf_alarm: {e}", file=sys.stderr)
         return 3
-    new, said, failed = alarm(rows, ledger, to, a.dry_run)
+    pending_dir = os.path.join(util.state_dir(), PENDING)
+    new, said, failed = alarm(rows, ledger, to, a.dry_run, lambda acc, d, t: send(acc, d, t, pending_dir=pending_dir), pending_dir)
     for line in said:
         print(line)
     if new != ledger:
@@ -198,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"deaf_alarm: the ledger cannot be written ({e}); the next run sends these again", file=sys.stderr)
             return 3
     for f in failed:
-        print(f"deaf_alarm: not sent: {f}", file=sys.stderr)
+        print(f"deaf_alarm: not confirmed sent: {f}", file=sys.stderr)
     return 3 if failed else 0
 
 
