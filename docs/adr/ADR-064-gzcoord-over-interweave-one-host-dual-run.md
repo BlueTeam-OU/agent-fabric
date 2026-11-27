@@ -346,15 +346,18 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     the programs `release.json` `reports` pins printing their pinned
     version; the carrier, which is the fabric's own client and not an
     archive program, answering `status`. It reports done only after that
-    check. When both units were running and the manager answered, a
-    failed check is first answered by stopping both units and starting
-    them once more, with the start's own wait (A 2026-11-26), and only a
-    failed second check goes on. A failed check puts back the programs the
+    check. When both units were running, the manager answered and the
+    account's login resolves, a failed check is first answered by
+    stopping both units and starting them once more, with the start's
+    own wait (A 2026-11-26); a failure of that stop or start, its check
+    included, goes on. A failed check puts back the programs the
     account had, restarts them, checks again and reports a failure with
     every result; when the pin refuses the programs put back, the reply
-    says the account is not carrying, with the pin's refusal. A start
-    whose own port is held only by sockets in TIME_WAIT waits up to 75
-    seconds for them to clear; any other holder refuses it at once.
+    says the account is not carrying, with the pin's refusal. The signed
+    start and the install's stop and start, when the daemon unit is not
+    active, wait up to 75 seconds for a port of their own held only by
+    sockets in TIME_WAIT to clear, and refuse at once for any other
+    holder; the account's self-start does not look at the port.
     On a first install no unit was running and there is nothing to put
     back: the check is the pinned programs' version, and the reply says
     that no unit was running. The same check is the control plane's read
