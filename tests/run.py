@@ -13,7 +13,9 @@ Contract, frozen from run.sh:
            and last `tests/run.py: <n> suite(s) FAILED` when any failed, else `tests/run.py: all suites passed` (run.sh's
            two lines under the new name). Started by the forwarder tests/run.sh, which sets AGENT_FABRIC_RUNNER=tests/run.sh,
            every line this file prints under its own name says `tests/run.sh:` instead — CI and every reader of the last
-           line see what they saw — and the variable does not reach the suites.
+           line see what they saw — and the variable does not reach the suites. With
+           AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE=1 (CI's jobs, whose authority gate is ci.yml's authority step), an
+           authority guard's refusal for an unreadable operator is one `NOT ENFORCED` line and not a failure.
   exit     0 every suite passed; 1 some failed (the count is on the last line, and `FAILED_SUITES=<n>` is the python
            runner's); 2 an invocation error; 75 a wait for full-suite (a full run) or a cpu slot (any section) ended
            with it still held (fabric-lease's EX_TEMPFAIL); 128+signal when stopped by INT/TERM/HUP (130, 143, 129).
