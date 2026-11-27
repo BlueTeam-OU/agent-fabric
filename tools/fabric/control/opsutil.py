@@ -54,13 +54,16 @@ def state_dir() -> str:
 
 def binding_session() -> str | None:
     """The session id this login's binding records, or None when there is no binding. identity.py's refusals (another host's
-    binding, a copied file, bad JSON) raise: a caller that cannot tell which session runs says unknown."""
+    binding, a copied file, bad JSON) raise ValueError: a caller that cannot tell which session runs says unknown."""
     spec = importlib.util.spec_from_file_location(
         "fabric_runtime_identity", os.path.join(os.path.dirname(os.path.dirname(FABRIC_TOOLS)), "runtime", "identity.py"))
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    session = module.read_binding().get("session")
+    try:
+        session = module.read_binding().get("session")
+    except SystemExit as e:   # identity.py exits for a refused binding; in the control agent that would end the daemon, not one section
+        raise ValueError(str(e)[:200]) from None
     return session if isinstance(session, str) else None
 
 

@@ -795,5 +795,59 @@ class Restart(unittest.TestCase):
             self.assertIn("was run: restarted", fh.read())
 
 
+class Review1(Scratch):
+    """#722 round 1: F1 (a refused binding), F2 (several sessions), F3 (the lock), F4 (ledger per send)."""
+
+    def test_f1_a_binding_identity_refuses_is_unknown_and_the_status_reply_survives(self) -> None:
+        import pwd
+        root = os.path.join(self._tmp.name, "idroot")
+        agent_dir = os.path.join(root, "agents", pwd.getpwuid(os.geteuid()).pw_name)
+        os.makedirs(agent_dir)
+        with open(os.path.join(agent_dir, "binding.json"), "w") as fh:
+            json.dump({"agent": pwd.getpwuid(os.geteuid()).pw_name, "host": "some-other-host", "session": SID}, fh)
+        old = os.environ.get("AGENT_FABRIC_STATE_DIR")
+        os.environ["AGENT_FABRIC_STATE_DIR"] = root
+        try:
+            r = deaf.idle_of(deaf._binding_session, self._tmp.name, NOW)   # SystemExit before the fix
+        finally:
+            if old is None:
+                del os.environ["AGENT_FABRIC_STATE_DIR"]
+            else:
+                os.environ["AGENT_FABRIC_STATE_DIR"] = old
+        self.assertEqual(r[0], "unknown")
+
+    def test_f2_more_than_one_session_is_unknown_and_one_is_judged(self) -> None:
+        self.log({"t": iso(-3600), "event": "start", "pid": 11}, {**END5, "t": iso(-3000)})
+        ended = lambda: (True, "ended")  # noqa: E731
+        for n, want in ((2, "unknown"), (1, True)):
+            r = deaf.judge(session={"status": "ok", "online": True, "sessions": n, "since": None}, last={**END5, "t": iso(-3000)}, watching=None, now=NOW,
+                           ask_pending=lambda: ({"unread": 0, "queued_requests": 1}, None), ask_idle=ended)
+            self.assertEqual(r["idle"], want, n)
+
+
+class LockAndSave(unittest.TestCase):
+    def test_f3_a_second_run_that_read_an_empty_ledger_does_not_restart_the_episode_again(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            path = os.path.join(d, "deaf-restart.json")
+            calls: list = []
+            ctl = lambda a: (calls.append(a), ("restarted", ""))[1]  # noqa: E731
+            first = deaf_alarm.Restarter(path, "me", ctl=ctl, clock=lambda: NOW)
+            second = deaf_alarm.Restarter(path, "me", ctl=ctl, clock=lambda: NOW)   # both read the ledger while it was empty
+            self.assertEqual(first.execute("a", "end@1"), "restarted")
+            self.assertTrue(second.execute("a", "end@1").startswith("not restarted"))
+            self.assertEqual(calls, ["a"])
+            self.assertEqual(len(json.load(open(path))["a"]["times"]), 1)
+
+    def test_f4_the_alarm_ledger_is_saved_after_each_send(self) -> None:
+        rows = [row("a", "end@1"), row("b", "end@2")]
+        saved: list = []
+
+        def send_one(account, d, to):
+            if account == "b":
+                self.assertEqual(saved, [{"a": "end@1"}])   # a's record already written when b is sent
+        deaf_alarm.alarm(rows, {}, "h/user", False, send_one, None, None, lambda s: saved.append(dict(s)))
+        self.assertEqual(saved[-1], {"a": "end@1", "b": "end@2"})
+
+
 if __name__ == "__main__":
     unittest.main()

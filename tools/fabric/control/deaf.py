@@ -30,10 +30,12 @@ only what was counted. Only the carrier's own-spool reading (its `source` is the
 
 IDLE (j1061). A deaf account is restarted by deaf_alarm.py only when its session is idle, which the section says as `idle`
 true | false | "unknown" with `idle_why`, read from the session's own transcript (the binding's session id, ~/.claude/projects/*/<id>.jsonl):
-idle <=> the transcript has had no write for MIN_AGE_S AND its last assistant record ended its turn (stop_reason end_turn) AND no tool_use
-is left without a tool_result. A pending tool_use is NOT idle: that is a session held at a permission prompt or inside a long foreground
+idle <=> exactly one session runs (the restart stops every claude of the login, and only the binding's transcript is read), AND the
+transcript has had no write for MIN_AGE_S, AND its last user or assistant record is an assistant one that ended its turn (ENDED_TURN
+stop_reasons), AND no tool_use is left without a tool_result. A transcript with only user records is "in a turn", not unknown. A pending tool_use is NOT idle: that is a session held at a permission prompt or inside a long foreground
 call, and a restart would throw its pending work away (rust-ui-dev-02, 2026-11-27 16:58Z, held at the dispatch guard's prompt). A transcript
-that cannot be found or read, or has no assistant record, is "unknown", never idle.
+that cannot be found or read, or has no user or assistant record, is "unknown", never idle. NOT COVERED: a background shell or
+agent still running after an ended turn reads as idle.
 
 The episode: `episode` is the watch-log line's own event and time, which does not change between polls, so the alarm
 (deaf_alarm.py) sends one message for it and not one per poll; a new `end` or `start` line, or a recovery, is a new episode.
@@ -249,7 +251,11 @@ def judge(*, session: Any, last: dict | None, watching: bool | None, now: float,
     if not pending["unread"] and not pending["queued_requests"]:   # None unread: not counted
         return _no("no work is waiting", age_s=age)
     # Asked last, like the inbox: only an account that is deaf has a transcript worth reading.
-    idle, idle_why = ask_idle() if ask_idle else ("unknown", "no transcript reader")
+    n = session.get("sessions")
+    if n != 1:
+        idle, idle_why = "unknown", f"{n} sessions run; only the binding's transcript can be read, and a restart stops them all"
+    else:
+        idle, idle_why = ask_idle() if ask_idle else ("unknown", "no transcript reader")
     return {"status": "ok", "deaf": True, "watch": how, "age_s": age,
             "since": datetime.datetime.fromtimestamp(began, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "episode": f"{last['event']}@{last['t']}", "pending": pending, "idle": idle, "idle_why": idle_why}

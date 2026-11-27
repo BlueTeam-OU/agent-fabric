@@ -32,7 +32,7 @@ transcript quiet, the last turn ended, no tool call pending) is restarted with `
     restore a watch. The times outlive a recovery: only the window ages them out;
   - never this login's own account (a session does not stop the one it waits on; the control agent's `yours` is the second guard);
   - idle false or "unknown", or no idle in the row (an older control agent): alarm only, naming why, so the pane is read;
-  - --no-restart and --dry-run restart nothing and write nothing.
+  - --no-restart and --dry-run restart nothing and write no restart ledger. The cap is per account running this unit.
 The INFO of a restarted episode is a message of its own (ledger value `<episode>#restart`): an alarm already sent while the session was
 held at a prompt does not stand in for "restarted it".
 
@@ -182,6 +182,26 @@ class Restarter:
 
     def execute(self, account: str, episode: str) -> str:
         """Record the attempt, then restart, then record the outcome. The outcome text; "not restarted: ..." when the ledger would not take it."""
+        import fcntl
+        try:
+            os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
+            lock = os.open(self.path + ".lock", os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
+        except OSError as e:
+            return f"not restarted: the restart ledger cannot be written ({e.__class__.__name__})"
+        # WHY a lock: two runs (the timer's and a manual one) would each read an empty ledger and restart one episode twice. The
+        # re-read, the check, the record and the restart all run under it, so a second run waits and then finds the episode
+        # restarted with its outcome.
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self.ledger = self._read()
+            again, note = self.plan(account, episode, {"idle": True})
+            if again != "restart":
+                return f"not restarted: {note}"
+            return self._record_and_restart(account, episode)
+        finally:
+            os.close(lock)
+
+    def _record_and_restart(self, account: str, episode: str) -> str:
         times = [t for t in (self.ledger.get(account) or {"times": []})["times"] if self.clock() - t < RESTART_WINDOW_S] + [self.clock()]
         before = self.ledger.get(account)
         self.ledger[account] = {"episode": episode, "times": times, "outcome": None}
@@ -326,7 +346,7 @@ def drop_pending(pending_dir: str, account: str) -> None:
 
 def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = False,
           send_one: Callable[[str, dict, str], None] = send, pending_dir: str | None = None,
-          restarter: Restarter | None = None) -> tuple[dict[str, str], list[str], list[str]]:
+          restarter: Restarter | None = None, save: Callable[[dict[str, str]], None] | None = None) -> tuple[dict[str, str], list[str], list[str]]:
     """(the new ledger, the lines said, the failures). Apart from `send_one` and `restarter`, its only effect is removing a recovered account's pending file."""
     new = dict(ledger)
     said: list[str] = []
@@ -355,7 +375,7 @@ def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = Fal
             assert restarter is not None
             try:
                 outcome = restarter.execute(account, episode)
-            except (OSError, subprocess.SubprocessError, RuntimeError) as e:
+            except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as e:   # ValueError: the ledger would not parse; nothing ran
                 outcome = f"failed: {e.__class__.__name__}"
             if outcome.startswith("not restarted"):
                 key = episode   # nothing was done: the alarm-only message is the true one
@@ -378,6 +398,12 @@ def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = Fal
                 failed.append(f"{account}: {e}")
                 continue
             new[account] = key
+            if save:
+                # After each confirmed send, not once at the end: a run that systemd stops after slow restarts must not send these again.
+                try:
+                    save(new)
+                except OSError as e:
+                    failed.append(f"{account}: the ledger cannot be written ({e}); the next run sends this again")
         said.append(f"{account}: deaf since {d.get('since')} ({d.get('watch')}){what} -> {to}")
     return new, said, failed
 
@@ -413,10 +439,14 @@ def main(argv: list[str] | None = None) -> int:
             restarter = Restarter(os.path.join(util.state_dir(), RESTART_LEDGER), pwd.getpwuid(os.getuid()).pw_name)
         except (ValueError, OSError) as e:
             unreadable.append(f"{e}; nothing is restarted this run")
-    new, said, failed = alarm(rows, ledger, to, a.dry_run, lambda acc, d, t: send(acc, d, t, pending_dir=pending_dir), pending_dir, restarter)
-    failed += unreadable
+    def save(state: dict[str, str]) -> None:
+        write_ledger(path, state)
+
+    new, said, failed = alarm(rows, ledger, to, a.dry_run, lambda acc, d, t: send(acc, d, t, pending_dir=pending_dir), pending_dir, restarter, save)
     for line in said:
         print(line)
+    for u in unreadable:
+        print(f"deaf_alarm: restart ledger: {u}", file=sys.stderr)
     if new != ledger:
         try:
             write_ledger(path, new)
@@ -425,7 +455,7 @@ def main(argv: list[str] | None = None) -> int:
             return 3
     for f in failed:
         print(f"deaf_alarm: not confirmed sent: {f}", file=sys.stderr)
-    return 3 if failed else 0
+    return 3 if failed or unreadable else 0
 
 
 if __name__ == "__main__":
