@@ -43,11 +43,10 @@ def case_relay_reads_integrations_from_the_operator() -> None:
         write(os.path.join(op, "projects", "opproj", "integration", "gzcoord", "config.json"),
               {"relay_url": "https://op.example", "channel": "op-chan"})
         with operator(op):
-            assert relay.integrated_projects() == ["opproj"], relay.integrated_projects()
             assert relay.channels(["opproj"], {}) == ([("https://op.example", "op-chan")], [])
         with unset_operator():
             assert relay.config_path("agent-fabric").startswith(ROOT + os.sep)
-            assert "opproj" not in relay.integrated_projects()
+            assert relay.config_path("opproj") != os.path.join(op, "projects", "opproj", "integration", "gzcoord", "config.json")
 
 
 def case_install_agent_files_finds_the_locale_worker_in_the_operator() -> None:

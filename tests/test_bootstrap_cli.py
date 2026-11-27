@@ -261,13 +261,11 @@ def make_pristine(script: str) -> str:
             unit_src = fh.read()
         with open(f"{d}/tools/fabric/agentd_unit.py", "w", encoding="utf-8") as fh:
             fh.write(unit_src.replace('FABRIC_PYTHON = "/usr/local/bin/fabric-python"', f'FABRIC_PYTHON = "{stand_in}"'))
-    # The journal's CLI, stood in for: the real import reads the relay as
-    # the account, which a scratch account must never reach. It logs its
-    # call; FAKE_JOURNAL_RC fails it.
+    # The journal's CLI, stood in for: it logs its call, so a bootstrap step that calls it again shows.
     put(f"{d}/tools/fabric/episodic.py",
         "import os, sys\n"
         "open(os.environ['FAKE_LOG'], 'a').write('\\t'.join(['episodic', *sys.argv[1:]]) + '\\n')\n"
-        "sys.exit(int(os.environ.get('FAKE_JOURNAL_RC') or 0))\n")
+        "sys.exit(0)\n")
     # The store's CLI, stood in for: the real trust-base needs the store's
     # key. It logs its call, records the base as the real one does, and
     # FAKE_STORE_RC fails it.
@@ -470,22 +468,16 @@ def between(lines: list[str], first: str, last: str) -> list[str]:
 # --- the cases --------------------------------------------------------------
 
 def journal() -> None:
-    """Step 9: the journal's import, once per account, best effort (ADR-041
-    rule 9). Its 20 s bound is test_bootstrap_internals.py's."""
-    print("bootstrap: step 9, the journal's import")
+    """Step 9 is gone (W15): bootstrap no longer imports this account's GZCoord history through the relay. The stand-in
+    for the journal's CLI below logs any call, so a step that came back would show here."""
+    print("bootstrap: no journal import")
     a = Account("journal", wcs=False)
     r = bootstrap(a, "--dry-run")
-    check("a dry run says it and calls nothing",
-          r.rc == 0 and "  +  episodic journal: would import this account's GZCoord history, once" in r.lines
-          and not a.calls("episodic"), r)
+    check("a dry run says nothing of an episodic import and calls nothing",
+          r.rc == 0 and not any("episodic journal" in ln for ln in r.lines) and not a.calls("episodic"), r)
     r = bootstrap(a)
-    check("a run calls the import once, --if-needed; exit 0, nothing on stderr",
-          r.rc == 0 and not r.err and a.calls("episodic") == [["episodic", "gzcoord-import", "--if-needed"]], r)
-    a.clear_log()
-    r = bootstrap(a, env=a.env(FAKE_JOURNAL_RC="1"))
-    check("an import that fails: one line, exit 0, not counted as NOT written",
-          r.rc == 0 and "  !  episodic journal: not imported (above); the next bootstrap tries again" in r.lines
-          and "NOT written" not in r.lines[-2] and a.calls("episodic"), r)
+    check("a run calls the journal's CLI never; exit 0, nothing on stderr and no episodic line",
+          r.rc == 0 and not r.err and not a.calls("episodic") and not any("episodic journal" in ln for ln in r.lines), r)
 
 
 def store_trust_base() -> None:

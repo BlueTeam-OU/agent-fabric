@@ -85,9 +85,6 @@ Writes, idempotently, and only machine-local files:
                                      ADR-042's migration, once: every store this account holds then
                                      (its own, its children's mirrors) trusts the head it holds
                                      (secret_store.py trust-base --store DIR)
-  <state>/agents/<login>/episodic.db this account's GZCoord history, imported once through the
-                                     relay as itself (episodic.py gzcoord-import --if-needed,
-                                     agent-fabric ADR-041 rule 9), best effort
 where <units> is $XDG_CONFIG_HOME/systemd/user, else ~/.config/systemd/user,
 and <completions> is two directories, linked in this order, one when they
 coincide: where bash-completion looks in this environment (the first
@@ -166,8 +163,6 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   calls        this interpreter: runtime/identity.py,
                runtime/claude-code/user-settings.py <settings> [--dry-run],
                runtime/claude-code/retire-doppler.py [--dry-run],
-               tools/fabric/episodic.py gzcoord-import --if-needed (not
-               under --dry-run; 20 s);
                tools/fabric/install_agent_files.py
                [--dry-run]; bash runtime/langid/install.sh [--dry-run];
                bin/fabric-sign key ssh|openpgp (once per format, only for a
@@ -284,7 +279,6 @@ COORDINATOR_UNITS = ("agent-fabric-drain", "agent-fabric-scheduled-red", "agent-
 COORDINATOR_ROLE = "fabric-coordinator"
 HARNESS_UNIT = "agent-fabric-harness"
 RELAY_STATUS = "http://127.0.0.1:8765/status"
-JOURNAL_IMPORT_TIMEOUT = 20
 # The marker of ADR-042's migration on this account, under its state.
 STORE_BASE_MARKER = "store-trust-base.done"
 # Ownership is by the hook path SHAPE (…/runtime/claude-code/hooks/…, and
@@ -573,7 +567,6 @@ class Bootstrap:
         self.coordinator_timers(role)
         self.langid()
         self.retire_doppler()
-        self.journal_import()
         self.store_trust_base()
         # Last, so a missing or unreachable operator is the final thing said before the summary and never a line
         # between the steps above.
@@ -1360,31 +1353,6 @@ class Bootstrap:
         rc, _ = self.python3("runtime/claude-code/retire-doppler.py", *(["--dry-run"] if self.dry_run else []))
         if rc != 0:
             self.failed += 1
-
-    def journal_import(self) -> None:
-        # 9. This account's GZCoord history into its episodic journal, once
-        #    (ADR-041 rule 9): read through the relay as itself, with its own
-        #    token; --if-needed makes every later run a local no-op. Best
-        #    effort, like langid: no token yet (a new account), a relay down,
-        #    a journal that refuses — one line, and the next bootstrap tries
-        #    again, since only a run that read every channel to its end marks
-        #    it done. 20 s: the whole fleet's history took 1.84 s, and moveto's
-        #    enter gives all of bootstrap 30 s.
-        if self.dry_run:
-            say("  +  episodic journal: would import this account's GZCoord history, once")
-            return
-        argv = [sys.executable, self.src("tools/fabric/episodic.py"), "gzcoord-import", "--if-needed"]
-        try:
-            rc = subprocess.run(argv, check=False, timeout=JOURNAL_IMPORT_TIMEOUT).returncode
-        except subprocess.TimeoutExpired:
-            say(f"  !  episodic journal: the import did not finish in {JOURNAL_IMPORT_TIMEOUT} s; "
-                "the next bootstrap tries again")
-            return
-        except OSError:
-            rc = 127
-        if rc != 0:
-            say("  !  episodic journal: not imported (above); the next bootstrap tries again")
-
 
     def stores(self) -> list[str]:
         """This account's own store and its mirrors of its children's, as

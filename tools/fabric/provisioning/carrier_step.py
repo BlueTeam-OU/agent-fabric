@@ -11,8 +11,7 @@ What the relay used to do for a new account — move its inbox cursor to the
 channel's newest message (relay_catchup.py) and import its history through
 the relay at bootstrap — is nothing here: a carrier delivers what arrives
 after it starts, so there is no backlog to skip and nothing to read through
-a relay that may be stopped. (Steps 7c-7e and 5 read no relay, and the tests pin that; bootstrap's journal import,
-step 7, still does, best effort: it says one "!" line without one.)
+a relay that may be stopped. (Steps 7c-7e and 5 read no relay, and the tests pin that.)
 
 THE ROW is the one step that is not the account's to finish: the account mints
 its key and signs its own row (`gzcoord-carrier roster-row`), and the

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """tools/fabric/relay.py — the GZCoord relay as an account's own tools reach
-it: which relays and channels, its own token, one HTTP call. A library, not
-a command; the journal's import (episodic_import.py) and fabric-status's
-inbox line (status.py `inbox_state`) read the relay through it.
+it: which relays and channels, its own token, one HTTP GET. A library, not
+a command; fabric-status's inbox line (status.py `inbox_state`) reads the
+relay through it until the control plane leaves the relay (gate 3, W16),
+when this file goes. The journal's import that read it is gone (W15).
 
 Each project's integration (projects/<id>/integration/gzcoord/config.json)
 names its relay and channel, as gzcoord-inbox
@@ -17,7 +18,6 @@ import json
 import os
 import shlex
 import sys
-import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -26,9 +26,6 @@ import roots  # noqa: E402
 
 TOKEN_NAME = "CLAUDE_BRIDGE_AUTH_TOKEN"
 TIMEOUT = 30
-# The relay's page bound for a listing (measured on Claude-Bridge 1.3.0,
-# docs/live-checks/2026-10-01-episodic-journal.md).
-PAGE = 500
 
 
 def config_path(project: str) -> str:
@@ -36,12 +33,6 @@ def config_path(project: str) -> str:
     # stands in for the operator when none is exported, as this module took
     # its tree from its own location, never AGENT_FABRIC_ROOT.
     return roots.project_integration(project, "gzcoord", "config.json", engine=roots.code_root())
-
-
-def integrated_projects() -> list[str]:
-    """Every project the fabric holds a GZCoord integration for."""
-    root = roots.projects_dir(engine=roots.code_root())
-    return sorted(p for p in os.listdir(root) if os.path.isfile(config_path(p)))
 
 
 def channels(projects: list[str], env: dict[str, str]) -> tuple[list[tuple[str, str]], list[str]]:
@@ -60,13 +51,6 @@ def channels(projects: list[str], env: dict[str, str]) -> tuple[list[tuple[str, 
         if pair not in seen:
             seen.append(pair)
     return seen, none
-
-
-def is_control(channel: str) -> bool:
-    """A channel of the fabric's machine records (runtime/control/), never
-    GZCOORD/1 messages: no session and no tool of a session's reads it
-    (gzcoord-inbox assertNotControlChannel)."""
-    return channel.endswith(":control")
 
 
 def own_token(home: str) -> str | None:
@@ -91,30 +75,3 @@ def call(relay: str, tok: str, path: str, timeout: float = TIMEOUT):
     req = urllib.request.Request(relay + path, headers={"Authorization": f"Bearer {tok}"}, method="GET")
     with OPENER.open(req, timeout=timeout) as r:
         return json.load(r)
-
-
-def records(page) -> list:
-    """A listing's records: the relay answers {"messages": [...]}, or a bare list."""
-    return page.get("messages", []) if isinstance(page, dict) else page
-
-
-def pages(relay: str, tok: str, channel: str, consumer: str, limit: int = PAGE):
-    """Every record on the channel, a page at a time, oldest first. A
-    consumer the relay has never seen lists from seq 1; since_id pages
-    forward from a record it holds (since_seq is ignored); a listing moves
-    no cursor. GET only: nothing is acknowledged, so the consumer is left
-    exactly where a listing found it. Ends on an empty page; a page that
-    does not move forward is an error, not an endless loop."""
-    since, last_seq = None, None
-    while True:
-        q = {"channel": channel, "consumer_id": consumer, "limit": str(limit), "full": "1"}
-        if since is not None:
-            q["since_id"] = since
-        msgs = records(call(relay, tok, "/api/messages?" + urllib.parse.urlencode(q)))
-        if not msgs:
-            return
-        newest = max(msgs, key=lambda m: int(m["seq"]))
-        if last_seq is not None and int(newest["seq"]) <= last_seq:
-            raise ValueError(f"the relay's page after seq {last_seq} did not move forward")
-        yield msgs
-        since, last_seq = newest["id"], int(newest["seq"])

@@ -94,7 +94,6 @@
   "test_drift": 1.1,
   "test_enter_ssh": 0.5,
   "test_episodic": 0.8,
-  "test_episodic_import": 3.8,
   "test_errors": 0.1,
   "test_evidence_caps": 7.4,
   "test_fabric_branches_cli": 3.9,

@@ -11,8 +11,6 @@ the moment they cross the carrier, in its own runtime state.
                                             JSON lines on stdin: {"content", "seq", "ts"}; any
                                             other key, a "sender" included, is dropped: only a
                                             carrier in process verifies a sender
-    episodic.py gzcoord-import [--if-needed] [PROJECT...]
-                                            the backfill from the carrier (episodic_import.py)
     episodic.py where                       the journal's path
 
 Run AS THE ACCOUNT (the GZCoord send and inbox, tools/fabric/gzcoord/, call
@@ -479,11 +477,6 @@ def main(argv: list[str]) -> int:
         if cmd == "where":
             print(db_path())
             return 0
-        if cmd == "gzcoord-import":
-            # Loaded only here: a send and an inbox page run this script, and
-            # the backfill's HTTP client is no part of their cost.
-            import episodic_import
-            return episodic_import.main(argv[1:])
         project, wc = _flag(argv, "--project"), _flag(argv, "--working-copy")
         carrier = _flag(argv, "--carrier") or DEFAULT_CARRIER
         if cmd == "gzcoord-out-pending":
