@@ -1582,19 +1582,20 @@ def main() -> int:
               and f"Boundary gate waived by architect-cto-01 ({mid}): {why}." in calls()
               and f"replay --replay {mid} --json" in calls() and "ctl architect-cto-01 presence --json" in calls(), out + calls())
 
-        print("arm (CLI): a waiver the carrier alone delivered, read from the journal by the real gzcoord-inbox, the relay down")
+        print("arm (CLI): a waiver the carrier alone delivered, read from the journal by the real gzcoord-inbox, no carrier running")
         import episodic
-        import test_gzcoord_carrier_inbox as C
         import test_gzcoord_protocol as P
-        w = C.World([])
+        me_address = P.MY_ADDRESS
+        # An account of its own with no carrier running: the grant is read from the journal by the real inbox (--replay).
+        wenv_account = P.inbox_env(None, AGENT_FABRIC_SECRET_STORE=P.id_store())
         try:
             mid2 = "01a10593-0000-7000-8000-00000000c7f1"
 
             def grant(message_id: str) -> str:
-                return (f"[GZCOORD/1] DECISION\nFROM: {cto}\nROLE: architect-cto\nPROJECT: gzapp\nTO: {C.ME}\n"
+                return (f"[GZCOORD/1] DECISION\nFROM: {cto}\nROLE: architect-cto\nPROJECT: gzapp\nTO: {me_address}\n"
                         f"MESSAGE-ID: {message_id}\nSUBJECT: waiver\nWAIVES: {waives}\n\nDECISION:\nWaived for #7.\n")
             saved = dict(os.environ)
-            os.environ.update(w.env)
+            os.environ.update(wenv_account)
             try:
                 conn = episodic.connect()
                 try:
@@ -1607,22 +1608,20 @@ def main() -> int:
             finally:
                 os.environ.clear()
                 os.environ.update(saved)
-            w.stub.close()          # every connection to the relay is refused from here on
             check("setup: the carrier alone journaled both grants", journaled.get("written") == 2, str(journaled))
-            account = {k: w.env[k] for k in ("HOME", "AGENT_FABRIC_SECRET_STORE", "AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_ROOT",
-                                             "XDG_RUNTIME_DIR", "CLAUDE_BRIDGE_URL", "CLAUDE_BRIDGE_AUTH_TOKEN", "GZCOORD_CHANNEL")}
-            live = dict(wenv, AGENT_FABRIC_GZCOORD_INBOX=P.INBOX_CMD, AGENT_FABRIC_PR_SESSION=C.ME, **account)
-            reset(); set_pr(f"{C.ME}/feat/x", "plain", mig); set_gate(9); set_presence(); both_reviewed()
+            account = {k: wenv_account[k] for k in ("HOME", "AGENT_FABRIC_SECRET_STORE", "AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_ROOT",
+                                                    "XDG_RUNTIME_DIR")}
+            live = dict(wenv, AGENT_FABRIC_GZCOORD_INBOX=P.INBOX_CMD, AGENT_FABRIC_PR_SESSION=me_address, **account)
+            reset(); set_pr(f"{me_address}/feat/x", "plain", mig); set_gate(9); set_presence(); both_reviewed()
             rc, out = cli("7", "--basis", "nine at the gate", "--no-boundary", why, "--waiver", mid, env=live)
-            check("a grant the carrier alone delivered, its sender verified: armed with the relay down, the comment records it",
+            check("a grant the carrier alone delivered, its sender verified: armed with no carrier running, the comment records it",
                   rc == 0 and "boundary gate WAIVED by architect-cto-01" in out and "ARMED #7" in out
                   and f"Boundary gate waived by architect-cto-01 ({mid}): {why}." in calls(), out + calls())
-            reset(); set_pr(f"{C.ME}/feat/x", "plain", mig); set_gate(9); set_presence(); both_reviewed()
+            reset(); set_pr(f"{me_address}/feat/x", "plain", mig); set_gate(9); set_presence(); both_reviewed()
             rc, out = cli("7", "--basis", "nine at the gate", "--no-boundary", why, "--waiver", mid2, env=live)
             check("…and the same grant journaled with its sender unverified: refused, naming it, nothing armed",
                   rc == 1 and "a sender it did not verify" in out and "pr merge" not in calls(), out + calls())
         finally:
-            w.close()
             for d in P.SCRATCH:
                 shutil.rmtree(d, ignore_errors=True)
 

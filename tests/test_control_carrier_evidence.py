@@ -1002,11 +1002,12 @@ class MirrorAccount(ShownAccount):
     def test_a_primary_line_is_sent_as_primary_and_an_unknown_role_is_skipped(self):
         log = arrivals.MirrorLog(os.path.join(self.state, "gzcoord-mirror.jsonl"), iso_now=lambda: iso(50))
         log.append_refused(mid(1, 1), "failed", "x", "primary")
-        log.append_refused(mid(1, 2), "failed", "x")
+        log.append_refused(mid(1, 2), "failed", "x", "mirror")
+        log.append_refused(mid(1, 3), "failed", "x")   # the carrier is the primary (W15): a line that names no role is its own
         with open(log.path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({**mrow(51), "as": "bystander"}) + "\n")
         r = ev.carrier_evidence(request("mirror", 0, 100), state=self.state)
-        self.assertEqual(([x["as"] for x in r["rows"]], r["skipped"]), (["primary", "mirror"], 1))
+        self.assertEqual(([x["as"] for x in r["rows"]], r["skipped"]), (["primary", "mirror", "primary"], 1))
 
     def test_a_path_in_the_carriers_own_error_does_not_leave_the_account(self):
         self.log([mrow(10, reason="only 1 of 2 recipients recorded: beta: [Errno 13] Permission denied: '/home/x/.local/state/interweave/deliveries.jsonl'")])

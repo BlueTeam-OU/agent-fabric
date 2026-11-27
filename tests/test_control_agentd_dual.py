@@ -517,7 +517,7 @@ class AgentdInterweave(Base):
 
 class AgentdInterweaveNoToken(Base):
     """control_carrier "interweave" on an account with no relay token, the relay's URL on a closed port: the control
-    plane starts, answers, and reaches the relay by none of its three paths (start, the inbox section, the backfill)."""
+    plane starts, answers, and reaches the relay by none of its paths (start, the inbox section; the backfill is gone)."""
     carrier = "interweave"
     token = None
 
@@ -531,23 +531,18 @@ class AgentdInterweaveNoToken(Base):
         self.assertTrue(until(lambda: got), self.logs)
         self.assertFalse(any("no CLAUDE_BRIDGE_AUTH_TOKEN" in l for l in self.logs), self.logs)
 
-    def test_the_inbox_section_says_the_relay_is_unread_and_asks_it_nothing(self):
+    def test_the_inbox_section_is_the_carriers_position_never_a_read_of_the_relay(self):
+        # The transport mode is carrier-only whatever the file says (W15), so the section is the carrier's position, which this
+        # case's runtime directory cannot answer: unknown, and the reason is the carrier's, not a relay's.
         got = self.watch("nt2")
         self.send_iw(body("nt2", op="status"))
         self.assertTrue(until(lambda: got), self.logs)
         section = got[0][0]["data"]["inbox"]
         self.assertEqual(section["status"], "unknown", section)
-        self.assertIn("does not read the relay", section["reason"])
+        self.assertIn("InterWeave carrier", section["reason"])
 
-    def test_the_backfill_follows_the_transport_mode_and_hands_the_relay_no_token_it_lacks(self):
-        from gzcoord import backfill
-        seen: list = []
-        with mock.patch.object(backfill, "tick", lambda say, token: seen.append(token())):
-            self.tickers["gzcoord backfill"]()
-            # a sync after the daemon started reaches the next tick: the box stays None, the file is read each time
-            with mock.patch.object(agentd.gzcoord, "synced_token", return_value="late"):
-                self.tickers["gzcoord backfill"]()
-        self.assertEqual(seen, [None, "late"])   # with none, the journal's rows wait with a note (backfill.run), never posted
+    def test_there_is_no_backfill_timer_to_hand_a_token_to(self):
+        self.assertNotIn("gzcoord backfill", self.tickers)
 
 
 class AgentdInterweaveOnce(Base):

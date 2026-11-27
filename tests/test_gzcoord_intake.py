@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gzcoord import gzmsg, inbox, intake, send  # noqa: E402
-import test_gzcoord_protocol as P  # noqa: E402 — its relay stub, scratch workspace and command environment
+import test_gzcoord_protocol as P  # noqa: E402 — its Carrier, scratch workspace and command environment
 
 ME = "host-a/dev-01"
 MID = "01a11f64-ba5d-75f8-aa8d-4e755dc0f76e"
@@ -660,14 +660,13 @@ def _():
 
 class command_env:
     """The process environment of a command run in this process: cmd_env's scratch
-    workspace (never the checkout's relay), a scratch state directory, no journal."""
+    workspace, a scratch state directory and the case's own runtime directory (where a Carrier's socket is)."""
     def __init__(self, **extra: str):
         self.extra = extra
 
     def __enter__(self) -> str:
         self.state = tempfile.mkdtemp(prefix="intake-state-")
-        env = P.cmd_env(AGENT_FABRIC_STATE_DIR=self.state, GZCOORD_JOURNAL="off", GZCOORD_CHANNEL="fixture:chan",
-                        CLAUDE_BRIDGE_AUTH_TOKEN="tok", **self.extra)
+        env = P.cmd_env(AGENT_FABRIC_STATE_DIR=self.state, **self.extra)
         for k in ("AGENT_FABRIC_OPERATOR", "AGENT_FABRIC_HOSTS_REGISTRY"):
             env.pop(k, None)
         env.update(self.extra)
@@ -696,25 +695,13 @@ def me_address() -> str:
 @case("inbox main: a delivered REQUEST to this login shows `queued as jN` and is on the list, once; others are not")
 def _():
     mine, other = me_address(), "host-a/someone-else"
-    served = [0]
-
-    def answer(_h, _method, path, _body):
-        if path == "/status":
-            return 200, "{}"
-        if path.startswith("/api/wait"):
-            served[0] += 1
-            if served[0] == 1:
-                msgs = [{"seq": 5, "id": "r5", "ts": "T", "sender": "host-a/user", "content": request_text(mine, "host-a/user")},
-                        {"seq": 6, "id": "r6", "ts": "T", "sender": "host-a/user", "content": request_text(other, "host-a/user")
-                         .replace(MID, "01a11f64-0000-7000-8000-000000000002")}]
-                return 200, json.dumps({"messages": msgs, "next_cursor": "c"})
-            return 200, json.dumps({"messages": [], "next_cursor": "c"})
-        return 200, "{}"
-    stub = P.Stub(answer)
+    carrier = P.Carrier(records=[P.record(request_text(mine, "host-a/user"), sender="host-a/user"),
+                                 P.record(request_text(other, "host-a/user").replace(MID, "01a11f64-0000-7000-8000-000000000002"),
+                                          sender="host-a/user")])
     out = io.StringIO()
     real = sys.stdout
     try:
-        with command_env(CLAUDE_BRIDGE_URL=stub.url) as state:
+        with command_env(**P.runtime_of(carrier)) as state:
             sys.stdout = out
             rc = inbox.main([])
             sys.stdout = real
@@ -726,27 +713,15 @@ def _():
             check(len(doc["jobs"]) == 1 and doc["jobs"][0]["source"]["message_id"] == MID, doc)
     finally:
         sys.stdout = real
-        stub.close()
+        carrier.close()
 
 
 @case("inbox --follow: the watch shows `queued as jN` below a delivered REQUEST to this login, and the job is on the list once")
 def _():
     mine = me_address()
-    served = [False]
-
-    def answer(_h, _method, path, _body):
-        if path == "/status":
-            return 200, "{}"
-        if path.startswith("/api/wait"):
-            if not served[0]:
-                served[0] = True
-                return 200, json.dumps({"messages": [{"seq": 5, "id": "r5", "ts": "T", "sender": "host-a/user",
-                                                      "content": request_text(mine, "host-a/user")}], "next_cursor": "c"})
-            return None
-        return 200, "{}"
-    stub = P.Stub(answer)
+    carrier = P.Carrier(records=[P.record(request_text(mine, "host-a/user"), sender="host-a/user")])
     try:
-        with command_env(CLAUDE_BRIDGE_URL=stub.url) as state:
+        with command_env(**P.runtime_of(carrier)) as state:
             out = P.follow_until(dict(os.environ), lambda text: "queued as" in text)
             check(f"queued as j1: a subject (REQUEST {MID})" in out and "do it" in out and out.index("do it") < out.index("queued as"), out)
             found = [os.path.join(d, f) for d, _, fs in os.walk(state) for f in fs if f == "jobs.json"]
@@ -754,25 +729,17 @@ def _():
             doc = json.load(open(found[0], encoding="utf-8"))
             check(len(doc["jobs"]) == 1 and doc["jobs"][0]["source"]["message_id"] == MID, doc)
     finally:
-        stub.close()
+        carrier.close()
 
 
-@case("send main: a REQUEST posted by the host operator asks the control plane, a deduplicated resend too (the list check spares the duplicate)")
+@case("send main: a REQUEST posted by the host operator asks the control plane, a resend of the same file too (the list check spares the duplicate)")
 def _():
     mine = me_address()
     who = gzmsg.whoami()
-    results: list[bool] = []
-
-    def answer(_h, _method, path, _body):
-        if path == "/status":
-            return 200, "{}"
-        if path == "/api/send":
-            return 200, json.dumps({"seq": 41, "deduplicated": results[-1]})
-        return 200, "{}"
-    stub = P.Stub(answer)
+    carrier = P.Carrier()
     real_ctl = intake.CTL
     try:
-        with tempfile.TemporaryDirectory() as tmp, command_env(CLAUDE_BRIDGE_URL=stub.url):
+        with tempfile.TemporaryDirectory() as tmp, command_env(**P.runtime_of(carrier)):
             log = os.path.join(tmp, "ctl.log")
             ctl = os.path.join(tmp, "fabric-ctl")
             with open(ctl, "w", encoding="utf-8") as fh:
@@ -783,9 +750,8 @@ def _():
                 json.dump({"hosts": {who["host"]: {"operator": who["agent"]}}}, fh)
             os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = hosts
             intake.CTL = ctl
-            for dedup, asked in ((False, True), (True, True)):
-                results.append(dedup)
-                path = os.path.join(tmp, f"msg{dedup}.txt")
+            for resend in (False, True):
+                path = os.path.join(tmp, f"msg{resend}.txt")
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(request_text(mine, mine))
                 if os.path.exists(log):
@@ -799,14 +765,11 @@ def _():
                     sys.stderr = real_err
                 calls = open(log, encoding="utf-8").read().splitlines() if os.path.exists(log) else []
                 check(rc == 0, (rc, err.getvalue()))
-                if asked:
-                    check(len(calls) == 2 and calls[1].startswith(f"{who['agent']} jobs-add --project agent-fabric -- a subject (REQUEST {MID})")
-                          and f"queued as j8 on {mine}'s job list" in err.getvalue(), (calls, err.getvalue()))
-                else:
-                    check(calls == [], calls)
+                check(len(calls) == 2 and calls[1].startswith(f"{who['agent']} jobs-add --project agent-fabric -- a subject (REQUEST {MID})")
+                      and f"queued as j8 on {mine}'s job list" in err.getvalue(), (calls, err.getvalue()))
     finally:
         intake.CTL = real_ctl
-        stub.close()
+        carrier.close()
 
 
 WATCH_CHILD = r"""

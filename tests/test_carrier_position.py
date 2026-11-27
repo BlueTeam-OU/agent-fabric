@@ -189,9 +189,8 @@ class Readers(unittest.TestCase):
         self.assertEqual(R.calls, 0)
 
     def test_the_other_modes_keep_the_relay_reader_and_never_ask_the_carrier(self):
-        for m in (None, mode.RELAY_RECORD, mode.CARRIER_RECORD):
-            if m:
-                self.put(m)
+        for m in (mode.RELAY_RECORD, mode.CARRIER_RECORD):
+            self.put(m)
             asked: list = []
 
             def call(path, req, timeout=15.0):
@@ -205,6 +204,14 @@ class Readers(unittest.TestCase):
             s = status.inbox_state(drift, "/r", self.ctx, relay=R, carrier={"call": call, "runtime_dir": RD})
             self.assertEqual(s["status"], "none", m)
             self.assertEqual(asked, [])
+
+    def test_an_account_with_no_mode_file_is_carrier_only_and_reads_the_carrier(self):
+        # W15: the default is carrier-only, so the account that never wrote a mode is read from the carrier, not the relay.
+        R = relay_stopped()
+        s = status.inbox_state(drift, "/r", self.ctx, relay=R, home="/h", carrier=self.opts(unseen=[arrival(300)]))
+        self.assertEqual((R.calls, s["status"]), (0, "ok"))
+        self.assertIn("1 unseen", s["detail"])
+        self.assertIn("unseen", self.asked)
 
     def test_the_status_op_section_reads_the_carrier_in_carrier_only_and_ignores_the_daemons_relay(self):
         self.put(mode.CARRIER_ONLY)
