@@ -1336,6 +1336,10 @@ else:
             put_file(os.path.join(sdir, "role-history.jsonl"), "{}\n")
             put_file(os.path.join(sdir, "reflect-cursor.json"), '{"row": 3}\n')
             put_file(os.path.join(sdir, "reviews", "r1", "note.md"), "review\n")
+            put_file(os.path.join(sdir, "interweave", "deliveries.jsonl"), '{"ev": "queued"}\n')
+            put_file(os.path.join(sdir, "interweave", "delivered.jsonl"), '{"ev": "done"}\n')
+            put_file(os.path.join(sdir, "interweave", "inbox.jsonl"), "NEVER-BACKED-UP\n")
+            put_file(os.path.join(sdir, "interweave", "deliveries.lock"), "NEVER-BACKED-UP\n")
             put_file(os.path.join(claude, "projects", "p1", "memory", "m.md"), "memory\n")
             put_file(os.path.join(claude, "plans", "plan.md"), "plan\n")
             for never in (os.path.join(sdir, "tools.json"), os.path.join(sdir, "binding.json"), os.path.join(claude, "settings.json"),
@@ -1360,6 +1364,7 @@ else:
             check("state restore: exactly the file set, no settings, secrets, transcripts or other state",
                   q.returncode == 0 and got == sorted([
                       "state/jobs.json", "state/role-history.jsonl", "state/reflect-cursor.json", "state/reviews/r1/note.md", "state/episodic.db",
+                      "state/interweave/deliveries.jsonl", "state/interweave/delivered.jsonl",
                       "claude/projects/p1/memory/m.md", "claude/plans/plan.md"]), q.stdout + q.stderr + repr(got))
             try:
                 kept = sqlite3.connect(os.path.join(dest, "state", "episodic.db")).execute("SELECT v FROM t").fetchall()

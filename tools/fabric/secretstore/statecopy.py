@@ -6,6 +6,12 @@ CONTRACT of `state_copy(state_dir, claude_dir)`
           walk of the home):
             <state_dir>/jobs.json, role-history.jsonl, gzcoord-sent.jsonl,
             reflect-cursor.json
+            <state_dir>/<carrier>/deliveries.jsonl, delivered.jsonl
+                                           the second carrier's outbox, <carrier>
+                                           being gzcoord.carrier.CARRIER_NAME (W15: with the
+                                           relay's database gone, a sender's
+                                           text and its deliveries' state live
+                                           here and in the journal)
             <state_dir>/reviews/**
             <state_dir>/episodic.db        through sqlite's online backup,
                                            never a copy of the live file
@@ -58,12 +64,19 @@ from .entries import _require_clean, _before_write, _push_if_ahead, _after_commi
 from .backup import recovery_pub
 from .lock import write_lock
 from .core import git
+from gzcoord.carrier import CARRIER_NAME
 
 MAX_BYTES = 64 << 20
 # reflect-cursor.json (fabric-reflect, ADR-058) goes with the journal it is a
 # position in: restored alone it would re-read the whole history, and the
 # cursor itself refuses a journal that does not hold its episode.
-STATE_FILES = ("jobs.json", "role-history.jsonl", "gzcoord-sent.jsonl", "reflect-cursor.json")
+#
+# The outbox is read as a plain file while the carrier may be appending or compacting it: a compaction replaces the
+# file whole, so a read sees the old or the new, and a torn last line is what the carrier's own load repairs
+# (carrier/jsonl.py repair). The lock file, the spool, the sockets and the ledger are not copied: the lock holds
+# nothing, and the spool's arrivals are held by the journal.
+STATE_FILES = ("jobs.json", "role-history.jsonl", "gzcoord-sent.jsonl", "reflect-cursor.json",
+               f"{CARRIER_NAME}/deliveries.jsonl", f"{CARRIER_NAME}/delivered.jsonl")
 STATE_TREES = ("reviews",)
 EPISODIC = "episodic.db"
 # The harness's own folder under ~/.claude/projects/<p>/, not the operator's
