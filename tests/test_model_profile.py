@@ -46,7 +46,7 @@ class Fixture:
         root = os.path.join(tmp, "fabric")
         os.makedirs(os.path.join(root, "runtime"))
         for name in os.listdir(ROOT):
-            if name not in ("routing", "runtime", ".git"):
+            if name not in ("routing", "runtime", "operator", ".git"):
                 os.symlink(os.path.join(ROOT, name), os.path.join(root, name))
         for name in os.listdir(os.path.join(ROOT, "runtime")):
             if name != "claude-code":
@@ -59,7 +59,10 @@ class Fixture:
         # committed column has two models and one level for five classes.
         for name in ("capabilities.json", "effort.json"):
             shutil.copy2(os.path.join(HERE, "fixtures", "routing-distinct", name), os.path.join(root, "routing", name))
-        instance_fixtures.write_routing_overlay(os.path.join(root, "routing"))
+        # The grade and overlay are read under operator/ (roots.routing_policy), so the fixture's own operator
+        # half, not a link to the checkout's.
+        os.makedirs(os.path.join(root, "operator", "routing"))
+        instance_fixtures.write_routing_overlay(os.path.join(root, "operator", "routing"))
         self.env = {**os.environ, "AGENT_FABRIC_ROOT": root, "AGENT_FABRIC_STATE_DIR": self.state,
                     "CLAUDE_CONFIG_DIR": self.claude,
                     # No managed file: this host's names a snapshot the agent files would be routed from.
