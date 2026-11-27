@@ -130,17 +130,16 @@ class AuthorityUnreadable(RuntimeError):
 
 
 def carries_engine(top: str, base: str) -> bool:
-    """Whether HEAD or the base commits the engine (ENGINE_MARKER): either side, so a branch that deletes it does
-    not narrow the check. Committed, not the working tree: a scratch repository that copies the guards in untracked
-    (test_check_charter_authority_cli's sandbox) is not the engine, and what the guards judge is commits. A git
-    that cannot answer reads as the engine, the stricter scope."""
-    for rev in ("HEAD", base):
-        try:
-            if _has(top, rev, ENGINE_MARKER):
-                return True
-        except AuthorityUnreadable:
-            return True
-    return False
+    """Whether the BASE commits the engine (ENGINE_MARKER). The base alone: which repository is agent-fabric
+    itself is the base's to say, so a branch that deletes the marker does not narrow the check, and a managed
+    project's branch that adds it does not move the project's scope or read (ADR-045 rule 7). Committed, not the
+    working tree: a scratch repository that copies the guards in untracked (test_check_charter_authority_cli's
+    sandbox) is not the engine, and what the guards judge is commits. A git that cannot answer reads as the
+    engine, the stricter scope."""
+    try:
+        return _has(top, base, ENGINE_MARKER)
+    except AuthorityUnreadable:
+        return True
 
 
 # A NamedTuple, not a dataclass: lint and the hooks load this module by path, unregistered in sys.modules,

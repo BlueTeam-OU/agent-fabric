@@ -60,7 +60,7 @@ its tree differs from the clean three-way merge of its parents
 a merge does not.
 
 RUNS IN ANY REPOSITORY. In agent-fabric ITSELF — recognised by the
-engine's own code committed at HEAD or the base (contributors.ENGINE_MARKER,
+engine's own code committed at the base (contributors.ENGINE_MARKER,
 which the engine keeps after move-plan step D and no project has), or by the
 operator's policies/authority.json in the tree or the base
 (`operator/policies/authority.json` at the toplevel, or where the exported
@@ -176,10 +176,11 @@ def declared_role(message: str, interpreted: str) -> str:
 
 def is_fabric_itself(top: str, base: str, env: dict[str, str] | None = None) -> bool:
     """Whether this is agent-fabric itself, where every commit is guarded.
-    The engine's code on either side says so (contributors.carries_engine):
-    after move-plan step D the engine has no authority.json, and a test of
-    that file alone would narrow the check to .agent-fabric/** without a
-    word. Either side's operator authority.json says so too, for a tree
+    The engine's code at the base says so (contributors.carries_engine; a
+    branch that adds it to a project moves nothing): after move-plan step D
+    the engine has no authority.json, and a test of that file alone would
+    narrow the check to .agent-fabric/** without a word. Either side's
+    operator authority.json says so too, for a tree
     with the operator still in it; read from the working tree alone, as the
     bash did, a branch that deleted the file narrowed the check and its
     other commits passed with no trailer (review of #72). A git that cannot

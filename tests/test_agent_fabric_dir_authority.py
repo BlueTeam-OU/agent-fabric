@@ -530,6 +530,40 @@ def main() -> int:
                 os.environ.pop("HOME", None)
             else:
                 os.environ["HOME"] = real_home
+
+        print("…a git hook's GIT_DIR does not point the operator's read at the repository being judged")
+        # A hook runs the guard with GIT_DIR (and GIT_WORK_TREE) naming the engine; were they passed to the operator's
+        # git, `git -C <operator>` would answer from the engine, which has no origin/main (contributors._REPO_POINTING).
+        pointing = {"GIT_DIR": os.path.join(rr, ".git"), "GIT_WORK_TREE": rr}
+        saved = {k: os.environ.get(k) for k in pointing}
+        os.environ.update(pointing)
+        try:
+            try:
+                read = contributors.fabric_authority(rr, "main", op)
+                said = f"{read.source}: {read.text}"
+            except contributors.AuthorityUnreadable as e:
+                said = f"refused: {e}"
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        check("GIT_DIR in the environment: the read is still the operator's", "op-owner" in said and opclone in said)
+
+        print("…and a managed project's branch that adds the engine's code keeps the project's scope")
+        rr = os.path.join(tmp, "project")
+        os.mkdir(rr)
+        sh(rr, "init", "-q", "-b", "main")
+        commit("README.md", "base: a managed project")
+        sh(rr, "checkout", "-q", "-b", "work")
+        commit(contributors.ENGINE_MARKER, "add the engine's marker")
+        commit("src/c.py", "then code with no trailer")
+        nowhere = {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(tmp, "op-nowhere")}
+        check("the base decides: not agent-fabric itself", not da.is_fabric_itself(rr, "main", nowhere))
+        rc, o, e = guard(nowhere)
+        check("…exit 0, a commit outside .agent-fabric/ not examined, no operator read",
+              rc == 0 and "no commit changes .agent-fabric/" in o and not e)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
