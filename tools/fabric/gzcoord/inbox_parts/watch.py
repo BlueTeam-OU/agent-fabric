@@ -228,7 +228,6 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                     # is never lost.
                     print(f"gzcoord: the shown ledger could not be opened ({e.strerror or e}); the carrier's messages wait",
                           file=sys.stderr)
-                    carrier_recs = []
             if lock is not None:
                 try:
                     admit(lock, classified, carrier_recs)

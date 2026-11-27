@@ -12,6 +12,7 @@ show one message; an arrival is shown as from the roster's address with the mism
 exit 1 on any failure."""
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -201,6 +202,23 @@ def main() -> int:
         check("a showing that raises releases the lock and leaves the pending line", lines(lpath)[-1].get("pending") is True
               and lines(lpath)[-1]["mid"] == "W-1")
 
+        # a ledger that cannot be opened: the carrier's records are not shown (they would be listed again on every pass),
+        # and the failure is said on stderr, not as a delivery
+        class Unopenable:
+            def exclusive(self):
+                raise PermissionError(13, "Permission denied")
+
+        said = io.StringIO()
+        saved_stderr = sys.stderr
+        sys.stderr = said
+        try:
+            r, _ = loop([[]], Unopenable(), iw=FakeCarrier([urec("U-1")]))
+        finally:
+            sys.stderr = saved_stderr
+        check("a ledger that cannot be opened shows nothing and says the carrier's messages wait",
+              not r["delivered"] and r["classified"] == [] and "the shown ledger could not be opened" in said.getvalue()
+              and "the carrier's messages wait" in said.getvalue(), f"{r} {said.getvalue()!r}")
+
         # stdout is a pipe its reader closed, and the page is a bare print (no flush of its own): the failure surfaces
         # inside show_page, so the ledger is released with the pending line standing and the page is not acknowledged
         r, _ = loop([[]], led, iw=FakeCarrier([urec("P-1")]))
@@ -262,7 +280,6 @@ def main() -> int:
         open(blocker, "w").write("a file where the state directory should be")
         led = L.Ledger(os.path.join(blocker, "me", "gzcoord-shown.jsonl"), iso_now=lambda: NOW)
         import contextlib
-        import io
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             r, acked = loop([[]], led, iw=FakeCarrier([urec("NL-2")]))
@@ -278,7 +295,6 @@ def main() -> int:
             raise OSError(28, "No space left on device")
         L.Held._put = failing
         import contextlib
-        import io
         err = io.StringIO()
         try:
             with contextlib.redirect_stderr(err):
