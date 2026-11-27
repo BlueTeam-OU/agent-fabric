@@ -160,25 +160,21 @@ def main() -> int:
 
         # ── the shown ledger's decision ──────────────────────────────────────────────────────────────────────────
         lg = L.Ledger(os.path.join(scratch, "shown.jsonl"), iso_now=lambda: NOW)
-        rec = {"id": "r1", "seq": 1, "content": text("D-1")}
         mirror = {"content": text("D-1"), "ts": NOW, "message_id": "D-1", "verdict": "ok", "sender": "h/alpha"}
         lock = lg.exclusive()
-        c1 = {"rec": rec, "msg": {"metadata": {"MESSAGE-ID": "D-1"}}, "isMine": True}
-        classified = [c1]
-        dedup.admit(lock, classified, [c1], [mirror])
+        classified = []
+        dedup.admit(lock, classified, [mirror])
         lock.finish()
-        check("a primary record is shown and a mirror's copy of the same text is not added",
-              "quiet" not in c1 and len(classified) == 1, f"{classified}")
-        lock = lg.exclusive()
-        c2 = {"rec": dict(rec), "msg": {"metadata": {"MESSAGE-ID": "D-1"}}, "isMine": True}
-        classified = [c2]
-        dedup.admit(lock, classified, [c2], [mirror])
-        lock.release()
-        check("... shown again by either, it is quiet (journaled and acknowledged, not shown twice) and not added again",
-              c2.get("quiet") is True and len(classified) == 1, f"{classified}")
+        check("a carrier record not shown before is a message of its own",
+              len(classified) == 1 and classified[0]["iw"]["mid"] == "D-1", f"{classified}")
         lock = lg.exclusive()
         classified = []
-        dedup.admit(lock, classified, [], [{**mirror, "message_id": "D-2", "content": text("D-2")}])
+        dedup.admit(lock, classified, [mirror])
+        lock.release()
+        check("... listed again once settled, it is not added again", classified == [], f"{classified}")
+        lock = lg.exclusive()
+        classified = []
+        dedup.admit(lock, classified, [{**mirror, "message_id": "D-2", "content": text("D-2")}])
         lock.finish()
         check("a mirror's record not shown before becomes a message of its own, tagged with the mirror's name",
               len(classified) == 1 and classified[0]["iw"]["mid"] == "D-2" and classified[0]["rec"]["seq"] == CARRIER_NAME,

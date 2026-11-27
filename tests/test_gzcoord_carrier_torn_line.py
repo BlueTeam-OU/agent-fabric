@@ -48,7 +48,7 @@ def carrier_pass(spool: arrivals.Spool, path: str) -> dict:
     listed = spool.unseen()         # before the lock, as watch.py asks: unseen reads the ledger under LOCK_SH
     lock = L.Ledger(path, iso_now=iso).exclusive()
     try:
-        dedup.admit(lock, classified, [], listed)
+        dedup.admit(lock, classified, listed)
         lock.finish()
     except BaseException:
         lock.release()

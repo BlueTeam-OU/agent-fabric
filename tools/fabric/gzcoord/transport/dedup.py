@@ -11,10 +11,6 @@ from .. import gzmsg
 from ..carrier import ledger as _ledger_mod
 from . import carrier
 
-# The `via` of a record on the primary's page: the name the shown ledgers already on disk carry for it (ledger.py reads it).
-PRIMARY_NAME = "relay"
-
-
 def ledger_key(rec: dict, msg: dict) -> str:
     """The id the ledger and the journal key a message by: its MESSAGE-ID, else its body's hash."""
     mid = (msg.get("metadata") or {}).get("MESSAGE-ID")
@@ -34,31 +30,11 @@ def record(held: Any, d: Any, mid: str, via: str, h: str) -> None:
         held.finish_repeat(mid, via, d.flagged, h)
 
 
-def admit(lock: Any, classified: list[dict], primary_mine: list[dict], mirror_recs: list[dict], *,
-          carrier_first: bool = False) -> None:
-    """The ledger's decision on one page, in place: a primary's record shown before is marked `quiet` (journaled and
-    acknowledged, not shown twice) and the others carry `may_repeat`; a mirror's record not shown before is appended to
-    `classified` as a message of its own, flagged when its sender disagrees with its FROM. Raises what the ledger raises
-    (OSError for a write that failed); the caller releases the lock. With `carrier_first` (the carrier is the record) the
-    carrier's records are decided before the relay's, so a message both brought is shown from the carrier, whose sender its
-    carrier verified, and the relay's copy is the one marked `quiet`."""
-    if carrier_first:
-        _admit_carrier(lock, classified, mirror_recs)
-        _admit_relay(lock, primary_mine)
-    else:
-        _admit_relay(lock, primary_mine)
-        _admit_carrier(lock, classified, mirror_recs)
-
-
-def _admit_relay(lock: Any, primary_mine: list[dict]) -> None:
-    for c in primary_mine:
-        mid = ledger_key(c["rec"], c["msg"])
-        d = lock.decide(mid, PRIMARY_NAME, "unauthenticated", body_hash(c["rec"]["content"]))
-        if not d.show:
-            c["quiet"] = True     # shown before: journaled and acknowledged, not shown twice
-            continue
-        c["may_repeat"] = d.may_repeat
-        record(lock, d, mid, PRIMARY_NAME, body_hash(c["rec"]["content"]))
+def admit(lock: Any, classified: list[dict], mirror_recs: list[dict]) -> None:
+    """The ledger's decision on one page, in place: a carrier record not shown before is appended to `classified` as a
+    message of its own, flagged when its sender disagrees with its FROM. Raises what the ledger raises (OSError for a
+    write that failed); the caller releases the lock."""
+    _admit_carrier(lock, classified, mirror_recs)
 
 
 def _admit_carrier(lock: Any, classified: list[dict], mirror_recs: list[dict]) -> None:

@@ -217,36 +217,28 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                 continue
         lock = None
         if ledger is not None and not dropped:
-            # What the session sees is the shown ledger's to decide (ledger.py), whichever
-            # carrier brought the message and with or without a carrier. The lock is taken
-            # here, the pending lines are written, and only then does the relay's
-            # acknowledgement follow; the caller shows the page and calls finish().
-            relay_mine = [c for c in classified if c["isMine"] and c["msg"]]
+            # What the session sees is the shown ledger's to decide (ledger.py). The lock is taken here, the pending
+            # lines are written, and only then does the acknowledgement follow; the caller shows the page and calls finish().
             carrier_recs = iw.unseen() if iw is not None else []
-            if relay_mine or carrier_recs:
+            if carrier_recs:
                 try:
                     lock = ledger.exclusive()
                 except OSError as e:
-                    # The ledger cannot be opened (a state directory that cannot be written):
-                    # the relay's messages are shown without it, as before, and say so; the
-                    # carrier's are not, for without the ledger they would be listed again on
-                    # every pass. A message is never lost; one may repeat.
-                    print(f"gzcoord: the shown ledger could not be opened ({e.strerror or e}); relay messages are shown "
-                          "without it and may repeat", file=sys.stderr)
+                    # Without the ledger the carrier's records would be listed again on every pass, so they wait: a message
+                    # is never lost.
+                    print(f"gzcoord: the shown ledger could not be opened ({e.strerror or e}); the carrier's messages wait",
+                          file=sys.stderr)
                     carrier_recs = []
-                    relay_mine = []
-                    delivered = any(c["isMine"] for c in classified)
             if lock is not None:
                 try:
-                    admit(lock, classified, relay_mine, carrier_recs, carrier_first=bool(getattr(iw, "carrier_leads", False)))
+                    admit(lock, classified, carrier_recs)
                     delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
                 except OSError as e:
-                    # A ledger write failed (a full disk): said as what it is, not as the relay being
-                    # down. The relay's messages are shown without the ledger; the carrier's wait.
+                    # A ledger write failed (a full disk): said as what it is; the carrier's records wait.
                     lock.release()
                     lock = None
-                    print(f"gzcoord: the shown ledger could not be written ({e.strerror or e}); relay messages are shown "
-                          "without it and may repeat", file=sys.stderr)
+                    print(f"gzcoord: the shown ledger could not be written ({e.strerror or e}); the carrier's messages wait",
+                          file=sys.stderr)
                     classified = [c for c in classified if not c.get("iw")]
                     delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
                 except BaseException:
