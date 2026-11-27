@@ -34,6 +34,25 @@ def message(kind: str, to: str, mid: str, subject: str, project: str = "fixture"
             f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{mid}\nSUBJECT: {subject}\n\nREQUEST:\nplease\n")
 
 
+ID_OF = {"11": "a", "12": "b", "13": "c", "14": "d", "15": "1", "16": "2", "17": "3", "18": "4", "19": "5"}
+
+
+def msg_id(seq: str) -> str:
+    """The MESSAGE-ID of the fixture message that was journaled under relay seq `seq` (--replay takes only an id)."""
+    return f"01a09fc1-0000-7000-8000-00000000000{ID_OF[seq]}"
+
+
+def seed_journal(env: dict, *rows: tuple[str, int]) -> None:
+    """What the carrier journals on arrival; --replay reads nothing else. The importer is the carrier's own path in."""
+    lines = "".join(json.dumps({"content": text, "seq": seq, "ts": f"2026-10-24T12:00:0{i}.000Z"}) + "\n"
+                    for i, (text, seq) in enumerate(rows))
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "gzcoord-in", "--carrier", "interweave"],
+                       input=lines, capture_output=True, text=True, timeout=60,
+                       env={**os.environ, "AGENT_FABRIC_STATE_DIR": env["AGENT_FABRIC_STATE_DIR"],
+                            "AGENT_FABRIC_SECRET_STORE": env["AGENT_FABRIC_SECRET_STORE"]})
+    assert r.returncode == 0, r.stderr
+
+
 FAKE_GH = """#!/usr/bin/env python3
 import json, os, sys
 a = sys.argv[1:]
@@ -574,162 +593,155 @@ def main() -> int:
         p = run("list")
         check("list shows an unknown priority as '?'", p.returncode == 0 and "j2    queued    ? " in p.stdout, p.stdout)
 
-        # add --request: the message read through the inbox's own replay,
-        # against a fake relay; only what is addressed to this login.
+        # add --request: the message read through the inbox's own replay of this
+        # account's journal; only what is addressed to this login.
         env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state-request")
         me = f"TO: {socket.gethostname().split('.')[0]}/{subprocess.run(['id', '-un'], capture_output=True, text=True).stdout.strip()}"
-        relay = fake_relay([
-            {"seq": 11, "id": "r11", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "a", "build the thing")},
-            {"seq": 12, "id": "r12", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", "TO: h/someone-else", "b", "not mine")},
-            {"seq": 13, "id": "r13", "ts": "T", "sender": "other-host/sender", "content": message("INFO", me, "c", "just news")},
-            {"seq": 14, "id": "r14", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "d", "elsewhere", "another")},
-            {"seq": 15, "id": "r15", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "1", "repo wins", "another", "fixture-org/fixture-proj")},
-            {"seq": 16, "id": "r16", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "2", "repo without a checkout", "another", "Fixture-Org/fixture-nowhere")},
-            {"seq": 17, "id": "r17", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "3", "repo unregistered", "another", "elsewhere-org/unregistered")},
-            {"seq": 18, "id": "r18", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "4", "repo, registry ambiguous", "another", "fixture-org/fixture-proj")},
-            {"seq": 19, "id": "r19", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "5", "repo, no registry", "another", "fixture-org/fixture-proj")},
-        ])
-        env.update({"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}",
-                    "GZCOORD_CHANNEL": "fixture:chan"})
-        try:
-            p = run("add", "--request", "01a09fc1-0000-7000-8000-00000000000a", "--topic", "thing")
-            check("a request for a project with no working copy here is filed with none", p.returncode == 0
-                  and len(jobs()) == 1 and jobs()[0]["project"] == "fixture" and jobs()[0]["working_copy"] is None, p.stderr + repr(jobs()))
-            p = run("start", "j1")
-            check("j754: a job with no branch is started without a working copy (its work may be a REPLY)", p.returncode == 0
-                  and jobs()[0]["state"] == "active", p.stderr)
-            force("j1", "queued", branch="side/work")      # with a branch the work is in a checkout, and the start still names none
-            p = run("start", "j1")
-            check("start refuses it by name, and says how to name a working copy", p.returncode == 1
-                  and "j1 has no working copy" in p.stderr and "project j1 fixture --working-copy DIR" in p.stderr
-                  and jobs()[0]["state"] == "queued", p.stderr)
-            force("j1", "queued", branch=None)      # back to the job as it was filed, for the re-point below
-            p = run("project", "j1", "fixture", "--working-copy", repo_a)
-            got = jobs()
-            check("--request fills the job from the message", p.returncode == 0 and len(got) == 1
-                  and got[0]["working_copy"] == repo_a
-                  and got[0]["title"] == "build the thing (REQUEST 01a09fc1-0000-7000-8000-00000000000a)" and got[0]["project"] == "fixture"
-                  and got[0]["source"] == {"kind": "request", "message_id": "01a09fc1-0000-7000-8000-00000000000a",
-                                           "from": "other-host/sender", "seq": 11}, p.stdout + p.stderr + repr(got))
-            p = run("add", "--request", "11")
-            check("the same message twice is refused by name", p.returncode == 1 and "already j1" in p.stderr, p.stderr)
-            p = run("add", "--", "build the thing (REQUEST 01a09fc1-0000-7000-8000-00000000000a)")
-            check("a title naming a REQUEST the list holds adds nothing and names the job",
-                  p.returncode == 0 and p.stdout.startswith("already listed j1 ") and len(jobs()) == 1, p.stdout + p.stderr)
-            p = run("add", "--request", "12")
-            check("a message not addressed to this login is refused", p.returncode == 1
-                  and "not addressed to this login" in p.stderr and len(jobs()) == 1, p.stderr)
-            p = run("add", "--request", "14")
-            check("a request for another project is filed with no working copy", p.returncode == 0
-                  and jobs()[-1]["project"] == "another" and jobs()[-1]["working_copy"] is None, p.stderr)
-            p = run("project", "j2", "another", "--working-copy", repo_b)
-            check("project --working-copy settles it", p.returncode == 0 and jobs()[-1]["project"] == "another"
-                  and jobs()[-1]["working_copy"] == repo_b, p.stderr)
-            p = run("add", "--request", "13", "--auto", "--working-copy", repo_a)
-            check("the automatic intake skips what is not a REQUEST", p.returncode == 0 and len(jobs()) == 2, p.stderr)
-            p = run("add", "--request", "11", "--auto")
-            check("the automatic intake skips a listed request quietly", p.returncode == 0
-                  and not p.stderr and len(jobs()) == 2, p.stderr)
-            # REPOSITORY is the work's repository; PROJECT is the sender's directory (j372).
-            p = run("add", "--request", "15")
-            repo_job = jobs()[-1]
-            check("REPOSITORY registered, PROJECT another: the job is REPOSITORY's, with its working copy", p.returncode == 0
-                  and repo_job["project"] == "fixture-proj" and repo_job["working_copy"] == gz
-                  and repo_job["project_from"].startswith("REPOSITORY fixture-org/fixture-proj")
-                  and "PROJECT: another was not used" in repo_job["project_from"], p.stderr + repr(repo_job))
-            p = run("show", repo_job["id"])
-            check("show prints where the project came from", p.returncode == 0
-                  and "project from: " in p.stdout and "REPOSITORY fixture-org/fixture-proj" in p.stdout, p.stdout)
-            p = run("add", "--request", "16")
-            nowhere = jobs()[-1]
-            check("REPOSITORY registered here with no checkout: filed with none, not PROJECT's, matched case-folded", p.returncode == 0
-                  and nowhere["project"] == "fixture-nowhere" and nowhere["working_copy"] is None, p.stderr + repr(nowhere))
-            force(nowhere["id"], "queued", branch="side/work")
-            p = run("start", nowhere["id"])
-            check("start refuses it by name", p.returncode == 1 and f"{nowhere['id']} has no working copy" in p.stderr
-                  and "fixture-nowhere" in p.stderr, p.stderr)
-            p = run("add", "--request", "17")
-            check("REPOSITORY unregistered: PROJECT decides", p.returncode == 0 and jobs()[-1]["project"] == "another"
-                  and jobs()[-1]["project_from"] == "PROJECT: REPOSITORY elsewhere-org/unregistered unregistered", p.stderr + repr(jobs()[-1]))
-            # The re-point verb: a plain job moves, logged; one with a branch or a worktree does not.
-            moved = jobs()[-1]["id"]
-            p = run("project", moved, "fixture-proj")
-            after = [j for j in jobs() if j["id"] == moved][0]
-            check("project moves a plain job to the project's working copy and logs it", p.returncode == 0
-                  and after["project"] == "fixture-proj" and after["working_copy"] == gz and after["project_from"] == "re-pointed"
-                  and after["log"][-1]["note"].startswith("project re-pointed from another to fixture-proj")
-                  and "at" in after["log"][-1] and "state" not in after["log"][-1], p.stderr + repr(after))
-            p = run("show", moved)
-            check("show names the re-pointing", "project from: re-pointed" in p.stdout, p.stdout)
-            lst = os.path.join(tmp, "state-request", "agents", login, "jobs.json")
-            for field in ("branch", "worktree"):
-                doc = json.loads(open(lst, encoding="utf-8").read())
-                [j for j in doc["jobs"] if j["id"] == moved][0][field] = "x"
-                with open(lst, "w", encoding="utf-8") as fh:
-                    json.dump(doc, fh)
-                p = run("project", moved, "another")
-                check(f"project refuses a job with a {field}, naming it", p.returncode == 1 and field in p.stderr
-                      and [j for j in jobs() if j["id"] == moved][0]["project"] == "fixture-proj", p.stderr)
-                doc = json.loads(open(lst, encoding="utf-8").read())
-                [j for j in doc["jobs"] if j["id"] == moved][0].pop(field)
-                with open(lst, "w", encoding="utf-8") as fh:
-                    json.dump(doc, fh)
-            # The refusals F1/F4 of the review: each fails when its guard is removed.
-            force(moved, "dropped", reason="a test")
+        seed_journal(env,
+                     (message("REQUEST", me, "a", "build the thing"), 11),
+                     (message("REQUEST", "TO: h/someone-else", "b", "not mine"), 12),
+                     (message("INFO", me, "c", "just news"), 13),
+                     (message("REQUEST", me, "d", "elsewhere", "another"), 14),
+                     (message("REQUEST", me, "1", "repo wins", "another", "fixture-org/fixture-proj"), 15),
+                     (message("REQUEST", me, "2", "repo without a checkout", "another", "Fixture-Org/fixture-nowhere"), 16),
+                     (message("REQUEST", me, "3", "repo unregistered", "another", "elsewhere-org/unregistered"), 17),
+                     (message("REQUEST", me, "4", "repo, registry ambiguous", "another", "fixture-org/fixture-proj"), 18),
+                     (message("REQUEST", me, "5", "repo, no registry", "another", "fixture-org/fixture-proj"), 19))
+        p = run("add", "--request", "01a09fc1-0000-7000-8000-00000000000a", "--topic", "thing")
+        check("a request for a project with no working copy here is filed with none", p.returncode == 0
+              and len(jobs()) == 1 and jobs()[0]["project"] == "fixture" and jobs()[0]["working_copy"] is None, p.stderr + repr(jobs()))
+        p = run("start", "j1")
+        check("j754: a job with no branch is started without a working copy (its work may be a REPLY)", p.returncode == 0
+              and jobs()[0]["state"] == "active", p.stderr)
+        force("j1", "queued", branch="side/work")      # with a branch the work is in a checkout, and the start still names none
+        p = run("start", "j1")
+        check("start refuses it by name, and says how to name a working copy", p.returncode == 1
+              and "j1 has no working copy" in p.stderr and "project j1 fixture --working-copy DIR" in p.stderr
+              and jobs()[0]["state"] == "queued", p.stderr)
+        force("j1", "queued", branch=None)      # back to the job as it was filed, for the re-point below
+        p = run("project", "j1", "fixture", "--working-copy", repo_a)
+        got = jobs()
+        check("--request fills the job from the message", p.returncode == 0 and len(got) == 1
+              and got[0]["working_copy"] == repo_a
+              and got[0]["title"] == "build the thing (REQUEST 01a09fc1-0000-7000-8000-00000000000a)" and got[0]["project"] == "fixture"
+              and got[0]["source"] == {"kind": "request", "message_id": "01a09fc1-0000-7000-8000-00000000000a",
+                                       "from": "other-host/sender", "seq": 11}, p.stdout + p.stderr + repr(got))
+        p = run("add", "--request", msg_id("11"))
+        check("the same message twice is refused by name", p.returncode == 1 and "already j1" in p.stderr, p.stderr)
+        p = run("add", "--", "build the thing (REQUEST 01a09fc1-0000-7000-8000-00000000000a)")
+        check("a title naming a REQUEST the list holds adds nothing and names the job",
+              p.returncode == 0 and p.stdout.startswith("already listed j1 ") and len(jobs()) == 1, p.stdout + p.stderr)
+        p = run("add", "--request", msg_id("12"))
+        check("a message not addressed to this login is refused", p.returncode == 1
+              and "not addressed to this login" in p.stderr and len(jobs()) == 1, p.stderr)
+        p = run("add", "--request", msg_id("14"))
+        check("a request for another project is filed with no working copy", p.returncode == 0
+              and jobs()[-1]["project"] == "another" and jobs()[-1]["working_copy"] is None, p.stderr)
+        p = run("project", "j2", "another", "--working-copy", repo_b)
+        check("project --working-copy settles it", p.returncode == 0 and jobs()[-1]["project"] == "another"
+              and jobs()[-1]["working_copy"] == repo_b, p.stderr)
+        p = run("add", "--request", msg_id("13"), "--auto", "--working-copy", repo_a)
+        check("the automatic intake skips what is not a REQUEST", p.returncode == 0 and len(jobs()) == 2, p.stderr)
+        p = run("add", "--request", msg_id("11"), "--auto")
+        check("the automatic intake skips a listed request quietly", p.returncode == 0
+              and not p.stderr and len(jobs()) == 2, p.stderr)
+        # REPOSITORY is the work's repository; PROJECT is the sender's directory (j372).
+        p = run("add", "--request", msg_id("15"))
+        repo_job = jobs()[-1]
+        check("REPOSITORY registered, PROJECT another: the job is REPOSITORY's, with its working copy", p.returncode == 0
+              and repo_job["project"] == "fixture-proj" and repo_job["working_copy"] == gz
+              and repo_job["project_from"].startswith("REPOSITORY fixture-org/fixture-proj")
+              and "PROJECT: another was not used" in repo_job["project_from"], p.stderr + repr(repo_job))
+        p = run("show", repo_job["id"])
+        check("show prints where the project came from", p.returncode == 0
+              and "project from: " in p.stdout and "REPOSITORY fixture-org/fixture-proj" in p.stdout, p.stdout)
+        p = run("add", "--request", msg_id("16"))
+        nowhere = jobs()[-1]
+        check("REPOSITORY registered here with no checkout: filed with none, not PROJECT's, matched case-folded", p.returncode == 0
+              and nowhere["project"] == "fixture-nowhere" and nowhere["working_copy"] is None, p.stderr + repr(nowhere))
+        force(nowhere["id"], "queued", branch="side/work")
+        p = run("start", nowhere["id"])
+        check("start refuses it by name", p.returncode == 1 and f"{nowhere['id']} has no working copy" in p.stderr
+              and "fixture-nowhere" in p.stderr, p.stderr)
+        p = run("add", "--request", msg_id("17"))
+        check("REPOSITORY unregistered: PROJECT decides", p.returncode == 0 and jobs()[-1]["project"] == "another"
+              and jobs()[-1]["project_from"] == "PROJECT: REPOSITORY elsewhere-org/unregistered unregistered", p.stderr + repr(jobs()[-1]))
+        # The re-point verb: a plain job moves, logged; one with a branch or a worktree does not.
+        moved = jobs()[-1]["id"]
+        p = run("project", moved, "fixture-proj")
+        after = [j for j in jobs() if j["id"] == moved][0]
+        check("project moves a plain job to the project's working copy and logs it", p.returncode == 0
+              and after["project"] == "fixture-proj" and after["working_copy"] == gz and after["project_from"] == "re-pointed"
+              and after["log"][-1]["note"].startswith("project re-pointed from another to fixture-proj")
+              and "at" in after["log"][-1] and "state" not in after["log"][-1], p.stderr + repr(after))
+        p = run("show", moved)
+        check("show names the re-pointing", "project from: re-pointed" in p.stdout, p.stdout)
+        lst = os.path.join(tmp, "state-request", "agents", login, "jobs.json")
+        for field in ("branch", "worktree"):
+            doc = json.loads(open(lst, encoding="utf-8").read())
+            [j for j in doc["jobs"] if j["id"] == moved][0][field] = "x"
+            with open(lst, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
             p = run("project", moved, "another")
-            check("project refuses a closed job", p.returncode == 1 and "is dropped" in p.stderr
+            check(f"project refuses a job with a {field}, naming it", p.returncode == 1 and field in p.stderr
                   and [j for j in jobs() if j["id"] == moved][0]["project"] == "fixture-proj", p.stderr)
-            listed = len(jobs())
-            for seq, label, operator, reason in (
-                    ("18", "two projects register the repository", {"one": ["git@example.org:fixture-org/fixture-proj.git"],
-                                                                      "two": ["https://example.org/fixture-org/fixture-proj"]},
-                     "REPOSITORY fixture-org/fixture-proj ambiguous: one, two"),
-                    ("19", "the operator tree has no registry", None, "REPOSITORY fixture-org/fixture-proj: registry unreadable (FileNotFoundError: ")):
-                # A registry that is not JSON is covered on request_project in test_gzcoord_intake: identity.resolve_context
-                # reads the same file and fails every fabric command then, which is not the REQUEST's doing.
-                other = dict(env)
-                if operator is None:
-                    other["AGENT_FABRIC_OPERATOR"] = os.path.join(tmp, "operator-none")
-                else:
-                    other["AGENT_FABRIC_OPERATOR"] = write_operator_projects(os.path.join(tmp, "operator-dup"), operator)
-                p = subprocess.run([JOBS, "add", "--request", seq], cwd=repo_a, env=other, capture_output=True, text=True)
-                filed = jobs()[-1]
-                check(f"when {label} the REQUEST is filed by PROJECT with the reason, never refused", p.returncode == 0
-                      and len(jobs()) == listed + 1 and filed["project"] == "another"
-                      and filed["project_from"].startswith("PROJECT: ") and reason in filed["project_from"], p.stdout + p.stderr + repr(filed))
-                listed += 1
-                p = subprocess.run([JOBS, "show", filed["id"]], cwd=repo_a, env=other, capture_output=True, text=True)
-                check(f"show prints the reason when {label}", "project from: PROJECT: " in p.stdout and reason in p.stdout, p.stdout)
-            p = run("add", "a titled job", "--project", "fixture-proj")
-            check("a job added with --project records it as the source of its project", jobs()[-1].get("project_from") == "--project", repr(jobs()[-1]))
-            p = run("add", "--owner", "host/boss", "--project", "fixture-proj", "--", "sent (REQUEST 01a09fc1-0000-7000-8000-0000000000f1)")
-            check("a jobs-add of the sending side (--owner) for a REQUEST says so in project from", p.returncode == 0
-                  and "sending side" in jobs()[-1].get("project_from", ""), repr(jobs()[-1]))
-            p = run("add", "--project", "fixture-proj", "--", "by hand (REQUEST 01a09fc1-0000-7000-8000-0000000000f2)")
-            check("the same add by a person is plain --project", jobs()[-1].get("project_from") == "--project", repr(jobs()[-1]))
-            p = run("project", "j99", "another")
-            check("project names an unknown job", p.returncode == 1 and "no job j99" in p.stderr, p.stderr)
-            # inbox exits 2 for a control channel too; only its own
-            # {"addressed": false} answer means "not for this login".
-            p = subprocess.run([JOBS, "add", "--request", "11", "--working-copy", repo_a], cwd=repo_a,
-                               env={**env, "GZCOORD_CHANNEL": "fixture:control"}, capture_output=True, text=True)
-            check("an inbox refusal is said as itself, not as 'not addressed'", p.returncode == 1
-                  and "cannot read message 11" in p.stderr and "not addressed" not in p.stderr, p.stderr)
-            # A bound no interpreter start can meet: the refusal does not depend on the host's load (more load only
-            # makes the call later), and the same call under the suite's bound above just succeeded.
-            listed = len(jobs())
-            p = subprocess.run([JOBS, "add", "--request", "13", "--working-copy", repo_a], cwd=repo_a,
-                               env={**env, "FABRIC_INBOX_REPLAY_WAIT_S": "0.001"}, capture_output=True, text=True)
-            check("a replay past its bound is refused, naming the bound, and adds nothing", p.returncode == 1
-                  and "cannot read message 13: the relay did not answer within 0.001 s" in p.stderr and len(jobs()) == listed, p.stderr)
-            for bad in ("0", "-1", "abc", "nan", "inf", ""):
-                p = subprocess.run([JOBS, "add", "--request", "13", "--working-copy", repo_a], cwd=repo_a,
-                                   env={**env, "FABRIC_INBOX_REPLAY_WAIT_S": bad}, capture_output=True, text=True)
-                check(f"a malformed bound is refused by name, never replaced by the default: {bad!r}", p.returncode == 1
-                      and "FABRIC_INBOX_REPLAY_WAIT_S must be a positive number of seconds" in p.stderr and len(jobs()) == listed, p.stderr)
-        finally:
-            relay.shutdown()
-            relay.server_close()
+            doc = json.loads(open(lst, encoding="utf-8").read())
+            [j for j in doc["jobs"] if j["id"] == moved][0].pop(field)
+            with open(lst, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+        # The refusals F1/F4 of the review: each fails when its guard is removed.
+        force(moved, "dropped", reason="a test")
+        p = run("project", moved, "another")
+        check("project refuses a closed job", p.returncode == 1 and "is dropped" in p.stderr
+              and [j for j in jobs() if j["id"] == moved][0]["project"] == "fixture-proj", p.stderr)
+        listed = len(jobs())
+        for seq, label, operator, reason in (
+                ("18", "two projects register the repository", {"one": ["git@example.org:fixture-org/fixture-proj.git"],
+                                                                  "two": ["https://example.org/fixture-org/fixture-proj"]},
+                 "REPOSITORY fixture-org/fixture-proj ambiguous: one, two"),
+                ("19", "the operator tree has no registry", None, "REPOSITORY fixture-org/fixture-proj: registry unreadable (FileNotFoundError: ")):
+            # A registry that is not JSON is covered on request_project in test_gzcoord_intake: identity.resolve_context
+            # reads the same file and fails every fabric command then, which is not the REQUEST's doing.
+            other = dict(env)
+            if operator is None:
+                other["AGENT_FABRIC_OPERATOR"] = os.path.join(tmp, "operator-none")
+            else:
+                other["AGENT_FABRIC_OPERATOR"] = write_operator_projects(os.path.join(tmp, "operator-dup"), operator)
+            p = subprocess.run([JOBS, "add", "--request", msg_id(seq)], cwd=repo_a, env=other, capture_output=True, text=True)
+            filed = jobs()[-1]
+            check(f"when {label} the REQUEST is filed by PROJECT with the reason, never refused", p.returncode == 0
+                  and len(jobs()) == listed + 1 and filed["project"] == "another"
+                  and filed["project_from"].startswith("PROJECT: ") and reason in filed["project_from"], p.stdout + p.stderr + repr(filed))
+            listed += 1
+            p = subprocess.run([JOBS, "show", filed["id"]], cwd=repo_a, env=other, capture_output=True, text=True)
+            check(f"show prints the reason when {label}", "project from: PROJECT: " in p.stdout and reason in p.stdout, p.stdout)
+        p = run("add", "a titled job", "--project", "fixture-proj")
+        check("a job added with --project records it as the source of its project", jobs()[-1].get("project_from") == "--project", repr(jobs()[-1]))
+        p = run("add", "--owner", "host/boss", "--project", "fixture-proj", "--", "sent (REQUEST 01a09fc1-0000-7000-8000-0000000000f1)")
+        check("a jobs-add of the sending side (--owner) for a REQUEST says so in project from", p.returncode == 0
+              and "sending side" in jobs()[-1].get("project_from", ""), repr(jobs()[-1]))
+        p = run("add", "--project", "fixture-proj", "--", "by hand (REQUEST 01a09fc1-0000-7000-8000-0000000000f2)")
+        check("the same add by a person is plain --project", jobs()[-1].get("project_from") == "--project", repr(jobs()[-1]))
+        p = run("project", "j99", "another")
+        check("project names an unknown job", p.returncode == 1 and "no job j99" in p.stderr, p.stderr)
+        # A relay seq is no longer read: the inbox refuses it as itself, and that is said as the inbox's line.
+        p = subprocess.run([JOBS, "add", "--request", "11", "--working-copy", repo_a], cwd=repo_a,
+                           env=env, capture_output=True, text=True)
+        check("an inbox refusal is said as itself, not as 'not addressed'", p.returncode == 1
+              and "cannot read message 11: " in p.stderr and "--replay takes a MESSAGE-ID, and 11 is not one" in p.stderr
+              and "not addressed" not in p.stderr, p.stderr)
+        # A bound no interpreter start can meet: the refusal does not depend on the host's load (more load only
+        # makes the call later), and the same call under the suite's bound above just succeeded.
+        listed = len(jobs())
+        p = subprocess.run([JOBS, "add", "--request", msg_id("13"), "--working-copy", repo_a], cwd=repo_a,
+                           env={**env, "FABRIC_INBOX_REPLAY_WAIT_S": "0.001"}, capture_output=True, text=True)
+        check("a replay past its bound is refused, naming the bound, and adds nothing", p.returncode == 1
+              and f"cannot read message {msg_id('13')}: the relay did not answer within 0.001 s" in p.stderr and len(jobs()) == listed, p.stderr)
+        for bad in ("0", "-1", "abc", "nan", "inf", ""):
+            p = subprocess.run([JOBS, "add", "--request", msg_id("13"), "--working-copy", repo_a], cwd=repo_a,
+                               env={**env, "FABRIC_INBOX_REPLAY_WAIT_S": bad}, capture_output=True, text=True)
+            check(f"a malformed bound is refused by name, never replaced by the default: {bad!r}", p.returncode == 1
+                  and "FABRIC_INBOX_REPLAY_WAIT_S must be a positive number of seconds" in p.stderr and len(jobs()) == listed, p.stderr)
 
         # Blocking, derived (ADR-037 rule 8): a queued job whose request an
         # account waits on ranks blocking, its stored priority kept.
