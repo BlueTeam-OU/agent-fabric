@@ -546,3 +546,29 @@ ADR-029 rule 18 alone for keeping install and update on the relay, since
 rule 12 points to rule 14 (round 3, F12). Install, update, restart
 and stop stay as they were. The local command and the watch's exit text
 are python-dev's to build.
+
+### Amendment 2026-11-26 — A pair that did not answer is started again before a rollback
+
+On 2026-11-26 the move of the pin from InterWeave 0.3.0 to 0.4.0 left
+accounts dark. After the install restarted both units, the channel
+check failed on accounts under host load, and rule 14 then put back the
+0.3.0 programs. Started by hand with the start's longer status wait,
+the same 0.4.0 programs came up on two accounts at host load 40 to 53:
+the carrier verifies the roster before it opens its socket, and the
+restart's check gave it less time than the start does. The rollback
+itself did not bring the account back: the pinned human-facing program
+refuses the 0.3.0 one, so programs that were "back" were not carrying,
+and the reply did not say so. One start was refused twice because the
+previous daemon's closed connection held its port in TIME_WAIT for the
+kernel's 60 seconds; it succeeded minutes later. So, when both units
+ran, the manager answered and the login resolves, a failed check now
+stops both and starts them once, as a start does, before any rollback,
+and a failure of that stop or start goes on to it; a rollback onto
+programs the pin refuses is reported as not carrying, with the pin's
+refusal; and the signed start, and the retry's start, wait up to 75 seconds
+for a port held only in TIME_WAIT when the pair is not both running
+and the daemon is not active, while any other holder refuses it at
+once; the account's self-start does not look at the port. `install.sh` is
+not run again for the retry: its programs are in place and match the
+pin. Built by python-dev-04 on #715 (REQUEST 01a21930, j165); the rule
+text is the coordinator's (j1116).
