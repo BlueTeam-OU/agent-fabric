@@ -129,6 +129,11 @@ class AuthorityUnreadable(RuntimeError):
     refusal: judging without it would narrow the check, never widen it."""
 
 
+class OperatorUnreadable(AuthorityUnreadable):
+    """The base keeps no operator tree and the operator repository could not be read: the one refusal a run whose
+    authority gate is elsewhere may set aside (tests/run.py, AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE)."""
+
+
 def carries_engine(top: str, base: str) -> bool:
     """Whether the BASE commits the engine (ENGINE_MARKER). The base alone: which repository is agent-fabric
     itself is the base's to say, so a branch that deletes the marker does not narrow the check, and a managed
@@ -187,7 +192,7 @@ def _operator_authority(base: str, environ: Mapping[str, str] | None) -> FabricA
         # choose which operator this account trusts.
         repo = os.path.abspath(repo or roots.operator_clone(pwd.getpwuid(os.getuid()).pw_dir))
     except KeyError:
-        raise AuthorityUnreadable(f"cannot read {source}: this login has no home directory to find the "
+        raise OperatorUnreadable(f"cannot read {source}: this login has no home directory to find the "
                                   f"operator's clone in, and {ENV_OPERATOR_GIT} is not set") from None
     git_env = {k: v for k, v in os.environ.items() if k not in _REPO_POINTING}
     # A directory that is no repository would otherwise be answered by whatever checkout encloses it.
@@ -203,7 +208,7 @@ def _operator_authority(base: str, environ: Mapping[str, str] | None) -> FabricA
         why = (lines or [f"git exit {r.returncode}"])[-1]
     except (OSError, subprocess.SubprocessError) as e:
         why = str(e)
-    raise AuthorityUnreadable(
+    raise OperatorUnreadable(
         f"cannot read {source} in the operator repository {repo} ({why}): {base} keeps no operator tree, so the "
         f"fabric's authority is the operator's (set {ENV_OPERATOR_GIT}, or clone it there), and this check refuses "
         "rather than narrow to what it can read")

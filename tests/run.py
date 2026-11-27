@@ -90,14 +90,31 @@ WATCHER = ("import os, shutil, sys, time\n"
 # interpreter running this file, which is the host's (CI's matrix sets it), never a pin.
 PY = sys.executable
 AUTHORITY_BASE = {"AGENT_FABRIC_CHARTER_BASE": "origin/main"}
+AUTHORITY_GUARDS = (".agent-fabric/ authority (this branch)", "charter authority (this branch)")
 BASH_SUITES: list[tuple[str, dict[str, str], list[str]]] = [
-    (".agent-fabric/ authority (this branch)", AUTHORITY_BASE, [PY, "tools/fabric/guards/agent_fabric_dir_authority.py"]),
-    ("charter authority (this branch)", AUTHORITY_BASE, [PY, "tools/fabric/guards/charter_authority.py", "{root}"]),
+    (AUTHORITY_GUARDS[0], AUTHORITY_BASE, [PY, "tools/fabric/guards/agent_fabric_dir_authority.py"]),
+    (AUTHORITY_GUARDS[1], AUTHORITY_BASE, [PY, "tools/fabric/guards/charter_authority.py", "{root}"]),
     ("actions pinned by SHA (this tree)", {}, [PY, "policies/check_actions_pinned_by_sha.py"]),
     ("attribution (this branch)", {"AGENT_FABRIC_ATTRIBUTION_BASE": "origin/main"}, [PY, "tools/fabric/guards/ban_generated_by_attribution.py"]),
     ("signatures (this branch)", {"AGENT_FABRIC_SIGNATURES_BASE": "origin/main"}, [PY, "tools/fabric/guards/ban_unsigned_commits.py"]),
     ("decision-record amendments (this branch)", {"AGENT_FABRIC_ADR_BASE": "origin/main"}, [PY, "tools/fabric/adr.py", "range-check"]),
 ]
+# After docs/split/move-plan.md step D the two authority guards read the operator repository's main, and refuse (exit 2)
+# where no operator is readable (ADR-045 rule 7). A CI job whose authority gate is another step (ci.yml's authority step
+# in guards-and-suites, which alone is handed the operator) says so with this variable set to 1: there, and only there,
+# that one refusal is said as NOT ENFORCED and not counted. Unset, it stays a failure: a local run must stay loud.
+GATED_ELSEWHERE_VARIABLE = "AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE"
+# Asks the branch's contributors.fabric_authority, in the guard's environment, whether the operator is what it could not
+# read (OperatorUnreadable, not any other refusal): exit 3 and the reason when it is, anything else when not. A child,
+# so this file imports nothing of tools/ (test_run's trees hold only what a case puts there).
+OPERATOR_PROBE = ("import sys\n"
+                  "sys.path.insert(0, sys.argv[1])\n"
+                  "import contributors\n"
+                  "try:\n"
+                  "    contributors.fabric_authority(sys.argv[2], sys.argv[3])\n"
+                  "except contributors.OperatorUnreadable as e:\n"
+                  "    print(e)\n"
+                  "    sys.exit(3)\n")
 
 
 # Commands the python runner's pool runs besides tests/test_*.py, under these headers.
@@ -283,6 +300,18 @@ def invoke(label: str | None, argv: list[str], env: dict[str, str], cwd: str, gr
         raise
 
 
+def operator_unreadable(env: dict[str, str]) -> str:
+    """Why the operator's authority.json cannot be read for this checkout, as the guards would read it; "" when it can,
+    or when the probe could not say (then the guard's refusal stands)."""
+    try:
+        r = subprocess.run([PY, "-I", "-c", OPERATOR_PROBE, os.path.join(ROOT, "tools", "fabric", "guards"), ROOT,
+                            env.get("AGENT_FABRIC_CHARTER_BASE", "origin/main")],
+                           cwd=ROOT, env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return (r.stdout.strip() or "the operator is unreadable") if r.returncode == 3 else ""
+
+
 def leak_snapshot(directory: str) -> list[str]:
     try:
         return sorted(os.listdir(directory))
@@ -439,7 +468,14 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
             # copy, run isolated in a step before this script (ci.yml), since a contributor's tests and modules run
             # here first (docs/live-checks/2026-10-01-guard-shadowing.md).
             for label, extra, cmd in BASH_SUITES:
-                failed += invoke(label, [ROOT if a == "{root}" else a for a in cmd], {**env, **extra}, ROOT) != 0
+                status = invoke(label, [ROOT if a == "{root}" else a for a in cmd], {**env, **extra}, ROOT)
+                if status == 2 and label in AUTHORITY_GUARDS and env.get(GATED_ELSEWHERE_VARIABLE) == "1":
+                    why = operator_unreadable({**env, **extra})
+                    if why:
+                        print(f"{PROG}: {label}: NOT ENFORCED here, {why}; {GATED_ELSEWHERE_VARIABLE}=1: CI's authority "
+                              "step, handed the operator, is this branch's authority gate", flush=True)
+                        continue
+                failed += status != 0
         print(flush=True)
         failed += leak_report(scratch, before)
         if failed:

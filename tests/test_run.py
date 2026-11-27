@@ -532,6 +532,50 @@ def main() -> int:
               r.returncode == 1 and "tests/run.py: 2 suite(s) FAILED" in r.stdout and "/nonexistent/command could not be started" in r.stderr,
               (r.returncode, r.stdout, r.stderr))
 
+        print("the authority guards past move-plan step D: an unreadable operator is NOT ENFORCED only where the gate is elsewhere")
+        # An engine whose origin/main keeps no operator tree, as after step D, with the branch's own contributors.py: the
+        # probe run.py asks is the real one. The guards are stand-ins that refuse (exit 2) or fail (exit 1).
+        fabric = os.path.join(ROOT, "tools", "fabric")
+        with open(os.path.join(fabric, "roots.py"), encoding="utf-8") as fh:
+            roots_text = fh.read()
+        with open(os.path.join(fabric, "guards", "contributors.py"), encoding="utf-8") as fh:
+            contributors_text = fh.read()
+        base = fresh(files={"tests/placeholder": "", "tools/fabric/roots.py": roots_text,
+                            "tools/fabric/guards/contributors.py": contributors_text})
+        for argv in (["commit", "-q", "-m", "the engine, no operator tree"], ["update-ref", "refs/remotes/origin/main", "HEAD"]):
+            subprocess.run(["git", "-C", base, *argv], check=True, capture_output=True, env=env(base))
+        opsrc = os.path.join(os.path.dirname(base), "operator")
+        write(os.path.join(opsrc, "policies", "authority.json"), '{"role_definitions": {"role": "op-owner"}}\n')
+        for argv in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "the operator's authority"]):
+            subprocess.run(["git", "-C", opsrc, *argv], check=True, capture_output=True, env=env(base))
+        nowhere = {"AGENT_FABRIC_OPERATOR_GIT": os.path.join(os.path.dirname(base), "op-nowhere")}
+        gated = {"AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE": "1"}
+
+        def authority_run(entries: str, **extra: str) -> subprocess.CompletedProcess:
+            script = ("import sys\nsys.path.insert(0, 'tests')\nimport run\nA, B = run.AUTHORITY_GUARDS\n"
+                      f"run.BASH_SUITES[:] = {entries}\nsys.exit(run.main(['bash']))\n")
+            return subprocess.run([sys.executable, "-c", script], cwd=base, env=env(base, **extra), capture_output=True,
+                                  text=True, timeout=120)
+
+        both_refuse = "[(A, run.AUTHORITY_BASE, ['sh', '-c', 'exit 2']), (B, run.AUTHORITY_BASE, ['sh', '-c', 'exit 2'])]"
+        r = authority_run(both_refuse, **nowhere, **gated)
+        check("gated elsewhere, no operator readable: each refusal is one NOT ENFORCED line naming why, and the run passes",
+              r.returncode == 0 and r.stdout.count("NOT ENFORCED") == 2 and "operator repository" in r.stdout
+              and "tests/run.py: all suites passed" in r.stdout, (r.returncode, r.stdout, r.stderr))
+        r = authority_run(both_refuse, **nowhere)
+        check("without the variable the same refusals fail the run: a local run stays loud",
+              r.returncode == 1 and "tests/run.py: 2 suite(s) FAILED" in r.stdout and "NOT ENFORCED" not in r.stdout,
+              (r.returncode, r.stdout, r.stderr))
+        r = authority_run(both_refuse, **gated, AGENT_FABRIC_OPERATOR_GIT=opsrc, AGENT_FABRIC_OPERATOR_REF="main")
+        check("gated elsewhere, but the operator is readable: the refusal is the guard's own, and counts",
+              r.returncode == 1 and "tests/run.py: 2 suite(s) FAILED" in r.stdout and "NOT ENFORCED" not in r.stdout,
+              (r.returncode, r.stdout, r.stderr))
+        r = authority_run("[(A, run.AUTHORITY_BASE, ['sh', '-c', 'exit 1']), ('another guard', run.AUTHORITY_BASE, ['sh', '-c', 'exit 2'])]",
+                          **nowhere, **gated)
+        check("gated elsewhere: a guard's verdict (exit 1) and another entry's exit 2 still count",
+              r.returncode == 1 and "tests/run.py: 2 suite(s) FAILED" in r.stdout and "NOT ENFORCED" not in r.stdout,
+              (r.returncode, r.stdout, r.stderr))
+
         print("a case whose run never reaches the state it signals in reports that, once, and ends the run")
         # wait_until reports through check(), which would fail this file: its calls are captured here, and judged below.
         global capture
