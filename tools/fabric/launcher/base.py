@@ -64,7 +64,9 @@ RESTART_WAIT_S = 600
 
 OPENING = ("Session start: arm your GZCoord inbox watch now, exactly as the session-start context's "
            "NO INBOX WATCH line gives it (with no such line, as the gzcoord-receive skill says); "
-           "run it again after each delivery or when its timeout stopped it, and on any other exit "
+           "run it again after each delivery, when its deadline ended it quiet, when its timeout stopped it or when it gave up "
+           "on an unreachable relay (exit 5), "
+           "and on any other exit "
            "read the reason instead of running it again. Then take your next job as the session-start "
            "context's jobs line says; wait for instructions only when nothing is queued.")
 

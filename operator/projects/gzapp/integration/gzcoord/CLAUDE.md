@@ -45,8 +45,10 @@ block and the person copies it into the receiving session's prompt
   `gzcoord-inbox --until-delivery`,
   which blocks quietly and exits on the first delivery addressed to this
   session, waking you once per delivery; read the output, act, and run it
-  again after a delivery (exit 0) or after the timeout stopped it; on any
-  other exit read the reason and do not run it again until it is fixed.
+  again after a delivery (exit 0), after the timeout stopped it, or after
+  it gave up on an unreachable relay (exit 5: its 15 minutes were the
+  pause); on any other exit read the reason and do not run it again until
+  it is fixed.
   Never a Monitor: its 30-minute cap rang every quiet half hour
   (the owner, 2026-10-10). The
   `gzcoord-receive` skill has the exact call. A **resume** does not restore

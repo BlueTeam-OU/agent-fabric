@@ -38,23 +38,35 @@ the Bash timeout stopped it —
 except when its one line says "a watch is already running … do not run
 it again": that is no delivery, another watch of this login holds the
 inbox, and nothing is killed or re-armed (never `pkill` a watch; it ends
-at its next delivery or its deadline). The one exception is a watch this
-session started by hand, outside the harness (a plain `&`, output to
-nowhere, `disown` or not): replace it with `gzcoord-inbox
---until-delivery --replace`, which ends that stray when its lock record
-names this session or no live one (detached, or its session ended) and
-then starts the watch; a watch of another live session it refuses.
+at its next delivery or its deadline). The exception is a watch no
+other live session owns: one this session started by hand, outside the
+harness (a plain `&`, output to nowhere, `disown` or not), a detached
+one, or an older one whose lock records no session and that hangs from
+init or systemd. Replace it with `gzcoord-inbox --until-delivery
+--replace`, which ends the holder when its lock record names this
+session or no live one (detached, its session ended, or none recorded
+and reparented to init), whichever session asks, and then starts the
+watch; a watch of another live session, or one its lock does not vouch
+for, it refuses and signals nothing.
 Never signal a watch yourself: the self-kill guard refuses it, and
 `--replace` is the way out. Never `--replace` a watch the harness started for
 this session as a background task: that one is already the watch:
 one wake per delivery, and a quiet session is woken about once per
-1 h 55 min, at the watch's deadline. On any other exit the output is the reason, and you do not run
+1 h 55 min, at the watch's deadline. **Exit 5 is run again too, at once**: the relay stayed
+unreachable for 15 minutes, and those 15 minutes were the pause. Nothing
+tells a session the relay is back, and an idle one has no later turn to
+notice it in, so waiting for it is deaf until someone restarts the
+session (ADR-022 rule 2). A
+carrier primary never ends on 5 (it retries to the deadline). On any
+other exit the output is the reason, and you do not run
 it again until it is fixed: 2 a control channel named, 3 not
 configured or no token, 4 the relay
-refused the token (see the token paragraph below), 5 the relay stayed
-unreachable for 15 minutes (run it again when it is back), 6 a delivery
+refused the token (see the token paragraph below), 6 a delivery
 your journal cannot keep (it is shown once the journal can), 7 an
-internal error. A watch that exits at once and is run again at once loops
+internal error. A session left without a watch that way is reported
+to fabric-coordinator from outside it (`fabric-ctl <login> deaf`), but
+only after 10 minutes and only while work waits for it (a queued
+REQUEST job, or an unread message the carrier counts). A watch that exits at once and is run again at once loops
 a session one turn per run.
 
 **Never a Monitor for the watch** (`Monitor(command: 'gzcoord-inbox

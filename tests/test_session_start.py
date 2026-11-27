@@ -670,6 +670,16 @@ def test_inbox_watch_reads_both_spellings(tmp: str) -> None:
         sys.modules.update(saved)
 
 
+def test_receive_skill_reruns_the_watch_after_a_relay_give_up(tmp: str) -> None:
+    """The skill says what the NO INBOX WATCH line says about exit 5 (ADR-022 rule 2): run it again at once. "Run it again
+    when it is back" left idle sessions deaf for days (j1044). The projects' snippets, instance data, are checked by
+    tests/test_session_commands.py, which reads the operator's session texts on purpose."""
+    with open(os.path.join(ROOT, "communication", "gzcoord", "skills", "gzcoord-receive", "SKILL.md"), encoding="utf-8") as fh:
+        skill = " ".join(fh.read().split())
+    assert "Exit 5 is run again too, at once" in skill, "gzcoord-receive §1 lost the exit-5 re-run"
+    assert "when it is back" not in skill, "gzcoord-receive §1 still waits for the relay"
+
+
 def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     """Under a process named claude with no `gzcoord-inbox --until-delivery` (or `--follow`) beneath it,
     the context says to arm the watch; with one beneath it, it does not."""
@@ -711,6 +721,8 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     said = context_of(bare)
     assert "run_in_background: true" in said and "--until-delivery" in said and "Never a Monitor" in said, said
     assert "do not run it again until it is fixed" in said, said
+    # A relay give-up is run again: waiting for the relay to come back left idle sessions deaf for days (j1044).
+    assert "after it gave up on an unreachable relay (exit 5" in said, said
     bare_env = {k: v for k, v in env.items() if k not in ("CLAUDE_BRIDGE_URL", "GZCOORD_CHANNEL")}
     unconfigured = subprocess.run([fake], capture_output=True, text=True, env=bare_env)
     assert "NO INBOX WATCH" not in context_of(unconfigured), "GZCoord is not configured here: " + unconfigured.stdout
@@ -1211,6 +1223,7 @@ def main() -> int:
              test_hook_seals_the_session_shell,
              test_hook_starts_without_the_seal_file,
              test_hook_says_when_the_session_has_no_inbox_watch,
+             test_receive_skill_reruns_the_watch_after_a_relay_give_up,
              test_inbox_watch_reads_both_spellings,
              test_hook_says_when_the_branch_sweep_is_due,
              test_hook_says_the_job_list,

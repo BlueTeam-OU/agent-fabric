@@ -121,6 +121,15 @@ def test_the_watch_the_hook_prescribes_is_a_bare_command() -> None:
     assert m and m.group(1).split()[0] in DOC["commands"] and "$" not in m.group(1), m and m.group(1)
 
 
+def test_every_project_snippet_reruns_the_watch_after_a_relay_give_up() -> None:
+    """Each project's snippet lists exit 5 among the exits the watch is run again after (ADR-022 rule 2, j1044): one
+    that still said "when the relay is back" left an idle session deaf for days."""
+    snippets = glob.glob(os.path.join(ROOT, "projects", "*", "integration", "gzcoord", "CLAUDE.snippet.md"))
+    assert snippets, "no project snippet found"
+    for path in snippets:
+        with open(path, encoding="utf-8") as fh:
+            assert "gave up on an unreachable relay, exit 5" in fh.read(), path
+
 def main() -> int:
     cases = [
         test_the_projects_session_texts_are_among_those_read,
@@ -130,6 +139,7 @@ def main() -> int:
         test_no_session_facing_text_runs_a_command_through_an_expansion,
         test_the_scan_catches_every_spelling_it_replaced,
         test_the_watch_the_hook_prescribes_is_a_bare_command,
+        test_every_project_snippet_reruns_the_watch_after_a_relay_give_up,
     ]
     failed = 0
     for case in cases:

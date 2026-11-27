@@ -101,7 +101,12 @@ the same command asks on one account and not on another.
    --follow`) runs under the session; the watch is never a Monitor, whose
    30-minute cap rang the Fleet Deck every quiet half hour; the
    workspace settings also drain the inbox once at session
-   start, which a hold does not stop.
+   start, which a hold does not stop. The line, the opening prompt and
+   the gzcoord-receive skill say when the watch is run again: after a
+   delivery, a quiet end at its deadline, its Bash timeout, and a give-up
+   on an unreachable relay (exit 5), whose 15 minutes are the pause; on
+   any other exit the session reads the reason and does not
+   (A 2026-11-27).
 3. One watch per session: the cursor is per address, and a second
    consumer steals deliveries from the first. The watch is run by the bare
    command name, never through an expansion (ADR-009 §5 rule 8).
@@ -267,3 +272,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-10-27 | A fresh launch starts in the job's own dirty working copy | §5 rule 12 |
 | 2026-10-28 | The sweep deletes the login's own merged branches on origin | §5 rule 11: under `<host>/<login>/`, on the default branch, heading no open PR (#416) |
 | 2026-10-30 | A fresh launch starts in the job's worktree; the session carries the verified fabric root | §5 rule 12: worktree before working copy, `AGENT_FABRIC_ROOT` exported, a behind fabric checkout named (#432) |
+| 2026-11-27 | A watch that gave up on the relay is run again | §5 rule 2: exit 5 joins delivery, quiet end and timeout; every other non-zero exit is still read, not re-run |
