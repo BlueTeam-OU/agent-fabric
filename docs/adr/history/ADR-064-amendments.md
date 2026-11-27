@@ -572,3 +572,34 @@ once; the account's self-start does not look at the port. `install.sh` is
 not run again for the retry: its programs are in place and match the
 pin. Built by python-dev-04 on #715 (REQUEST 01a21930, j165); the rule
 text is the coordinator's (j1116).
+
+### Amendment 2026-11-27 — The second host's firewall admission is provisioned
+
+Rule 1 said a second host's firewall admits the roster's range from the
+coordinator's address or, behind a public forward, from any source. It
+did not say who makes that admission. On 2026-11-27 the owner said the
+provider's forward 195.69.140.18 → fabric-h2 was implemented. The probe
+from develop-qzapp
+(`operator/docs/live-checks/2026-11-27-fabric-h2-public-forward.md`)
+reached the VM, and fabric-h2's firewalld rejected the range: its zone
+admits ssh, cockpit and dhcpv6-client and no port. `fabric-host persist`
+makes the port reservation only. A port opened by hand would be lost the
+way the hand-made sysctl was (A 2026-11-01), and nothing would read it
+back.
+
+The registry entry now carries `interweave_admit`: `any` where
+`interweave_address` is a public forward admitted from any source on the
+owner's word (#597, 2026-11-14), else the coordinator's host's address
+or CIDR as the second host sees it. The schema requires it with
+`interweave_address`, so a host whose profiles listen on the wildcard
+cannot be registered without a word on who may connect. A host with
+neither field keeps its profiles on loopback and gets no admission.
+
+`fabric-host <host> persist` makes the admission in the host's firewall
+from the roster's `port_range` and that field, permanent and live, and
+reads it back. A host whose firewall it cannot read or set is a failure
+of the step. Under-admitting is visible: the start's own read and the
+outside probe fail. Over-admitting is not, so the step never opens
+wider than the field says. The whole range is admitted, not only the
+placed profiles' ports, as #597 chose. TCP only: every carrier listener
+measured is TCP.

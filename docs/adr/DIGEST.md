@@ -1554,6 +1554,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-18 — InterWeave alone for control: install/start/stop by break-glass; the read over InterWeave, then break-glass after 30 s (rule 14).
 - A 2026-11-18 — the account's own login starts its own carrier when both units are down but enabled and the pin is installed and no failed self-start's mark stands, unsigned, under the account's lock; install/update/restart/stop stay control actions (rule 14).
 - A 2026-11-26 — a failed check of two running units is answered by one stop and start before a rollback; a rollback onto programs the pin refuses reads not carrying; the signed start waits up to 75 s for TIME_WAIT on its port (rule 14).
+- A 2026-11-27 — persist opens the second host's firewall on the roster's range for `interweave_admit` (`any` or an address) (rule 1).
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)

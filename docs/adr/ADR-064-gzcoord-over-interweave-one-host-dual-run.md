@@ -168,10 +168,15 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    it: the second host cannot dial back. Its profiles listen on the
    wildcard at their roster ports, and its firewall admits the roster's
    range only from the coordinator's host's address as the second host
-   sees it. Where that host has no fixed address (A 2026-11-14), the
+   sees it. The registry entry says who is admitted (`interweave_admit`,
+   required with `interweave_address`), and `fabric-host <host> persist`
+   makes the admission in the host's firewall and keeps it across a
+   reboot, as it makes the reservation; a host whose firewall it cannot
+   set, or that names no admission, is a failure of the step, never a
+   host left open (A 2026-11-27). Where that host has no fixed address (A 2026-11-14), the
    operator's record may instead name a public address forwarded to the
    second host on the same ports and admitted from any source, on the
-   owner's word; the registry's `interweave_address` is then that public
+   owner's word (`interweave_admit: "any"`); the registry's `interweave_address` is then that public
    address, admission is the roster's PeerId allowlist alone, and the
    record states the transport's handshake and parser, reachable from
    the internet, as a known limit for that host. InterWeave
@@ -496,3 +501,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-18 | The carrier's own ops when control rides InterWeave alone | rule 14: install, start and stop by the break-glass path; the read over InterWeave, read again by that path after 30 s (#656) |
 | 2026-11-18 | An account starts its own carrier | rule 14: its login starts its own carrier and daemon units when both are down but enabled and the pinned programs are installed, unsigned, under the account's install/start/stop lock, and only while no mark of a failed or interrupted self-start stands, with the same check; install, update, restart and stop stay control-plane actions |
 | 2026-11-26 | A pair that did not answer is started again before a rollback | rule 14: both running units that fail the check, the login resolved, are stopped and started once before the programs are put back; a rollback onto programs the pin refuses is reported not carrying; the signed start, its pair not both running, waits up to 75 s for TIME_WAIT on its own port, the self-start never (#715) |
+| 2026-11-27 | The second host's firewall admission is provisioned | rule 1: the registry's `interweave_admit` (`any`, or the coordinator's address) says who is admitted on the roster's range; `fabric-host <host> persist` makes it and keeps it, and fails rather than leave the host open |
