@@ -18,7 +18,7 @@ that name GZCoord more than three times, and every file that cites the protocol'
 | Transport documents: adapter contract, human relay; retired transports | `communication/gzcoord/{docs,history}/` | — | nothing |
 | The reference implementation: validator, compose, send, inbox, intake, bypass, i18n | `tools/fabric/gzcoord/`, `bin/gz*` | 4,750 lines | `identity` (who sends), `jobs` (intake queues a REQUEST, ADR-037), `episodic` (the journal, ADR-041), `roots`, `launch_locale`, `hidden_unicode`, `httpsafe`, the role catalogue |
 | The relay: unit, catch-up, the client side | `communication/gzcoord/runtime/`, `tools/fabric/relay*.py`, `inbox_parts/relay.py` | — | the operator account, its store's token (ADR-033 §5 rules 5–6) |
-| The session wiring: watch at launch, held while planning, drain at start, stop guard | `runtime/claude-code/hooks/{session-start,inbox-watch,watch-on-stop,self-kill-guard,job-copy-guard}.py`, `plan_hold.py` | — | the harness lifecycle (ADR-022) |
+| The session wiring: watch at launch, held while planning, drain at start, stop guard | `runtime/claude-code/hooks/{session-start,inbox-watch,watch-on-stop,self-kill-guard,inbox-pipe-guard,job-copy-guard}.py`, `plan_hold.py` | — | the harness lifecycle (ADR-022) |
 | The validations | `tests/test_gzcoord_*.py`, `communication/gzcoord/tests/parity/corpus.jsonl`, `tests/fixtures/gzcoord-operator/` | 6,460 lines | both: wire-level cases and implementation cases mixed in one file |
 | The decision records | ADR-032 (the contract), ADR-033 (transports), ADR-030 (presence); GZCoord parts of ADR-023, ADR-024, ADR-028, ADR-041 | — | — |
 

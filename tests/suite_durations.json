@@ -193,6 +193,7 @@
   "test_identity": 2.5,
   "test_identity_context": 2.3,
   "test_identity_writers": 0.6,
+  "test_inbox_pipe_guard": 2.2,
   "test_install_agent_files": 12.0,
   "test_install_agent_files_cli": 20.6,
   "test_install_fleetdeck": 0.7,

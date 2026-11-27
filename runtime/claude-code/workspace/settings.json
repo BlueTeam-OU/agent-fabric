@@ -86,6 +86,11 @@
           },
           {
             "type": "command",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"inbox-pipe-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/inbox-pipe-guard.py\"; [ -f \"$f\" ] && o=\"$(/usr/local/bin/fabric-python -I -S \"$f\")\" && { [ -z \"$o\" ] || printf '%s\\n' \"$o\"; exit 0; }; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The inbox pipe guard could not run (the fleet pinned Python /usr/local/bin/fabric-python or the guard file is missing, or the guard failed). Approve only if this command does not pipe or capture the output of a gzcoord-inbox run that consumes messages (the drain, --wait, --until-delivery, --follow).\"}}'",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"post-review-shape-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/post-review-shape-guard.py\"; [ -f \"$f\" ] && o=\"$(/usr/local/bin/fabric-python -I -S \"$f\")\" && { [ -z \"$o\" ] || printf '%s\\n' \"$o\"; exit 0; }; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The post-review shape guard could not run (the fleet pinned Python /usr/local/bin/fabric-python or the guard file is missing, or the guard failed). Approve only if this command runs no fabric-pr post-review, or runs it as the bare fabric-pr post-review <n> < <report>.\"}}'",
             "timeout": 5
           },

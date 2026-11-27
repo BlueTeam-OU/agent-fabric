@@ -65,6 +65,9 @@ GUARDS = {
     "self-kill-guard": ("runtime/claude-code/hooks/self-kill-guard.py", "PreToolUse",
                         "Approve only if this command kills nothing of this session's own: its claude, its shell "
                         "or its inbox watch."),
+    "inbox-pipe-guard": ("runtime/claude-code/hooks/inbox-pipe-guard.py", "PreToolUse",
+                         "Approve only if this command does not pipe or capture the output of a gzcoord-inbox run "
+                         "that consumes messages (the drain, --wait, --until-delivery, --follow)."),
     "post-review-shape-guard": ("runtime/claude-code/hooks/post-review-shape-guard.py", "PreToolUse",
                                 "Approve only if this command runs no `fabric-pr post-review`, or runs it as the bare "
                                 "`fabric-pr post-review <n> < <report>`."),
@@ -81,6 +84,7 @@ GUARDS = {
 }
 LABEL = {"agent-dispatch-guard": "The dispatch guard", "subagent-clone-guard": "The subagent clone guard",
          "pipe-status-guard": "The pipe-status guard", "self-kill-guard": "The self-kill guard",
+         "inbox-pipe-guard": "The inbox pipe guard",
          "post-review-shape-guard": "The post-review shape guard",
          "job-copy-guard": "The job copy guard", "model-switch-guard": "The model-switch guard",
          "review-fence": "The review-class fence"}
