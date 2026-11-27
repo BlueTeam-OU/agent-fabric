@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""runtime/claude-code/hooks/inbox-pipe-guard.py: a PreToolUse hook on Bash.
+
+Refuses a command that pipes the output of a CONSUMING gzcoord-inbox run into anything, and names the way out.
+
+WHY. On 2026-11-24 a session ran the bare drain piped into `head`/`tail`: it consumed three messages and the session
+saw only some of them. Reproduced on 2026-11-27 with the real show_page in tools/fabric/gzcoord/inbox.py: the page is
+printed, the shown ledger finished and the relay acknowledged BEFORE Python flushes stdout, so `| head -n 3` loses
+the rest of the page whatever its size; the BrokenPipe surfaces only at interpreter exit, after the messages are
+gone. A trailer line printed last would not survive `head` or `grep` either, so the fence is here, before the run.
+
+THE RULE. A consuming run's stdout goes to the session or to a file, never through a pipe or into another command.
+  - Consuming: every gzcoord-inbox run without --replay, --history or --held among its words: the drain (no flag),
+    --wait, --until-delivery, --follow, and --help/-h too, which inbox.py does not read, so they drain. The three are
+    matched as whole words, as inbox.py tests `"--replay" in argv`: `--replay=ID` drains.
+  - Refused: `|` or `|&` after the run in its pipeline (`2>&1 |` included), and `tee` with it: a pipe of any kind
+    keeps the rule one sentence, and a tee that is killed or filtered loses the same page. A run inside `$( … )`,
+    backticks or `<( … )`/`>( … )` is refused too: the page goes into another command, not the session.
+  - Allowed: the run bare, `> file`, `>> file`, `&> file` (the page is whole and can be read whole), and every run of
+    the three read-only modes, piped or not. Stdout to /dev/null is allowed: it is outside the loss this guard was
+    asked to fence (the page is discarded whole, not cut), and refusing it is the coordinator's call.
+
+WHICH WORDS ARE gzcoord-inbox. tools/fabric/cli canonical()'s to say (agent-fabric ADR-068 §5 rule 7), loaded through
+inbox-watch.py's loader, so `fabric gzcoord inbox …` is caught as `gzcoord-inbox …` is; a word is asked by its file
+name, as inbox-watch.py and self-kill-guard.py ask, so an absolute path to the link is one too. The module's own path
+(`…/gzcoord/inbox.py`) and the Node shim are known by name. A command table canonical() cannot read leaves the
+spelled names (self-kill-guard.py's fallback): "unreadable" is not "no drain".
+
+WHAT IS READ. Text the shell never runs is dropped first by post-review-shape-guard.py's live_text(): comments,
+single-quoted strings, quoted-delimiter heredoc bodies, given back when a shell, eval or ssh may run them. So
+`pgrep -f 'gzcoord-inbox --follow' | xargs kill` is no run, and `bash -c 'gzcoord-inbox | head'` is one. A word in
+argument position under a command that only reads or prints its arguments (READERS: `grep -rn gzcoord-inbox . |
+head`, `echo gzcoord-inbox | cat`) is a mention, not a run; under anything else (a wrapper, an interpreter, a
+program not listed) every word is asked, so `timeout 60 gzcoord-inbox --wait 5 | head` and `python3 -I
+bin/gzcoord-inbox | head` are runs. A double-quoted word is one word: `git commit -m "gzcoord-inbox | head"` holds no
+pipe.
+
+FLAT, AND CLOSED WHERE IT IS NOT. The command is judged as pipelines of simple commands, split on `;`, `&&`, `||`,
+`&` and newlines. Groups, compound commands, substitutions and runners are not followed: when the command holds any
+of them (`(`, `{`, `}`, `fi`, `done`, `esac`, `$(`, a backtick, `<(`, `>(`, a RUNNERS word) and a consuming run found
+by a loose scan of every word (mention or run alike, readers not exempt), it is refused if it also holds a `|`
+anywhere or a substitution. Runners are in the list because live_text gives their quoted payload back at the end of
+the text, not where it stood, and a double-quoted `bash -c "…"` payload is one word to the lexer. A nesting-aware
+reading of bash lost review rounds in both directions for the two sibling guards that tried (their headers say so); a
+false deny costs a rephrase (`gzcoord-inbox; ( cd x && git log | head )` is one), a false allow costs messages.
+
+SUBAGENTS. Judged as the session is: a subagent's Bash call drains the same login's inbox, and a page it filters is
+lost to the session the same way.
+
+FAILURE. A payload that is not JSON, or no string command, is passed: exit 0, nothing printed, as every sibling. Any
+other failure to decide exits non-zero with nothing on stdout, which hook_entry.py and the settings fallback both
+turn into an ask (their cannot_run / fallback line).
+
+Output: one deny decision on stdout, or nothing.
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import re
+import shlex
+import sys
+
+sys.dont_write_bytecode = True   # the siblings it loads by path leave no __pycache__ in the tree
+HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
+INBOX = "gzcoord-inbox"
+INBOX_SPOKEN = ("fabric", "gzcoord", "inbox")
+# canonical() needs at most `fabric <noun> <verb>` to name a command.
+NAMING_WORDS = 3
+# inbox.py reads these three as whole argv words, and each of them neither drains nor acknowledges.
+READ_ONLY = {"--replay", "--history", "--held"}
+MODULE_SUFFIX = "/gzcoord/inbox.py"
+# Programs that only read or print their arguments: under one of these, a word that names the drain is a mention.
+# Short on purpose and owned here: post-review-shape-guard's PLAIN holds python, find, sed and make, each of which can
+# run a script or a command, which here is a run. A name missing from it costs one false deny beside a pipe.
+READERS = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "ag", "ack", "git", "gh", "cat", "less", "more", "head",
+           "tail", "wc", "ls", "stat", "file", "diff", "type", "which", "man", "jq", "gzcoord-send", "gzcoord-compose",
+           "fabric-adr"}
+# Words that run their arguments as a command line (`bash -c "…"`): beside one, the closed reading applies.
+RUNNERS = {"bash", "sh", "dash", "zsh", "ksh", "eval", "source", "su", "ssh", "watch", "flock"}
+# Before the command word, and not it.
+LEADING = {"!", "then", "do", "else", "elif", "if", "while", "until", "time"}
+ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")
+SEPARATORS = {";", ";;", "&", "&&", "||", "\n"}
+PIPES = {"|", "|&"}
+# The operators the lexer may glue into one punctuation token, longest first (self-kill-guard.py's OPERATOR).
+OPERATOR = re.compile(r"&>>|<<<|<<-?|>>|\|&|&&|\|\||;;|&>|>&|<&|<>|>\||[|;&\n()<>]")
+GROUP_WORDS = {"{", "}", "fi", "done", "esac"}
+SUBSTITUTION = re.compile(r"\$\(|`|<\(|>\(")
+# A loose word, for the closed reading: what ends it is an operator, a quote or an expansion mark.
+LOOSE_WORD = re.compile(r"[^\s;&|()<>`\"'$\\{}]+")
+LOOSE_CHUNK = re.compile(r"[;&|()<>`\n{}]")
+REASON = ("A consuming gzcoord-inbox run acknowledges its whole page before a pipe or a capture reads it, so what the "
+          "filter drops is lost: run the drain bare so its whole page reaches the session, or redirect it to a file in "
+          "your scratchpad and read the whole file. A message already consumed is read again with "
+          "`gzcoord-inbox --replay <MESSAGE-ID>`, never through a filter.")
+
+
+def _load(name: str, file: str):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(HOOKS_DIR, file))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_LOADED: dict = {}
+
+
+def _sibling(key: str):
+    """post-review-shape-guard.py (live_text) and inbox-watch.py (canonical_module), each loaded once, by path."""
+    if key not in _LOADED:
+        _LOADED[key] = _load("fabric_inbox_pipe_" + key.replace("-", "_"), key + ".py")
+    return _LOADED[key]
+
+
+def _canonical():
+    if "canonical" not in _LOADED:
+        _LOADED["canonical"] = _sibling("inbox-watch").canonical_module()
+    return _LOADED["canonical"]
+
+
+def inbox_args(words: list[str], k: int) -> list[str] | None:
+    """The arguments of the gzcoord-inbox run that starts at words[k], or None when none starts there."""
+    word = words[k]
+    if word.endswith(MODULE_SUFFIX) or os.path.basename(word) == _sibling("inbox-watch").NODE_SHIM:
+        return words[k + 1:]
+    named = [os.path.basename(word), *words[k + 1:]]
+    try:
+        read = _canonical().canonical(named)
+    except Exception:  # noqa: BLE001 - TableError or a module that cannot load: the spelled names, never "no drain"
+        if named[0] == INBOX:
+            return named[1:]
+        return named[NAMING_WORDS:] if tuple(named[:NAMING_WORDS]) == INBOX_SPOKEN else None
+    return read[1] if read is not None and read[0] == INBOX else None
+
+
+def consuming(words: list[str], every_word: bool) -> bool:
+    """Whether a consuming run starts at any word asked: the command word, or every word when it may be a wrapper."""
+    for k in range(len(words) if every_word else min(1, len(words))):
+        args = inbox_args(words, k)
+        if args is not None and not READ_ONLY & set(args):
+            return True
+    return False
+
+
+def tokens(text: str) -> list[str] | None:
+    """The words, quotes off, and the operators, each its own token; None when the lexer cannot read the text."""
+    lex = shlex.shlex(text, posix=True, punctuation_chars="();<>|&\n")
+    lex.commenters = ""
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    try:
+        raw = list(lex)
+    except ValueError:
+        return None
+    out: list[str] = []
+    for tok in raw:
+        out += OPERATOR.findall(tok) if tok and set(tok) <= set("|;&\n()<>") else [tok]
+    return out
+
+
+def simple_commands(toks: list[str]) -> list[tuple[list[str], bool]]:
+    """Each simple command's words (redirections and their targets out) and whether a pipe follows it."""
+    out: list[tuple[list[str], bool]] = []
+    cur: list[str] = []
+    skip = False
+    for tok in toks:
+        if tok in SEPARATORS or tok in PIPES or tok in ("(", ")"):
+            out.append((cur, tok in PIPES))
+            cur, skip = [], False
+        elif "<" in tok or ">" in tok:
+            skip = True          # its target, a file or an fd, is no word of the command
+        elif skip:
+            skip = False
+        else:
+            cur.append(tok)
+    out.append((cur, False))
+    return out
+
+
+def command_word(words: list[str]) -> int:
+    k = 0
+    while k < len(words) and (words[k] in LEADING or ASSIGN.match(words[k])):
+        k += 1
+    return k
+
+
+def loosely_consuming(text: str) -> bool:
+    """A consuming run anywhere, by word, whatever stands before it: the closed reading's question."""
+    for chunk in LOOSE_CHUNK.split(text):
+        words = LOOSE_WORD.findall(chunk)
+        if consuming(words, True):
+            return True
+    return False
+
+
+def refused(command: str) -> bool:
+    if "inbox" not in command:
+        return False
+    live = _sibling("post-review-shape-guard").live_text(command)[0].replace("\\\n", "")
+    if "inbox" not in live:
+        return False
+    piped_or_captured = "|" in live or bool(SUBSTITUTION.search(live))
+    toks = tokens(live)
+    if toks is None:
+        return piped_or_captured and loosely_consuming(live)
+    # live_text gives a runner's quoted payload back at the end of the text, not where it stood, and a double-quoted
+    # payload is one word here: beside a runner, as beside a group or a substitution, positions are not read.
+    closed = (SUBSTITUTION.search(live) or "(" in toks or any(t in GROUP_WORDS for t in toks)
+              or any(os.path.basename(t) in RUNNERS for t in toks))
+    if closed and piped_or_captured and loosely_consuming(live):
+        return True
+    for words, piped in simple_commands(toks):
+        words = words[command_word(words):]
+        if piped and words and consuming(words, os.path.basename(words[0]) not in READERS):
+            return True
+    return False
+
+
+def main() -> int:
+    try:
+        payload = json.load(sys.stdin)
+        command = (payload.get("tool_input") or {}).get("command")
+    except (ValueError, AttributeError):
+        return 0
+    if not isinstance(command, str) or not refused(command):
+        return 0
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                             "permissionDecisionReason": REASON}}, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
