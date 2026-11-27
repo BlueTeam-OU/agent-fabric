@@ -188,8 +188,8 @@ def _operator_authority(base: str, environ: Mapping[str, str] | None) -> FabricA
     source = f"{OPERATOR_REPO_AUTHORITY} at {ref}"
     repo = env.get(ENV_OPERATOR_GIT)
     try:
-        # The login's own home from the password database, never $HOME: a session's environment does not
-        # choose which operator this account trusts.
+        # Unexported, the login's own home from the password database, never $HOME. The documented variables
+        # above choose the operator; the session's $HOME does not.
         repo = os.path.abspath(repo or roots.operator_clone(pwd.getpwuid(os.getuid()).pw_dir))
     except KeyError:
         raise OperatorUnreadable(f"cannot read {source}: this login has no home directory to find the "
