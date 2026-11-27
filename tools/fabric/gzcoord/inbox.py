@@ -1,4 +1,4 @@
-"""tools/fabric/gzcoord/inbox.py — GZCoord's inbox: what the relay holds for
+"""tools/fabric/gzcoord/inbox.py — GZCoord's inbox: what the InterWeave carrier holds for
 THIS session, delivered the way SPEC §17 says a recipient receives — a
 body read only when it is addressed to it. Ported from
 communication/gzcoord/scripts/inbox.mjs (agent-fabric ADR-040 §7, Wave
@@ -23,12 +23,12 @@ CONTRACT, frozen from the Node:
                                 refusal, the --deadline quiet exit or the
                                 session-ended exit (below) is an exit other than 0 with its reason on STDOUT (a
                                 background command's output reaches the
-                                session only at exit): 2 a control
-                                channel named, 3 not configured
-                                or no token, 4 a refused token, 5 a relay
-                                unreachable for 15 minutes (a carrier primary never gives up: it retries to the deadline), 6 a delivery
+                                session only at exit): 6 a delivery
                                 the journal cannot keep, 7 an internal
-                                error or a transport mode that cannot be read. The session runs it again only
+                                error or GZCOORD_JOURNAL=off (a receive
+                                the carrier does not run without). The
+                                carrier never gives up the watch: it is
+                                retried to the deadline. The session runs it again only
                                 after exit 0 or its own timeout, except
                                 the exit 0 below that is a refusal and
                                 not a delivery: its line says not to.
@@ -103,85 +103,62 @@ CONTRACT, frozen from the Node:
                                 addressed here lands; --keyword K
                                 (repeatable, 3+ characters, at most 8)
                                 also ends it on a passing message
-            --replay <seq|message-id> [--json]
-                                re-read ONE message; the cursor does not
-                                move; a body not addressed here is not
-                                shown. A message-id is answered from this
-                                account's journal first (relay configured
-                                or not), else the relay; a seq only by the
-                                relay. --json: one object (addressed,
-                                seq, sender, when, type, metadata, text,
-                                carrier, sender_verified, and for a
-                                journal row state), or {"addressed":
-                                false, "seq": N}
-            --history [<seq>]   one line per message addressed here in the
-                                relay's recent history, then those a
-                                carrier other than the relay brought
-                                (from the journal) that its page lacks;
-                                with no relay to ask, the journal's list;
-                                bodies stay with --replay; the cursor does
-                                not move
+            --replay <message-id> [--json]
+                                re-read ONE message from this account's
+                                journal (the carrier keeps no past of its
+                                own); a body not addressed here is not
+                                shown; one the journal does not hold, or a
+                                reference that is no MESSAGE-ID, is one
+                                line and exit 1. --json: one object
+                                (addressed, seq, sender, when, type,
+                                metadata, text, carrier, sender_verified,
+                                and for a journal row state)
+            --history [<seq>]   one line per message addressed here, from
+                                the journal; bodies stay with --replay;
+                                the cursor does not move
             --held              is this account's inbox held (planning)?
-  env       CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL (together, or over a
-            project's integration), CLAUDE_BRIDGE_AUTH_TOKEN (after the
-            synced file); none of the three, nor the project's relay
-            section, is read in transport mode carrier-only.
-            GZCOORD_TRANSPORT_MODE overrides the account's mode for this
-            command (said on stderr; a value that is no mode ends it with
-            exit 7), AGENT_FABRIC_ROOT, AGENT_FABRIC_STATE_DIR,
-            AGENT_FABRIC_HOLD_DIR, GZCOORD_JOURNAL=off, GZCOORD_RELAY_UNIT,
+  env       no relay setting, token or transport mode is read (W15 of the
+            transport cutover plan). AGENT_FABRIC_ROOT, AGENT_FABRIC_STATE_DIR,
+            AGENT_FABRIC_HOLD_DIR, GZCOORD_JOURNAL=off,
             GZCOORD_TEST_BUS_ANY=1, XDG_RUNTIME_DIR, HOME,
             GZCOORD_DEFAULT_LOCALE_ONLY
   stdout    deliveries (below one, a `queued as jN: <title>` line for each
             REQUEST to this login it put on the job list, intake.py), the
             drain's listing, replay/history output, the
-            keyword hit, the watch's relay-down/back lines, the
+            keyword hit, the watch's carrier-down/back lines, the
             journal's held-messages line and, under GZCOORD_JOURNAL=off,
             one bypass warning per page. --follow runs under a Monitor,
             which turns each line into a notification as it is printed, so
-            its relay-down/back lines are stdout. --until-delivery runs
+            its carrier-down/back lines are stdout. --until-delivery runs
             under a background Bash, whose output reaches the session once,
-            at exit: it prints the one delivery (or, on exit 2-7, the
-            reason; under GZCOORD_JOURNAL=off also the bypass warning)
-            and no relay-down/back lines (a carrier primary still silent at the
+            at exit: it prints the one delivery (or, on exit 6 or 7, the
+            reason) and no carrier-down/back lines (a carrier still silent at the
             deadline adds one line, the failure, before the quiet line); the journal's held-messages
             line is printed only as it exits 6.
-            a second watch's refusal line (watchlock.py), the --deadline
+                        a second watch's refusal line (watchlock.py), the --deadline
             quiet line and the session-ended line, which exit 0 without
             being a delivery.
   stderr    every start-up and refusal line (under --until-delivery, the
             refusals that end it go to stdout instead); the hold's
             held/released
   exit      0 drained, delivered, a second watch refused (one per login), --until-delivery quiet to its
-            --deadline, a watch whose session ended, nothing for you, relay unreachable on a
-            drain or wait, and (outside --until-delivery) not configured
-            or no token (--history then lists the journal);
+            --deadline, a watch whose session ended, nothing for you, a carrier that does not
+            answer on a drain or wait;
             1 a usage line, replay of no such message, an unreadable
-            journal, the --held "not held"; 2 a control channel named,
-            replay not addressed (--json too); 3 a keyword hit, and under
-            --until-delivery not configured or no token; 4 a refused
-            token; 5 --until-delivery's relay unreachable for 15 minutes (a carrier primary retries to the deadline instead);
+            journal, the --held "not held"; 2 replay not addressed (--json too); 3 a keyword hit;
             6 --until-delivery's delivery held by the journal; 7
             --until-delivery's last resort. Anything unforeseen is
             `gzcoord inbox: <why>`, exit 0 for every mode but
             --until-delivery (7): the whole contract of a session start is
             one line and exit 0.
 
-THE SHOWN LEDGER AND THE SECOND CARRIER (agent-fabric ADR-064, CARRIER-CONTRACT.md):
+THE SHOWN LEDGER (agent-fabric ADR-064, CARRIER-CONTRACT.md):
 what a session sees is decided by `<state>/agents/<login>/gzcoord-shown.jsonl`
-(carrier/ledger.py), whichever carrier brought a message and with no carrier at all:
-a message shown is not shown again, even when the relay delivers it again (an
-acknowledgement that failed, a retransmission under its MESSAGE-ID) — and the
-one second showing is the copy that reveals a FROM mismatch after the relay's, shown
-again, flagged. A showing that died between its two ledger lines is shown once
-more, flagged "may repeat". When the carrier is running, the arrivals it journaled
-come in the same page as the relay's, titled from the roster's address; they are
-never acknowledged to the relay. The arrival log (gzcoord-arrivals.jsonl) gets a line
-per relay copy addressed here, journal on or off. The acknowledgement log (gzcoord-acks.jsonl) gets
-a line per POST /api/ack for such a copy, by MESSAGE-ID, with whether the relay answered (the relay-outage drill's evidence). The watch log (gzcoord-watch.jsonl) gets a line when a --follow or --until-delivery watch starts and one when it
-ends, with the reason (delivery, quiet, session-ended, gave-up, token-refused, journal-held): the drill's report counts the starts and the give-ups inside
-the outage from it; a watch killed from outside writes no end line. A ledger that cannot be opened is
-said on stderr and the relay's messages are shown without it.
+(carrier/ledger.py): a message shown is not shown again, even when the carrier lists it again. A showing that died between its two
+ledger lines is shown once more, flagged "may repeat". The arrivals the carrier journaled
+come in the watch's page, titled from the roster's address. The watch log (gzcoord-watch.jsonl) gets a line when a --follow or --until-delivery watch starts and one when it
+ends, with the reason (delivery, quiet, session-ended, journal-held); a watch killed from outside writes no end line. A ledger that cannot be opened is
+said on stderr and the messages are shown without it.
 
 The rest of the Node's header — the modes, the hold, the addressee rule —
 is kept where each applies: below, or in the part that holds it

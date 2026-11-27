@@ -1,4 +1,4 @@
-"""tools/fabric/gzcoord/send.py — send ONE message over the relay. Ported
+"""tools/fabric/gzcoord/send.py — send ONE message over the InterWeave carrier. Ported
 from communication/gzcoord/scripts/send.mjs (agent-fabric ADR-040 §7,
 Wave 7); that path is now a shim that runs this.
 
@@ -6,38 +6,31 @@ CONTRACT, frozen from the Node:
   argv      <file> | -   [--dry-run] [--force]   the first argument not
             starting with `--` is the file (`-` is stdin); other flags are
             ignored, as they were
-  env       what inbox reads (integration, token, AGENT_FABRIC_ROOT,
+  env       what inbox reads (AGENT_FABRIC_ROOT,
             AGENT_FABRIC_STATE_DIR), GZCOORD_JOURNAL=off,
             AGENT_FABRIC_FALLBACK_DIR and CLAUDE_PID (the fallback
             reminder), AGENT_FABRIC_JOBS_AUTO_INTAKE=1 (off unless exactly
             1), GZCOORD_PRESENCE_WAIT_MS (the presence CLI's),
-            GZCOORD_TRANSPORT_MODE (the mode of this command, over the
-            account's own; said on stderr),
+            GZCOORD_TRANSPORT_MODE (read by the presence child only; the
+            send builds the carrier whatever the mode),
             AGENT_FABRIC_HOSTS_REGISTRY / AGENT_FABRIC_OPERATOR (the hosts
             registry a REQUEST's job intake reads)
-  stdout    `sent seq <n> <TYPE> <id>` under the relay, `sent <TYPE> <id>` under the carrier, and nothing else
+  stdout    `sent <TYPE> <id>` (the carrier numbers nothing: the id names the message), and nothing else
   stderr    everything else: the id minted, warnings, refusals, presence,
             the journal's own lines, fabric-jobs's own lines, and for a
             REQUEST to a login (intake.py) one line: `queued as jN on
             <address>'s job list`, or why it was not
   exit      0 sent (a dry run: validated and resolved); 1 usage or
             unreadable input, or the id could not be written into the
-            file; 2 invalid, a GZCOORD_TRANSPORT_MODE that names no mode,
-            FROM not this login, an id already sent with
-            other text, a control channel, a journal that cannot keep
+            file; 2 invalid, FROM not this login, an id already sent with
+            other text, a journal that cannot keep
             the message, or (GZCOORD_JOURNAL=off) a bypass that cannot
-            be recorded; 3 not configured, no token (neither
-            applies in carrier-only, which reads no relay setting), relay unreachable,
-            the token refused, the relay answering with another 4xx
-            (refused, not sent), a relay failure after which the carrier
-            mirror took a message TO one login (delivered: do not send
-            it again), or a post whose outcome is unknown (it may
-            have been delivered); under a carrier primary also the
-            carrier not accepting the send: absent, failing, or its
-            answer lost (not sent when it recorded nothing, outcome
-            unknown when it may have; carrier_not_accepted); 4 an addressee with no session, silent,
-            not placed (no account), or presence not askable — unless
-            --force
+            be recorded; 3 the carrier not accepting the send: absent,
+            failing, or its answer lost (not sent when it recorded
+            nothing, outcome unknown when it may have, and the same file
+            sent again is safe; carrier_not_accepted); 4 an addressee
+            with no session, silent, not placed (no account), or
+            presence not askable — unless --force
   and 2 also for a TO no host places whose login part is a role slug of
   the catalogue: --force does not send it (placement.py)
 
@@ -66,15 +59,13 @@ would carry the last one's id (review of #47, R1). Each confirmed send is
 recorded — id and a hash of the message — in this login's state directory
 (<state>/agents/<login>/gzcoord-sent.jsonl), and an id that already went
 out with other content is refused; the same message again passes. A line
-with an "id" says the relay has the message (backfill skips it); a send the
-carrier took without the relay having it is recorded as "spent" instead,
-which only this refusal reads. A post whose reply was lost is not recorded,
+with an "id" is the message's own; a line an older send wrote as "spent" is read the same way. A post whose reply was lost is not recorded,
 so an edited resend under that id is not caught.
 
 PLACEMENT comes before presence and does not depend on it: a TO is looked
 up in the hosts registry on this disk (placement.py) after the message
-validates and before the dry run, the token, the journal or any relay call,
-so a dry run, a send with no token, a presence that is skipped or cannot be
+validates and before the dry run, the journal or any carrier call,
+so a dry run, a presence that is skipped or cannot be
 asked, and --force all meet it. An address no host places is no account:
 exit 4 with --force to send it (an account being placed right now), and
 exit 2 with no --force when it is a role slug, which no session will ever
