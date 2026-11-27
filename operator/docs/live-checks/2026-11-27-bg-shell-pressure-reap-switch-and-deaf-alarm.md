@@ -46,8 +46,13 @@ off, nothing currently depends on it.
   set to `1` in `/proc/<pid>/environ`.
 - **Inferred, not read:** another login's `environ` is not readable from this
   account. All 30 accounts' `claude` processes started between 2026-11-25 13:56Z
-  and 14:29Z today (`ps -eo user,lstart,comm`), each after the merge. A launch
-  behind main is refused, so each started from a checkout that carries it.
+  and 2026-11-27 14:29Z (`ps -eo user,lstart,comm`), each after the merge. A
+  launch behind main is pulled to it first (`keep_fabric_current` in
+  `tools/fabric/launch.py`), but not every launch: offline, with
+  `AGENT_FABRIC_ALLOW_STALE=1` or under an operator's pin it launches on what is
+  checked out. So the inference rests on the read above, not on the launcher:
+  every account ran fabric `2be440957`, which carries `e4f1c6127`. Whether a
+  session was launched before its account's checkout reached that is not read.
 
 ## The outside reader and its alarm are installed and answer
 

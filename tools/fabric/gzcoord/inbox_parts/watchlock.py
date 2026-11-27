@@ -76,8 +76,9 @@ def down_marker_path(login: str, runtime: str | None = None) -> str:
 def mark_relay_down(login: str, now: float, runtime: str | None = None) -> None:
     """A watch that gave up on an unreachable primary (exit 5: the relay when it is the primary. A carrier primary no longer gives up (j266: it retries to the
     watch's deadline), so no carrier marker is written now; the hook's carrier probe serves markers a watch of an older fabric left) leaves the time, beside its lock, for the Stop hook
-    (runtime/claude-code/hooks/watch-on-stop.py): the hook asking at every Stop while the primary is silent would cost a turn
-    each time. The session itself runs the watch again once, on the turn the exit wakes it (ADR-022 rule 2). A marker that cannot be written is no marker: the hook
+    (runtime/claude-code/hooks/watch-on-stop.py). A session that runs the watch again on the turn the exit wakes it (ADR-022
+    rule 2) has a watch by its Stop and the hook passes before it reads the marker; the marker only keeps the hook from
+    reminding a session that did not, for up to RELAY_DOWN_S while the primary is silent. A marker that cannot be written is no marker: the hook
     then asks as it always did, the safe side."""
     path = down_marker_path(login, runtime)
     tmp = f"{path}.{os.getpid()}.tmp"

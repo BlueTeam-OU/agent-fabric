@@ -216,10 +216,11 @@ relay is still tried every 30 s by each session's watch while it is
 down. This amendment changes the rule, not the watch: exit 5 is run
 again at once. The 15 minutes the watch spent retrying are the pause, so
 a relay down for an hour costs each session four turns, and each new
-watch retries at the pace the old one did. The Stop hook's relay-down
-marker (j626) still keeps the hook from *asking* while the relay is
-silent, which would cost a turn at every Stop; a session woken by the
-exit re-arms on its own turn. Every other non-zero exit (2,
+watch retries at the pace the old one did. A session that re-arms on
+the turn the exit wakes it has a watch by its Stop, so the Stop hook's
+relay-down marker (j626) changes nothing for it; the marker now only
+keeps the hook from reminding a session that did not re-arm, for up to
+an hour while the relay is silent. Every other non-zero exit (2,
 3, 4, 6, 7) stays read and not re-run: each names a fault a re-run
 cannot fix. A session left deaf by one of those, or by a harness that
 reaped its watch, is reported from outside it by the control agent's
