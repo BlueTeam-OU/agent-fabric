@@ -38,12 +38,16 @@ the Bash timeout stopped it —
 except when its one line says "a watch is already running … do not run
 it again": that is no delivery, another watch of this login holds the
 inbox, and nothing is killed or re-armed (never `pkill` a watch; it ends
-at its next delivery or its deadline). The one exception is a watch this
-session started by hand, outside the harness (a plain `&`, output to
-nowhere, `disown` or not): replace it with `gzcoord-inbox
---until-delivery --replace`, which ends that stray when its lock record
-names this session or no live one (detached, or its session ended) and
-then starts the watch; a watch of another live session it refuses.
+at its next delivery or its deadline). The exception is a watch no
+other live session owns: one this session started by hand, outside the
+harness (a plain `&`, output to nowhere, `disown` or not), a detached
+one, or an older one whose lock records no session and that hangs from
+init or systemd. Replace it with `gzcoord-inbox --until-delivery
+--replace`, which ends the holder when its lock record names this
+session or no live one (detached, its session ended, or none recorded
+and reparented to init), whichever session asks, and then starts the
+watch; a watch of another live session, or one its lock does not vouch
+for, it refuses and signals nothing.
 Never signal a watch yourself: the self-kill guard refuses it, and
 `--replace` is the way out. Never `--replace` a watch the harness started for
 this session as a background task: that one is already the watch:
