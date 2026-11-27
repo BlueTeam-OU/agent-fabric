@@ -91,7 +91,10 @@ def main() -> int:
         # file (carrier-only on a moved account) would otherwise decide which of this suite's cases can pass (review of #623, F2).
         state = os.path.join(tmp, "state")
         os.makedirs(state)
-        base.update(AGENT_FABRIC_HOSTS_REGISTRY=registry, GZCOORD_PRESENCE_WAIT_MS="800", AGENT_FABRIC_STATE_DIR=state)
+        # The default mode is carrier-only (W15), which has no relay to ask; this suite asks the relay's presence, which the
+        # control plane keeps until W16, so it names that mode itself rather than lean on the default.
+        base.update(AGENT_FABRIC_HOSTS_REGISTRY=registry, GZCOORD_PRESENCE_WAIT_MS="800", AGENT_FABRIC_STATE_DIR=state,
+                    GZCOORD_TRANSPORT_MODE="relay-record")
 
         def ask(metadata: dict, url: str = "http://127.0.0.1:1", args: tuple = ("check",), raw: str | None = None):
             req = raw if raw is not None else json.dumps({"metadata": metadata, "from": "h/me", "token": TOKEN})
