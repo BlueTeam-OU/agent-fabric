@@ -579,6 +579,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-28 — own merged origin branches swept (r11).
 - A 2026-10-30 — job's worktree first; AGENT_FABRIC_ROOT set (r12).
 - A 2026-11-27 — exit 5 (relay gave up) is re-run; others read (r2).
+- A 2026-11-27 — a consuming inbox read is never piped; a guard refuses it (r3).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence, branch sweep, stale fabric root,

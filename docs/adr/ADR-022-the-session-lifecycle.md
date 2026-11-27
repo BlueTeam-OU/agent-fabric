@@ -110,6 +110,10 @@ the same command asks on one account and not on another.
 3. One watch per session: the cursor is per address, and a second
    consumer steals deliveries from the first. The watch is run by the bare
    command name, never through an expansion (ADR-009 §5 rule 8).
+   A consuming read (the drain, `--wait`, `--until-delivery`,
+   `--follow`) marks what it prints delivered, so its stdout reaches the
+   session whole or a file, never a pipe; `inbox-pipe-guard.py`, a
+   `PreToolUse` guard on Bash, refuses one that is piped (A 2026-11-27).
 4. Every login's user settings carry `permissions.defaultMode: "auto"`,
    written by `user-settings.py` on every bootstrap.
 5. `plan-hold.sh`, wired on `PreToolUse` (no matcher), `UserPromptSubmit`
@@ -273,3 +277,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-10-28 | The sweep deletes the login's own merged branches on origin | §5 rule 11: under `<host>/<login>/`, on the default branch, heading no open PR (#416) |
 | 2026-10-30 | A fresh launch starts in the job's worktree; the session carries the verified fabric root | §5 rule 12: worktree before working copy, `AGENT_FABRIC_ROOT` exported, a behind fabric checkout named (#432) |
 | 2026-11-27 | A watch that gave up on the relay is run again | §5 rule 2: exit 5 joins delivery, quiet end and timeout; every other non-zero exit is still read, not re-run |
+| 2026-11-27 | A consuming inbox read is never piped | §5 rule 3: the drain, `--wait`, `--until-delivery` and `--follow` reach the session or a file whole; `inbox-pipe-guard.py` refuses a pipe after one |
