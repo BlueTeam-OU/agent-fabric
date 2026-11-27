@@ -91,22 +91,35 @@ and every other commit would pass unchecked, without a word.
 
 Rule 7 closes it in three parts. First, the engine is recognised by its
 own code at the base, `tools/fabric/roots.py`, and a branch cannot move
-that by adding or deleting an operator tree. Second, the file is read
-where the base keeps it: in the repository while the base has
-`operator/` or the old path, and from step D in the operator
-repository's committed `main`. In CI that is the deploy-key checkout
-`AGENT_FABRIC_OPERATOR_GIT` at `AGENT_FABRIC_OPERATOR_REF`. On an
-account it is the login's own clone (`roots.operator_clone`), found
-from the password database, never `$HOME`. Third, past step D a read of the
+that by adding or deleting an operator tree, nor a managed project's
+branch by adding that file. Second, the file is read where the base
+keeps it: in the repository while the base has `operator/` or the old
+path, and from step D in the operator repository's committed `main`.
+In CI that is a checkout of `main` alone at depth 1 through the deploy
+key, which the authority step names to the two guards alone
+(`AGENT_FABRIC_OPERATOR_GIT`, at the commit checked out) and deletes
+before any of the branch's code runs: the operator repository is
+private, and this repository's CI logs are public. On an account it is
+the login's own clone (`roots.operator_clone`), found from the password
+database, never `$HOME`; the documented variables choose another.
+Third, past step D a read of the
 operator's file that fails is a refusal, exit 2, naming what could not
 be read, and so is a git read at the base that cannot run. While the
 base still holds the tree, a file it lacks is read as before: the
 default role, no contributors, a charter refusal.
 
 CI's probe step fails the run when main has neither tree and the
-`OPERATOR_DEPLOY_KEY` secret is empty. The key's other use, the signing
-step's archive of the keys, holders and registry, is still the
-key-trust hazard in the plan's §4: step D cannot pass until the key
-exists. Dependabot runs read only Dependabot secrets, so the owner adds
-the key under both.
+`OPERATOR_DEPLOY_KEY` secret is empty. Once main lacks the operator's
+paths, the authority step archives only the paths main has. The
+suites' own run of the guards (`tests/run.py`'s bash section, in both
+CI jobs) is handed no operator, so past step D the guards refuse there;
+CI sets `AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE=1`, and with it that one
+refusal is a NOT ENFORCED line, the authority step being the gate. A
+run without the variable, as on an account, still fails on it. The
+key's other use, the signing step's archive of the keys, holders and
+registry, is still the key-trust hazard in the plan's §4 (job j1119):
+that step will fetch its own copy the same way, before any of the
+branch's code runs. Step D cannot pass until the key exists.
+Dependabot runs read only Dependabot secrets, so the owner adds the key
+under both.
 
