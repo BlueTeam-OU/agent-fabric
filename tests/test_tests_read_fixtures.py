@@ -71,6 +71,9 @@ STRIPPED_RED = {
     # Reads the real role catalogue through roots.role_catalog, which the source scan follows to no live path: red on a stripped copy on purpose.
     "tests/test_launch_prompt.py": "every role of the real catalogue renders under the prompt ceiling: the operator's own roles",
     "tests/test_adr.py": "the decision records are checked as the corpus they are (the records are instance data, ADR-045 §5 rule 2)",
+    # One case snapshots this checkout's own HEAD and asserts operator/'s roles, policies, routing and registries are in it: a stripped
+    # copy has no operator/, so that case is red there on purpose (the file's other cases pass on one).
+    "tests/test_managed_settings.py": "one case snapshots the checkout's own HEAD and expects the operator's tree in it: the operator's own data (j168)",
     "tests/test_workingcopy.py": "the moved BlueTeam projects resolve under both organizations: a fact of the operator's registry",
     "tests/test_roots_readers.py": "lint over a copy of the operator's data prints what it prints without one: the operator's roles",
 }

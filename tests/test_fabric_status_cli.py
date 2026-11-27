@@ -91,7 +91,7 @@ def main() -> int:
         fabric = f"{sandbox}/fabric"
         os.makedirs(fabric)
         for name in os.listdir(ROOT):
-            if name not in ("routing", "bin", "tools", ".git"):
+            if name not in ("routing", "bin", "tools", "operator", ".git"):
                 os.symlink(os.path.join(ROOT, name), os.path.join(fabric, name))
         for name in ("bin", "tools"):
             shutil.copytree(f"{ROOT}/{name}", f"{fabric}/{name}", symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
@@ -99,7 +99,9 @@ def main() -> int:
         # FABRIC_STATUS names a script elsewhere: it keeps its own tree, and
         # with it that tree's operator files, whatever the fixture holds.
         command = CMD if os.environ.get("FABRIC_STATUS") else f"{fabric}/bin/fabric-status"
-        write_routing_overlay(f"{fabric}/routing")
+        # Read under operator/ (roots.routing_policy): the fixture's own operator half, not a link to the checkout's.
+        os.makedirs(f"{fabric}/operator/routing")
+        write_routing_overlay(f"{fabric}/operator/routing")
         base.update(HOME=f"{sandbox}/home", AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_HOSTS_REGISTRY=placed,
                     AGENT_FABRIC_ROOT=fabric)
 

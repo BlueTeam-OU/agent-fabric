@@ -937,7 +937,8 @@ def grant(sender="h/arch", to="h/me", kind="DECISION", field="AUTHORIZES", targe
     """What `gzcoord-inbox --replay --json` prints for a message, as (rc, text)."""
     target = target or f"O/R#7@{ArmRun.HEAD[:12]}"
     meta = {"MESSAGE-ID": mid, "TO": to, "FROM": frm or sender, field: target}
-    return (0 if addressed else 2), json.dumps({"addressed": addressed, "type": kind, "sender": sender, "metadata": meta})
+    return (0 if addressed else 2), json.dumps({"addressed": addressed, "type": kind, "sender": sender, "metadata": meta,
+                                  "carrier": "interweave", "sender_verified": True})
 
 
 def fleet_of(*rows):
