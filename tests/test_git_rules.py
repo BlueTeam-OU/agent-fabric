@@ -316,6 +316,17 @@ class Malformed(Tree):
 
 
 class Hooks(Tree):
+    def test_an_absent_operator_registry_is_empty_and_a_present_null_one_is_an_error(self):
+        registry = os.path.join(self.op, "projects", "registry.json")
+        os.remove(registry)
+        out = git_rules.render(repo=REPO, operator=self.op, engine=self.eng)
+        self.assertIn("no registered repository here", out.header)
+        self.assertIsNone(git_rules.PLACEHOLDER.search(out.body), out.body)
+        for text in ("null", "[]", "{}"):
+            write(registry, text)
+            with self.assertRaises(git_rules.GitRulesError, msg=text):
+                git_rules.render(repo=REPO, operator=self.op, engine=self.eng)
+
     def setUp(self):
         super().setUp()
         self.wc = self.clone("wc", f"https://github.com/{REPO}")

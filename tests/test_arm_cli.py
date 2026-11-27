@@ -377,7 +377,7 @@ def main() -> int:
                 ("not addressed to this session", lambda: set_waiver(addressed=False), "not addressed to this session"),
                 ("an INFO, not a DECISION or REPLY", lambda: set_waiver(typ="INFO"), "not a DECISION or REPLY"),
                 ("a REQUEST", lambda: set_waiver(typ="REQUEST"), "not a DECISION or REPLY"),
-                ("a FROM other than the relay's sender", lambda: set_waiver(frm="develop-qzapp/me"), "says FROM"),
+                ("a FROM other than the verified sender's", lambda: set_waiver(frm="develop-qzapp/me"), "says FROM"),
                 ("declining #7, with no WAIVES line", lambda: set_waiver(text="I do NOT waive #7.", line=None), "has no WAIVES"),
                 ("whose WAIVES line names another PR", lambda: set_waiver(line=f"gzapi-org/gzapp#70@{HEAD[:8]}"),
                  "WAIVES gzapi-org/gzapp#70, not gzapi-org/gzapp#7"),
@@ -406,7 +406,7 @@ def main() -> int:
         rc, out = waive(); check("a sender holding no role: refused", rc == 1 and "holds no role" in out, out)
 
         # W4 of the InterWeave-only cutover (the owner's D4, 2026-11-13): the replay answers from the journal first, and
-        # a row a carrier other than the relay brought counts only with the sender that carrier verified, equal to FROM.
+        # every row counts only with the sender that carrier verified, equal to FROM.
         reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(replay=verified_row); set_presence()
         rc, out = waive()
         check("a waiver the carrier brought, its sender verified and equal to FROM: armed",
@@ -414,6 +414,8 @@ def main() -> int:
         for label, setup, said in (
                 ("its sender not verified", lambda: set_waiver(replay=dict(verified_row, sender_verified=False)),
                  f"was carried by interweave from {cto}, a sender it did not verify"),
+                ("verified true but no carrier named", lambda: set_waiver(replay={"carrier": None, "sender_verified": True}),
+                 "was carried by no carrier"),
                 ("sender_verified absent", lambda: set_waiver(replay={"carrier": "interweave"}), "a sender it did not verify"),
                 ("sender_verified a string, not true", lambda: set_waiver(replay=dict(verified_row, sender_verified="true")),
                  "a sender it did not verify"),

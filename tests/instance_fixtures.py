@@ -146,17 +146,18 @@ def strip_instance(tree: str) -> None:
     op = os.path.join(tree, "operator")
     # Every shim link into operator/, found in the tree and not named by a list: a
     # link left behind dangles once operator/ is gone, and a copy of the tree (copytree,
-    # snapshot_entries) refuses it. Read before operator/ goes, by the link's own text.
-    op_abs = os.path.abspath(op)
+    # snapshot_entries) refuses it. Read before operator/ goes, while it is still there to resolve against.
+    op_abs = os.path.realpath(op)
     for here, dirs, files in os.walk(tree):
-        if os.path.abspath(here) == op_abs:
+        if os.path.realpath(here) == op_abs:
             dirs[:] = []
             continue
         dirs[:] = [d for d in dirs if d != ".git"]
         for name in dirs + files:
             link = os.path.join(here, name)
             if os.path.islink(link):
-                target = os.path.abspath(os.path.join(here, os.readlink(link)))
+                # realpath, not the link's own text: a link to a link into operator/ dangles as surely as a direct one.
+                target = os.path.realpath(link)
                 if target == op_abs or target.startswith(op_abs + os.sep):
                     os.remove(link)
     if os.path.isdir(op) and not os.path.islink(op):

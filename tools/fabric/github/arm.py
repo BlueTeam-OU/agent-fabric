@@ -256,16 +256,15 @@ What it refuses, in order, and why:
      agent-fabric). --boundary forces the gate on. --no-boundary
      <reason> --waiver <message-id|seq> waives it, on a message from the
      holder of the project's waiver role (arm.json "waiver_role") that
-     this login's journal or the relay holds (a carrier's row only with
-     the sender it verified): a DECISION or REPLY sent TO this login (not a
+     this login's journal holds (a row only with the sender its carrier
+     verified; a relay row is refused): a DECISION or REPLY sent TO this login (not a
      broadcast, not a role), from another login, carrying the line
          WAIVES: <owner>/<repo>#<n>@<head sha, 8+ hex>
      for this repository, this PR and its CURRENT head, from a sender
      fabric-ctl presence reports holding the role — never the message's
      ROLE line. Any of those not so is refused; a replay or fabric-ctl
      that cannot answer, or a message with no MESSAGE-ID, is exit 2.
-     The relay does not authenticate senders: on its rows this stops
-     mistakes, not a forger. The comment records who waived it, the message
+     The comment records who waived it, the message
      and the reason. A PR that matches no boundary ignores a waiver.
      On a direct repository every PR needs that review, except a RECORD
      PR (every file a record under arm.json's direct.record_paths, a
@@ -646,9 +645,9 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
     """(login, message-id) of a message that grants what `word` is (a "waiver" carrying WAIVES, an "authorization"
     carrying AUTHORIZES) for this repository, PR and head, from another login whose presence reports `role`, or
     Refused / Unanswered. Every refusal is a fact of the message or of the fabric's record; a question neither
-    could answer is never read as a refusal or a pass. The relay does not authenticate a sender
-    (BRIDGE-RELAY-SETUP.md): on its rows this stops a mistake, not a forger (review of 0c2498a, F4). A row a carrier
-    other than the relay brought counts only with the sender that carrier verified (the owner's D4, 2026-11-13). A refusal of the message
+    could answer is never read as a refusal or a pass. A row counts only with the sender its
+    carrier verified, equal to FROM (the owner's D4, 2026-11-13); the relay authenticates no sender, so a row it brought is
+    refused (W15). A refusal of the message
     says whom to ask for another. `author` is the login of the pull request's own branch, when the grant may not
     be the author's (an authorization; a waiver has always been allowed to be)."""
     option = "--waiver" if field == "WAIVES" else "--authorization"
@@ -694,7 +693,8 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
     # brought is unverified, a replay older than W3 names no carrier), so such a row is refused with the rest: the
     # relay is no longer a way to grant (W15, gate 2).
     carrier = msg.get("carrier")
-    if msg.get("sender_verified") is not True:
+    # A verification that no carrier made is an absent value read as a verified one: the carrier is named too.
+    if not (isinstance(carrier, str) and carrier) or msg.get("sender_verified") is not True:
         raise deny(f"the {word} {ref} was carried by {carrier or 'no carrier'} from {sender or 'nobody'},"
                    f" a sender it did not verify — a grant counts only with a sender its carrier verified")
     if not ADDRESS.fullmatch(sender) or meta.get("FROM") != sender:
