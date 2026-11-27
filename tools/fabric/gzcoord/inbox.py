@@ -1,4 +1,4 @@
-"""tools/fabric/gzcoord/inbox.py — GZCoord's inbox: what the InterWeave carrier holds for
+"""tools/fabric/gzcoord/inbox.py — GZCoord's inbox: what the carrier holds for
 THIS session, delivered the way SPEC §17 says a recipient receives — a
 body read only when it is addressed to it. Ported from
 communication/gzcoord/scripts/inbox.mjs (agent-fabric ADR-040 §7, Wave

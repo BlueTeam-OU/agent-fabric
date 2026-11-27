@@ -3,7 +3,7 @@ tools/fabric/mechanisms.json). A carrier adapter import anywhere else needs a re
 (tools/fabric/transport_calls.py).
 
 `open_transport` is the one factory: the inbox and the sender take a TransportMux from it and name no transport. Since the
-transport cutover plan's W15 there is one transport, the InterWeave carrier (CarrierPrimary): no relay is built, called or
+transport cutover plan's W15 there is one transport, the carrier (CarrierPrimary): no relay is built, called or
 mirrored to, and the account's transport mode (mode.py) no longer chooses between transports here. The presence check before
 an addressed send is the control plane's (control/presence.py) and is not this module's.
 

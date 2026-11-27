@@ -15,7 +15,7 @@ CONTRACT
              daemon predates the section must not turn every report into a refusal; the key keeps the name collections
              already on disk were filed under). Unknown stays unknown: that account has no drill evidence, never an empty one.
              The sender's mirror-refusal log (mirror: the sends the carrier did not accept, for the report's cause of a
-             pair with no InterWeave copy) is kept the same way: `mirror_log` {complete, reason, skipped}, its own failure, no
+             pair with no carrier copy) is kept the same way: `mirror_log` {complete, reason, skipped}, its own failure, no
              mirror.jsonl for a daemon that predates it, which the report reads as "not collected", never as "no refusal".
   write_dir  <out>/<login>/arrivals.jsonl, deliveries.jsonl, shown.jsonl
              and mirror.jsonl (the last only when the section was collected whole), kinds.json and

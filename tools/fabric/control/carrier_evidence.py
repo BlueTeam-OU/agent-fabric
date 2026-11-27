@@ -35,7 +35,7 @@ CONTRACT
             (a send from before the relay left GZCoord, whose second copy the carrier refused) or "primary" (the transport of record: carrier-record, carrier-only; a line written
             before the field has none and is sent as "mirror"), `reason` a short line of words (what the sender's stderr said, kept),
             with `t` in [since, until). Read by the parity
-            report to name the cause of a pair with no InterWeave copy and no sender record, and nothing else. A failure of this
+            report to name the cause of a pair with no carrier copy and no sender record, and nothing else. A failure of this
             section ends only this section; a line of another shape is skipped and counted.
   never     a body. Rows are built key by key from a closed list, each value a
             short string: a line of the log with a text, a path or a key in it

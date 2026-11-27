@@ -1,4 +1,4 @@
-"""tools/fabric/gzcoord/send.py — send ONE message over the InterWeave carrier. Ported
+"""tools/fabric/gzcoord/send.py — send ONE message over the carrier. Ported
 from communication/gzcoord/scripts/send.mjs (agent-fabric ADR-040 §7,
 Wave 7); that path is now a shim that runs this.
 
