@@ -618,3 +618,18 @@ relay-only ops reach an account by `fabric-op` only, and its SSH
 backend is not exercised (rule 19). The drill shows the cost of
 switching early: an account whose InterWeave leg is down answers no
 read.
+
+### Amendment 2026-11-26 — The InterWeave install and start budgets count the retry before a rollback
+
+ADR-064 rule 14 was amended the same day: an install whose check of two
+running units fails now stops and starts them once before it puts the
+previous programs back, reads the restored programs' versions again to
+say whether the account is carrying, and a start waits up to 75 s for
+its own port to leave TIME_WAIT (#715). `fabric-ctl` waits for each
+operation's own budget, the constants in
+`tools/fabric/control/carrier_install.py`, so the figures here moved
+with them: `interweave-install` from 2708 s to 4639 s (its own part
+from 1448 s to 3379 s, which now holds a stop's and a start's budget),
+and `interweave-start` from 1620 s to 1695 s. The figures were read by
+importing the module at the merge of #712 and of #715. The §2 table's
+`interweave-install` row names the stop and start.

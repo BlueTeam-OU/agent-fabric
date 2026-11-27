@@ -745,6 +745,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-22 — on dual, presence and pool/job-state holder asks also by the account's own agentd socket; the first reply read answers; self-asks by the relay, but presence in carrier-only by the socket alone (r18).
 - A 2026-11-25 — `state`, a public op: each account answers its newest state record from its own disk; `states` and the queue's readers ask it under the second carrier alone or `FABRIC_STATE_READ=op` (§2, r4, r16).
 - A 2026-11-26 — the owner's word on the rule-18 control parity report; the relay stays the transport of record under dual; InterWeave becomes it with `control_carrier` naming it alone, after gate 3's read-backs (§2, r18, §8).
+- A 2026-11-26 — `interweave-install` 4639 s, `interweave-start` 1695 s: the stop and start before a rollback, the TIME_WAIT wait (rule 12, ADR-064 rule 14).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, HOLD_MAX_S, interweave-mode,
@@ -1547,6 +1548,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-18 — gate 1: the record is the account's mode's, InterWeave in `carrier-record`; its acceptance sets the journal row, the exit status the primary's (§2, rules 7, 11).
 - A 2026-11-18 — InterWeave alone for control: install/start/stop by break-glass; the read over InterWeave, then break-glass after 30 s (rule 14).
 - A 2026-11-18 — the account's own login starts its own carrier when both units are down but enabled and the pin is installed and no failed self-start's mark stands, unsigned, under the account's lock; install/update/restart/stop stay control actions (rule 14).
+- A 2026-11-26 — a failed check of two running units is answered by one stop and start before a rollback; a rollback onto programs the pin refuses reads not carrying; the signed start waits up to 75 s for TIME_WAIT on its port (rule 14).
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
