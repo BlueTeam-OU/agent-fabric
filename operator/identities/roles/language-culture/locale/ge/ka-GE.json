@@ -117,7 +117,7 @@
   "watch.held": "gzcoord watch: შემოსულები შეჩერებულია — სესია დაგეგმვის რეჟიმშია; სანამ გეგმა არ დამტკიცდება, არაფერი მოწმდება",
   "watch.hold-released": "gzcoord watch: შეჩერება მოხსნილია; შემოწმება გაგრძელდა",
   "watch.relay-down": "gzcoord watch: რელე ({relay_url}) მიუწვდომელია — ველოდები (ეს სტრიქონი ერთხელ იბეჭდება)",
-  "watch.relay-gave-up": "gzcoord watch: რელე ({relay_url}) 15 წუთის განმავლობაში მიუწვდომელი რჩებოდა — დაკვირვება შეწყდა; რელეს დაბრუნების შემდეგ ის თავიდან ჩართე",
+  "watch.relay-gave-up": "gzcoord watch: რელე ({relay_url}) 15 წუთის განმავლობაში მიუწვდომელი იყო — დაკვირვება შეწყდა; ახლავე ხელახლა გაუშვი იგივე ბრძანება: 15 წუთი უკვე ვიცადე, ნუღარ დაელოდები",
   "watch.relay-back": "gzcoord watch: რელე დაბრუნდა; დაკვირვება გაგრძელდა",
   "carrier.fix": "მიზეზს აჩვენებს fabric-ctl {login} {name}, გადამცემს კი გაუშვებს fabric-ctl {login} {name}-start",
   "carrier.fix-agent": "გაუშვი gzcoord-carrier self-start. გადამცემი დაახლოებით 30 წამში ჩაირთვება. თუ ბრძანება უარს იტყვის ან გადამცემი მაინც არ უპასუხებს, fabric-coordinator როლს OBSERVATION ტიპის წერილი გაუგზავნე",

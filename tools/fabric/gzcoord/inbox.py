@@ -622,7 +622,7 @@ def main(argv: list[str]) -> int:
                     down_since = time.monotonic()
                     carrier_bound_said["v"] = False
                 elif until_delivery:
-                    # The carrier is a local daemon that comes back by itself (a restart, an upgrade, an outage like 2026-11-20 22:30Z
+                    # The carrier is a local daemon that comes back by itself (a restart, an upgrade: the 2026-11-18 fleet upgrades
                     # that deafened eight idle sessions): exiting 5 left a session that waits to be re-run, deaf until someone restarted
                     # it. The watch keeps retrying to its --deadline and ends quiet (exit 0, run it again) if the carrier never returns.
                     if not carrier_bound_said["v"] and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:

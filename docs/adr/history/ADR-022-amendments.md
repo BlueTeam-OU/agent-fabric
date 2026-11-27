@@ -194,3 +194,38 @@ behind, is named as having its own hooks and settings. Neither is a
 refusal: a feature worktree behind main is ordinary work, and refusing
 it would stop the work the warning is about. Rule 12 says so.
 
+### Amendment 2026-11-27 — A watch that gave up on the relay is run again
+
+The rule a session read at start said: run the watch again after a
+delivery, a quiet end or its timeout, and on any other exit read the
+reason and do not. Exit 5, the primary unreachable for 15 minutes, was
+an "other exit". On 2026-11-18 the fleet upgrades restarted every
+account's carrier client, the watches gave up within seconds, and eight
+idle sessions followed the rule: six stayed deaf until they were
+relaunched on 11-22, four days later
+(docs/live-checks/2026-11-22-carrier-give-up-waves-and-idle-deafness.md,
+j1015, j1044). The gzcoord-receive skill meanwhile said "run it again
+when it is back", which no session can know: nothing tells it, and an
+idle session has no turn in which to look.
+
+#666 (python-dev-02, j169) fixed the count that made the watch give up
+early, and #686 (python-dev-01, j266) made a carrier primary retry to its
+deadline and end quiet instead of exiting 5. The relay primary keeps the
+give-up, which bounds each watch, not the fleet's polling: a stopped
+relay is still tried every 30 s by each session's watch while it is
+down. This amendment changes the rule, not the watch: exit 5 is run
+again at once. The 15 minutes the watch spent retrying are the pause, so
+a relay down for an hour costs each session four turns, and each new
+watch retries at the pace the old one did. A session that re-arms on
+the turn the exit wakes it has a watch by its Stop, so the Stop hook's
+relay-down marker (j626) changes nothing for it. For a session that
+did not re-arm, the marker keeps two reminders quiet for up to an hour:
+the Stop hook's while the relay is silent, and the PostToolUse nudge's
+with no probe at all. Every other non-zero exit (2,
+3, 4, 6, 7) stays read and not re-run: each names a fault a re-run
+cannot fix. A session left deaf by one of those, or by a harness that
+reaped its watch, is reported from outside it by the control agent's
+`deaf` reading and the coordinator's deaf alarm (#714, #718, j188, j190)
+once it has been so for 10 minutes and work waits for it: a queued
+REQUEST job, or an unread message the carrier counts.
+

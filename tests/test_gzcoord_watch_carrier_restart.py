@@ -115,7 +115,7 @@ class Restart(unittest.TestCase):
         self.assertIn("after-restart", "".join(self.out), "a message listed after the restart is delivered")
 
     def test_a_carrier_silent_past_the_bound_is_waited_out_and_delivers_when_it_returns(self):
-        # 2026-11-20: a carrier silent past the bound ended the watch with exit 5 and the session stayed deaf. The watch now says it
+        # 2026-11-18: a carrier silent past the bound ended the watch with exit 5 and the session stayed deaf. The watch now says it
         # on stderr and keeps retrying; the carrier's return delivers the next message without anyone running the watch again.
         self.start()
         self.down()

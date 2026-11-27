@@ -77,3 +77,52 @@ the case for the engine; it lost because the list would then sit in one
 repository and its files in another. Rule 2 names the folder, `roots`
 lists it among the paths that move, and CI's signing step archives it
 under main's operator prefix.
+
+### Amendment 2026-11-27 — After step D the authority guards read the operator's main, or refuse
+
+`docs/split/move-plan.md` precondition 6 named the one failure of the
+move that would pass instead of fail. Two guards read
+`policies/authority.json` at the base: `agent_fabric_dir_authority` and
+`charter_authority`. `agent_fabric_dir_authority` decided whether a
+repository is agent-fabric itself by whether that file was present.
+After step D the engine keeps no such file. The guard would then take
+agent-fabric for a managed project and check only `.agent-fabric/**`,
+and every other commit would pass unchecked, without a word.
+
+Rule 7 closes it in three parts. First, the engine is recognised by its
+own code at the base, `tools/fabric/roots.py`, and a branch cannot move
+that by adding or deleting an operator tree, nor a managed project's
+branch by adding that file. Second, the file is read where the base
+keeps it: in the repository while the base has `operator/` or the old
+path, and from step D in the operator repository's committed `main`.
+In CI that is a checkout of `main` alone at depth 1 through the deploy
+key, which the authority step names to the two guards alone
+(`AGENT_FABRIC_OPERATOR_GIT`, at the commit checked out) and deletes
+before any of the branch's code runs: the operator repository is
+private, and this repository's CI logs are public. On an account it is
+the login's own clone (`roots.operator_clone`), found from the password
+database, never `$HOME`; the documented variables choose another.
+Third, past step D a read of the
+operator's file that fails is a refusal, exit 4, naming what could not
+be read. A git read at the base that cannot run is a refusal too, exit 2,
+as is every other refusal. While the base still holds the tree, a file
+it lacks is read as before: the default role, no contributors, a
+charter refusal.
+
+CI's probe step fails the run when main has neither tree and the
+`OPERATOR_DEPLOY_KEY` secret is empty. Once main lacks the operator's
+paths, the authority step archives only the paths main has. The
+suites' own run of the guards (`tests/run.py`'s bash section, in both
+CI jobs) is handed no operator, so past step D the guards refuse there;
+CI sets `AGENT_FABRIC_AUTHORITY_GATED_ELSEWHERE=1`, and with it an exit 4
+from one of the two guards is a NOT ENFORCED line, the authority step
+being the gate. The status is the guard's own word for why it refused;
+any other status of those guards, exit 2 included, still counts. A
+run without the variable, as on an account, still fails on it. The
+key's other use, the signing step's archive of the keys, holders and
+registry, is still the key-trust hazard in the plan's §4 (job j1119):
+that step will fetch its own copy the same way, before any of the
+branch's code runs. Step D cannot pass until the key exists.
+Dependabot runs read only Dependabot secrets, so the owner adds the key
+under both.
+

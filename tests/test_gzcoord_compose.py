@@ -318,7 +318,8 @@ def main() -> int:
                 fh.write("#!%s\nimport json, sys\nsys.path.insert(0, %r)\nfrom gzcoord import gzmsg\n"
                          "m = gzmsg.parse(open(%r, encoding='utf-8').read())\n"
                          "print(json.dumps({'addressed': True, 'seq': 1, 'sender': m['metadata']['FROM'], 'type': m['type'],"
-                         " 'metadata': m['metadata'], 'text': ''}))\n"
+                         " 'metadata': m['metadata'], 'text': '',"
+                         " 'carrier': 'interweave', 'sender_verified': True}))\n"
                          % (sys.executable, os.path.join(ROOT, "tools", "fabric"), path))
             os.chmod(replay, 0o755)
 
