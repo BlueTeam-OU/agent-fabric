@@ -247,7 +247,10 @@ def _render(working_copy: str | None, repo: str | None, operator: str | None, en
     path = roots.projects_registry(root=operator, engine=engine)
     registry = _read_json(path)
     if registry is None:
-        raise GitRulesError(f"{path} is missing")
+        # An operator without a registry (none written yet, or a stripped checkout) registers no project: the
+        # working copy matches none and the engine's text renders. A registry that is there and unreadable stays an
+        # error (_read_json); only absence is empty.
+        registry = {"projects": {}}
     target = target_of(working_copy, repo, registry, timeout)
     notes: list[str] = []
     copy: dict | None = None

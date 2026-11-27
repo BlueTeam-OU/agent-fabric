@@ -144,6 +144,21 @@ def strip_instance(tree: str) -> None:
     old top-level INSTANCE_PATHS (a shim link there is removed, dangling or not, a real directory of an old-layout
     tree too), policies/*.json and each project's integration/."""
     op = os.path.join(tree, "operator")
+    # Every shim link into operator/, found in the tree and not named by a list: a
+    # link left behind dangles once operator/ is gone, and a copy of the tree (copytree,
+    # snapshot_entries) refuses it. Read before operator/ goes, by the link's own text.
+    op_abs = os.path.abspath(op)
+    for here, dirs, files in os.walk(tree):
+        if os.path.abspath(here) == op_abs:
+            dirs[:] = []
+            continue
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for name in dirs + files:
+            link = os.path.join(here, name)
+            if os.path.islink(link):
+                target = os.path.abspath(os.path.join(here, os.readlink(link)))
+                if target == op_abs or target.startswith(op_abs + os.sep):
+                    os.remove(link)
     if os.path.isdir(op) and not os.path.islink(op):
         shutil.rmtree(op)
     for rel in INSTANCE_PATHS:
