@@ -10,7 +10,12 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   env       AGENT_FABRIC_CHARTER_BASE (the base ref, tried first),
             GITHUB_BASE_REF (origin/<it>, <it>, then one shallow fetch of it),
             AGENT_FABRIC_ROOT (where to find policies/authority.json when the
-            repository has none; default <toplevel>/../agent-fabric)
+            repository has none; default <toplevel>/../agent-fabric),
+            AGENT_FABRIC_OPERATOR_GIT (the operator repository whose committed
+            authority.json the engine reads once its base keeps no operator
+            tree; default <home>/projects/blueteam-fabric, home from the
+            password database), AGENT_FABRIC_OPERATOR_REF (the ref read there;
+            default origin/main)
   stdin     not read
   stdout    every verdict that is not a failure: OK, not enforced, and one
             line per commit a carve-out admitted
@@ -22,7 +27,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             2 invocation problem (cannot reach the repo root) — and, where the
             bash passed silently, a guard that could not read: git missing,
             a rev-list that failed on a base it had resolved, a git call that
-            timed out
+            timed out; and the engine on a base with no operator tree whose
+            operator repository cannot show its authority.json (a missing or
+            empty repository, no such ref): refused, never narrowed
 
 `.agent-fabric/` in a repository is written by the fabric-coordinator
 ROLE. It holds the project's distilled knowledge (`memory/<role>/`,
@@ -53,14 +60,18 @@ its tree differs from the clean three-way merge of its parents
 a merge does not.
 
 RUNS IN ANY REPOSITORY. In agent-fabric ITSELF — recognised by the
-operator's policies/authority.json (`operator/policies/authority.json` at
-the toplevel, or where the exported operator sits inside it; the old
-top-level path is only a symlink since the move) — EVERY commit the branch
-adds must declare the role: the control plane is read-only for every other
-role (AGENTS.md, policies/AUTHORITY.md). In a managed project only the
-commits touching `.agent-fabric/**` must. The role name comes from the
-base's authority.json in agent-fabric itself (the pre-move path for a base
-from before the move), else, in a project, from the operator's
+engine's own code committed at HEAD or the base (contributors.ENGINE_MARKER,
+which the engine keeps after move-plan step D and no project has), or by the
+operator's policies/authority.json in the tree or the base
+(`operator/policies/authority.json` at the toplevel, or where the exported
+operator sits inside it; the old top-level path is only a symlink since the
+move) — EVERY commit the branch adds must declare the role: the control
+plane is read-only for every other role (AGENTS.md, policies/AUTHORITY.md).
+In a managed project only the commits touching `.agent-fabric/**` must. The
+role name comes from the base's authority.json in agent-fabric itself
+(contributors.fabric_authority: the base's operator tree, the pre-move path
+for a base from before the move, or, once the base keeps none, the operator
+repository's main), else, in a project, from the operator's
 policies/authority.json (the exported operator's, else the engine
 checkout's), else it is fabric-coordinator.
 
@@ -165,10 +176,16 @@ def declared_role(message: str, interpreted: str) -> str:
 
 def is_fabric_itself(top: str, base: str, env: dict[str, str] | None = None) -> bool:
     """Whether this is agent-fabric itself, where every commit is guarded.
-    Either side's policies/authority.json says so: read from the working
-    tree alone, as the bash did, a branch that deleted the file narrowed the
-    check to .agent-fabric/** and its other commits passed with no trailer
-    (review of #72). A git that cannot say reads as the stricter scope."""
+    The engine's code on either side says so (contributors.carries_engine):
+    after move-plan step D the engine has no authority.json, and a test of
+    that file alone would narrow the check to .agent-fabric/** without a
+    word. Either side's operator authority.json says so too, for a tree
+    with the operator still in it; read from the working tree alone, as the
+    bash did, a branch that deleted the file narrowed the check and its
+    other commits passed with no trailer (review of #72). A git that cannot
+    say reads as the stricter scope."""
+    if contributors.carries_engine(top, base):
+        return True
     # The operator's path on both sides, never the pre-move fallback: a project
     # with a top-level policies/authority.json is not the fabric (pinned by
     # test_agent_fabric_dir_authority), and the branch that moves the fabric
@@ -183,11 +200,21 @@ def is_fabric_itself(top: str, base: str, env: dict[str, str] | None = None) -> 
     return r.returncode == 0
 
 
+def fabric_authority(top: str, base: str, env: dict[str, str] | None) -> str | None:
+    """The base's authority.json text (contributors.fabric_authority); None
+    when the base's own operator tree holds none. Unreadable where only the
+    operator repository could answer, it is a refusal."""
+    try:
+        return contributors.fabric_authority(top, base, env).text
+    except contributors.AuthorityUnreadable as e:
+        raise Refused(str(e)) from None
+
+
 def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
     if is_fabric_itself(top, base, env):
         # agent-fabric itself: the base's file, never the branch's.
-        shown = git.run(top, "show", f"{base}:{contributors.authority_git_path_at(top, base, env)}", check=False)
-        role = common.role_of(shown.stdout) if shown.returncode == 0 else None
+        text = fabric_authority(top, base, env)
+        role = common.role_of(text) if text is not None else None
         return role or common.DEFAULT_ROLE
     # The guard's own environment, so an exported operator's authority.json is the one read.
     for f in (roots.policy("authority.json", environ=env,
@@ -207,8 +234,8 @@ def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
 def base_authority(top: str, base: str, env: dict[str, str] | None = None) -> str:
     """The base's policies/authority.json, "" when it has none: what a
     branch may do is what main says, never what the branch wrote."""
-    shown = git.run(top, "show", f"{base}:{contributors.authority_git_path_at(top, base, env)}", check=False)
-    return shown.stdout if shown.returncode == 0 else ""
+    text = fabric_authority(top, base, env)
+    return "" if text is None else text
 
 
 def commits_to_examine(top: str, base: str, env: dict[str, str] | None = None) -> tuple[str, list[str]]:

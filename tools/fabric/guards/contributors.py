@@ -21,7 +21,8 @@ lint holds each rule to it (lint.py CONTRIBUTOR_SUPPLY).
 One decision, three callers. The pre-commit and commit-msg hooks ask it
 through `hook` with the staged paths and the live binding; the CI tripwire
 (agent_fabric_dir_authority.py) imports `admitted` and asks it per commit
-with the declared trailer. The hooks read authority.json as HEAD has it —
+with the declared trailer. Which file CI reads is fabric_authority's
+answer, the one place both CI guards ask (move-plan §2 precondition 6). The hooks read authority.json as HEAD has it —
 never the working tree or the index, where an uncommitted edit would widen
 the entry for the commit it rides with — and CI reads the base's, so a
 branch that edits the file is judged by what main says.
@@ -48,9 +49,11 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import subprocess
 import sys
 from collections.abc import Mapping
+from typing import NamedTuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import roots  # noqa: E402
@@ -65,9 +68,9 @@ def authority_git_path(top: str, environ: Mapping[str, str] | None = None) -> st
     §2 precondition 5). A symlink shim cannot serve a git-object read.
     An operator outside `top` keeps no tree in this repository, so the
     path is the checkout's own operator tree: the old top-level path is a
-    symlink blob since the move, whose content is the link text. What a
-    guard does when the fabric's authority lives in another repository is
-    precondition 6, never a guess made here."""
+    symlink blob since the move, whose content is the link text. When the
+    fabric's authority lives in another repository (after step D), the
+    guards read it through fabric_authority, never through this path."""
     try:
         return roots.git_path("policies", "authority.json", base=top, environ=environ)
     except ValueError:
@@ -87,14 +90,124 @@ def authority_git_path_at(top: str, rev: str, environ: Mapping[str, str] | None 
     tree is read there alone, so a base that moved and then lost the file
     still refuses, never falls back."""
     rel = authority_git_path(top, environ)
-    tree = rel[: -len(PRE_MOVE_AUTHORITY)].rstrip("/")
-    if not tree or not rel.endswith(PRE_MOVE_AUTHORITY):
+    tree = _operator_tree(rel)
+    if not tree:
         return rel
-    def has(path: str) -> bool:
+    # A rev with neither is named by the operator's path, which is where it is missing now.
+    return PRE_MOVE_AUTHORITY if not _has(top, rev, tree) and _has(top, rev, PRE_MOVE_AUTHORITY) else rel
+
+
+def _operator_tree(rel: str) -> str:
+    """The operator's tree in the repository, from the path authority.json has in it; "" when the operator is the
+    repository's toplevel (a fixture laid out as the old layout)."""
+    return rel[: -len(PRE_MOVE_AUTHORITY)].rstrip("/") if rel.endswith(PRE_MOVE_AUTHORITY) else ""
+
+
+def _has(top: str, rev: str, path: str) -> bool:
+    try:
         return subprocess.run(["git", "-C", top, "cat-file", "-e", f"{rev}:{path}"],
                               capture_output=True, text=True, timeout=60).returncode == 0
-    # A rev with neither is named by the operator's path, which is where it is missing now.
-    return PRE_MOVE_AUTHORITY if not has(tree) and has(PRE_MOVE_AUTHORITY) else rel
+    except (OSError, subprocess.SubprocessError) as e:
+        raise AuthorityUnreadable(f"cannot ask git whether {rev} has {path} ({e})") from None
+
+
+# The engine's own code at a fixed path: what agent-fabric keeps after move-plan step D, when it holds no operator
+# tree, and what no managed project carries. roots.py rather than a guard's own file: it is the module that knows
+# the split between engine and operator, so the engine cannot lose it without that split being rewritten.
+ENGINE_MARKER = "tools/fabric/roots.py"
+ENV_OPERATOR_GIT = "AGENT_FABRIC_OPERATOR_GIT"
+ENV_OPERATOR_REF = "AGENT_FABRIC_OPERATOR_REF"
+OPERATOR_REF = "origin/main"
+# Step C renames operator/ to the operator repository's root, so its file sits at the pre-move spelling.
+OPERATOR_REPO_AUTHORITY = PRE_MOVE_AUTHORITY
+# The variables a git hook or a suite exports that would point a git call at another repository than the one named.
+_REPO_POINTING = ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY")
+
+
+class AuthorityUnreadable(RuntimeError):
+    """The fabric's authority could not be read where the base's layout says it is. A guard turns this into its
+    refusal: judging without it would narrow the check, never widen it."""
+
+
+def carries_engine(top: str, base: str) -> bool:
+    """Whether HEAD or the base commits the engine (ENGINE_MARKER): either side, so a branch that deletes it does
+    not narrow the check. Committed, not the working tree: a scratch repository that copies the guards in untracked
+    (test_check_charter_authority_cli's sandbox) is not the engine, and what the guards judge is commits. A git
+    that cannot answer reads as the engine, the stricter scope."""
+    for rev in ("HEAD", base):
+        try:
+            if _has(top, rev, ENGINE_MARKER):
+                return True
+        except AuthorityUnreadable:
+            return True
+    return False
+
+
+# A NamedTuple, not a dataclass: lint and the hooks load this module by path, unregistered in sys.modules,
+# where @dataclass fails to read its own module.
+class FabricAuthority(NamedTuple):
+    text: str | None   # None: the base's own tree was named and holds no readable file
+    source: str        # what was read, for a refusal: "<path> at <rev>"
+
+
+def fabric_authority(top: str, base: str, environ: Mapping[str, str] | None = None) -> FabricAuthority:
+    """policies/authority.json as the BASE has it, for the guards that judge a branch by what main says
+    (agent_fabric_dir_authority, charter_authority). Where it is read is chosen by the base's layout, never the
+    branch's, so a branch that adds or deletes an operator tree cannot move the read:
+
+      the base has the operator's tree in the repository (operator/, or the pre-move path), or the repository
+      is no engine: read there, as `<base>:<path>`. A file missing there is text None, and the caller does
+      what it always did (a default role, no contributors, a charter refusal).
+
+      the engine, and the base keeps no operator tree (after docs/split/move-plan.md step D): the operator
+      repository's committed file, `git -C <repo> show <ref>:policies/authority.json`, with <repo>
+      AGENT_FABRIC_OPERATOR_GIT (CI's deploy-key checkout) else the account's clone, roots.operator_clone,
+      and <ref> AGENT_FABRIC_OPERATOR_REF else origin/main. A read that fails raises AuthorityUnreadable:
+      with nothing to read, the check would otherwise narrow without a word (move-plan §2 precondition 6).
+
+    `environ` is the guard's environment, which names both variables."""
+    rel = authority_git_path_at(top, base, environ)
+    tree = _operator_tree(rel)
+    if _has(top, base, rel) or (tree and _has(top, base, tree)) or not carries_engine(top, base):
+        try:
+            r = subprocess.run(["git", "-C", top, "show", f"{base}:{rel}"], capture_output=True, text=True,
+                               timeout=60, errors="surrogateescape")
+        except (OSError, subprocess.SubprocessError) as e:
+            raise AuthorityUnreadable(f"cannot read {rel} at {base} ({e})") from None
+        return FabricAuthority(r.stdout if r.returncode == 0 else None, f"{rel} at {base}")
+    return _operator_authority(base, environ)
+
+
+def _operator_authority(base: str, environ: Mapping[str, str] | None) -> FabricAuthority:
+    env = os.environ if environ is None else environ
+    ref = env.get(ENV_OPERATOR_REF) or OPERATOR_REF
+    source = f"{OPERATOR_REPO_AUTHORITY} at {ref}"
+    repo = env.get(ENV_OPERATOR_GIT)
+    try:
+        # The login's own home from the password database, never $HOME: a session's environment does not
+        # choose which operator this account trusts.
+        repo = os.path.abspath(repo or roots.operator_clone(pwd.getpwuid(os.getuid()).pw_dir))
+    except KeyError:
+        raise AuthorityUnreadable(f"cannot read {source}: this login has no home directory to find the "
+                                  f"operator's clone in, and {ENV_OPERATOR_GIT} is not set") from None
+    git_env = {k: v for k, v in os.environ.items() if k not in _REPO_POINTING}
+    # A directory that is no repository would otherwise be answered by whatever checkout encloses it.
+    git_env["GIT_CEILING_DIRECTORIES"] = os.path.dirname(repo)
+    git_env["GIT_TERMINAL_PROMPT"] = "0"
+    why = ""
+    try:
+        r = subprocess.run(["git", "-C", repo, "show", f"{ref}:{OPERATOR_REPO_AUTHORITY}"], capture_output=True,
+                           text=True, timeout=60, env=git_env, errors="surrogateescape")
+        if r.returncode == 0:
+            return FabricAuthority(r.stdout, f"{source} in {repo}")
+        lines = [l for l in r.stderr.strip().splitlines() if l.strip()]
+        why = (lines or [f"git exit {r.returncode}"])[-1]
+    except (OSError, subprocess.SubprocessError) as e:
+        why = str(e)
+    raise AuthorityUnreadable(
+        f"cannot read {source} in the operator repository {repo} ({why}): {base} keeps no operator tree, so the "
+        f"fabric's authority is the operator's (set {ENV_OPERATOR_GIT}, or clone it there), and this check refuses "
+        "rather than narrow to what it can read")
 
 
 def contributors_of(text: str) -> dict[str, dict]:
