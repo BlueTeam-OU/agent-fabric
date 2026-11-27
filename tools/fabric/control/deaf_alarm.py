@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/control/deaf_alarm.py — say a deaf session to the coordinator, once per account and episode (j188).
 
-  deaf_alarm.py [--to <host/login>] [--dry-run]
+  deaf_alarm.py [--to <host/login>] [--dry-run] [--no-restart]
 
 Run on the coordinator's account by agent-fabric-deaf-alarm.timer. It asks every account's control agent for its `deaf`
 section (`fabric-ctl all deaf --json`; the rule is control/deaf.py's) and sends one INFO to --to (default: this login) for each
@@ -22,7 +22,21 @@ EXIT  0 read; each new episode's message sent (or, with --dry-run, printed)
       2 bad command line
 STDOUT one line per message sent (or that --dry-run would send); STDERR the reasons for exit 3.
 The message carries the account, how the watch ended, how long, and what waits; no secret and no message text of the account's.
-Not decided here: what the coordinator does about it (restart the session, `fabric-ctl <login> restart`, is the coordinator's)."""
+
+THE RESTART (j1061; the owner's word of 2026-11-23). An account that is deaf AND whose `deaf` section says idle true (deaf.py: the
+transcript quiet, the last turn ended, no tool call pending) is restarted with `fabric-ctl <login> restart`, then told in the INFO.
+  - RECORD BEFORE ACT: <state>/deaf-restart.json {account: {episode, times, outcome}} is written, fsynced, before the restart runs, so a
+    crash, a timeout or a failed send never repeats it for one episode (j190's loop must not become a restart loop). If it cannot be
+    written nothing is restarted;
+  - at most one restart per episode, and MAX_RESTARTS per account in RESTART_WINDOW_S; past the cap the alarm says the restarts did not
+    restore a watch. The times outlive a recovery: only the window ages them out;
+  - never this login's own account (a session does not stop the one it waits on; the control agent's `yours` is the second guard);
+  - idle false or "unknown", or no idle in the row (an older control agent): alarm only, naming why, so the pane is read;
+  - --no-restart and --dry-run restart nothing and write nothing.
+The INFO of a restarted episode is a message of its own (ledger value `<episode>#restart`): an alarm already sent while the session was
+held at a prompt does not stand in for "restarted it".
+
+Not decided here: what the coordinator does about an alarm-only account (reading its pane)."""
 from __future__ import annotations
 
 import argparse
@@ -33,12 +47,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any, Callable
 
 CTL_TIMEOUT_S = 180
 SEND_TIMEOUT_S = 60
 LEDGER = "deaf-alarm.json"
 PENDING = "deaf-alarm-pending"
+RESTART_LEDGER = "deaf-restart.json"
+MAX_RESTARTS = 2
+RESTART_WINDOW_S = 24 * 3600
+RESTART_TAG = "#restart"
 
 
 def read_ledger(path: str) -> dict[str, str]:
@@ -96,6 +115,103 @@ def read_rows(run: Callable[..., Any] = subprocess.run) -> list[dict]:
     return rows
 
 
+def ctl_restart(account: str, run: Callable[..., Any] = subprocess.run) -> tuple[str, str]:
+    """(status, reason) of `fabric-ctl <account> restart`: the control agent's own words (restart.py: restarted, no-session, yours, failed,
+    refused, busy), or "failed" with why when fabric-ctl itself did not say. Never raises for a command that failed."""
+    from control.restart import RESTART_BUDGET_S
+    argv = ["fabric-ctl", "--json", "--timeout", str(int(RESTART_BUDGET_S)), account, "restart"]
+    try:
+        r = run(argv, capture_output=True, text=True, timeout=RESTART_BUDGET_S + 60, stdin=subprocess.DEVNULL, check=False)
+    except (OSError, subprocess.SubprocessError) as e:
+        return "failed", f"fabric-ctl: {e.__class__.__name__}"
+    for line in (r.stdout or "").splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict) and rec.get("account") == account:
+            data = rec.get("restart")
+            if isinstance(data, dict) and isinstance(data.get("status"), str):
+                why = data.get("reason") or data.get("note") or ""
+                return data["status"], str(why)[:200]
+            return "failed", f"the account's row has no restart answer (status {str(rec.get('status'))[:40]})"
+    return "failed", f"fabric-ctl exited {r.returncode} with no row for the account: {(r.stderr or '').strip()[-120:]}"
+
+
+class Restarter:
+    """The restart half: decides from the row and the restart ledger, and acts only after the ledger holds the attempt."""
+
+    def __init__(self, path: str, own: str, *, ctl: Callable[[str], tuple[str, str]] = ctl_restart, clock: Callable[[], float] = time.time) -> None:
+        self.path, self.own, self.ctl, self.clock = path, own, ctl, clock
+        self.ledger = self._read()
+
+    def _read(self) -> dict[str, dict]:
+        try:
+            with open(self.path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except FileNotFoundError:
+            return {}
+        # As the alarm ledger: one that cannot be read is not an empty one, or the cap would start again from nothing.
+        ok = isinstance(data, dict) and all(
+            isinstance(k, str) and isinstance(v, dict) and isinstance(v.get("episode"), str)
+            and isinstance(v.get("times"), list) and all(isinstance(t, (int, float)) for t in v["times"])
+            and (v.get("outcome") is None or isinstance(v.get("outcome"), str)) for k, v in data.items())
+        if not ok:
+            raise ValueError(f"{self.path} is not a map of account to restart record")
+        return data
+
+    def _write(self) -> None:
+        write_ledger(self.path, self.ledger)   # type: ignore[arg-type]  # same atomic write; the values are records here
+
+    def plan(self, account: str, episode: str, d: dict) -> tuple[str, str]:
+        """("restart"|"already"|"skip", note). `already`: this episode has been restarted; note is its recorded outcome."""
+        rec = self.ledger.get(account)
+        if rec and rec["episode"] == episode:
+            return "already", rec.get("outcome") or "attempted; its result was not recorded"
+        if account == self.own:
+            return "skip", "this login's own account is never restarted from here"
+        idle = d.get("idle")
+        if idle is not True:
+            why = d.get("idle_why") if isinstance(d.get("idle_why"), str) else "the section does not say"
+            return "skip", f"idle is {json.dumps(idle) if idle is not None else 'absent'} ({why}); read its pane"
+        recent = [t for t in (rec["times"] if rec else []) if self.clock() - t < RESTART_WINDOW_S]
+        if len(recent) >= MAX_RESTARTS:
+            return "skip", (f"{len(recent)} restarts in the last 24 h did not restore a watch; a restart is not repeated, "
+                            "read its pane")
+        return "restart", ""
+
+    def execute(self, account: str, episode: str) -> str:
+        """Record the attempt, then restart, then record the outcome. The outcome text; "not restarted: ..." when the ledger would not take it."""
+        times = [t for t in (self.ledger.get(account) or {"times": []})["times"] if self.clock() - t < RESTART_WINDOW_S] + [self.clock()]
+        before = self.ledger.get(account)
+        self.ledger[account] = {"episode": episode, "times": times, "outcome": None}
+        try:
+            self._write()
+        except OSError as e:
+            # Not durable, so not done: a restart that may repeat is the loop this ledger exists to prevent.
+            if before is None:
+                del self.ledger[account]
+            else:
+                self.ledger[account] = before
+            return f"not restarted: the restart ledger cannot be written ({e.__class__.__name__})"
+        try:
+            status, reason = self.ctl(account)
+        except BaseException as e:   # the entry stays: an attempt that raised is still an attempt
+            self.ledger[account]["outcome"] = f"failed: {e.__class__.__name__}"
+            try:
+                self._write()
+            except OSError:
+                pass
+            raise
+        outcome = status + (f": {reason}" if reason else "")
+        self.ledger[account]["outcome"] = outcome
+        try:
+            self._write()
+        except OSError:
+            pass   # the attempt is on disk already; only the wording of its result is lost
+        return outcome
+
+
 def episode_of(row: dict) -> tuple[str, dict] | None:
     """(episode, section) when the row says deaf, else None."""
     d = row.get("deaf")
@@ -116,9 +232,14 @@ def body(account: str, d: dict) -> tuple[str, str]:
                else f"{unread} unread message(s) of its own and {p.get('queued_requests')} queued job(s) taken from a REQUEST")
     context = (f"{account} has a session running and no inbox watch. Its watch log's last line is: {d.get('watch')}. "
                f"It has been so since {d.get('since')} ({d.get('age_s')} s) and work waits for it: {waiting}.")
-    notes = ("An idle session has no turn in which to arm its watch again; this one can be helped only from outside "
-             f"(`fabric-ctl {account} restart`, or a message that makes the session act). One message per episode: "
-             "it is not repeated while this deafness lasts. Rule: tools/fabric/control/deaf.py.")
+    done = d.get("action")
+    if isinstance(done, str):
+        notes = (f"{done} One message per episode and action: it is not repeated while this deafness lasts. Rules: "
+                 "tools/fabric/control/deaf.py, deaf_alarm.py.")
+    else:
+        notes = ("An idle session has no turn in which to arm its watch again; this one can be helped only from outside "
+                 f"(`fabric-ctl {account} restart`, or a message that makes the session act). One message per episode: "
+                 "it is not repeated while this deafness lasts. Rule: tools/fabric/control/deaf.py.")
     return context, notes
 
 
@@ -204,8 +325,9 @@ def drop_pending(pending_dir: str, account: str) -> None:
 
 
 def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = False,
-          send_one: Callable[[str, dict, str], None] = send, pending_dir: str | None = None) -> tuple[dict[str, str], list[str], list[str]]:
-    """(the new ledger, the lines said, the failures). Apart from `send_one`, its only effect is removing a recovered account's pending file."""
+          send_one: Callable[[str, dict, str], None] = send, pending_dir: str | None = None,
+          restarter: Restarter | None = None) -> tuple[dict[str, str], list[str], list[str]]:
+    """(the new ledger, the lines said, the failures). Apart from `send_one` and `restarter`, its only effect is removing a recovered account's pending file."""
     new = dict(ledger)
     said: list[str] = []
     failed: list[str] = []
@@ -222,16 +344,41 @@ def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = Fal
                         failed.append(f"{account}: its pending file cannot be removed: {e}")
             continue
         episode, d = hit
-        if new.get(account) == episode:
+        kind, note = restarter.plan(account, episode, d) if restarter else ("none", "")
+        key = episode + RESTART_TAG if kind in ("restart", "already") else episode
+        if new.get(account) == key:
             continue
+        what = ""
+        if kind == "restart" and dry_run:
+            what = " (idle: would restart)"
+        elif kind == "restart":
+            assert restarter is not None
+            try:
+                outcome = restarter.execute(account, episode)
+            except (OSError, subprocess.SubprocessError, RuntimeError) as e:
+                outcome = f"failed: {e.__class__.__name__}"
+            if outcome.startswith("not restarted"):
+                key = episode   # nothing was done: the alarm-only message is the true one
+                d = {**d, "action": f"{outcome}; read its pane."}
+                if new.get(account) == key:
+                    failed.append(f"{account}: {outcome}")
+                    continue
+            else:
+                d = {**d, "action": f"The session was idle ({d.get('idle_why')}), so `fabric-ctl {account} restart` was run: {outcome}."}
+                what = f" (restart: {outcome})"
+        elif kind == "already":
+            d = {**d, "action": f"The session was idle, so `fabric-ctl {account} restart` was run: {note}."}
+            what = f" (restart: {note})"
+        elif kind == "skip":
+            d = {**d, "action": f"Not restarted: {note}."}
         if not dry_run:
             try:
-                send_one(account, d, to)
+                send_one(account, {**d, "episode": key}, to)
             except (RuntimeError, OSError, subprocess.SubprocessError) as e:
                 failed.append(f"{account}: {e}")
                 continue
-            new[account] = episode
-        said.append(f"{account}: deaf since {d.get('since')} ({d.get('watch')}) -> {to}")
+            new[account] = key
+        said.append(f"{account}: deaf since {d.get('since')} ({d.get('watch')}){what} -> {to}")
     return new, said, failed
 
 
@@ -239,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="deaf_alarm.py", description="One INFO to the coordinator per deaf account and episode.")
     ap.add_argument("--to", help="the address told (default: this login)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-restart", action="store_true", help="alarm only: restart no idle account (the unit restarts them by default)")
     a = ap.parse_args(argv)
     from control.ops import util
     to = a.to
@@ -257,7 +405,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"deaf_alarm: {e}", file=sys.stderr)
         return 3
     pending_dir = os.path.join(util.state_dir(), PENDING)
-    new, said, failed = alarm(rows, ledger, to, a.dry_run, lambda acc, d, t: send(acc, d, t, pending_dir=pending_dir), pending_dir)
+    restarter = None
+    unreadable = []
+    if not a.no_restart:
+        import pwd
+        try:
+            restarter = Restarter(os.path.join(util.state_dir(), RESTART_LEDGER), pwd.getpwuid(os.getuid()).pw_name)
+        except (ValueError, OSError) as e:
+            unreadable.append(f"{e}; nothing is restarted this run")
+    new, said, failed = alarm(rows, ledger, to, a.dry_run, lambda acc, d, t: send(acc, d, t, pending_dir=pending_dir), pending_dir, restarter)
+    failed += unreadable
     for line in said:
         print(line)
     if new != ledger:

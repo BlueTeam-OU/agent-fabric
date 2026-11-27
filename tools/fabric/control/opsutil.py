@@ -52,6 +52,18 @@ def state_dir() -> str:
     return module.agent_state_dir()
 
 
+def binding_session() -> str | None:
+    """The session id this login's binding records, or None when there is no binding. identity.py's refusals (another host's
+    binding, a copied file, bad JSON) raise: a caller that cannot tell which session runs says unknown."""
+    spec = importlib.util.spec_from_file_location(
+        "fabric_runtime_identity", os.path.join(os.path.dirname(os.path.dirname(FABRIC_TOOLS)), "runtime", "identity.py"))
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    session = module.read_binding().get("session")
+    return session if isinstance(session, str) else None
+
+
 def read_json(file: str) -> Any:
     """The file's JSON, or None for a file that is absent or not JSON."""
     try:
