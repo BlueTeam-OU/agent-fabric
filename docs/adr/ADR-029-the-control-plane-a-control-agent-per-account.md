@@ -7,7 +7,7 @@
 **Scope:** runtime/control/, every module and the unit file, and its Python package tools/fabric/control/ from its creation (ADR-040 Wave 8); bin/fabric-ctl; the control channel's refusal in GZCoord's inbox and send tools; the unit's installation in tools/fabric/bootstrap.py; tools/fabric/local_settings.py (rule 15) and runtime/claude-code/hooks/session-state.py (rule 16); account persistence (runtime/provisioning/persist-accounts.sh, runtime/provisioning/platform/qubes/agent-fabric-accounts.rc); the fallbacks bin/fabric-usage and bin/fabric-host; bin/fabric-op, the break-glass action path (rule 19)
 **Pillar:** P5
 **Class:** engine
-**Evidence:** docs/live-checks/2026-09-17-control-plane.md, docs/live-checks/2026-11-13-control-dual-two-accounts.md, docs/live-checks/2026-11-14-agentd-restart-held-by-ctl-session.md, docs/live-checks/2026-11-26-control-parity-rule-18.md
+**Evidence:** docs/live-checks/2026-09-17-control-plane.md, operator/docs/live-checks/2026-11-27-bg-shell-pressure-reap-switch-and-deaf-alarm.md, docs/live-checks/2026-11-13-control-dual-two-accounts.md, docs/live-checks/2026-11-14-agentd-restart-held-by-ctl-session.md, docs/live-checks/2026-11-26-control-parity-rule-18.md
 
 ## 1. Context and Problem
 
@@ -82,8 +82,10 @@ sudo are in the loop.
 | `pool-claim` | a claim of one pool job for the asker's own list, a public op, checked against the role the asker's own daemon reports (ADR-037) |
 | `job-state` | one job's state, open or closed, by its id or by the request it was taken from, to that request's sender only, and `absent` to anyone; a public op (ADR-037 rule 8) |
 | `state` | the account's newest `state` record (rule 16) as its control agent keeps it in its state directory, with the answering account's address; no record, or one that cannot be read, is answered `null` with why, never an empty record; no arguments; a public op (`tools/fabric/control/state_record.py`) |
+| `deaf` | whether a session runs with no inbox watch for over 10 minutes while work waits for it, from the account's watch log, its process table and its jobs (ADR-022 rule 2); `idle`, whether that session has ended its turn, from its own transcript; unreadable input answers `unknown`, never "not deaf"; no arguments; also a section of `status` (`tools/fabric/control/deaf.py`, #714) |
 | `upgrade` | *action*: the account to the pinned Claude Code or to the merged fabric (ADR-009) |
 | `secrets-sync` | *action*: the account's store projected where its tools read it (ADR-038) |
+| `restart` | *action*, no arguments: the account's running session stopped with SIGTERM after a restart marker, so its launcher resumes it on the fabric as it is now; `yours` for the requester's own session, `failed` beside an upgrade or a `secrets-sync` (`tools/fabric/control/restart.py`, rule 19) |
 | `jobs-add` | *action*: the owner's job on the account's list (rule 13, ADR-037) |
 | `hold` | *action*: the fleet hold on the account's login, `reason` required and `decision` optional, written to its `hold.json` (rule 13, ADR-037 rule 13) |
 | `unhold` | *action*, no arguments: the login's `hold.json` removed; answered `none` when there was none (rule 13) |
@@ -100,7 +102,7 @@ sudo are in the loop.
 | `interweave-evidence` | *signed read*, arguments `section` (`arrivals`, `deliveries`, `shown`, `acks`, `backfills` or `watch`), `since` and `until` (`YYYY-MM-DDTHH:MM:SSZ`, `since` before `until`), nothing else; the files ADR-064 rule 11's parity report is computed from: the account's `gzcoord-arrivals.jsonl` lines with `t` in the window, or its InterWeave delivery records with `queued` in it, oldest first, and for arrivals the kind (direct, role, broadcast) of each message from the account's journal, opened read-only. For the relay-outage drill (A 2026-11-08), `shown` is the lines of `gzcoord-shown.jsonl` without the text hash, and `acks` the lines of `gzcoord-acks.jsonl` (MESSAGE-ID, addressee, time, whether the relay answered); a line whose MESSAGE-ID is not a UUIDv7 is left out of both. For its fourth property (A 2026-11-13), `backfills` is the lines of `gzcoord-backfill.jsonl` with `at` in the window (MESSAGE-ID, outcome `posted`, `present` or `over-age`, `at`, `delay_s`, channel): the sender's record of what became of each message the carrier alone delivered once the relay returned: posted, found already present, or over the age bound and not posted; any other line is skipped and counted, and a non-UUIDv7 MESSAGE-ID left out. For the drill's restarts and give-ups (A 2026-11-15), `watch` is the lines of `gzcoord-watch.jsonl` with `t` in the window: one `start` line when a watch began and one `end` line when it ended, rebuilt from the keys `t`, `event`, `pid`, `reason` and `code`, the reason from a closed set; any other line is left out and counted. Beside the log's lines, `backfills` carries one derived row per outbound message the account's journal holds as accepted by the relay with its send time in the window (MESSAGE-ID, outcome `relay-took-send`, `at`, channel null, no `delay_s`): the relay had it from the send, so the log holds no line for it, and a log line claiming that outcome is skipped like any other; the reply's `send_rows` says `ok`, `absent` or `unreadable` of the journal the rows came from, and `fabric-ctl` records in the collection whether every page said `ok` (A 2026-11-14). A failure of the backfills or the watch section ends only it, and of the shown and acks only them: the account's arrivals and deliveries still make a report. Rows are built key by key from a closed list, each value a short string but for the booleans `ok` (acks) and `pending` and `flagged` (shown, present only when true), a backfill row's `delay_s`, a finite number (absent from a derived row), and its channel, a short string or null; a body never leaves the account. A page is at most 64 KiB of rows, cut on a whole second; `next` is the `since` of the following page, and `fabric-ctl` pages every account to completion. Refused: an argument other than the three, a section other than the six, a time not in that form, a window that is empty, a second holding more than a page (`tools/fabric/control/carrier_evidence.py`, `evidence_collect.py`) |
 | `interweave-mode` | *action*, one argument `mode` (`relay-record`, `carrier-record` or `carrier-only`), nothing else: the account's GZCoord transport mode (ADR-064 §7), written to the account's own state as the login its control agent runs as and never to a committed file, the record naming the operator who signed it; the reply gives the mode set and the one before (`null` when the file could not be read, which the action rewrites). `fabric-ctl` refuses `carrier-only`, sending nothing, while any placed account reports `relay-record` or does not report, a check only the fleet's view can make; an account that does not answer is not moved, and is named. The `interweave` read shows the mode, who set it and when, and an unreadable file as unknown, never as the default. Refused: a missing or unknown mode, any other argument, a request that does not say who signed it (`tools/fabric/control/transport_mode.py`, `tools/fabric/gzcoord/transport/mode.py`) |
 | `pool-add` | *action*, on the pool's holder only: a job on a role's pool (ADR-037 rule 9) |
-| `status` | identity, usage, keys, fabric and session together |
+| `status` | identity, usage, keys, fabric, session and `deaf` together |
 
 - **The switch controller** (ADR-052) runs in the coordinator's control
   agent, on the host operator's account only: a timer every `interval_s`
@@ -463,6 +465,24 @@ with Doppler (ADR-038 §5 rule 8).
       relay is not there, not a second path beside a live one.
     It is verified on the host executor's local backend; the SSH backend
     and `--as` another login are not yet exercised.
+20. The coordinator's deaf alarm (`tools/fabric/control/deaf_alarm.py`,
+    every 5 minutes on the coordinator's account) restarts a session that
+    `deaf` reads deaf and idle, through that account's `restart`, on the
+    owner's word (A 2026-11-27). The alarm:
+    - writes the episode to its ledger as restarted before it asks, so a
+      crash, a timeout or a failed message never restarts one episode
+      twice;
+    - restarts an account at most once per episode and twice in any 24
+      hours; past that it only reports, saying the restarts did not
+      bring a watch back;
+    - never restarts its own account;
+    - only reports, naming why, a session that is not idle (a tool call
+      waiting at a permission prompt, or a turn still running) or whose
+      idleness is `unknown`: a restart would discard what it waits on;
+    - says in its message what it did and the reply `restart` gave;
+    - restarts nothing under `--no-restart` or `--dry-run`.
+    Not built until python-dev-03's j192 lands; until then the alarm
+    only reports.
 
 ## 6. Consequences
 
@@ -578,3 +598,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-11-25 | Each account answers its newest state record | §2 table: `state`, a fifth public op; §5 rule 4: public, the record being the state channel's; rule 16: kept on the account's disk and asked by the readers under the second carrier alone or `FABRIC_STATE_READ=op`; built in #640 |
 | 2026-11-26 | The owner's word on control parity is given | §2: the second-carrier bullet; §5 rule 18: its last bullet, the owner's word on the rule-18 parity report; the relay stays the record under `dual`, InterWeave becomes it with `control_carrier` naming it alone after gate 3's read-backs; §8; Evidence: `2026-11-26-control-parity-rule-18.md` (j1071) |
 | 2026-11-26 | The InterWeave install and start budgets count the retry before a rollback | §2 table: the `interweave-install` row names the stop and start; §5 rule 12: `interweave-install` 4639 s (own 3379 s), `interweave-start` 1695 s (#715, ADR-064 rule 14) |
+| 2026-11-27 | A deaf idle session is restarted from outside | §2 table: `deaf` and `restart` rows, `status` names its `deaf` section (#714); §5 rule 20: the deaf alarm restarts a deaf idle session, the ledger written first, once per episode and twice a day at most, never its own account nor a session at a prompt (j1061, the owner's word of 2026-11-23) |

@@ -633,3 +633,26 @@ from 1448 s to 3379 s, which now holds a stop's and a start's budget),
 and `interweave-start` from 1620 s to 1695 s. The figures were read by
 importing the module at the merge of #712 and of #715. The §2 table's
 `interweave-install` row names the stop and start.
+
+### Amendment 2026-11-27 — A deaf idle session is restarted from outside
+
+The control agent's `deaf` op (#714, python-dev-03, j188) says from
+outside a session that it has no inbox watch while work waits for it,
+and the coordinator's deaf alarm sends one INFO per episode. Neither
+had a row in §2's table, and nor had `restart`, the action that alarm
+names (#714 F7, deferred to fabric-coordinator; j1113). Both rows are
+added, and `status` names its `deaf` section.
+
+The owner's word of 2026-11-23 ("Both") was the pressure-reap switch
+(ADR-022 rule 13) and a restart from outside, after `fabric-ctl <login>
+restart` brought deaf sessions back by hand in about 20 seconds. Rule
+20 is that restart. It is gated on idleness, read from the session's
+own transcript, because `deaf` alone is not idle: on 2026-11-27 16:58Z
+the alarm reported rust-ui-dev-02 deaf while its session was held at a
+permission prompt, where a SIGTERM would have discarded the tool call
+it was asking about. The ledger is written before the restart, which
+keeps a repeated or failed message from becoming a repeated restart.
+#718 settled the message repeating every five minutes, and the cap
+of two restarts a day bounds a session that comes back deaf. The code
+is python-dev-03's j192 (REQUEST 01a21df3); until it lands the alarm
+only reports.

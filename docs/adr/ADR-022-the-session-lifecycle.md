@@ -7,7 +7,7 @@
 **Scope:** runtime/claude-code/user-settings.py (`permissions.defaultMode`); tools/fabric/launch.py and tools/fabric/launcher/currency.py (the fresh relaunch's directory, the session's fabric root); runtime/openrouter/launch (the opening prompt, the restart marker); bin/fabric-fresh; bin/fabric-branches and policies/branch-hygiene/SKILL.md; runtime/claude-code/workspace/settings.json and each managed project's `.claude/settings.json` (the hook wiring); runtime/claude-code/hooks/session-start.py (the watch check), runtime/claude-code/hooks/plan-hold.sh; tools/fabric/gzcoord/inbox.py and send.py; tools/fabric/control/ops/, tools/fabric/control/presence.py, tools/fabric/control/ctl.py (presence); communication/gzcoord/skills/gzcoord-receive/SKILL.md
 **Pillar:** P3
 **Class:** engine
-**Evidence:** docs/live-checks/2026-09-16-inbox-hold-while-planning.md
+**Evidence:** docs/live-checks/2026-09-16-inbox-hold-while-planning.md, operator/docs/live-checks/2026-11-27-bg-shell-pressure-reap-switch-and-deaf-alarm.md
 
 ## 1. Context and Problem
 
@@ -205,6 +205,17 @@ the same command asks on one account and not on another.
     is behind, the launcher says its hooks and `.claude/settings.json`
     are its own, and names the root. A warning, never a refusal: a
     feature worktree behind main is normal work (A 2026-10-30).
+13. Every launch path sets `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`
+    in the session's environment (`tools/fabric/launch.py`), so the
+    harness never reaps the watch, an idle background command, under
+    memory pressure. The reap told the model not to start it again
+    until asked, which outweighed every hook that asked for a re-arm,
+    and the switch is read only from the harness's own start
+    environment: a shell command cannot set it. It reaches a session at
+    its next launch (A 2026-11-27). A session deaf for any other
+    reason is restarted from outside by the coordinator's deaf alarm
+    when it is idle (ADR-029 rule 20): the one exception to rule 12's
+    "nothing restarts a session on its own".
 
 ## 6. Consequences
 
@@ -273,3 +284,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-10-28 | The sweep deletes the login's own merged branches on origin | §5 rule 11: under `<host>/<login>/`, on the default branch, heading no open PR (#416) |
 | 2026-10-30 | A fresh launch starts in the job's worktree; the session carries the verified fabric root | §5 rule 12: worktree before working copy, `AGENT_FABRIC_ROOT` exported, a behind fabric checkout named (#432) |
 | 2026-11-27 | A watch that gave up on the relay is run again | §5 rule 2: exit 5 joins delivery, quiet end and timeout; every other non-zero exit is still read, not re-run |
+| 2026-11-27 | The harness's pressure reap is switched off at launch | §5 rule 13: `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1` on every launch path (#693); a deaf idle session restarted from outside is ADR-029 rule 20, rule 12's one exception |

@@ -229,3 +229,25 @@ reaped its watch, is reported from outside it by the control agent's
 once it has been so for 10 minutes and work waits for it: a queued
 REQUEST job, or an unread message the carrier counts.
 
+### Amendment 2026-11-27 — The harness's pressure reap is switched off at launch
+
+On 2026-11-21 17:34Z and again on 2026-11-23 07:48Z, Claude Code 2.1.322
+reaped the idle background shells of 16 and then 17 sessions under memory
+pressure. Each was the session's inbox watch. The text the harness gives
+the model after a reap says not to start the command again until asked,
+and the sessions obeyed it over the session-start and Stop hooks that
+asked for a re-arm ("A hook told me to re-arm it, but the harness says
+to wait"). Five stayed deaf for 25 hours after the first reap.
+
+The 2.1.322 bundle registers the reap only when
+`CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP` is unset in the harness's
+own start environment. On the owner's word of 2026-11-23 ("Both": the
+switch and a restart from outside), `tools/fabric/launch.py` sets it on
+every launch path since e4f1c6127 (python-dev, #693, merged
+2026-11-23T20:21Z). The read-back of 2026-11-27 (j1052) found it set in
+this account's session and every account's checkout carrying it. Rule
+13 records the switch. The second half of the owner's word, the
+restart, is ADR-029 rule 20. It is the one exception to rule 12's
+"nothing restarts a session on its own", because a deaf idle session
+has no turn in which to act, and the restart that rule 12 refuses is a
+job switch the agent did not choose.

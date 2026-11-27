@@ -578,10 +578,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-28 — own merged origin branches swept (r11).
 - A 2026-10-30 — job's worktree first; AGENT_FABRIC_ROOT set (r12).
 - A 2026-11-27 — exit 5 (relay gave up) is re-run; others read (r2).
+- A 2026-11-27 — launch sets `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`;
+  pressure reap off; deaf idle restart is ADR-029 r20 (r13).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence, branch sweep, stale fabric root,
-  gave up, exit 5, deaf.
+  gave up, exit 5, deaf, pressure reap, bg shell, reap.
 
 ### ADR-023 — An assignment goes to one login (Accepted)
 
@@ -748,10 +750,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-25 — `state`, a public op: each account answers its newest state record from its own disk; `states` and the queue's readers ask it under the second carrier alone or `FABRIC_STATE_READ=op` (§2, r4, r16).
 - A 2026-11-26 — the owner's word on the rule-18 control parity report; the relay stays the transport of record under dual; InterWeave becomes it with `control_carrier` naming it alone, after gate 3's read-backs (§2, r18, §8).
 - A 2026-11-26 — `interweave-install` 4639 s, `interweave-start` 1695 s: the stop and start before a rollback, the TIME_WAIT wait (rule 12, ADR-064 rule 14).
+- A 2026-11-27 — `deaf` and `restart` rows; the deaf alarm restarts a deaf idle session, ledger first, once per episode, twice a day at most, never at a prompt (§2, r20).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, HOLD_MAX_S, interweave-mode,
-  state op, FABRIC_STATE_READ, transport of record,
+  state op, FABRIC_STATE_READ, transport of record, deaf, deaf alarm,
   control parity.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
