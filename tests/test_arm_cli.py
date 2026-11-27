@@ -304,12 +304,13 @@ def main() -> int:
         wenv = {"AGENT_FABRIC_ARM_CONFIG": f"{state}/waiver-rules.json"}
 
         waives = f"gzapi-org/gzapp#7@{HEAD[:8]}"
+        verified_row = {"carrier": "interweave", "sender_verified": True}
 
         def set_waiver(addressed: bool = True, typ: str = "DECISION", sender: str = cto, frm: str | None = None,
                        role_line: str = "architect-cto", text: str = "Waived for #7: comment-only DDL.",
                        line: str | None = waives, to: str | None = "develop-qzapp/me", extra: dict | None = None,
                        message_id: str | None = mid, replay: dict | None = None) -> None:
-            """The replay's JSON; `replay` adds its top-level fields (carrier, sender_verified: W3's journal answer)."""
+            """The replay's JSON; `replay` is its carrier fields (W3's journal answer), by default a carrier's verified row."""
             if not addressed:
                 put("waiver.out", json.dumps({"addressed": False, "seq": 4242}) + "\n"); put("waiver_rc", "2"); return
             meta = {"FROM": frm if frm is not None else sender, "ROLE": role_line, "PROJECT": "gzapp"}
@@ -321,7 +322,8 @@ def main() -> int:
                 meta["WAIVES"] = line
             meta.update(extra or {})
             put("waiver.out", json.dumps({"addressed": True, "seq": 4242, "sender": sender, "when": "t", "type": typ,
-                                          "metadata": meta, "text": f"[GZCOORD/1] {typ}\n" + text, **(replay or {})}) + "\n")
+                                          "metadata": meta, "text": f"[GZCOORD/1] {typ}\n" + text,
+                                          **(replay if replay is not None else verified_row)}) + "\n")
             put("waiver_rc", "0")
 
         def set_presence(role: str | None = "architect-cto", account: str = "architect-cto-01",
@@ -405,41 +407,43 @@ def main() -> int:
 
         # W4 of the InterWeave-only cutover (the owner's D4, 2026-11-13): the replay answers from the journal first, and
         # a row a carrier other than the relay brought counts only with the sender that carrier verified, equal to FROM.
-        iw = {"carrier": "interweave", "sender_verified": True}
-        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(replay=iw); set_presence()
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(replay=verified_row); set_presence()
         rc, out = waive()
         check("a waiver the carrier brought, its sender verified and equal to FROM: armed",
               rc == 0 and "boundary gate WAIVED by architect-cto-01" in out and "ARMED #7" in out, out)
         for label, setup, said in (
-                ("its sender not verified", lambda: set_waiver(replay=dict(iw, sender_verified=False)),
+                ("its sender not verified", lambda: set_waiver(replay=dict(verified_row, sender_verified=False)),
                  f"was carried by interweave from {cto}, a sender it did not verify"),
                 ("sender_verified absent", lambda: set_waiver(replay={"carrier": "interweave"}), "a sender it did not verify"),
-                ("sender_verified a string, not true", lambda: set_waiver(replay=dict(iw, sender_verified="true")),
+                ("sender_verified a string, not true", lambda: set_waiver(replay=dict(verified_row, sender_verified="true")),
                  "a sender it did not verify"),
                 ("no carrier yet (null), unverified", lambda: set_waiver(replay={"carrier": None, "sender_verified": False}),
                  "was carried by no carrier"),
-                ("a verified sender other than FROM", lambda: set_waiver(replay=iw, frm="develop-qzapp/other-01"),
+                ("a verified sender other than FROM", lambda: set_waiver(replay=verified_row, frm="develop-qzapp/other-01"),
                  f"was carried by interweave from the verified sender {cto} but says FROM develop-qzapp/other-01")):
             reset(); set_pr(me, "plain", mig); set_gate(9); set_presence(); setup()
             rc, out = waive()
             check(f"a carrier's waiver, {label}: refused, naming which, nothing armed", rc == 1 and said in out
                   and "pr merge" not in calls() and "pr comment" not in calls(), out)
-        relay = {"carrier": arm.RELAY_CARRIER, "sender_verified": False}
-        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(replay=relay); set_presence()
-        rc, out = waive()
-        check("a relay row as W3's replay names it (claude-bridge, unverified): armed as before", rc == 0 and "ARMED #7" in out, out)
-        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(replay=relay, frm="develop-qzapp/me"); set_presence()
-        rc, out = waive()
-        check("…and its FROM other than the relay's sender refused as before", rc == 1 and "was relayed from" in out, out)
+        # W15: the relay vouched for no sender, so a row it brought is refused like any unverified row; a row whose
+        # sender a carrier verified is judged by that sender whichever carrier was first. The positive control is the
+        # interweave row above, armed.
+        relay = {"carrier": "claude-bridge", "sender_verified": False}
+        for label, setup, said in (
+                ("a relay row, unverified", lambda: set_waiver(replay=relay),
+                 f"was carried by claude-bridge from {cto}, a sender it did not verify"),
+                ("a replay that names no carrier (pre-W3)", lambda: set_waiver(replay={}), "was carried by no carrier"),
+                ("a relay row, FROM other than its sender", lambda: set_waiver(replay=relay, frm="develop-qzapp/me"),
+                 "a sender it did not verify")):
+            reset(); set_pr(me, "plain", mig); set_gate(9); set_presence(); setup()
+            rc, out = waive()
+            check(f"{label}: refused, nothing armed", rc == 1 and said in out
+                  and "pr merge" not in calls() and "pr comment" not in calls(), out)
         reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(replay=dict(relay, sender_verified=True)); set_presence()
         rc, out = waive()
-        check("a relay row a carrier later verified stays the relay's (carrier is the first): armed",
+        check("a relay row a carrier later verified: judged by the verified sender, as any carrier's: armed",
               rc == 0 and "ARMED #7" in out, out)
-        from gzcoord.inbox_parts import records as inbox_records
-        import episodic
-        check("arm's relay carrier is the name the replay and the journal give a relay row",
-              arm.RELAY_CARRIER == inbox_records.RELAY_CARRIER == episodic.DEFAULT_CARRIER,
-              f"{arm.RELAY_CARRIER} {inbox_records.RELAY_CARRIER} {episodic.DEFAULT_CARRIER}")
+        check("arm no longer carries the relay's name", not hasattr(arm, "RELAY_CARRIER"))
 
         for label, setup in (
                 ("the replay finds no message (exit 1, no JSON)", lambda: (put("waiver.out", ""), put("waiver_rc", "1"))),
