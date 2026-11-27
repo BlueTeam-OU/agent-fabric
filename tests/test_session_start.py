@@ -670,19 +670,14 @@ def test_inbox_watch_reads_both_spellings(tmp: str) -> None:
         sys.modules.update(saved)
 
 
-def test_receive_skill_and_snippets_rerun_the_watch_after_a_relay_give_up(tmp: str) -> None:
-    """The skill and every project's CLAUDE snippet say what the NO INBOX WATCH line says about exit 5 (ADR-022 rule 2):
-    run it again at once. "Run it again when it is back" left idle sessions deaf for days (j1044)."""
-    import glob
+def test_receive_skill_reruns_the_watch_after_a_relay_give_up(tmp: str) -> None:
+    """The skill says what the NO INBOX WATCH line says about exit 5 (ADR-022 rule 2): run it again at once. "Run it again
+    when it is back" left idle sessions deaf for days (j1044). The projects' snippets, instance data, are checked by
+    tests/test_session_commands.py, which reads the operator's session texts on purpose."""
     with open(os.path.join(ROOT, "communication", "gzcoord", "skills", "gzcoord-receive", "SKILL.md"), encoding="utf-8") as fh:
         skill = " ".join(fh.read().split())
     assert "Exit 5 is run again too, at once" in skill, "gzcoord-receive §1 lost the exit-5 re-run"
     assert "when it is back" not in skill, "gzcoord-receive §1 still waits for the relay"
-    snippets = glob.glob(os.path.join(ROOT, "operator", "projects", "*", "integration", "gzcoord", "CLAUDE.snippet.md"))
-    assert snippets, "no project snippet found"
-    for path in snippets:
-        with open(path, encoding="utf-8") as fh:
-            assert "gave up on an unreachable relay, exit 5" in fh.read(), path
 
 
 def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
@@ -1228,7 +1223,7 @@ def main() -> int:
              test_hook_seals_the_session_shell,
              test_hook_starts_without_the_seal_file,
              test_hook_says_when_the_session_has_no_inbox_watch,
-             test_receive_skill_and_snippets_rerun_the_watch_after_a_relay_give_up,
+             test_receive_skill_reruns_the_watch_after_a_relay_give_up,
              test_inbox_watch_reads_both_spellings,
              test_hook_says_when_the_branch_sweep_is_due,
              test_hook_says_the_job_list,
