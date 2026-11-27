@@ -81,17 +81,6 @@ class ArrivalLog:
                 os.close(fd)
 
 
-class AckLog(ArrivalLog):
-    """gzcoord-acks.jsonl: one line per POST /api/ack the relay's inbox path made for a record addressed
-    here, {"mid","addressee","t","ok"}; `ok` is whether the relay answered it. The relay keeps no cursor
-    anyone can read without being the consumer, so this is the acknowledgement's evidence for the
-    relay-outage drill (ADR-064 rule 11): the cursor move the relay accepted, as its answer was seen here.
-    A failed call is a line too (ok false): "not acknowledged" is then a fact, not an absence."""
-
-    def append_ack(self, mid: str, addressee: str, ok: bool) -> None:
-        self._append({"mid": mid, "addressee": addressee, "t": self._iso(), "ok": ok})
-
-
 class WatchLog(ArrivalLog):
     """gzcoord-watch.jsonl: when a watch (gzcoord-inbox --follow or --until-delivery) started and how it ended, one line each:
     {"t","event":"start","pid"} and {"t","event":"end","pid","reason","code"}. The relay-outage drill (ADR-064 rule 11 / Gate 1 item 3)
@@ -126,7 +115,7 @@ class MirrorLog(ArrivalLog):
     MAX_BYTES = 256 * 1024
     REASON_MAX = 200
 
-    def append_refused(self, mid: str, outcome: str, reason: str, role: str = "mirror") -> None:
+    def append_refused(self, mid: str, outcome: str, reason: str, role: str = "primary") -> None:
         assert outcome in self.OUTCOMES, outcome
         assert role in self.ROLES, role
         self._append({"mid": mid, "t": self._iso(), "outcome": outcome, "reason": " ".join(reason.split())[:self.REASON_MAX], "as": role})

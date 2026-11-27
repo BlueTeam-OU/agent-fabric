@@ -10,7 +10,9 @@ from typing import Any
 from .. import gzmsg
 from ..carrier import ledger as _ledger_mod
 from . import carrier
-from .relay import NAME as PRIMARY_NAME
+
+# The `via` of a record on the primary's page: the name the shown ledgers already on disk carry for it (ledger.py reads it).
+PRIMARY_NAME = "relay"
 
 
 def ledger_key(rec: dict, msg: dict) -> str:

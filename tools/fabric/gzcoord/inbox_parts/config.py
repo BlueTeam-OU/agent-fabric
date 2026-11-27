@@ -54,36 +54,18 @@ def integration_config(project: str | None, env: dict | None = None, t: i18n.Pri
     return {"configured": False, "source": None, "reason": t("config.not-configured", {"what": what, "where": where})}
 
 
-# What a carrier-only command shows where the relay's channel was shown: the account has no channel there, and the relay's
-# is not asked for (cutover W15, first part).
+# What a command shows where the relay's channel used to be shown: GZCoord's send and inbox have no channel of the relay's
+# (cutover W15).
 CARRIER_ONLY_CHANNEL = CARRIER_NAME
 
 
 def carrier_only_config() -> dict:
-    """The integration of an account in carrier-only: configured, with no relay URL, no channel of the relay's and no token
-    file. It reads neither the project's config.json nor CLAUDE_BRIDGE_URL, GZCOORD_CHANNEL: a project with no relay section
-    works here, and a relay setting that is present is not this mode's to honour. Nothing in a carrier-only path reaches for
-    `relay_url` (open_transport builds no relay), so None there is a fault a test finds, not a default."""
+    """The integration of a GZCoord send or inbox: configured, with no relay URL, no channel of the relay's and no token file.
+    It reads neither the project's config.json nor CLAUDE_BRIDGE_URL, GZCOORD_CHANNEL: a project with no relay section works,
+    and a relay setting that is present is not this path's to honour (integration_config stays for the control plane, which
+    still has a relay until W16). Nothing in the send or inbox reaches for `relay_url`, so None there is a fault a test finds,
+    not a default."""
     return {"configured": True, "source": None, "relay_url": None, "channel": CARRIER_ONLY_CHANNEL, "relay_runtime_dir": ".gzcoord"}
-
-
-def resolve_integration(project: str | None, env: dict | None = None, t: i18n.Printer | None = None,
-                        state_dir: str | None = None) -> tuple[dict, dict | None]:
-    """(the integration this command runs on, the Mode it resolved or None). In carrier-only the carrier's; in the other two
-    modes integration_config's, so a project with no relay section is refused there in its one line. A mode that cannot be
-    resolved is None and the relay's integration: the failure is the transport's to say, where it always was, in its own line
-    and exit code (open_transport reads the mode again and raises the same error). The one-command override is said here
-    once, and the caller hands the Mode on so nothing reads or says it twice."""
-    from ..transport import mode as transport_mode
-    try:
-        resolved = transport_mode.effective(state_dir, env, say=transport_mode.say_stderr)
-    except transport_mode.ModeError:
-        if (os.environ if env is None else env).get(transport_mode.ENV):
-            raise      # the override is the command's own word and it is wrong: said first, not behind the config line
-        return integration_config(project, env, t), None
-    if resolved["mode"] == transport_mode.CARRIER_ONLY:
-        return carrier_only_config(), resolved
-    return integration_config(project, env, t), resolved
 
 
 def default_relay() -> str:

@@ -120,7 +120,7 @@ from typing import Any, Callable
 from . import bypass, gzmsg, i18n, inbox, intake, paths, placement, transport
 from .transport import carrier as carrier_transport
 from . import jsvalues as js
-from .carrier import CARRIER_LABEL, CARRIER_NAME, arrivals
+from .carrier import CARRIER_LABEL, arrivals
 
 import hidden_unicode  # noqa: E402 — tools/fabric, on sys.path through paths
 
@@ -471,22 +471,6 @@ def main(argv: list[str]) -> int:
             print(t("send.id-minted", {"id": minted, "file": file}), file=sys.stderr)
 
     root = inbox.inbox_root(who)
-    try:
-        cfg, account_mode = inbox.resolve_integration(who.get("project"), os.environ, t)
-    except transport.ModeError as e:       # a GZCOORD_TRANSPORT_MODE that names no mode
-        print(f"gzcoord: not sent: {e}", file=sys.stderr)
-        return 2
-    carrier_only = account_mode is not None and account_mode["mode"] == transport.mode.CARRIER_ONLY
-    if not cfg["configured"]:
-        print(t("send.not-configured", {"reason": cfg["reason"]}), file=sys.stderr)
-        return 3
-    try:
-        inbox.assert_not_control_channel(cfg["channel"], t)
-    except inbox.ControlChannel as e:
-        print(t("send.error-not-sent", {"detail": str(e)}), file=sys.stderr)
-        return 2
-    # Carrier-only has no relay to name: the dry run's line and nothing else reads it there.
-    relay_url, channel = cfg["relay_url"] or f"the {CARRIER_LABEL} carrier", cfg["channel"]
     tax_path = gzmsg.find_taxonomy(root)
     taxonomy = gzmsg.load_taxonomy(tax_path) if tax_path else None
     me = inbox.identity(who, taxonomy)
@@ -587,20 +571,18 @@ def main(argv: list[str]) -> int:
     # A dry run posts nothing, not even a presence request on the control
     # channel (review of #38): it validates and resolves, and stops here.
     if dry:
-        print(t("send.would-post", {"type": msg["type"], "id": mid, "address": me["address"], "channel": channel,
-                                    "relay_url": relay_url}), file=sys.stderr)
+        print(t("send.would-post-carrier", {"type": msg["type"], "id": mid, "address": me["address"],
+                                            "carrier": CARRIER_LABEL}), file=sys.stderr)
         return 0
-    # No relay token in carrier-only: nothing of this send reaches the relay, so none is looked for, and none is needed.
-    tok = None if carrier_only else inbox.token(root, cfg)
     # Is anyone there? A message to a login with no session waits in the
-    # relay until one starts, and a TO-ROLE with no running holder reaches
+    # carrier's outbox until one starts, and a TO-ROLE with no running holder reaches
     # nobody now. The sender decides — --force sends anyway (the owner,
     # 2026-09-25). A broadcast is not checked.
     # An address no host places has been said and forced above; presence could
     # only say it again.
-    if (tok or carrier_only) and not unplaced:
-        # The presence child's stdin schema wants a token string; in carrier-only it asks the account's own agentd alone.
-        pres = asked_presence(msg["metadata"], me["address"], tok or "")
+    if not unplaced:
+        # The presence child's stdin schema wants a token string; it asks the account's own agentd alone, so none is given.
+        pres = asked_presence(msg["metadata"], me["address"], "")
         # Said, never silent: the contract is that a TO is checked.
         if pres.get("skipped"):
             print(t("send.presence-skipped"), file=sys.stderr)
@@ -633,18 +615,9 @@ def main(argv: list[str]) -> int:
                     print(t("send.presence-not-sent"), file=sys.stderr)
                 return 4
             print(t("send.presence-forced"), file=sys.stderr)
-    if not tok and not carrier_only:
-        print(t("send.no-token"), file=sys.stderr)
-        return 3
     where = [*(["--project", who["project"]] if who.get("project") else []),
              *(["--working-copy", who["working_copy"]] if who.get("working_copy") else [])]
-    # Before the journal keeps anything: a mode that cannot be read refuses the send, and a row kept first would stay pending.
-    try:
-        tp = transport.open_transport(cfg, token=tok or "", me=me, journal_off=_journal_off(), for_send=True,
-                                      account_mode=account_mode)
-    except transport.ModeError as e:
-        print(f"gzcoord: not sent: {e}", file=sys.stderr)
-        return 2
+    tp = transport.open_transport(me=me, journal_off=_journal_off(), for_send=True)
     kept = None
     if _journal_off():
         try:
@@ -662,143 +635,64 @@ def main(argv: list[str]) -> int:
                              " sends without it\n")
             return 2
 
-    to_one_login = bool(msg["metadata"].get("TO"))   # exactly one of TO, TO-ROLE, BROADCAST: the validator's rule
-
-    def refused_log(mid: str, outcome: str, detail: str, role: str = "mirror") -> None:
+    def refused_log(mid: str, outcome: str, detail: str) -> None:
         """The carrier did not accept: a durable line beside the sent ledger (arrivals.MirrorLog), because the stderr line
         of this send is gone with the session and the parity report needs the reason. It is evidence and never a condition of
         the send: a log that cannot be written is said and the send goes on. With the journal off no mirror is asked (rule 8), so
         a mirror leaves nothing; a carrier that is the primary is logged in every mode, journal off included."""
         try:
-            arrivals.MirrorLog(mirror_log_path(who), iso_now=lambda: _now_iso()[:19] + "Z").append_refused(mid, outcome, detail, role)
+            arrivals.MirrorLog(mirror_log_path(who), iso_now=lambda: _now_iso()[:19] + "Z").append_refused(mid, outcome, detail)
         except OSError as e:
             print(f"gzcoord: the mirror refusal log could not be written ({e.strerror or e})", file=sys.stderr)
 
-    def via_mirrors() -> list[str]:
-        """The same message to the mirror transports (ADR-064 rules 6, 7), after
-        the primary's outcome is known and whatever it was: both get every
-        message, and the journal row is accepted when either accepts. Nothing
-        here changes the exit status: the primary is the transport of record
-        (rule 11), and a mirror's trouble is a stderr line from its transport.
-        With no mirror running, and with the journal off (rule 8), it is a no-op. A mirror
-        that did not accept leaves the journal row alone (`failed` marks only a pending row, ADR-041
-        rule 3, and the row is the primary's outcome's to set); the carrier mirror's refusal is kept in
-        the mirror log instead.
-        The names of the mirrors that accepted it: a failed primary's line must then not say "not sent", and a
-        carrier-primary send is on the sent ledger only if the relay is among them."""
-        sent_to = tp.send_mirrors(mid, text)
-        for s in sent_to:
-            if s.name == CARRIER_NAME and s.state != "accepted":
-                refused_log(mid, s.state, s.detail)
-        accepted = [s for s in sent_to if s.state == "accepted"]
-        for s in accepted:
-            # The relay is the journal's default carrier name (claude-bridge), not its transport name.
-            done = journal(["gzcoord-out-final", mid, "--state", "accepted",
-                            *(["--carrier", s.name] if s.name == CARRIER_NAME else [])], "")
-            if done["status"] != 0:
-                sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by the carrier\n")
-        return [s.name for s in accepted]
-
     try:
-        # A refused token is taken fresh from the synced file once (a shell snapshot keeps a rotated one) inside the send.
         sent = tp.send_primary(mid, text)
-    except Exception as e:  # noqa: BLE001 — any failure of the post is the relay's, said
-        # The pending row becomes a failed one only when this post provably
-        # did not reach the relay and no earlier attempt's outcome is unknown
-        # (an earlier one may have reached it, and this failure says nothing
-        # about it: review of #78); otherwise it stays pending.
+    except Exception as e:  # noqa: BLE001 — any failure of the post is the carrier's, said
+        # The pending row becomes a failed one only when this post provably did not reach the carrier and no earlier attempt's
+        # outcome is unknown (an earlier one may have reached it, and this failure says nothing about it: review of #78);
+        # otherwise it stays pending. The row names the carrier that failed (`--carrier`), not the journal's default.
         never = tp.primary.never_delivered(e)
-        record_name = "the carrier" if tp.primary.name == CARRIER_NAME else "the relay"
         if _journal_off():
             _bypass_outcome(text, "failed" if never else "unknown")
         else:
             if str((kept or {}).get("stdout") or "").strip() == "unknown":
-                sys.stderr.write(f"episodic: an earlier attempt of this message may have reached {record_name}; its row"
+                sys.stderr.write("episodic: an earlier attempt of this message may have reached the carrier; its row"
                                  " stays pending\n")
             elif not never:
-                # Not "failed": the relay may hold it. The row stays pending,
-                # the journal's own "may have reached the carrier".
-                sys.stderr.write(f"episodic: this message may have reached {record_name}; its row stays pending\n")
+                # Not "failed": the carrier may hold it. The row stays pending, the journal's own "may have reached the carrier".
+                sys.stderr.write("episodic: this message may have reached the carrier; its row stays pending\n")
             else:
-                done = journal(["gzcoord-out-final", mid, "--state", "failed"], "")
+                done = journal(["gzcoord-out-final", mid, "--state", "failed", "--carrier", tp.primary.name], "")
                 if done["status"] != 0:
                     sys.stderr.write(done["stderr"])
-        if tp.primary.name == CARRIER_NAME:
-            # Before the mirrors are asked: a mirror's trouble must not come between the failure and its line. The outcomes are the
-            # mirror's, with their meaning: absent, failed (the carrier answered and refused, or recorded only some), no-answer
-            # (silent). A primary is never "not-carried" (that is a refusal, "failed"). An error that is no carrier's answer is
-            # no-answer unless it provably recorded nothing.
-            state = getattr(e, "state", "")
-            refused_log(mid, "absent" if getattr(e, "absent", False) else "failed" if state in ("failed", "not-carried") or (never and not state)
-                        else "no-answer", str(e), "primary")
-        carried = bool(via_mirrors())
-        if tp.primary.name == CARRIER_NAME:
-            return carrier_not_accepted(e, never, carried, me["address"], file, mid, t)
-        status = getattr(e, "status", None)
-        # Only a message TO one login: the carrier's "accepted" counts roster members, and a TO-ROLE or
-        # a broadcast is queued for all of them, so it says nothing of the addressee (review of #505, F1).
-        if carried and to_one_login:
-            # The relay's outcome alone is the exit status (ADR-064 rule 11), but "not sent" and "send it
-            # again" would be false: the addressee has the message. A resend from a file carries the id
-            # written into it, so it is one message and only puts it on the relay's record; from stdin the
-            # id is minted in memory unless the text names its own, and a resend is then a second copy; the
-            # line stays the cautious one for a text that does name it (j117, the owner's decision).
-            fields = {"relay_url": relay_url, "detail": str(e)}
-            print(t("send.carrier-took-it-file", fields) if file != "-" else t("send.carrier-took-it", fields),
-                  file=sys.stderr)
-            return 3
-        if status in (401, 403):
-            print(t("send.token-refused", {"status": status}), file=sys.stderr)
-            return 3
-        if isinstance(e, inbox.TokenRefused):   # the synced token re-read after a 401
-            print(f"send: {e}", file=sys.stderr)
-            return 3
-        if not never:
-            # From a file the id was written into it, so a resend is the same
-            # message and readers discard the copy; from stdin it was minted
-            # in memory only, and a resend would mint another (SPEC §7.2).
-            again = t("send.again-file") if file != "-" else t("send.again-stdin", {"id": mid})
-            print(t("send.outcome-unknown", {"relay_url": relay_url, "detail": str(e), "again": again}), file=sys.stderr)
-            return 3
-        # Never delivered: either the relay answered and refused it (a 4xx),
-        # or the connection never reached it — "unreachable" only for that.
-        if isinstance(status, int) and 400 <= status < 500:
-            print(t("send.relay-refused", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
-        else:
-            print(t("send.relay-unreachable", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
-        return 3
+        # The outcomes are the adapter's, with their meaning: absent, failed (the carrier answered and refused, or recorded only
+        # some), no-answer (silent). A primary is never "not-carried" (that is a refusal, "failed"). An error that is no
+        # carrier's answer is no-answer unless it provably recorded nothing.
+        state = getattr(e, "state", "")
+        refused_log(mid, "absent" if getattr(e, "absent", False) else "failed" if state in ("failed", "not-carried") or (never and not state)
+                    else "no-answer", str(e))
+        return carrier_not_accepted(e, never, me["address"], file, mid, t)
     seq = sent.seq
     if _journal_off():
         _bypass_outcome(text, "accepted", seq)
     else:
         # The send has happened: a journal that fails now is said, never a failed send.
-        # The journal names the transport that took it: without the flag the row says the relay did, which a primary that is the
-        # carrier never called (and the relay-outage evidence counts the row as the relay's).
-        done = journal(["gzcoord-out-final", mid, "--state", "accepted",
-                        *(["--carrier", tp.primary.name] if tp.primary.name == CARRIER_NAME else []),
+        # The journal names the transport that took it: without the flag the row says the relay did, which this send never called.
+        done = journal(["gzcoord-out-final", mid, "--state", "accepted", "--carrier", tp.primary.name,
                         *(["--seq", js.string(seq)] if not js.nullish(seq) else [])], "")
         if done["status"] != 0:
             sys.stderr.write(done["stderr"] or "episodic: the sent message was not marked accepted\n")
-    mirrored = via_mirrors()
-    # "id" on the ledger means "the relay has it": backfill.on_sent_ledger skips such an id. A post that failed spent
-    # nothing. With the carrier as the primary the relay is a mirror that may have failed or not been asked (journal off,
-    # carrier-only), so the entry is "spent" instead: the id is still refused for another body, and a carrier-record
-    # backfill still posts the row (carrier-only never backfills; its relay copy is the owner's step back to read).
-    relay_has_it = tp.primary.name != CARRIER_NAME or "relay" in mirrored
+    # `id` is the message's own id: a resend under it with another body is refused (spent_elsewhere). Entries an older
+    # send wrote as `spent` are read the same way.
     try:
-        record_sent(ledger, {("id" if relay_has_it else "spent"): mid, "sha256": sha,
+        record_sent(ledger, {"id": mid, "sha256": sha,
                              "seq": js.coalesce(seq, None), "at": _now_iso()})
     except LedgerNotTrimmed as e:
         print(t("send.ledger-not-trimmed", {"detail": e.strerror or str(e)}), file=sys.stderr)
     except OSError as e:
         print(t("send.ledger-not-written", {"detail": e.strerror or str(e)}), file=sys.stderr)
-    deduplicated = sent.deduplicated
-    if tp.primary.name == CARRIER_NAME:
-        # The carrier numbers nothing: the MESSAGE-ID names the message.
-        print(t("send.carrier-sent", {"type": msg["type"], "id": mid}))
-    else:
-        print(t("send.sent", {"seq": seq, "type": msg["type"], "id": mid,
-                              "deduplicated": t("send.deduplicated") if deduplicated else ""}))
+    # The carrier numbers nothing: the MESSAGE-ID names the message.
+    print(t("send.carrier-sent", {"type": msg["type"], "id": mid}))
     if grant_in_body:
         print(t("send.authorizes-in-body"), file=sys.stderr)
     # fabric-jobs speaks for itself, on stderr: stdout stays the one sent line.
@@ -810,16 +704,16 @@ def main(argv: list[str]) -> int:
             how = f"stopped by {intake['signal']} after 20 s" if intake.get("signal") else f"exit {intake.get('status')}"
             sys.stderr.write(f"fabric-jobs: the job intake of {msg['metadata']['IN-REPLY-TO']} did not complete ({how});"
                              f" add it with fabric-jobs add --request\n")
-    # Even a resend the relay deduplicated: the first attempt may have ended
+    # Even a resend the carrier already holds: the first attempt may have ended
     # unknown or failed to queue, and the addressee's list check spares the duplicate.
     queue_request(msg, who)
     return 0
 
 
-def carrier_not_accepted(error: BaseException, never: bool, relay_took_it: bool, address: str, file: str, mid: str,
+def carrier_not_accepted(error: BaseException, never: bool, address: str, file: str, mid: str,
                          t: i18n.Printer) -> int:
     """The exit and the line when the carrier, the transport of record, did not accept the send (exit 3 always): not sent
-    when it provably recorded nothing, its outcome unknown when it may have. A relay mirror that took a copy is said, never counted: the carrier's answer is the status."""
+    when it provably recorded nothing, its outcome unknown when it may have."""
     fix = carrier_transport.fix_line(t, address)
     if never:
         if getattr(error, "absent", False):
@@ -830,8 +724,6 @@ def carrier_not_accepted(error: BaseException, never: bool, relay_took_it: bool,
         # The same id on a resend: a file carries it, stdin mints one unless the text names it (SPEC §7.2).
         again = t("send.again-file") if file != "-" else t("send.again-stdin", {"id": mid})
         print(t("send.carrier-outcome-unknown", {"detail": str(error), "again": again}), file=sys.stderr)
-    if relay_took_it:
-        print(t("send.carrier-relay-copy"), file=sys.stderr)
     return 3
 
 

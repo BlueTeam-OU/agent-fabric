@@ -64,8 +64,8 @@ With control_carrier naming the second carrier alone it is the only one: the dae
 nothing to the relay's control or state channel: the state stream's replacement is the public op `state` (state_record.py), answered from the newest
 record sessions.StateWatcher keeps in the state dir (ADR-029 rule 16); a failure to keep it is raised, never read as an
 account with no sessions. The relay's token is not needed there: the daemon starts without one, and its status `inbox` section is
-{"status": "unknown"} (the relay's GZCoord position is not asked) unless GZCoord's transport mode is carrier-only. The gzcoord
-backfill timer still posts journal rows to the relay when that mode allows it. --once reads the relay once and is refused there.
+{"status": "unknown"} (the relay's GZCoord position is not asked) unless GZCoord's transport mode is carrier-only. There is no gzcoord backfill timer
+(W15 of the transport cutover plan took it out with the relay's record). --once reads the relay once and is refused there.
 
 CONTRACT, frozen from agentd.mjs. Kept byte for byte: every
 record posted (key order, ids, timestamps' shape), every refusal's reason
@@ -1052,14 +1052,6 @@ JOBS_SWEEP_EVERY_S = 3600
 JOBS_SWEEP_TIMEOUT_S = 600
 
 
-BACKFILL_EVERY_S = 60
-
-
-def backfill_tick(token: Callable[[], str | None]) -> None:
-    from gzcoord import backfill
-    backfill.tick(_stderr, token)
-
-
 def jobs_sweep(run: Callable[..., Any] = subprocess.run, log: Callable[[str], None] = _stderr) -> None:
     """`fabric-jobs sweep` on this account's list (ADR-037 rule 12): a supplier's job delivered into a caller's pull
     request closes when that merges, though the supplier's session may never start again to look. Run as a child, so a
@@ -1224,12 +1216,6 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         # The jobs sweep (ADR-037 rule 12), on the same stagger as the tools report: fifteen accounts asking GitHub at
         # one moment after a fleet restart is what the stagger exists to avoid.
         Ticker("jobs sweep", jobs_sweep, JOBS_SWEEP_EVERY_S, first_s=tools_mod.first_run_delay_s(me["address"])).start()
-        # `or synced_token()`: an account started with no token (allowed under the second carrier alone) has token_box[0] None for
-        # good, as only a relay call refreshes it; the backfill reads the synced file on each tick so a later sync reaches it.
-        # Messages the second carrier alone delivered while the relay was down are put on the relay's record once it answers
-        # (gzcoord/backfill.py). A minute: the question costs one journal read when nothing is owed, and the relay's return is
-        # what the owner's bound measures from.
-        Ticker("gzcoord backfill", lambda: backfill_tick(lambda: token_box[0] or gzcoord.synced_token()), BACKFILL_EVERY_S, first_s=tools_mod.first_run_delay_s(me["address"])).start()
         # Only the resident daemon samples: a --once run would add a lone
         # sample with no minute behind it.
         pressure_sampler = pressure.sampler()
