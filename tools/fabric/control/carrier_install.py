@@ -198,11 +198,8 @@ DIAGNOSIS_BUDGET_S = SYSTEMCTL_TIMEOUT_S + JOURNAL_TIMEOUT_S
 # the daemon's MainPID, its --version, and CHECK_POLLS asks of the carrier's status with the same pauses.
 CHECK_BUDGET_S = (2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + SYSTEMCTL_TIMEOUT_S + VERSION_TIMEOUT_S
                   + CHECK_POLLS * STATUS_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S + DIAGNOSIS_BUDGET_S)
-# An install asks the units' states before, then twice (the install, the restore) restarts both and checks.
-CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
-                            + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S))
 # A start: the linger question, the programs' versions, the config render, at most two restarts (a running pair onto a changed file, or the one unit that ran), two
-# `enable --now`, one channel check, and on a failure two `disable --now` and the states.
+# `enable --now`, one channel check, and on a failure two `disable --now` and the states; a TIME_WAIT port adds PORT_WAIT_S (below, in the sum).
 LOGINCTL_TIMEOUT_S = 10
 RENDER_TIMEOUT_S = 30
 # `fabric-ctl all <carrier>-start` made 30 accounts render at once on 2026-10-26: each render verifies the roster's rows with gpg, and four
@@ -219,9 +216,21 @@ RESERVED_PORTS_FIX = "fabric-host <host> persist"
 # A carrier that has just started verifies every roster row before it opens its socket (29 s measured with 26 rows, 2026-10-25), so the
 # start waits for `status` much longer than a restart's check, which finds a carrier that was already up.
 STARTUP_STATUS_POLLS = 45
+# A TIME_WAIT socket on the daemon's own port (a connection the previous daemon closed) keeps the bind from succeeding for the kernel's
+# 60 s; 2026-11-26 python-dev-03's start was refused twice for one and succeeded minutes later. Only TIME_WAIT is waited out: any other
+# state on the port is a connection somebody holds, which time does not clear.
+PORT_WAIT_S = 75
+PORT_POLL_S = 5
 CARRIER_START_BUDGET_S = (LOGINCTL_TIMEOUT_S + 2 * VERSION_TIMEOUT_S + RENDER_LEASE_WAIT_S + LEASE_GRACE_S + RENDER_TIMEOUT_S + SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S + 2 * SYSTEMCTL_TIMEOUT_S
-                          + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20)
+                          + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + PORT_WAIT_S + 20)
 CARRIER_STOP_BUDGET_S = 2 * SYSTEMCTL_TIMEOUT_S + 2 * (CHECK_POLLS * SYSTEMCTL_TIMEOUT_S + (CHECK_POLLS - 1) * POLL_S) + 20
+# An install asks the units' states before, then twice (the install, the restore) restarts both and checks. A running pair whose check
+# failed is first stopped and started again as a start does (CARRIER_STOP_BUDGET_S + CARRIER_START_BUDGET_S); the restore then brings
+# both units up again with `enable --now` and a restart (4 * SYSTEMCTL_TIMEOUT_S, the third line of the sum) and asks the
+# restored programs' versions once more for the "carrying" answer (4 * VERSION_TIMEOUT_S, room for the pin's reports).
+CARRIER_INSTALL_BUDGET_S = (LEASE_WAIT_S + LEASE_GRACE_S + DOWNLOAD_TIMEOUT_S + EXTRACT_BUDGET_S + INSTALL_SH_TIMEOUT_S + 8 * VERSION_TIMEOUT_S + 40
+                            + 2 * SYSTEMCTL_TIMEOUT_S + 2 * (2 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S)
+                            + CARRIER_STOP_BUDGET_S + CARRIER_START_BUDGET_S + 4 * SYSTEMCTL_TIMEOUT_S + 4 * VERSION_TIMEOUT_S)
 # A restart of the client unit alone (an upgrade moved the engine it runs): the unit states, the restart, the check with the start's patience
 # (the restarted carrier verifies the roster before it opens its socket, as a started one does), and the lock's open.
 CARRIER_RESTART_BUDGET_S = (3 * SYSTEMCTL_TIMEOUT_S + CHECK_BUDGET_S + (STARTUP_STATUS_POLLS - CHECK_POLLS) * (STATUS_TIMEOUT_S + POLL_S) + 20)
@@ -599,12 +608,11 @@ def roster_port(root: str, login: str) -> int | None:
     return None
 
 
-def port_holder_problem(port: int) -> str | None:
-    """None when no local socket uses `port`, else who does. The reserved-ports setting keeps NEW outgoing connections off the roster's
-    ports, not one opened before it was set: an ssh connection from 2026-10-20 still had 47130 as its source port on 2026-10-26, the
-    daemon's bind got EADDRINUSE, exited 1 and was restarted every 5 s, which a state look reads as "activating". A table that cannot
-    be read proves nothing either way, so it is not a refusal."""
+def port_holders(port: int) -> list[tuple[str, str]]:
+    """(state, description) of every local socket that uses `port`; empty when none does or the table cannot be read (which proves
+    nothing either way, so it is not a refusal)."""
     want = f"{port:04X}"
+    found = []
     for name in ("tcp", "tcp6"):
         try:
             with open(os.path.join(PROC_ROOT, "net", name), encoding="ascii", errors="replace") as fh:
@@ -614,9 +622,32 @@ def port_holder_problem(port: int) -> str | None:
         for ln in lines:
             f = ln.split()
             if len(f) > 7 and f[1].rpartition(":")[2].upper() == want:
-                return (f"local port {port} is in use by a {TCP_STATES.get(f[3].upper(), 'socket in state ' + f[3])} connection of uid {f[7]} "
-                        f"(peer {f[2]}); the daemon could not bind it")
-    return None
+                state = TCP_STATES.get(f[3].upper(), "socket in state " + f[3])
+                found.append((state, f"local port {port} is in use by a {state} connection of uid {f[7]} (peer {f[2]}); the daemon could not bind it"))
+    return found
+
+
+def port_holder_problem(port: int) -> str | None:
+    """None when no local socket uses `port`, else who does. The reserved-ports setting keeps NEW outgoing connections off the roster's
+    ports, not one opened before it was set: an ssh connection from 2026-10-20 still had 47130 as its source port on 2026-10-26, the
+    daemon's bind got EADDRINUSE, exited 1 and was restarted every 5 s, which a state look reads as "activating"."""
+    held = port_holders(port)
+    return held[0][1] if held else None
+
+
+def port_wait(port: int, sleep: Callable[[float], None]) -> str | None:
+    """None when `port` is free, waiting for it while every socket on it is TIME_WAIT (PORT_WAIT_S at most); else why it is held."""
+    polls = PORT_WAIT_S // PORT_POLL_S
+    for i in range(polls + 1):
+        held = port_holders(port)
+        if not held:
+            return None
+        if any(state != "TIME_WAIT" for state, _ in held):
+            return held[0][1]
+        if i == polls:
+            return f"{held[0][1]} (still there after {PORT_WAIT_S} s)"
+        sleep(PORT_POLL_S)
+    return None     # unreachable: the last look returns above
 
 
 def unit_names(profile: str) -> tuple[str, str]:
@@ -689,14 +720,18 @@ def daemon_process_problem(daemon: str, bindir: str, run: Callable[..., Any], ho
     return None
 
 
-def restart_units(units: list[str], run: Callable[..., Any], home: str) -> str | None:
-    """None when each unit was asked to restart and the manager took it; else why not."""
+def restart_units(units: list[str], run: Callable[..., Any], home: str, unknown_on_timeout: bool = False) -> str | None:
+    """None when each unit was asked to restart and the manager took it; else why not. `unknown_on_timeout`: a manager that does not
+    answer in time raises ChannelUnknown, which is not a failure of the programs a stop and start could mend."""
     for u in units:
         try:
             r = run(["systemctl", "--user", "restart", u], capture_output=True, encoding="utf-8", errors="replace", timeout=SYSTEMCTL_TIMEOUT_S, check=False,
                     stdin=subprocess.DEVNULL, cwd="/", env=child_env(home))
         except subprocess.TimeoutExpired:
-            return f"restarting {u} did not finish within {SYSTEMCTL_TIMEOUT_S} s"
+            reason = f"restarting {u} did not finish within {SYSTEMCTL_TIMEOUT_S} s"
+            if unknown_on_timeout:
+                raise ChannelUnknown(reason) from None
+            return reason
         except OSError as e:
             return f"restarting {u} could not be run ({_oneline(e)})"
         if r.returncode != 0:
@@ -916,7 +951,7 @@ def _failed(version: str | None, reason: str) -> dict:
 def carrier_install(request: Any, root: str | None = None, home: str | None = None, state: str | None = None,
                        fetch: Callable[..., tuple[int, str]] = download, run: Callable[..., Any] = subprocess.run,
                        token: Callable[[str], str | None] | None = None, machine: str | None = None,
-                    sleep: Callable[[float], None] = time.sleep, lease: Callable[..., Any] = hold_lease) -> dict:
+                    sleep: Callable[[float], None] = time.sleep, lease: Callable[..., Any] = hold_lease, login: str | None = None) -> dict:
     a = request.get("args") if isinstance(request, dict) else None
     if not (a is None or a == {}):
         return _refused(f"{INSTALL_OP} takes no argument: it installs the release the reviewed pin names")
@@ -947,7 +982,8 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
         stuck = clear_selfstart_mark(state)
         if stuck:
             return _failed(version, stuck)
-        reply = _install(version, pin["releases"][version], build, state, home, root, fetch, run, token, sleep, lease)
+        reply = _install(version, pin["releases"][version], build, state, home, root, fetch, run, token, sleep, lease,
+                         login)
         return _with_client(reply, home, root)
     finally:
         os.close(lock_fd)
@@ -955,7 +991,7 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
 
 def _install(version: str, release: dict, build: dict, state: str, home: str, root: str, fetch: Callable[..., tuple[int, str]],
              run: Callable[..., Any], token: Callable[[str], str | None] | None, sleep: Callable[[float], None],
-             lease: Callable[..., Any]) -> dict:
+             lease: Callable[..., Any], login: str | None) -> dict:
     bindir = bin_dir(home)
     work = os.path.join(state, WORK)
     # Under the lock nothing else is writing here: whatever is left is a killed install's, and it is removed before
@@ -1015,9 +1051,9 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
         except OSError as e:
             return _failed(version, f"the programs now installed could not be kept ({_why(e, tok)}); nothing was installed")
 
-        def roll_back(reason: str, first: dict | None = None, restarted: bool = False) -> dict:
+        def roll_back(reason: str, first: dict | None = None, restarted: bool = False, retry: dict | None = None) -> dict:
             """Failure after install.sh began: the previous programs back, the units that were restarted restarted
-            again and checked, and a reply that says every result."""
+            again and checked, and a reply that says every result. `retry` is the stop-and-start that failed before this."""
             out = _failed(version, reason)
             left = undo.restore()
             if left:
@@ -1037,12 +1073,25 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
                 return out
             out["restored"] = True
             out["reason"] += "; the previous programs are back"
+            if retry:
+                out["retry"] = retry
             if restarted:
-                again = restart_units(running, run, home)
+                # The retry disabled the units (a start that fails takes them down): they are enabled again with the restart.
+                # enable --now leaves a unit that is still active on the program the restore replaced: the restart that follows puts it
+                # on the restored files.
+                again = restart_units(running, run, home) if not retry else _enable_now(running, run, home) or restart_units(running, run, home)
                 second = ({"status": "failed", "reason": again, "units": {}} if again
                           else channel_check(profile, running, build, root, run, home, sleep, pinned=False))
-                out["reason"] += f"; restarted again, check: {_channel_text(second)}"
+                out["reason"] += f"; brought up again, check: {_channel_text(second)}"
                 out["checks"] = [first, second]
+            if running:
+                # The pin on main may already name the new programs: the carrier refuses what it restored (admit.py) and agentd
+                # refuses the old human-facing program (control_link), so "back" is not "carrying" (2026-11-26, 0.3.0 -> 0.4.0).
+                refused = check_reports(bindir, build["reports"], run, home)
+                out["carrying"] = refused is None
+                if refused:
+                    out["reason"] += (f"; the pin refuses those programs ({refused}): the account is NOT carrying "
+                                      f"until {INSTALL_OP} succeeds or {STOP_OP}, {INSTALL_OP} and {START_OP} bring it up")
             return out
 
         try:
@@ -1061,18 +1110,41 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
         bad = check_reports(bindir, build["reports"], run, home)
         if bad:
             return roll_back(f"the installed programs disagree with the pin ({bad})")
-        restart_failed = restart_units(running, run, home) if running else None
-        check = ({"status": "failed", "reason": restart_failed, "units": {}} if restart_failed
+        try:
+            restart_failed = restart_units(running, run, home, unknown_on_timeout=True) if running else None
+            unknown = False
+        except ChannelUnknown as e:
+            restart_failed, unknown = str(e), True
+        check = ({"status": "failed", "reason": restart_failed, "units": {}, **({"unknown": True} if unknown else {})} if restart_failed
                  else channel_check(profile, running, build, root, run, home, sleep))
+        path = None
         if check["status"] == "failed":
-            return roll_back(f"the {CARRIER_LABEL} channel did not come back on the new programs ({_channel_text(check)})", check, True)
+            first = check
+            reason = f"the {CARRIER_LABEL} channel did not come back on the new programs ({_channel_text(first)})"
+            # A pair that did not answer after a restart is stopped and started as a start does, which waits far longer for a carrier that
+            # verifies the roster before it opens its socket: by hand that brought 2 accounts up on the new programs at host load 40-53.
+            # Both units must have run (a start would otherwise start the one that did not) and the manager must have answered.
+            if len(running) == 2 and not first.get("unknown"):
+                try:
+                    who = _login() if login is None else login
+                except KeyError:
+                    # Resolved here, past install.sh: an exception would skip the rollback and the work directory's removal would delete
+                    # the only copies of the previous programs.
+                    return roll_back(f"{reason}; the account's login could not be resolved, so no stop and start was tried", first, True)
+                retry = _stop_and_start(profile, build, root, home, run, sleep, who, lease)
+                if retry["status"] != "started":
+                    return roll_back(f"{reason}; then stopping and starting both units failed too ({retry.get('reason')})", first, True, retry)
+                check, path = retry, f"the restart's check failed ({_channel_text(first)}); both units were stopped and started again, then passed"
+            else:
+                return roll_back(reason, first, True)
         try:
             _write_marker(state, {"version": version, "tag": release["tag"], "sha256": build["sha256"], "size": build["size"],
                                   "programs": programs, "bin_dir": bindir, "reports": build["reports"]})
         except OSError as e:
             return _failed(version, f"the programs are in place but could not be recorded ({_why(e, tok)}); a retry installs them again")
         return {"status": "installed", "version": version, "sha256": build["sha256"], "programs": programs,
-                "units": {"running_before": running, "check": "passed" if running else "not run: no unit was running"}}
+                "units": {"running_before": running, "check": "passed" if running else "not run: no unit was running",
+                          **({"path": path} if path else {})}}
     finally:
         try:
             shutil.rmtree(work)
@@ -1080,6 +1152,25 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
             pass
         except OSError as e:
             print(f"{INSTALL_OP}: could not remove {work} ({errno.errorcode.get(e.errno or 0) or e})", file=sys.stderr)
+
+
+def _enable_now(units: list[str], run: Callable[..., Any], home: str) -> str | None:
+    """None when each unit was enabled and started; else every reason, the others still tried."""
+    problems = [p for p in (_systemctl(["enable", "--now", u], run, home) for u in units) if p]
+    return "; ".join(problems) or None
+
+
+def _stop_and_start(profile: str, build: dict, root: str, home: str, run: Callable[..., Any], sleep: Callable[[float], None], login: str,
+                    lease: Callable[..., Any]) -> dict:
+    """What an operator did by hand (stop, then start) on the account's own lock: the start's reply, or a failure naming the stop.
+    install.sh is not run again: its programs are in place and agree with the pin, and a second run would change nothing the stop
+    and start depend on."""
+    daemon, client = unit_names(profile)
+    left = _disable_now([client, daemon], run, home)
+    _, still = _settled([daemon, client], run, home, sleep)
+    if left or still:
+        return _failed(None, f"the units are not both stopped ({left or still})")
+    return _start(build, profile, root, home, run, sleep, login, lease)
 
 
 def _with_client(reply: dict, home: str, root: str) -> dict:
@@ -1338,7 +1429,7 @@ def _start(build: dict, profile: str, root: str, home: str, run: Callable[..., A
         # An ACTIVE daemon holds its own port, with its peers' connections on it. One that is "activating" is the loop this check exists
         # for (EADDRINUSE, exit 1, restarted every 5 s), so only a start that is to bind the port, or finds it not bound, looks.
         own = roster_port(root, login) if states.get(daemon) != "active" else None
-        bad = own and port_holder_problem(own)
+        bad = own and port_wait(own, sleep)
         if bad:
             return _refused(f"{bad}; nothing was started — close that connection and run it again")
         r, bad_reply = _render(root, home, run, lease, ["--write", path])
