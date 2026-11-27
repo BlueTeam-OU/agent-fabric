@@ -351,6 +351,36 @@ class Alarm(unittest.TestCase):
             self.assertEqual(len(composed), 3)
             self.assertEqual(len(os.listdir(pend)), 1)   # the old episode's file is gone
 
+    def test_a_send_that_provably_sent_nothing_is_composed_anew_next_time(self) -> None:
+        # review of #718, F1: exit 4 (a TO no host places) keeps no file, so a corrected --to is used
+        codes = iter([4, 0])
+
+        def run(argv, **kw):
+            if argv[0] == "gzcoord-compose":
+                with open(argv[argv.index("-o") + 1], "w") as fh:
+                    fh.write("[GZCOORD/1] INFO\nTO: x\nSUBJECT: s\n\nCONTEXT:\n\nNOTES:\n\nREFERENCES:\n")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            return subprocess.CompletedProcess(argv, next(codes), "", "")
+        d = row("a", "end@1")["deaf"]
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as pend:
+            with self.assertRaises(RuntimeError):
+                deaf_alarm.send("a", d, "bad", run, pend)
+            self.assertEqual(os.listdir(pend), [])
+            deaf_alarm.send("a", d, "good", run, pend)
+            self.assertEqual(os.listdir(pend), [])   # a first send that succeeds keeps nothing
+
+    def test_a_recovered_account_drops_its_pending_file(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as pend:
+            kept = deaf_alarm.pending_path(pend, "a", "end@1")
+            other = deaf_alarm.pending_path(pend, "b", "end@1")
+            for f in (kept, other):
+                open(f, "w").close()
+            deaf_alarm.alarm([row("a", None)], {"a": "end@1"}, "h/user", True, lambda *a: None, pend)
+            self.assertTrue(os.path.exists(kept))   # a dry run changes nothing
+            deaf_alarm.alarm([row("a", None)], {"a": "end@1"}, "h/user", False, lambda *a: None, pend)
+            self.assertFalse(os.path.exists(kept))
+            self.assertTrue(os.path.exists(other))
+
     def test_the_text_says_only_what_was_counted(self) -> None:
         d = {**row("a", "end@1")["deaf"], "pending": {"unread": None, "queued_requests": 2}}
         context, _ = deaf_alarm.body("a", d)
@@ -422,6 +452,34 @@ class Cli(unittest.TestCase):
             self.assertEqual(r.returncode, 3, r.stderr)
             self.assertIn("deaf_alarm:", r.stderr)
             self.assertFalse(os.path.exists(os.path.join(d, "state", deaf_alarm.LEDGER)))
+
+    def test_main_keeps_the_message_across_runs_so_a_resend_is_the_same_file(self) -> None:
+        # review of #718, F2: the wiring in main, through fakes on PATH (the real entry point, nothing mocked in-process)
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            bindir, state = os.path.join(d, "bin"), os.path.join(d, "state")
+            os.makedirs(bindir)
+            rowjson = json.dumps({"account": "a", "status": "ok", "deaf": row("a", "end@1")["deaf"]})
+            scripts = {
+                "fabric-ctl": f"#!/bin/sh\nprintf '%s\\n' '{rowjson}'\n",
+                "gzcoord-compose": '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n'
+                                   "echo c >> \"$0.count\"\n"
+                                   "printf '[GZCOORD/1] INFO\\nTO: x\\nSUBJECT: s\\n\\nCONTEXT:\\n\\nNOTES:\\n\\nREFERENCES:\\n' > \"$out\"\n",
+                "gzcoord-send": f'#!/bin/sh\ncat "$1" > "{d}/posted.$$"\nexit 3\n',
+            }
+            for name, text in scripts.items():
+                with open(os.path.join(bindir, name), "w") as fh:
+                    fh.write(text)
+                os.chmod(os.path.join(bindir, name), 0o755)
+            env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": d, "AGENT_FABRIC_STATE_DIR": state}
+            cmd = [sys.executable, "-I", os.path.join(HERE, "tools", "fabric", "control", "deaf_alarm.py"), "--to", "h/user"]
+            for _ in range(2):
+                r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertIn("not confirmed sent", r.stderr)
+            with open(os.path.join(bindir, "gzcoord-compose.count")) as fh:
+                self.assertEqual(len(fh.read().split()), 1)   # composed once, posted twice
+            found = [os.path.join(root, f) for root, _, files in os.walk(state) for f in files]
+            self.assertEqual([os.path.basename(os.path.dirname(f)) for f in found], [deaf_alarm.PENDING])   # one kept file, no ledger
 
 
 if __name__ == "__main__":
