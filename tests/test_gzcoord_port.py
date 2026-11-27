@@ -913,6 +913,8 @@ def _():
     r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=20)   # under the 30 s retry sleep: the deadline is honoured
     eq(r.returncode, 5, r.stdout + r.stderr)
     ok("the watch ended" in r.stdout and "waiting for it" not in r.stdout, r.stdout)
+    # The line a woken session decides on says to run it again now: "when the relay is back" left idle sessions deaf (j1044).
+    ok("run it again now" in r.stdout and "is back" not in r.stdout, r.stdout)
 
 
 def _down_marker(env: dict) -> str:

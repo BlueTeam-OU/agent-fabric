@@ -30,9 +30,9 @@ While that is younger than RELAY_DOWN_S the hook probes the relay once
 (relay_answers, j638): a relay that answers at all, an error status included,
 no longer justifies the silence and the hook goes on to ask; one that does not
 answer within RELAY_PROBE_S wall-clock seconds, DNS and every address
-included, leaves the hook passing, because asking at once would only spin a
-new watch against the same relay, and a relay an operator stopped on purpose
-would see its sessions hammer it (j626, the 2026-11-05 relay-down drill). The
+included, leaves the hook passing: the session woken by the exit runs the watch
+again itself (ADR-022 rule 2), and the hook asking at every Stop while the relay
+is silent would cost a turn each time (j626, the 2026-11-05 relay-down drill). The
 hook never removes the marker: the next fetch the relay answers does; one that
 outlives RELAY_DOWN_S is asked again without a probe. Where the account's transport mode makes the carrier the primary (carrier-record, carrier-only:
 the relay is then a mirror whose silence ends no watch) the marker means the carrier, and the one probe is the

@@ -728,8 +728,8 @@ def main() -> int:
             check("a bare launch opens with the prompt that arms the watch, after --",
                   has(rf"CLAUDE-EXECCED:.*launch-prompt\.md -- {re.escape(SESSION_START)}", out), out)
             # A relay give-up is run again; waiting for the relay left idle sessions deaf for days (j1044).
-            check("the opening prompt runs the watch again after a relay give-up (exit 5)",
-                  "when it gave up on an unreachable relay (exit 5)" in out, out)
+            check("the opening prompt runs the watch again after a quiet end and after a relay give-up (exit 5)",
+                  "when its deadline ended it quiet" in out and "on an unreachable relay (exit 5)" in out, out)
             # The prompt stays in claude's argv; a kill by the watch's command
             # pattern once matched it and ended the session.
             check("…and names no command a process pattern could match", "gzcoord-inbox" not in grep("CLAUDE-EXECCED:", out), out)

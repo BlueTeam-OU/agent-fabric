@@ -63,8 +63,10 @@ it again until it is fixed: 2 a control channel named, 3 not
 configured or no token, 4 the relay
 refused the token (see the token paragraph below), 6 a delivery
 your journal cannot keep (it is shown once the journal can), 7 an
-internal error; a session left without a watch that way is reported
-to fabric-coordinator from outside it (`fabric-ctl <login> deaf`). A watch that exits at once and is run again at once loops
+internal error. A session left without a watch that way is reported
+to fabric-coordinator from outside it (`fabric-ctl <login> deaf`), but
+only after 10 minutes and only while work waits for it (a queued
+REQUEST job, or an unread message the carrier counts). A watch that exits at once and is run again at once loops
 a session one turn per run.
 
 **Never a Monitor for the watch** (`Monitor(command: 'gzcoord-inbox

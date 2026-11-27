@@ -211,15 +211,19 @@ idle session has no turn in which to look.
 #666 (python-dev-02, j169) fixed the count that made the watch give up
 early, and #686 (python-dev-01, j266) made a carrier primary retry to its
 deadline and end quiet instead of exiting 5. The relay primary keeps the
-give-up, so an operator who stops the relay sees no fleet hammering it.
-This amendment changes the rule, not the watch: exit 5 is run again at
-once. The 15 minutes the watch spent retrying are the pause, so a relay
-down for an hour costs each session four turns, and each new watch
-retries at the pace the old one did. The Stop hook's relay-down marker
-(j626) still keeps it from *asking* while the relay is silent; a session
-woken by the exit re-arms on its own turn. Every other non-zero exit (2,
+give-up, which bounds each watch, not the fleet's polling: a stopped
+relay is still tried every 30 s by each session's watch while it is
+down. This amendment changes the rule, not the watch: exit 5 is run
+again at once. The 15 minutes the watch spent retrying are the pause, so
+a relay down for an hour costs each session four turns, and each new
+watch retries at the pace the old one did. The Stop hook's relay-down
+marker (j626) still keeps the hook from *asking* while the relay is
+silent, which would cost a turn at every Stop; a session woken by the
+exit re-arms on its own turn. Every other non-zero exit (2,
 3, 4, 6, 7) stays read and not re-run: each names a fault a re-run
 cannot fix. A session left deaf by one of those, or by a harness that
 reaped its watch, is reported from outside it by the control agent's
-`deaf` reading and the coordinator's deaf alarm (#714, #718, j188, j190).
+`deaf` reading and the coordinator's deaf alarm (#714, #718, j188, j190)
+once it has been so for 10 minutes and work waits for it: a queued
+REQUEST job, or an unread message the carrier counts.
 
