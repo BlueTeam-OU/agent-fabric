@@ -184,5 +184,11 @@
     "fingerprint": "DE7EBE503636F14AACCCD6BACDED41B6075E32DB",
     "login": "fabric-probe",
     "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
+  },
+  "01a220ed-543c-70d9-8bfc-c742e03193f3": {
+    "born": "2026-11-28T06:52:34.236Z",
+    "fingerprint": "04BD360E848FF022C0AA9EC1EA965D28389EB5ED",
+    "login": "accountant-ee-blueteam-ou",
+    "parent": "019bbe31-2fff-7a2f-9849-96bdf286e011"
   }
 }

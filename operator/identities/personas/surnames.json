@@ -1161,7 +1161,11 @@
       "from": "Italy",
       "known_for": "double-entry bookkeeping set out in the Summa de arithmetica (1494); mathematics",
       "lived": "c.1447-1517",
-      "note": "a mathematician; added at the owner's request of 2026-11-17 for accountant-ee-blueteam-ou; deceased, and no weapon work"
+      "note": "a mathematician; added at the owner's request of 2026-11-17 for accountant-ee-blueteam-ou; deceased, and no weapon work",
+      "taken_by": {
+        "agent": "01a220ed-543c-70d9-8bfc-c742e03193f3",
+        "login": "accountant-ee-blueteam-ou"
+      }
     },
     {
       "surname": "Pascal",
