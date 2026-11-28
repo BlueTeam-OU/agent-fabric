@@ -36,9 +36,12 @@ bin/gzcoord-inbox | head` are runs. A double-quoted word is one word: `git commi
 pipe.
 
 FLAT, AND CLOSED WHERE IT IS NOT. The command is judged as pipelines of simple commands, split on `;`, `&&`, `||`,
-`&` and newlines. A `$( … )` or backtick span in which the loose scan below finds no consuming run is blanked to a
-word first, so naming an inbox file is no capture (`f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"` passes), and
-a `$(( … ))` is arithmetic, blanked on the same test (`n=$((n+1))`); a process substitution never is. Groups,
+`&` and newlines. A `$( … )` or backtick span in which the loose scan below finds no consuming run, and no runner or
+process substitution stands, is blanked to a word first, so naming an inbox file is no capture (`f=$(mktemp -t
+inbox.XXXXXX); gzcoord-inbox > "$f"` passes), and a `$(( … ))` is arithmetic, blanked on the same test
+(`n=$((n+1))`); a process substitution never is. Blanking is all or nothing: where one span is kept, or a `)` may not
+close what it seems to (a quoted one, a case pattern's, an escaped one), nothing is blanked and the text is read as
+written (#721 F7). Groups,
 compound commands, the substitutions left and runners are not followed: when the command holds any of them (`(`, `{`,
 `}`, `fi`, `done`, `esac`, `$(`, a backtick, `<(`, `>(`, a word of post-review-shape-guard's RUNNERS, `.`) and a
 consuming run found by a loose scan of every word (mention or run alike, readers not exempt), it is refused if it also
@@ -54,8 +57,10 @@ link to the command under another name. Each costs messages only when written on
 
 COST. Nothing is loaded unless `inbox` occurs in the command (the hook runs on every Bash call); canonical() is asked
 only where `inbox` stands in the words it reads, and with those NAMING_WORDS words only, never the rest of the command;
-whether a run is read-only is one index per simple command. So every reading is linear in the words: a long run of
-words that mostly hold `inbox` once took longer than the hook's 5 s timeout, which counts as no objection (#721 F1).
+whether a run is read-only is one index per simple command; blanking joins each span's body once and stops at the
+first span kept. So every reading is linear in the text: a long run of words that mostly hold `inbox`, and a deep
+nesting of kept substitutions, each once took longer than the hook's 5 s timeout, which counts as no objection
+(#721 F1, F8).
 
 SUBAGENTS. Judged as the session is: a subagent's Bash call drains the same login's inbox, and a page it filters is
 lost to the session the same way.
@@ -113,14 +118,25 @@ REASON = ("A consuming gzcoord-inbox run acknowledges its whole page before a pi
           "your scratchpad and read the whole file. A message already consumed is read again with "
           "`gzcoord-inbox --replay <MESSAGE-ID>`, never through a filter; a command that only mentions the name puts it "
           "in single quotes.")
-# A $( … ) or backtick span is blanked to PLACEHOLDER when the loose scan finds no consuming run in it and no span
-# kept inside it: `f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"` is the way out the reason names, and
+# A $( … ) or backtick span is blanked to PLACEHOLDER when the loose scan finds no consuming run in it and no runner
+# or process substitution stands in it (_kept):
+# `f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"` is the way out the reason names, and
 # `cd "$(git rev-parse --show-toplevel)"` beside the watch is no capture. A $(( … )) span is arithmetic, which runs no
 # command, blanked on the same test (bash reads `$((gzcoord-inbox | head))` as arithmetic, but a shell that did not
 # would drain; keeping it costs a rephrase). A `$((` whose first `)` is not `))` opens a substitution of a subshell, as
 # bash reads `$((cd x); gzcoord-inbox)`. Never a <( … ) or >( … ): `gzcoord-inbox > >(head)` is a pipe by another name.
-# Quotes are not read here: a `)` inside one ends a span early, on the side of keeping it.
+# All or nothing: the text is given back as written, nothing blanked, the moment one span is kept (its `$(` decides
+# the command, and blanking the rest would only cost time, #721 F8) or the pairing cannot be trusted. Quotes are not
+# parsed here, so a `)` is not trusted to close a span (#721 F7: a quoted one or a case pattern's ended a span early,
+# its `$(` was blanked away and the run after it read as bare) when the span's body holds an odd count of `"`, when a
+# `)` meets no open span, when a span or a quote is left open at the end, or anywhere _untrusted() says.
 SUBST_MARK = re.compile(r"\$\(\(|\$\(|[()`]")
+# A `(`, `)` or quote that may be no such thing: after a backslash, in the body of a heredoc whose delimiter is
+# unquoted (live_text drops a quoted one's body; its delimiter is let through here), or a case pattern's `)`, which
+# closes nothing. Inside a parameter expansion too, which BRACE_MARK finds in one forward pass: a regex from every
+# `${` to its `}` was quadratic in their nesting.
+UNTRUSTED = re.compile(r"\\[()`\"$]|(?<!<)<<-?[ \t]*(?![-<'\"\\ \t])|\besac\b")
+BRACE_MARK = re.compile(r"\$\{|[{}()\\]")
 # Holds no `inbox`, so a command whose every mention was blanked passes before the lexer runs.
 PLACEHOLDER = "_pipe_guard_subst_"
 
@@ -233,46 +249,98 @@ def loosely_consuming(text: str) -> bool:
 
 
 def blank_substitutions(text: str) -> str:
-    """The text with every substitution and arithmetic span blanked that holds no consuming run, in one pass.
-    One pass, a stack of the open spans, each judged on its own text once its children are judged: rounds of a
-    regex over the whole text, one per nesting level, were quadratic in the depth (#721). A span left open at the end
-    is given back as written, for the closed reading."""
-    stack: list[tuple[str, list[str]]] = [("", [])]   # (the mark that opened it, its text so far)
-    at = 0
+    """The text with every substitution and arithmetic span blanked, or the text as written when a span is kept
+    (_kept) or the pairing cannot be trusted (SUBST_MARK's comment says when). One pass over the text, each
+    span's body joined and judged once, when it closes, its children already blanked; the pass stops at the first span
+    kept, so nothing is re-joined level after level and the cost is linear whatever the nesting (#721, #721 F8)."""
+    blanked = _blanked(text)
+    return text if blanked is None else blanked
+
+
+def _untrusted(text: str) -> bool:
+    if UNTRUSTED.search(text):
+        return True
+    depth = 0       # open `${`, and the plain braces inside them
+    for m in BRACE_MARK.finditer(text):
+        mark = m.group(0)
+        if mark == "${" or (mark == "{" and depth):
+            depth += 1
+        elif mark == "}":
+            depth = max(depth - 1, 0)
+        elif depth and mark != "{":
+            return True     # a paren or a backslash inside a parameter expansion
+    return False
+
+
+def _blanked(text: str) -> str | None:
+    if _untrusted(text):
+        return None
+    out: list[str] = []
+    # One output list and a stack of the open spans: (the mark, where it stands in out, the `"` count before it). A
+    # span's body is out after its mark; a plain `(` span is only paired, never judged, so it joins nothing.
+    stack: list[tuple[str, int, int]] = []
+    quotes = at = 0
     while (m := SUBST_MARK.search(text, at)) is not None:
-        stack[-1][1].append(text[at:m.start()])
+        chunk = text[at:m.start()]
+        out.append(chunk)
+        quotes += chunk.count('"')
         mark, at = m.group(0), m.end()
         if mark == "`":
             close = text.find("`", at)
             if close < 0:
-                stack[-1][1].append(mark)
-                continue
-            body = blank_substitutions(text[at:close])
+                return None
+            body = _blanked(text[at:close])
+            if body is None or _kept(body):
+                return None
             at = close + 1
-            stack[-1][1].append(f"`{body}`" if _kept(body) else PLACEHOLDER)
+            out.append(PLACEHOLDER)
         elif mark != ")":
-            stack.append((mark, []))
-        elif len(stack) == 1:
-            stack[0][1].append(mark)
+            stack.append((mark, len(out), quotes))
+            out.append(mark)
+        elif not stack or (quotes - stack[-1][2]) % 2:
+            return None
         else:
-            opened, parts = stack.pop()
-            body = "".join(parts)
+            opened, mark_at, quotes_before = stack.pop()
             if opened == "$((" and not text.startswith(")", at):
-                stack.append(("$(", ["(", body, ")"]))   # `$((cd x); …)`: a subshell inside a substitution
+                # `$((cd x); …)`: the `(` after `$(` opened a subshell, closed here, in a substitution still open.
+                stack.append(("$(", mark_at, quotes_before))
+                out.append(")")
             elif opened == "(":
-                stack[-1][1].append(f"({body})")
+                out.append(")")
             else:
                 if opened == "$((":
                     at += 1
-                shut = "))" if opened == "$((" else ")"
-                stack[-1][1].append(f"{opened}{body}{shut}" if _kept(body) else PLACEHOLDER)
-    stack[-1][1].append(text[at:])
-    return "".join(opened + "".join(parts) for opened, parts in stack)
+                body = "".join(out[mark_at + 1:])
+                if opened == "$(" and out[mark_at] == "$((":
+                    body = "(" + body
+                if _kept(body):
+                    return None
+                del out[mark_at:]
+                quotes = quotes_before
+                out.append(PLACEHOLDER)
+    rest = text[at:]
+    if stack or (quotes + rest.count('"')) % 2:
+        return None
+    out.append(rest)
+    return "".join(out)
 
 
 def _kept(body: str) -> bool:
-    """A span is kept when a span kept inside it still stands there or a consuming run is found in it."""
-    return bool(SUBSTITUTION.search(body)) or loosely_consuming(body)
+    """A span is kept when a process substitution or a runner stands in it or a consuming run is found in it."""
+    return bool(SUBSTITUTION.search(body)) or _runner(body) or loosely_consuming(body)
+
+
+def _runner(body: str) -> bool:
+    """A runner, or `.` as a command word: live_text gave its quoted payload back at the end of the text, so the body
+    is not what the shell runs there (`x=$(bash -c 'gzcoord-inbox')` was blanked to no capture, the run read as bare)."""
+    runners = _sibling("post-review-shape-guard").RUNNERS
+    if any(os.path.basename(w) in runners for w in LOOSE_WORD.findall(body)):
+        return True
+    for chunk in LOOSE_CHUNK.split(body):
+        words = LOOSE_WORD.findall(chunk)
+        if words[command_word(words):][:1] == [DOT]:
+            return True
+    return False
 
 
 def refused(command: str) -> bool:
@@ -283,6 +351,10 @@ def refused(command: str) -> bool:
     if "inbox" not in live:
         return False
     piped_or_captured = "|" in live or bool(SUBSTITUTION.search(live))
+    # A substitution left standing makes the reading closed and the command captured: the loose scan alone decides,
+    # before the lexer reads a text that may be long (#721 F8).
+    if SUBSTITUTION.search(live) and loosely_consuming(live):
+        return True
     toks = tokens(live)
     if toks is None:
         return piped_or_captured and loosely_consuming(live)
