@@ -76,6 +76,10 @@ SIGNED_KEYS = ("agent_id", "login", "peer_id", "endpoint", "port")
 # `host` is optional so that every row signed before it existed stays valid: canonical_row
 # includes it only when the row has it.
 HOST_KEY = "host"
+# The hosts-registry entry's fields (runtime/hosts/schema): the literal address the other hosts dial, and who that host's
+# firewall admits on the roster's port_range. Named here, in the fenced carrier code, for provisioning that must read them.
+ADDRESS_KEY = "interweave_address"
+ADMIT_KEY = "interweave_admit"
 HOST_RE = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
 ENDPOINT_RE = re.compile(r"[a-z][a-z0-9._-]{0,63}")
 PROFILE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
@@ -260,7 +264,7 @@ def host_address(roster: Roster, host: str) -> tuple[str | None, str]:
     rec = roster.hosts.get(host)
     if not isinstance(rec, dict):
         return None, f"host {host!r} is not in the hosts registry"
-    addr = rec.get("interweave_address")
+    addr = rec.get(ADDRESS_KEY)
     if not isinstance(addr, str) or not addr:
         return None, f"host {host!r} has no interweave_address"
     try:

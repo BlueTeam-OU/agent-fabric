@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -28,6 +29,45 @@ SCRIPT = os.path.join(ROOT, "tools", "fabric", "provisioning", "persist_host_set
 LOW, HIGH = carrier_install.roster_port_range(ROOT)      # the committed roster is the one source: no literal here either
 RANGE = f"{LOW}-{HIGH}"
 LIVE_REL = carrier_install.RESERVED_PORTS_REL
+HOST = socket.gethostname().split(".")[0]      # the entry's id: what the step asks identity.current_host() for
+ROUTE_HEAD = "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"
+
+# A firewall-cmd that keeps its zones' port and rich-rule sets in files, answers with firewalld's statuses (0 yes, 1 no, 252 not
+# running) and logs every call with the environment it was given. KNOBS: files in the state directory, each a way it misbehaves.
+FAKE_FIREWALL_CMD = """#!{python}
+import os, sys
+d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state")
+args = sys.argv[1:]
+with open(os.path.join(d, "calls"), "a") as fh:
+    fh.write(" ".join(args) + "|" + ",".join(sorted(os.environ)) + "\\n")
+def knob(name):
+    return os.path.exists(os.path.join(d, name))
+perm = "--permanent" in args
+zone = next((a.split("=", 1)[1] for a in args if a.startswith("--zone=")), "")
+store = os.path.join(d, ("perm" if perm else "live") + "." + zone)
+def has(v):
+    return os.path.exists(store) and v in open(store).read().splitlines()
+for a in args:
+    if a == "--state":
+        if knob("stopped"):
+            sys.stderr.write("not running\\n")
+            sys.exit(252)
+        print("running")
+    elif a.startswith("--get-zone-of-interface="):
+        f = os.path.join(d, "zone-of-" + a.split("=", 1)[1])
+        print(open(f).read().strip() if os.path.exists(f) else "no zone")
+    elif a == "--get-default-zone":
+        print("public")
+    elif a.startswith(("--query-port=", "--query-rich-rule=")):
+        sys.exit(0 if has(a.split("=", 1)[1]) else 1)
+    elif a.startswith(("--add-port=", "--add-rich-rule=")):
+        if knob("fail-add"):
+            sys.stderr.write("Error: COMMAND_FAILED\\n")
+            sys.exit(1)
+        if not knob("lie"):
+            open(store, "a").write(a.split("=", 1)[1] + "\\n")
+        print("success")
+"""
 
 
 class Case(unittest.TestCase):
@@ -38,10 +78,34 @@ class Case(unittest.TestCase):
         self.live = os.path.join(self.proc, LIVE_REL)
         os.makedirs(os.path.dirname(self.live))
         self.set_live("")
+        self.fakebin, self.fw = os.path.join(self.t, "fwbin"), os.path.join(self.t, "fwbin", "state")
+        os.makedirs(self.fw)
+        self.registry = os.path.join(self.t, "hosts.json")
+        self.set_entry({})
+        self.set_routes([("eth0", 100)])
 
-    def env(self, platform="fedora-qubes"):
+    def env(self, platform="fedora-qubes", path=None):
         return {"AGENT_FABRIC_PROC_ROOT": self.proc, "AGENT_FABRIC_RC_LOCAL_D": self.rcd, "AGENT_FABRIC_SYSCTL_D": self.sysctld,
-                "AGENT_FABRIC_PLATFORM": platform}
+                "AGENT_FABRIC_PLATFORM": platform, "AGENT_FABRIC_HOSTS_REGISTRY": self.registry,
+                "PATH": path if path is not None else f"{self.fakebin}:/usr/bin:/bin"}
+
+    def set_entry(self, entry):
+        with open(self.registry, "w") as fh:
+            json.dump({"version": 1, "hosts": {HOST: entry}, "placement": {}}, fh)
+
+    def set_routes(self, ifaces):
+        """(interface, metric) default routes, plus a connected-network row that is not one."""
+        os.makedirs(os.path.join(self.proc, "net"), exist_ok=True)
+        with open(os.path.join(self.proc, "net", "route"), "w") as fh:
+            fh.write(ROUTE_HEAD + "lo\t0000007F\t00000000\t0001\t0\t0\t0\t000000FF\t0\t0\t0\n")
+            for name, metric in ifaces:
+                fh.write(f"{name}\t00000000\t0100A8C0\t0003\t0\t0\t{metric}\t00000000\t0\t0\t0\n")
+
+    def install_fake_firewall(self):
+        path = os.path.join(self.fakebin, "firewall-cmd")
+        with open(path, "w") as fh:
+            fh.write(FAKE_FIREWALL_CMD.format(python=sys.executable))
+        os.chmod(path, 0o755)
 
     def set_live(self, text):
         with open(self.live, "w") as fh:
@@ -51,10 +115,10 @@ class Case(unittest.TestCase):
         with open(self.live) as fh:
             return fh.read()
 
-    def go(self, platform="fedora-qubes", root=ROOT):
+    def go(self, platform="fedora-qubes", root=ROOT, path=None):
         with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
             with unittest.mock.patch.object(sys, "stdout", out), unittest.mock.patch.object(sys, "stderr", err):
-                rc = phs.run(self.env(platform), root=root)
+                rc = phs.run(self.env(platform, path), root=root)
             out.seek(0)
             err.seek(0)
             return rc, out.read(), err.read()
@@ -137,6 +201,196 @@ class Now(Case):
             rc, _, err = self.go(root=self.roster_root(bad))
             self.assertEqual((rc, self.get_live()), (1, "32768"), bad)
             self.assertIn("port_range", err)
+
+
+class Firewall(Case):
+    PORTS = f"{RANGE}/tcp"
+
+    def setUp(self):
+        super().setUp()
+        self.install_fake_firewall()
+
+    def knob(self, name):
+        open(os.path.join(self.fw, name), "w").close()
+
+    def zone_of(self, iface, zone):
+        with open(os.path.join(self.fw, f"zone-of-{iface}"), "w") as fh:
+            fh.write(zone + "\n")
+
+    def sets(self):
+        """{store: lines} of what the fake firewall holds."""
+        got = {}
+        for n in sorted(os.listdir(self.fw)):
+            if n.startswith(("live.", "perm.")):
+                with open(os.path.join(self.fw, n)) as fh:
+                    got[n] = fh.read().splitlines()
+        return got
+
+    def seed(self, store, line):
+        with open(os.path.join(self.fw, store), "a") as fh:
+            fh.write(line + "\n")
+
+    def calls(self):
+        try:
+            with open(os.path.join(self.fw, "calls")) as fh:
+                return [line.split("|")[0] for line in fh.read().splitlines()]
+        except FileNotFoundError:
+            return []
+
+    def writes(self):
+        return [c for c in self.calls() if "--add-" in c]
+
+    def rule(self, source, ports=None):
+        return f'rule family="ipv4" source address="{source}" port port="{ports or RANGE}" protocol="tcp" accept'
+
+    def test_neither_field_is_one_line_and_no_firewall_is_asked(self):
+        for path in (None, "/usr/bin:/bin"):               # a host without firewall-cmd is nothing to admit too
+            self.set_entry({"platform": "fedora"})
+            rc, out, err = self.go(path=path) if path else self.go()
+            self.assertEqual((rc, err, self.calls()), (0, "", []), path)
+            self.assertEqual([line for line in out.splitlines() if "firewall" in line],
+                             ["firewall: neither interweave_address nor interweave_admit: nothing to admit"])
+
+    def test_any_admits_the_roster_range_in_the_zone_of_the_default_route_live_and_permanent_and_reads_it_back(self):
+        self.set_routes([("wlan0", 600), ("eth0", 100)])         # the lower metric is the default route
+        self.zone_of("eth0", "external")
+        self.zone_of("wlan0", "home")
+        self.set_entry({"interweave_address": "195.69.140.18", "interweave_admit": "any"})
+        rc, out, err = self.go()
+        self.assertEqual((rc, err), (0, ""))
+        self.assertEqual(self.sets(), {f"live.external": [self.PORTS], "perm.external": [self.PORTS]})
+        self.assertIn(f"{self.PORTS} admitted in zone external, live and permanent", out)
+        calls = self.calls()
+        self.assertEqual(calls[0], "--state")
+        self.assertEqual(sum("--query-port" in c for c in calls[calls.index(next(c for c in calls if "--add-" in c)):]), 2,
+                         "read back, live and permanent, after the writes")
+        self.assertFalse([c for c in calls if "rich" in c], "an `any` is a port, not a rule")
+
+    def test_a_zone_the_interface_is_not_in_is_the_default_zone_and_the_child_gets_a_minimal_environment(self):
+        self.set_entry({"interweave_address": "195.69.140.18", "interweave_admit": "any"})
+        self.assertEqual(self.go()[0], 0)
+        self.assertEqual(sorted(self.sets()), ["live.public", "perm.public"])
+        with open(os.path.join(self.fw, "calls")) as fh:
+            for line in fh.read().splitlines():
+                self.assertEqual(line.split("|")[1], "LC_ALL,PATH", line)
+
+    def test_an_address_or_a_cidr_is_a_rich_rule_limited_to_it_and_never_a_port_for_everyone(self):
+        for source in ("203.0.113.7", "203.0.113.0/24", "10.1.2.3/32"):
+            for n in os.listdir(self.fw):
+                os.unlink(os.path.join(self.fw, n))
+            self.set_entry({"interweave_address": "192.168.200.79", "interweave_admit": source})
+            rc, out, err = self.go()
+            self.assertEqual((rc, err), (0, ""), source)
+            self.assertEqual(self.sets(), {"live.public": [self.rule(source)], "perm.public": [self.rule(source)]}, source)
+            self.assertFalse([c for c in self.calls() if "--add-port" in c or "--query-port" in c], source)
+
+    def test_a_single_port_range_is_written_as_the_one_port(self):
+        self.set_entry({"interweave_address": "195.69.140.18", "interweave_admit": "any"})
+        self.assertEqual(self.go(root=self.roster_root([51000, 51000]))[0], 0)
+        self.assertEqual(self.sets()["live.public"], ["51000/tcp"])
+
+    def test_already_admitted_is_one_line_and_no_write_and_half_admitted_writes_only_the_half(self):
+        self.set_entry({"interweave_address": "195.69.140.18", "interweave_admit": "any"})
+        for store in ("live.public", "perm.public"):
+            self.seed(store, self.PORTS)
+        rc, out, err = self.go()
+        self.assertEqual((rc, err, self.writes()), (0, "", []))
+        self.assertIn("already admitted in zone public", out)
+        os.unlink(os.path.join(self.fw, "perm.public"))
+        rc, out, err = self.go()
+        self.assertEqual((rc, err), (0, ""))
+        self.assertEqual(self.writes(), [f"--permanent --zone=public --add-port={self.PORTS}"], "the live half is not written again")
+        self.assertEqual(self.sets()["perm.public"], [self.PORTS])
+        self.assertIn("admitted in zone public", out)
+
+    def test_an_earlier_different_range_is_left_and_a_wider_admission_is_not_added_for_an_address(self):
+        self.seed("live.public", "40000-40009/tcp")
+        self.seed("perm.public", "40000-40009/tcp")
+        self.set_entry({"interweave_address": "192.168.200.79", "interweave_admit": "203.0.113.7"})
+        self.assertEqual(self.go()[0], 0)
+        self.assertEqual(self.sets()["live.public"], ["40000-40009/tcp", self.rule("203.0.113.7")])
+
+    def test_firewalld_not_running_or_absent_is_a_failure_with_nothing_written_and_the_ports_still_reserved(self):
+        self.set_entry({"interweave_address": "195.69.140.18", "interweave_admit": "any"})
+        self.knob("stopped")
+        rc, out, err = self.go()
+        self.assertEqual((rc, self.writes(), self.get_live()), (1, [], RANGE), "the other setting is still made")
+        self.assertIn("persist-host-settings: firewall: firewall-cmd --state exited 252: not running", err)
+        rc, out, err = self.go(path="/usr/bin:/bin")
+        self.assertEqual(rc, 1)
+        self.assertIn("firewall-cmd is not installed", err)
+        self.assertIn("nftables or iptables only", err)
+        os.unlink(os.path.join(self.fw, "stopped"))
+        self.assertEqual(self.go()[0], 0, "positive control: the same host with firewalld running")
+
+    def test_a_failing_write_is_a_failure(self):
+        self.set_entry({"interweave_address": "195.69.140.18", "interweave_admit": "any"})
+        self.knob("fail-add")
+        rc, out, err = self.go()
+        self.assertEqual((rc, self.sets()), (1, {}))
+        self.assertIn(f"--add-port={self.PORTS} exited 1: Error: COMMAND_FAILED", err)
+        os.unlink(os.path.join(self.fw, "fail-add"))
+        self.assertEqual(self.go()[0], 0, "positive control")
+
+    def test_a_read_back_that_disagrees_is_a_failure(self):
+        self.set_entry({"interweave_address": "195.69.140.18", "interweave_admit": "any"})
+        self.knob("lie")
+        rc, out, err = self.go()
+        self.assertEqual(rc, 1)
+        self.assertIn(f"{self.PORTS} is not admitted in zone public live after the write", err)
+        self.assertNotIn("admitted in zone public, live and permanent", out)
+        os.unlink(os.path.join(self.fw, "lie"))
+        self.assertEqual(self.go()[0], 0, "positive control")
+
+    def test_a_field_that_is_not_a_word_of_the_contract_is_a_failure_and_asks_nothing_of_the_firewall(self):
+        for entry in ({"interweave_address": "195.69.140.18"}, {"interweave_admit": "everyone"},
+                      {"interweave_admit": "10.0.0.1/24"}, {"interweave_admit": "10.0.0.0/33"}, {"interweave_admit": "::/0"},
+                      {"interweave_admit": 7}, {"interweave_admit": "ANY"}):
+            self.set_entry(entry)
+            rc, out, err = self.go()
+            self.assertEqual((rc, self.calls()), (1, []), entry)
+            self.assertIn("persist-host-settings: firewall:", err, entry)
+        self.set_entry({"interweave_address": "195.69.140.18"})
+        self.assertIn("interweave_address is set and interweave_admit is not", self.go()[2], "the cause is named, not a type error")
+        self.set_entry({"interweave_admit": "10.0.0.0/24"})
+        self.assertEqual(self.go()[0], 0, "positive control: an admit alone is a CIDR admission")
+
+    def test_an_unreadable_reserved_ports_value_does_not_stop_the_admission(self):
+        self.set_entry({"interweave_address": "195.69.140.18", "interweave_admit": "any"})
+        self.set_live("junk")
+        rc, out, err = self.go()
+        self.assertEqual((rc, self.get_live()), (1, "junk"))
+        self.assertIn("cannot be read", err)
+        self.assertEqual(self.sets()["perm.public"], [self.PORTS])
+
+    def test_an_entry_or_registry_that_cannot_be_read_and_a_missing_default_route_are_failures(self):
+        with open(self.registry, "w") as fh:
+            json.dump({"version": 1, "hosts": {"another-host": {}}}, fh)
+        rc, _, err = self.go()
+        self.assertEqual(rc, 1)
+        self.assertIn(f"the entry of host {HOST}", err)
+        os.unlink(self.registry)
+        self.assertEqual(self.go()[0], 1)
+        with open(self.registry, "w") as fh:
+            fh.write("{")
+        self.assertEqual(self.go()[0], 1)
+        self.assertEqual(self.calls(), [])
+        self.set_entry({"interweave_admit": "any"})
+        self.set_routes([])
+        rc, _, err = self.go()
+        self.assertEqual((rc, self.writes()), (1, []))
+        self.assertIn("has no default route", err)
+        os.unlink(os.path.join(self.proc, "net", "route"))
+        self.assertEqual(self.go()[0], 1)
+        self.set_routes([("eth0", 1)])
+        self.assertEqual(self.go()[0], 0, "positive control")
+
+    def test_the_real_command_runs_the_firewall_step_too(self):
+        self.set_entry({"interweave_address": "195.69.140.18", "interweave_admit": "any"})
+        env = {**self.env(), "HOME": self.t}
+        r = subprocess.run([sys.executable, "-I", SCRIPT], env=env, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        self.assertEqual(sorted(self.sets()), ["live.public", "perm.public"])
 
 
 class AcrossAReboot(Case):
