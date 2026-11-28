@@ -38,15 +38,15 @@ pipe.
 FLAT, AND CLOSED WHERE IT IS NOT. The command is judged as pipelines of simple commands, split on `;`, `&&`, `||`,
 `&` and newlines. A `$( … )` or backtick span in which the loose scan below finds no consuming run is blanked to a
 word first, so naming an inbox file is no capture (`f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"` passes), and
-a `$(( … ))` is arithmetic, blanked once neither a substitution nor a consuming run is left inside it (`n=$((n+1))`);
-a process substitution never is. Groups, compound commands, the substitutions left and runners are not followed:
-when the command holds any of them (`(`, `{`, `}`, `fi`, `done`, `esac`, `$(`, a backtick, `<(`, `>(`, a word of
-post-review-shape-guard's RUNNERS, `.`) and a consuming run found by a loose scan of every word (mention or run alike,
-readers not exempt), it is refused if it also holds a `|` anywhere or a substitution. Runners are in the list because
-live_text gives their quoted payload back at the end of the text, not where it stood, and a double-quoted `bash -c
-"…"` payload is one word to the lexer. A nesting-aware reading of bash lost review rounds in both directions for the
-two sibling guards that tried (their headers say so); a false deny costs a rephrase (`gzcoord-inbox; ( cd x && git
-log | head )` is one), a false allow costs messages.
+a `$(( … ))` is arithmetic, blanked on the same test (`n=$((n+1))`); a process substitution never is. Groups,
+compound commands, the substitutions left and runners are not followed: when the command holds any of them (`(`, `{`,
+`}`, `fi`, `done`, `esac`, `$(`, a backtick, `<(`, `>(`, a word of post-review-shape-guard's RUNNERS, `.`) and a
+consuming run found by a loose scan of every word (mention or run alike, readers not exempt), it is refused if it also
+holds a `|` anywhere or a substitution. Runners are in the list because live_text gives their quoted payload back at
+the end of the text, not where it stood, and a double-quoted `bash -c "…"` payload is one word to the lexer. A
+nesting-aware reading of bash lost review rounds in both directions for the two sibling guards that tried (their
+headers say so); a false deny costs a rephrase (`gzcoord-inbox; ( cd x && git log | head )` is one), a false allow
+costs messages.
 
 SCOPE. A fence against the habit of filtering the drain, not a sandbox. Not seen: a command word the shell builds
 (`$c | head`, `'gzcoord-inbox' | head`, whose quotes live_text drops as inert text), a script or alias that drains, a
@@ -113,16 +113,16 @@ REASON = ("A consuming gzcoord-inbox run acknowledges its whole page before a pi
           "your scratchpad and read the whole file. A message already consumed is read again with "
           "`gzcoord-inbox --replay <MESSAGE-ID>`, never through a filter; a command that only mentions the name puts it "
           "in single quotes.")
-# An innermost $( … ) or backtick span, blanked to PLACEHOLDER when no consuming run is found inside it: `f=$(mktemp
-# -t inbox.XXXXXX); gzcoord-inbox > "$f"` is the way out the reason names, and `cd "$(git rev-parse --show-toplevel)"`
-# beside the watch is no capture. Never a <( … ) or >( … ): `gzcoord-inbox > >(head)` is a pipe by another name.
-INNER_SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
-# A $(( … )) span, one level of plain parentheses inside: arithmetic, which runs no command, so it is blanked unless a
-# substitution kept by INNER_SUBST still stands in it, or the loose scan finds a consuming run in it (bash reads
-# `$((gzcoord-inbox | head))` as arithmetic, but a shell that did not would drain; keeping it costs a rephrase).
-# INNER_SUBST's `[^()]*` never matches it, and left whole its `$(` read as a capture.
-ARITHMETIC = re.compile(r"\$\(\((?:[^()]|\([^()]*\))*\)\)")
-PLACEHOLDER = "_inbox_pipe_guard_subst_"
+# A $( … ) or backtick span is blanked to PLACEHOLDER when the loose scan finds no consuming run in it and no span
+# kept inside it: `f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"` is the way out the reason names, and
+# `cd "$(git rev-parse --show-toplevel)"` beside the watch is no capture. A $(( … )) span is arithmetic, which runs no
+# command, blanked on the same test (bash reads `$((gzcoord-inbox | head))` as arithmetic, but a shell that did not
+# would drain; keeping it costs a rephrase). A `$((` whose first `)` is not `))` opens a substitution of a subshell, as
+# bash reads `$((cd x); gzcoord-inbox)`. Never a <( … ) or >( … ): `gzcoord-inbox > >(head)` is a pipe by another name.
+# Quotes are not read here: a `)` inside one ends a span early, on the side of keeping it.
+SUBST_MARK = re.compile(r"\$\(\(|\$\(|[()`]")
+# Holds no `inbox`, so a command whose every mention was blanked passes before the lexer runs.
+PLACEHOLDER = "_pipe_guard_subst_"
 
 
 def _load(name: str, file: str):
@@ -233,21 +233,46 @@ def loosely_consuming(text: str) -> bool:
 
 
 def blank_substitutions(text: str) -> str:
-    """The text with every substitution that runs no consuming gzcoord-inbox, and every arithmetic span, blanked,
-    innermost first, until none is left to blank. Each round shortens the text, so it ends; the spans left each hold a
-    consuming run (or an arithmetic span one of them), and stay for the closed reading."""
-    def inner(m: re.Match) -> str:
-        return m.group(0) if loosely_consuming(m.group(1) if m.group(1) is not None else m.group(2)) else PLACEHOLDER
+    """The text with every substitution and arithmetic span blanked that holds no consuming run, in one pass.
+    One pass, a stack of the open spans, each judged on its own text once its children are judged: rounds of a
+    regex over the whole text, one per nesting level, were quadratic in the depth (#721). A span left open at the end
+    is given back as written, for the closed reading."""
+    stack: list[tuple[str, list[str]]] = [("", [])]   # (the mark that opened it, its text so far)
+    at = 0
+    while (m := SUBST_MARK.search(text, at)) is not None:
+        stack[-1][1].append(text[at:m.start()])
+        mark, at = m.group(0), m.end()
+        if mark == "`":
+            close = text.find("`", at)
+            if close < 0:
+                stack[-1][1].append(mark)
+                continue
+            body = blank_substitutions(text[at:close])
+            at = close + 1
+            stack[-1][1].append(f"`{body}`" if _kept(body) else PLACEHOLDER)
+        elif mark != ")":
+            stack.append((mark, []))
+        elif len(stack) == 1:
+            stack[0][1].append(mark)
+        else:
+            opened, parts = stack.pop()
+            body = "".join(parts)
+            if opened == "$((" and not text.startswith(")", at):
+                stack.append(("$(", ["(", body, ")"]))   # `$((cd x); …)`: a subshell inside a substitution
+            elif opened == "(":
+                stack[-1][1].append(f"({body})")
+            else:
+                if opened == "$((":
+                    at += 1
+                shut = "))" if opened == "$((" else ")"
+                stack[-1][1].append(f"{opened}{body}{shut}" if _kept(body) else PLACEHOLDER)
+    stack[-1][1].append(text[at:])
+    return "".join(opened + "".join(parts) for opened, parts in stack)
 
-    def arithmetic(m: re.Match) -> str:
-        body = m.group(0)[3:-2]
-        return m.group(0) if SUBSTITUTION.search(body) or loosely_consuming(body) else PLACEHOLDER
 
-    while True:
-        out = ARITHMETIC.sub(arithmetic, INNER_SUBST.sub(inner, text))
-        if out == text:
-            return text
-        text = out
+def _kept(body: str) -> bool:
+    """A span is kept when a span kept inside it still stands there or a consuming run is found in it."""
+    return bool(SUBSTITUTION.search(body)) or loosely_consuming(body)
 
 
 def refused(command: str) -> bool:
