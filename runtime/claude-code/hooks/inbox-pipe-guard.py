@@ -330,9 +330,9 @@ def _blanked(text: str, untrusted: int | None) -> str | None:
             return None
         else:
             opened, mark_at, quotes_before = stack.pop()
-            # The second `)` of `))` is read only before the limit; past it, the `$((` is left open, as written. With the
-            # limit _untrusted's over this text, `at` is never the limit here; the test stands for a caller passing another.
-            if opened == "$((" and not (at < limit and text.startswith(")", at)):
+            # No `at < limit` test: at the limit stands the start of an untrusted mark, never a `)` (#721 F11, measured with
+            # at == limit for `$((cd x)\"y\"`), so the second `)` of `))` is only ever found before it.
+            if opened == "$((" and not text.startswith(")", at):
                 # `$((cd x); …)`: the `(` after `$(` opened a subshell, closed here, in a substitution still open.
                 stack.append(("$(", mark_at, quotes_before))
                 out.append(")")
