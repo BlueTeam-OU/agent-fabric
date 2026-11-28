@@ -36,15 +36,17 @@ bin/gzcoord-inbox | head` are runs. A double-quoted word is one word: `git commi
 pipe.
 
 FLAT, AND CLOSED WHERE IT IS NOT. The command is judged as pipelines of simple commands, split on `;`, `&&`, `||`,
-`&` and newlines. A `$( … )` or backtick span that names no inbox is blanked to a word first (`f=$(mktemp);
-gzcoord-inbox > "$f"` passes); a process substitution never is. Groups, compound commands, the substitutions left and
-runners are not followed: when the command holds any of them (`(`, `{`, `}`, `fi`, `done`, `esac`, `$(`, a backtick,
-`<(`, `>(`, a word of post-review-shape-guard's RUNNERS, `.`) and a consuming run found by a loose scan of every word
-(mention or run alike, readers not exempt), it is refused if it also holds a `|` anywhere or a substitution. Runners
-are in the list because live_text gives their quoted payload back at the end of the text, not where it stood, and a
-double-quoted `bash -c "…"` payload is one word to the lexer. A nesting-aware
-reading of bash lost review rounds in both directions for the two sibling guards that tried (their headers say so); a
-false deny costs a rephrase (`gzcoord-inbox; ( cd x && git log | head )` is one), a false allow costs messages.
+`&` and newlines. A `$( … )` or backtick span in which the loose scan below finds no consuming run is blanked to a
+word first, so naming an inbox file is no capture (`f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"` passes), and
+a `$(( … ))` is arithmetic, blanked once neither a substitution nor a consuming run is left inside it (`n=$((n+1))`);
+a process substitution never is. Groups, compound commands, the substitutions left and runners are not followed:
+when the command holds any of them (`(`, `{`, `}`, `fi`, `done`, `esac`, `$(`, a backtick, `<(`, `>(`, a word of
+post-review-shape-guard's RUNNERS, `.`) and a consuming run found by a loose scan of every word (mention or run alike,
+readers not exempt), it is refused if it also holds a `|` anywhere or a substitution. Runners are in the list because
+live_text gives their quoted payload back at the end of the text, not where it stood, and a double-quoted `bash -c
+"…"` payload is one word to the lexer. A nesting-aware reading of bash lost review rounds in both directions for the
+two sibling guards that tried (their headers say so); a false deny costs a rephrase (`gzcoord-inbox; ( cd x && git
+log | head )` is one), a false allow costs messages.
 
 SCOPE. A fence against the habit of filtering the drain, not a sandbox. Not seen: a command word the shell builds
 (`$c | head`, `'gzcoord-inbox' | head`, whose quotes live_text drops as inert text), a script or alias that drains, a
@@ -111,10 +113,15 @@ REASON = ("A consuming gzcoord-inbox run acknowledges its whole page before a pi
           "your scratchpad and read the whole file. A message already consumed is read again with "
           "`gzcoord-inbox --replay <MESSAGE-ID>`, never through a filter; a command that only mentions the name puts it "
           "in single quotes.")
-# An innermost $( … ) or backtick span, blanked to PLACEHOLDER when it names no inbox: `f=$(mktemp); gzcoord-inbox >
-# "$f"` is the way out the reason names, and `cd "$(git rev-parse --show-toplevel)"` beside the watch is no capture.
-# Never a <( … ) or >( … ): `gzcoord-inbox > >(head)` is a pipe by another name.
+# An innermost $( … ) or backtick span, blanked to PLACEHOLDER when no consuming run is found inside it: `f=$(mktemp
+# -t inbox.XXXXXX); gzcoord-inbox > "$f"` is the way out the reason names, and `cd "$(git rev-parse --show-toplevel)"`
+# beside the watch is no capture. Never a <( … ) or >( … ): `gzcoord-inbox > >(head)` is a pipe by another name.
 INNER_SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+# A $(( … )) span, one level of plain parentheses inside: arithmetic, which runs no command, so it is blanked unless a
+# substitution kept by INNER_SUBST still stands in it, or the loose scan finds a consuming run in it (bash reads
+# `$((gzcoord-inbox | head))` as arithmetic, but a shell that did not would drain; keeping it costs a rephrase).
+# INNER_SUBST's `[^()]*` never matches it, and left whole its `$(` read as a capture.
+ARITHMETIC = re.compile(r"\$\(\((?:[^()]|\([^()]*\))*\)\)")
 PLACEHOLDER = "_inbox_pipe_guard_subst_"
 
 
@@ -226,10 +233,18 @@ def loosely_consuming(text: str) -> bool:
 
 
 def blank_substitutions(text: str) -> str:
-    """The text with every substitution that names no inbox blanked, innermost first, until none is left to blank.
-    Each round shortens the text, so it ends; the spans left all hold `inbox` and stay for the closed reading."""
+    """The text with every substitution that runs no consuming gzcoord-inbox, and every arithmetic span, blanked,
+    innermost first, until none is left to blank. Each round shortens the text, so it ends; the spans left each hold a
+    consuming run (or an arithmetic span one of them), and stay for the closed reading."""
+    def inner(m: re.Match) -> str:
+        return m.group(0) if loosely_consuming(m.group(1) if m.group(1) is not None else m.group(2)) else PLACEHOLDER
+
+    def arithmetic(m: re.Match) -> str:
+        body = m.group(0)[3:-2]
+        return m.group(0) if SUBSTITUTION.search(body) or loosely_consuming(body) else PLACEHOLDER
+
     while True:
-        out = INNER_SUBST.sub(lambda m: m.group(0) if "inbox" in m.group(0) else PLACEHOLDER, text)
+        out = ARITHMETIC.sub(arithmetic, INNER_SUBST.sub(inner, text))
         if out == text:
             return text
         text = out
