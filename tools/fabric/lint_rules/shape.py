@@ -2,6 +2,7 @@
 A part of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -183,6 +184,20 @@ def host_registry_findings(root: str) -> list[str]:
         if addr in at:
             findings.append(f"{where}: hosts {at[addr]} and {hid} share the sshd address {addr}; one known_hosts pattern is one host")
         at[addr] = hid
+    # The schema's pattern only shapes the field; persist_host_settings.py opens the firewall from it and refuses what
+    # IPv4Network(strict=True) refuses, so lint holds the same reading. A /0 admits every source: it is spelled "any",
+    # where the owner's word for it is recorded (ADR-064 rule 1), never as an address that looks narrower than it is.
+    for hid, e in sorted(hosts.items()):
+        admit = e.get("interweave_admit")
+        if not isinstance(admit, str) or admit == "any":
+            continue
+        try:
+            net = ipaddress.IPv4Network(admit, strict=True)
+        except ValueError as exc:
+            findings.append(f"{where}: host {hid}'s interweave_admit {admit!r} is not an IPv4 address or a CIDR without host bits ({exc})")
+            continue
+        if net.prefixlen == 0:
+            findings.append(f"{where}: host {hid}'s interweave_admit {admit!r} admits every source; write \"any\" (ADR-064 rule 1)")
     placement = reg.get("placement") or {}
     for login, hid in sorted(placement.items()):
         if hid not in hosts:

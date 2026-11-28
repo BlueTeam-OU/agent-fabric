@@ -82,9 +82,10 @@ the guard's own answer when the harness runs it a second time; write
 
 ### Review is the standing premium-alias exception (`fable`)
 
-One role escapes the premium ban without a per-dispatch ask: the
-**review class**, dispatched for the review of a PR's head, for judging
-a finding (step 26) and for the re-review of a fix range. It stands in
+Two classes reach the premium tier without a per-dispatch ask:
+`code-high`, on `opus`, for difficult or high-consequence work (the
+table above), and, on `fable`, the **review class**, dispatched for
+the review of a PR's head, for judging a finding (step 26) and for the re-review of a fix range. It stands in
 for nothing: no automated reviewer runs ahead of it, and its review,
 posted with `fabric-pr post-review`, is the one the gate counts.
 
@@ -136,8 +137,9 @@ those rounds found defects introduced by the previous round's own fix.
 Every one had passed a full green suite and mutation checks first. That
 is the failure rate the review class is being asked to match.
 
-It covers review only. "This task looks hard" is not review, and the
-exception must not be read as a general licence — the ~40-agent bill
+The `fable` exception covers review only. "This task looks hard" is
+not review: hard work goes to `code-high`, and the exception must not
+be read as a general licence — the ~40-agent bill
 above is what happens when premium becomes the default rather than the
 argued case.
 
