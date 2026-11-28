@@ -36,11 +36,12 @@ bin/gzcoord-inbox | head` are runs. A double-quoted word is one word: `git commi
 pipe.
 
 FLAT, AND CLOSED WHERE IT IS NOT. The command is judged as pipelines of simple commands, split on `;`, `&&`, `||`,
-`&` and newlines. A `$( … )` or backtick span in which the loose scan below finds no consuming run is blanked to a
-word first, so naming an inbox file is no capture (`f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"` passes), and
-a `$(( … ))` is arithmetic, blanked on the same test (`n=$((n+1))`); a process substitution never is. Blanking is all
-or nothing: where one span holds a run, or a `)` may not close what it seems to (a quoted one, a case pattern's, an
-escaped one), nothing is blanked and the text is read as written (#721 F7). Groups,
+`&` and newlines. A `$( … )` or backtick span in which the loose scan below finds no consuming run, and no runner or
+process substitution stands, is blanked to a word first, so naming an inbox file is no capture (`f=$(mktemp -t
+inbox.XXXXXX); gzcoord-inbox > "$f"` passes), and a `$(( … ))` is arithmetic, blanked on the same test
+(`n=$((n+1))`); a process substitution never is. Blanking is all or nothing: where one span is kept, or a `)` may not
+close what it seems to (a quoted one, a case pattern's, an escaped one), nothing is blanked and the text is read as
+written (#721 F7). Groups,
 compound commands, the substitutions left and runners are not followed: when the command holds any of them (`(`, `{`,
 `}`, `fi`, `done`, `esac`, `$(`, a backtick, `<(`, `>(`, a word of post-review-shape-guard's RUNNERS, `.`) and a
 consuming run found by a loose scan of every word (mention or run alike, readers not exempt), it is refused if it also
@@ -117,21 +118,25 @@ REASON = ("A consuming gzcoord-inbox run acknowledges its whole page before a pi
           "your scratchpad and read the whole file. A message already consumed is read again with "
           "`gzcoord-inbox --replay <MESSAGE-ID>`, never through a filter; a command that only mentions the name puts it "
           "in single quotes.")
-# A $( … ) or backtick span is blanked to PLACEHOLDER when the loose scan finds no consuming run in it:
+# A $( … ) or backtick span is blanked to PLACEHOLDER when the loose scan finds no consuming run in it and no runner
+# or process substitution stands in it (_kept):
 # `f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"` is the way out the reason names, and
 # `cd "$(git rev-parse --show-toplevel)"` beside the watch is no capture. A $(( … )) span is arithmetic, which runs no
 # command, blanked on the same test (bash reads `$((gzcoord-inbox | head))` as arithmetic, but a shell that did not
 # would drain; keeping it costs a rephrase). A `$((` whose first `)` is not `))` opens a substitution of a subshell, as
 # bash reads `$((cd x); gzcoord-inbox)`. Never a <( … ) or >( … ): `gzcoord-inbox > >(head)` is a pipe by another name.
-# All or nothing: the text is given back as written, nothing blanked, the moment one span holds a run (its `$(` decides
+# All or nothing: the text is given back as written, nothing blanked, the moment one span is kept (its `$(` decides
 # the command, and blanking the rest would only cost time, #721 F8) or the pairing cannot be trusted. Quotes are not
 # parsed here, so a `)` is not trusted to close a span (#721 F7: a quoted one or a case pattern's ended a span early,
 # its `$(` was blanked away and the run after it read as bare) when the span's body holds an odd count of `"`, when a
-# `)` meets no open span, when a span or a quote is left open at the end, or anywhere UNTRUSTED matches.
+# `)` meets no open span, when a span or a quote is left open at the end, or anywhere _untrusted() says.
 SUBST_MARK = re.compile(r"\$\(\(|\$\(|[()`]")
-# A `(`, `)` or quote that may be no such thing: after a backslash, inside a parameter expansion, or in the body of a
-# heredoc whose delimiter is unquoted (live_text drops a quoted one's body; its delimiter is let through here).
-UNTRUSTED = re.compile(r"\\[()`\"$]|\$\{[^}]*[()]|(?<!<)<<-?[ \t]*(?![<'\"\\ \t])")
+# A `(`, `)` or quote that may be no such thing: after a backslash, in the body of a heredoc whose delimiter is
+# unquoted (live_text drops a quoted one's body; its delimiter is let through here), or a case pattern's `)`, which
+# closes nothing. Inside a parameter expansion too, which BRACE_MARK finds in one forward pass: a regex from every
+# `${` to its `}` was quadratic in their nesting.
+UNTRUSTED = re.compile(r"\\[()`\"$]|(?<!<)<<-?[ \t]*(?![-<'\"\\ \t])|\besac\b")
+BRACE_MARK = re.compile(r"\$\{|[{}()\\]")
 # Holds no `inbox`, so a command whose every mention was blanked passes before the lexer runs.
 PLACEHOLDER = "_pipe_guard_subst_"
 
@@ -244,16 +249,31 @@ def loosely_consuming(text: str) -> bool:
 
 
 def blank_substitutions(text: str) -> str:
-    """The text with every substitution and arithmetic span blanked, or the text as written when a span holds a
-    consuming run or the pairing cannot be trusted (SUBST_MARK's comment says when). One pass over the text, each
+    """The text with every substitution and arithmetic span blanked, or the text as written when a span is kept
+    (_kept) or the pairing cannot be trusted (SUBST_MARK's comment says when). One pass over the text, each
     span's body joined and judged once, when it closes, its children already blanked; the pass stops at the first span
     kept, so nothing is re-joined level after level and the cost is linear whatever the nesting (#721, #721 F8)."""
     blanked = _blanked(text)
     return text if blanked is None else blanked
 
 
-def _blanked(text: str) -> str | None:
+def _untrusted(text: str) -> bool:
     if UNTRUSTED.search(text):
+        return True
+    depth = 0       # open `${`, and the plain braces inside them
+    for m in BRACE_MARK.finditer(text):
+        mark = m.group(0)
+        if mark == "${" or (mark == "{" and depth):
+            depth += 1
+        elif mark == "}":
+            depth = max(depth - 1, 0)
+        elif depth and mark != "{":
+            return True     # a paren or a backslash inside a parameter expansion
+    return False
+
+
+def _blanked(text: str) -> str | None:
+    if _untrusted(text):
         return None
     out: list[str] = []
     # One output list and a stack of the open spans: (the mark, where it stands in out, the `"` count before it). A
@@ -314,8 +334,13 @@ def _runner(body: str) -> bool:
     """A runner, or `.` as a command word: live_text gave its quoted payload back at the end of the text, so the body
     is not what the shell runs there (`x=$(bash -c 'gzcoord-inbox')` was blanked to no capture, the run read as bare)."""
     runners = _sibling("post-review-shape-guard").RUNNERS
-    return any(os.path.basename(w) in runners for w in LOOSE_WORD.findall(body)) or any(
-        LOOSE_WORD.findall(chunk)[:1] == [DOT] for chunk in LOOSE_CHUNK.split(body))
+    if any(os.path.basename(w) in runners for w in LOOSE_WORD.findall(body)):
+        return True
+    for chunk in LOOSE_CHUNK.split(body):
+        words = LOOSE_WORD.findall(chunk)
+        if words[command_word(words):][:1] == [DOT]:
+            return True
+    return False
 
 
 def refused(command: str) -> bool:

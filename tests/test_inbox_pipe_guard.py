@@ -104,6 +104,9 @@ def main() -> int:
         ("a runner's payload captured inside double quotes", "fabric-jobs add \"note $(bash -c 'gzcoord-inbox') x\""),
         ("a runner's payload captured by backticks", "x=`sh -c 'gzcoord-inbox'`"),
         ("`.` reading a here-string, captured", "x=$(. /dev/stdin <<<'gzcoord-inbox')"),
+        ("`.` after an assignment, captured", "x=$(A=1 . /dev/stdin <<<'gzcoord-inbox')"),
+        ("`.` after then, captured", "x=$(if true; then . /dev/stdin <<<'gzcoord-inbox'; fi)"),
+        ("a case pattern balanced by a `(` behind an escaped `}`", "x=$(case $m in a) gzcoord-inbox;; esac; echo ${y//\\}/(})"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.refused(cmd), cmd)
@@ -189,6 +192,15 @@ def main() -> int:
     r = run(json.dumps({"tool_input": {"command": kept}}))
     took = time.monotonic() - t0
     check(f"80,000 nested substitutions, each kept, are refused in under 4 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 4.0, (took, r.stdout[-200:], r.stderr[-300:]))
+
+    # Parameter expansions nested deep: a regex from every `${` to its `}` was quadratic, 12.3 s end to end at this
+    # size before the forward pass that replaced it.
+    braces = "echo " + "${a:-" * 20_000 + "x" + "}" * 20_000 + "; gzcoord-inbox | head"
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": braces}}))
+    took = time.monotonic() - t0
+    check(f"20,000 nested parameter expansions beside a drain are refused in under 4 s ({took:.2f} s)",
           decision(r.stdout) == "deny" and took < 4.0, (took, r.stdout[-200:], r.stderr[-300:]))
 
     # The protocol, run the way the settings run it (-I -S, by path).
