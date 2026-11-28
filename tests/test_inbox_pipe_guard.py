@@ -113,6 +113,10 @@ def main() -> int:
         ("a backticked `}` in a parameter expansion inside a capture",
          "x=$(echo ${y:-`echo }`)}; gzcoord-inbox; echo ${z:-`echo }`(})"),
         ("a single-quoted `}` in a parameter expansion inside a capture", "x=$(echo ${y:-'}')}; gzcoord-inbox; echo ${z:-'}'(})"),
+        # bash nests the old arithmetic `$[ … ]` to its `]`: a `}` or `)` inside it closes nothing.
+        ("a `}` in an old arithmetic inside a parameter expansion inside a capture",
+         "x=$(echo ${HOME:-$[}])}; gzcoord-inbox; echo ${HOME:-$[}](})"),
+        ("a `)` in an old arithmetic inside a capture", "x=$(echo $[0)]; gzcoord-inbox; echo $[(0])"),
         # Distrusted from the first untrusted mark on (#721 F9): a span still open there is left as written, and a
         # span closed before it is judged as before.
         ("a capture open across an escaped quote", 'x=$(gzcoord-inbox; echo \\"x\\")'),
@@ -155,6 +159,7 @@ def main() -> int:
         ("a scratch file named inbox by mktemp (#721 F2)", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; cat "$f"'),
         ("an inbox file counted after the drain", "gzcoord-inbox > inbox.txt; n=$(wc -l < inbox.txt)"),
         ("arithmetic before the drain", "n=$((n+1)); gzcoord-inbox > f"),
+        ("old arithmetic before the drain", "n=$[n+1]; gzcoord-inbox > f"),
         # An untrusted mark after the way out's span closed leaves that span blanked (#721 F9).
         ("the way out, then the word esac in a message", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; echo "no esac here"'),
         ("the way out, then an unquoted heredoc", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; cat <<EOF\nsaved $f\nEOF'),

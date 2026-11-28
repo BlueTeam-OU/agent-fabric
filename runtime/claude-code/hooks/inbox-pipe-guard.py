@@ -41,8 +41,8 @@ process substitution stands, is blanked to a word first, so naming an inbox file
 inbox.XXXXXX); gzcoord-inbox > "$f"` passes), and a `$(( … ))` is arithmetic, blanked on the same test
 (`n=$((n+1))`); a process substitution never is. Where one span is kept, or a `)` in a span may not close it (a
 quoted one), nothing is blanked and the text is read as written (#721 F7); from the first mark after which a `)` may
-not close what it seems to (an escape, an unquoted heredoc, a case, a quote inside a `${ … }`) the text is read as
-written, and the spans closed before it are blanked still (#721 F9). Groups,
+not close what it seems to (an escape, an unquoted heredoc, a case, a `$[`, a quote inside a `${ … }`) the text is
+read as written, and the spans closed before it are blanked still (#721 F9). Groups,
 compound commands, the substitutions left and runners are not followed: when the command holds any of them (`(`, `{`,
 `}`, `fi`, `done`, `esac`, `$(`, a backtick, `<(`, `>(`, a word of post-review-shape-guard's RUNNERS, `.`) and a
 consuming run found by a loose scan of every word (mention or run alike, readers not exempt), it is refused if it also
@@ -135,10 +135,11 @@ REASON = ("A consuming gzcoord-inbox run acknowledges its whole page before a pi
 # far, not the whole text: a heredoc, an escaped quote or the word esac after the way out's `$(mktemp …)` closed
 # leaves that span blanked (#721 F9), and no quote parity is asked across the offset, where an escaped `"` stands.
 SUBST_MARK = re.compile(r"\$\(\(|\$\(|[()`]")
-# A `(`, `)` or quote that may be no such thing: after a backslash, or in the body of a heredoc whose delimiter is
-# unquoted (live_text drops a quoted one's body; its delimiter is let through here); the offset is the backslash or
-# the `<<`, before what they change.
-UNTRUSTED = re.compile(r"\\[()`\"$]|(?<!<)<<-?[ \t]*(?![-<'\"\\ \t])")
+# A `(`, `)`, `}` or quote that may be no such thing: after a backslash, in the body of a heredoc whose delimiter is
+# unquoted (live_text drops a quoted one's body; its delimiter is let through here), or inside the old arithmetic
+# `$[ … ]`, which bash nests to its `]` (`$[0)]` closes no `$(`, and `${y:-$[}]}` no `${`); the offset is the
+# backslash, the `<<` or the `$[`, before what they change.
+UNTRUSTED = re.compile(r"\\[()`\"$]|(?<!<)<<-?[ \t]*(?![-<'\"\\ \t])|\$\[")
 # A case pattern's `)` closes nothing. It stands after its `case` word, so where an `esac` stands the earliest `case`
 # word, or the `esac` when it comes first, is the offset: a `case` that is no reserved word only moves it earlier.
 ESAC = re.compile(r"\besac\b")
@@ -260,8 +261,9 @@ def loosely_consuming(text: str) -> bool:
 
 
 def blank_substitutions(text: str) -> str:
-    """The text with every substitution and arithmetic span blanked, or the text as written when a span is kept
-    (_kept) or the pairing cannot be trusted (SUBST_MARK's comment says when). One pass over the text, each
+    """The text with every substitution and arithmetic span blanked that closes before _untrusted()'s offset, the
+    rest as written; or all of it as written when a span is kept (_kept) or the pairing cannot be trusted
+    (SUBST_MARK's comment says when). One pass over the text, each
     span's body joined and judged once, when it closes, its children already blanked; the pass stops at the first span
     kept, so nothing is re-joined level after level and the cost is linear whatever the nesting (#721, #721 F8)."""
     blanked = _blanked(text, _untrusted(text))
