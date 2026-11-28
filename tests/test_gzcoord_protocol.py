@@ -2274,7 +2274,7 @@ def _():
     try:
         r = send_with(pr, addressed("TO: h/alpha"), **pr.env)
         eq(r.code, 0, r.err)
-        has(r"h/alpha is planning — its inbox is held until the plan is approved; the message waits in the relay, and no answer comes before then", r.err)
+        has(r"h/alpha is planning — its inbox is held until the plan is approved; the carrier holds the message, and no answer comes before then", r.err)
         eq(len(pr.posts), 1, "planning never blocks the send")
     finally:
         pr.close()
