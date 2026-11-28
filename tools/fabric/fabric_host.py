@@ -169,16 +169,16 @@ def main(argv: list[str]) -> int:
     try:
         registry = resolve_registry()
         os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = registry
-        # Read once for every subcommand: hostexec reads the same file more leniently, and a registry of the wrong shape must be
-        # refused here, in one line, before it runs anything.
-        reg = load_registry(registry)
+        # Every subcommand that goes on to use the registry reads it here, after its own usage checks and before it runs anything:
+        # hostexec reads the same file more leniently, and a registry of the wrong shape must be refused in one line; a usage error
+        # (exit 2, the synopsis) is still told before a registry the caller never got to use.
         if argv[0] == "list":
-            sys.stdout.write(list_text(reg))
+            sys.stdout.write(list_text(load_registry(registry)))
             return 0
         if argv[0] == "ssh-pin":
             if len(argv) != 2:
                 raise Refused("ssh-pin needs the login, and only that")
-            print(ssh_pin(reg, argv[1]))
+            print(ssh_pin(load_registry(registry), argv[1]))
             return 0
         host, rest = argv[0], argv[1:]
         if not rest:
@@ -186,18 +186,23 @@ def main(argv: list[str]) -> int:
             return 2
         sub, rest = rest[0], rest[1:]
         if sub == "check":
+            load_registry(registry)
             return check(host, registry)
         if sub == "run":
+            load_registry(registry)
             return run_hostexec([host, *rest])
         if sub == "moveto":
             if not rest:
                 raise Refused("moveto needs the login")
+            load_registry(registry)
             return run_hostexec([host, "--tty", "--", "moveto", rest[0], *rest[1:]])
         if sub == "rename":
             if len(rest) < 3:
                 raise Refused("rename needs <login> <old> <new>")
+            load_registry(registry)
             return run_hostexec([host, "--", FABRIC_PYTHON, "-I", "@fabric/tools/fabric/provisioning/rename_working_copy.py", *rest])
         if sub == "persist":
+            reg = load_registry(registry)
             placement = reg.get("placement") or {}
             if host not in (reg.get("hosts") or {}):
                 raise Refused(f"unknown host {host}: not in the hosts registry")
@@ -217,6 +222,7 @@ def main(argv: list[str]) -> int:
                 raise Refused("drain needs the login")
             if os.isatty(1):
                 raise Refused("drain writes a tar to stdout; redirect it (> drain.tar) or pipe it to assemble.py --bundle -")
+            load_registry(registry)
             return run_hostexec([host, "--as", rest[0], "--", "python3", "@fabric/tools/fabric/harvest_memory.py", "--bundle", "-", *rest[1:]])
         raise Refused(f"unknown subcommand {sub} ({USAGE_SUBCOMMANDS})")
     except Refused as e:

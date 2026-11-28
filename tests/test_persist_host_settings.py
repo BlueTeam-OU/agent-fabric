@@ -544,9 +544,24 @@ class FabricHostRegistryShape(unittest.TestCase):
             rc, out, err = self.run_main(bad, argv)
             self.assertEqual((rc, out), (1, ""), argv)
             self.assertEqual(err.count("\n"), 1, argv)
+            # check would fail with one line and exit 1 on its own (nothing answers), so the line must be the registry's.
+            self.assertIn("'hosts' must map", err, argv)
         rc, out, err = self.run_main({"hosts": {"h1": {"platform": "debian", "operator": "op", "ssh": None}}, "placement": {}},
                                      ["h1", "run", "--", "true"])
         self.assertEqual(rc, 99, "positive control: a well-formed registry reaches hostexec")
+
+    def test_a_usage_error_is_told_before_a_registry_that_cannot_be_read(self):
+        for argv, status in ((["h1"], 2), (["h1", "bogus"], 2), (["h1", "moveto"], 2), (["h1", "rename", "a"], 2), (["ssh-pin"], 2)):
+            with tempfile.TemporaryDirectory() as t, tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err, \
+                    unittest.mock.patch.object(fabric_host, "resolve_registry", lambda t=t: os.path.join(t, "absent.json")), \
+                    unittest.mock.patch.dict(os.environ, {}), \
+                    unittest.mock.patch.object(sys, "stdout", out), unittest.mock.patch.object(sys, "stderr", err):
+                rc = fabric_host.main(argv)
+                err.seek(0)
+                said = err.read()
+            self.assertEqual(rc, status, argv)
+            # A refusal of the registry is exit 1 and says "unreadable"; a usage error is exit 2 and never says it.
+            self.assertNotIn("unreadable", said, argv)
 
     def test_a_present_null_is_a_wrong_type_not_an_absent_key(self):
         for doc in ({"hosts": None, "placement": {}}, {"hosts": {}, "placement": None}):
