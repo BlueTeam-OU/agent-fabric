@@ -98,6 +98,12 @@ def main() -> int:
         ("a case pattern balanced by a quoted `(`", 'x=$(case $m in a) gzcoord-inbox;; esac; echo "(")'),
         ("a heredoc body holding `)(`", "x=$(cat <<EOF\n)(\nEOF\ngzcoord-inbox)"),
         ("parentheses inside parameter expansions", "x=$(echo ${y:-)}${z:-(}; gzcoord-inbox)"),
+        # live_text gives a runner's single-quoted payload back at the end of the text: the span around the runner
+        # held no run where it stood and was blanked, so the capture read as a bare run.
+        ("a runner's single-quoted payload captured", "x=$(bash -c 'gzcoord-inbox')"),
+        ("a runner's payload captured inside double quotes", "fabric-jobs add \"note $(bash -c 'gzcoord-inbox') x\""),
+        ("a runner's payload captured by backticks", "x=`sh -c 'gzcoord-inbox'`"),
+        ("`.` reading a here-string, captured", "x=$(. /dev/stdin <<<'gzcoord-inbox')"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.refused(cmd), cmd)

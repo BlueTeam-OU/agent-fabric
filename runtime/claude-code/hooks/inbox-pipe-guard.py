@@ -306,8 +306,16 @@ def _blanked(text: str) -> str | None:
 
 
 def _kept(body: str) -> bool:
-    """A span is kept when a process substitution stands in it or a consuming run is found in it."""
-    return bool(SUBSTITUTION.search(body)) or loosely_consuming(body)
+    """A span is kept when a process substitution or a runner stands in it or a consuming run is found in it."""
+    return bool(SUBSTITUTION.search(body)) or _runner(body) or loosely_consuming(body)
+
+
+def _runner(body: str) -> bool:
+    """A runner, or `.` as a command word: live_text gave its quoted payload back at the end of the text, so the body
+    is not what the shell runs there (`x=$(bash -c 'gzcoord-inbox')` was blanked to no capture, the run read as bare)."""
+    runners = _sibling("post-review-shape-guard").RUNNERS
+    return any(os.path.basename(w) in runners for w in LOOSE_WORD.findall(body)) or any(
+        LOOSE_WORD.findall(chunk)[:1] == [DOT] for chunk in LOOSE_CHUNK.split(body))
 
 
 def refused(command: str) -> bool:
