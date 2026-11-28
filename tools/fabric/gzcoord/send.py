@@ -578,8 +578,9 @@ def main(argv: list[str]) -> int:
     # An address no host places has been said and forced above; presence could
     # only say it again.
     if not unplaced:
-        if os.environ.get(transport.mode.ENV) and (msg["metadata"].get("TO") or msg["metadata"].get("TO-ROLE")) \
-                and not msg["metadata"].get("BROADCAST"):
+        addressed = bool((msg["metadata"].get("TO") or msg["metadata"].get("TO-ROLE")) and not msg["metadata"].get("BROADCAST"))
+        relay_token = ""
+        if addressed and os.environ.get(transport.mode.ENV):
             # The override reaches only the presence child, which does not say it: said here once, and a value that names no
             # mode is a refusal before anything is posted. A message nobody is asked about reads no mode, so none is said.
             try:
@@ -587,14 +588,21 @@ def main(argv: list[str]) -> int:
             except transport.ModeError as e:
                 print(f"gzcoord: not sent: {e}", file=sys.stderr)
                 return 2
-        # The presence child is the control plane's, and asks the relay in relay-record and carrier-record (until W16), where it
-        # needs the account's token; in carrier-only it ignores it. A token that is not found, or that cannot be read, is the empty
-        # string: a relay mode then posts unauthenticated, presence answers 401 and the TO is reported unchecked (said below), and
-        # carrier-only, which never looks at it, is not stopped by a relay secret it does not use.
-        try:
-            relay_token = tokens.token(root, inbox_config.integration_config(who.get("project"), os.environ, t)) or ""
-        except (tokens.TokenRefused, OSError, ValueError):
-            relay_token = ""
+        if addressed:
+            # The presence child is the control plane's, and asks the relay in relay-record and carrier-record (until W16),
+            # where it needs the account's token; in carrier-only it ignores it, so a token that cannot be used must not stop
+            # the send there. Elsewhere the child is asked without it and the line below says why: presence will answer 401,
+            # which would otherwise read as the relay refusing a token it was never given.
+            try:
+                relay_token = tokens.token(root, inbox_config.integration_config(who.get("project"), os.environ, t)) or ""
+            except (tokens.TokenRefused, OSError, ValueError):
+                try:
+                    in_carrier_only = transport.mode.effective()["mode"] == transport.mode.CARRIER_ONLY
+                except transport.ModeError:
+                    in_carrier_only = False
+                if not in_carrier_only:
+                    print("send: the relay token could not be used (a line break, a NUL or an unreadable file); "
+                          "presence is asked without it", file=sys.stderr)
         pres = asked_presence(msg["metadata"], me["address"], relay_token)
         # Said, never silent: the contract is that a TO is checked.
         if pres.get("skipped"):
