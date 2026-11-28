@@ -51,7 +51,9 @@ SCOPE. A fence against the habit of filtering the drain, not a sandbox. Not seen
 link to the command under another name. Each costs messages only when written on purpose.
 
 COST. Nothing is loaded unless `inbox` occurs in the command (the hook runs on every Bash call); canonical() is asked
-only where `inbox` stands in the words it reads; the rest is linear passes over the text.
+only where `inbox` stands in the words it reads, and with those NAMING_WORDS words only, never the rest of the command;
+whether a run is read-only is one index per simple command. So every reading is linear in the words: a long run of
+words that mostly hold `inbox` once took longer than the hook's 5 s timeout, which counts as no objection (#721 F1).
 
 SUBAGENTS. Judged as the session is: a subagent's Bash call drains the same login's inbox, and a page it filters is
 lost to the session the same way.
@@ -139,30 +141,35 @@ def _canonical():
     return _LOADED["canonical"]
 
 
-def inbox_args(words: list[str], k: int) -> list[str] | None:
-    """The arguments of the gzcoord-inbox run that starts at words[k], or None when none starts there."""
-    # Only where the window canonical() reads holds the word: asking it at every word of a long command, a copy of
-    # the rest each time, is quadratic, and a hook past its timeout is read as no objection.
-    if not any("inbox" in w for w in words[k:k + NAMING_WORDS]):
+def inbox_run(words: list[str], k: int) -> int | None:
+    """Where the arguments of the gzcoord-inbox run that starts at words[k] begin, or None when none starts there."""
+    # canonical() is asked with the naming window only, as inbox-watch.py asks it, and only where that window holds
+    # the word: a copy of the rest at every word of a long command is quadratic, and a hook past its timeout is read
+    # as no objection. The arguments it gives back are the window's tail, so the run's own begin where they begin.
+    window = words[k:k + NAMING_WORDS]
+    if not any("inbox" in w for w in window):
         return None
     word = words[k]
     if word.endswith(MODULE_SUFFIX) or os.path.basename(word) == _sibling("inbox-watch").NODE_SHIM:
-        return words[k + 1:]
-    named = [os.path.basename(word), *words[k + 1:]]
+        return k + 1
+    named = [os.path.basename(word), *window[1:]]
     try:
         read = _canonical().canonical(named)
     except Exception:  # noqa: BLE001 - TableError or a module that cannot load: the spelled names, never "no drain"
         if named[0] == INBOX:
-            return named[1:]
-        return named[NAMING_WORDS:] if tuple(named[:NAMING_WORDS]) == INBOX_SPOKEN else None
-    return read[1] if read is not None and read[0] == INBOX else None
+            return k + 1
+        return k + NAMING_WORDS if tuple(named) == INBOX_SPOKEN else None
+    return k + len(window) - len(read[1]) if read is not None and read[0] == INBOX else None
 
 
 def consuming(words: list[str], every_word: bool) -> bool:
     """Whether a consuming run starts at any word asked: the command word, or every word when it may be a wrapper."""
+    # A run is read-only when one of the three stands after its start: the last one's index, found once for the
+    # simple command, answers that for every start without a copy of the rest.
+    last_read_only = max((i for i, w in enumerate(words) if w in READ_ONLY), default=-1)
     for k in range(len(words) if every_word else min(1, len(words))):
-        args = inbox_args(words, k)
-        if args is not None and not READ_ONLY & set(args):
+        start = inbox_run(words, k)
+        if start is not None and last_read_only < start:
             return True
     return False
 

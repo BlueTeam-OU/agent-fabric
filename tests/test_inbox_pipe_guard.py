@@ -128,6 +128,16 @@ def main() -> int:
     check(f"a {len(long) // 1000} KB command is refused in under 2 s ({took:.2f} s)",
           decision(r.stdout) == "deny" and took < 2.0 and len(long) > 100_000, (took, r.stdout[-200:], r.stderr[-300:]))
 
+    # One long chunk of words that mostly hold `inbox`, no `;` between them, in a closed command with a pipe: every
+    # word is asked whether a run starts there. A copy of the rest per word made it quadratic, 11.8 s on 966bdd7e7 for
+    # this size, past the 5 s timeout that counts as no objection (#721 F1).
+    chunk = "( true ); echo " + " ".join(["inbox"] * 32_000) + " | head; gzcoord-inbox | head"
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": chunk}}))
+    took = time.monotonic() - t0
+    check(f"one {len(chunk) // 1000} KB chunk of inbox words is refused in under 3 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 3.0 and len(chunk) > 190_000, (took, r.stdout[-200:], r.stderr[-300:]))
+
     # The protocol, run the way the settings run it (-I -S, by path).
     deny = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "gzcoord-inbox | head -n 3"}}))
     got = json.loads(deny.stdout) if deny.stdout.strip() else {}
