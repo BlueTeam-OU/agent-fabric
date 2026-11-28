@@ -26,6 +26,8 @@ on:
     paths:
       - tests/stripped_run.py
       - tests/stripped_skip.txt
+      - tests/instance_fixtures.py
+      - tests/test_tests_read_fixtures.py
       - .github/workflows/stripped-nightly.yml
 
 permissions:

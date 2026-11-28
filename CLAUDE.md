@@ -17,7 +17,7 @@ the same in any harness (ADR-054).
   is `routing/`, decided at launch. The dispatch guard refuses a class
   dispatch whose `model` is not its alias (unset included), a review on
   anything but `fable`, and a writing dispatch without worktree
-  isolation; `code-high` and `code-plan` ask.
+  isolation; `code-plan` asks, `code-high` does not.
   The read-only harness types (`Explore`, `Plan`, `claude-code-guide`)
   name a model and no isolation. `locale-worker` exists on the
   language-culture logins only.

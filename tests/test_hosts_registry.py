@@ -94,6 +94,28 @@ def test_keygen_writes_a_registry_the_schema_admits() -> None:
         assert lint.host_registry_findings(root) == [], lint.host_registry_findings(root)
 
 
+def test_interweave_admit_is_required_with_the_address() -> None:
+    """A host whose profiles listen on the wildcard (interweave_address) must say who its firewall admits; with neither field the
+    profiles are on loopback and nothing is admitted (ADR-064 rule 1, A 2026-11-27)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        f = findings_for(tmp, {"interweave_address": "195.69.140.18"})
+        assert f and "interweave_admit" in " ".join(f), f
+    with tempfile.TemporaryDirectory() as tmp:
+        assert findings_for(tmp, {}) == [], "positive control: neither field is admitted"
+
+
+def test_interweave_admit_takes_any_an_address_or_a_cidr_and_nothing_else() -> None:
+    for good in ("any", "203.0.113.7", "203.0.113.0/24"):
+        with tempfile.TemporaryDirectory() as tmp:
+            assert findings_for(tmp, {"interweave_address": "195.69.140.18", "interweave_admit": good}) == [], good
+    # The last four pass the schema's pattern: lint holds persist_host_settings' IPv4Network(strict=True) reading, and a /0 is "any".
+    for bad in ("everyone", "ANY", "", "203.0.113", "203.0.113.0/", "2001:db8::1", "any/24", 7, None,
+                "999.1.1.1/99", "203.0.113.7/24", "10.0.0.0/33", "0.0.0.0/0"):
+        with tempfile.TemporaryDirectory() as tmp:
+            f = findings_for(tmp, {"interweave_address": "195.69.140.18", "interweave_admit": bad})
+            assert f and "interweave_admit" in " ".join(f), (bad, f)
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failed = 0

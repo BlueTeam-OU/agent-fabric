@@ -24,6 +24,7 @@
       "operator": "op",
       "fabric": "~/projects/agent-fabric",
       "interweave_address": "195.69.140.18",
+      "interweave_admit": "any",
       "sshd": {
         "address": "192.168.200.79",
         "port": 22,

@@ -45,3 +45,17 @@ The owner, 2026-11-12: delegation to subagents is the default for every role. Th
 ### Amendment 2026-11-12 — code-plan on Fable 5.2, plan and review at high effort
 
 The owner, 2026-11-12, after reading Anthropic's model and effort guidance: the model overview recommends Fable 5.2 "for demanding reasoning and long-horizon agentic work" and reports good results with it "as the planner and orchestrator for other models", and the effort page starts Fable 5.2 at `high`, where most of its gain is. `code-plan` therefore moves from Opus 5.5 to `claude-fable-5-2` on plain claude, and the `fable` alias, which `code-plan` rides, binds to it. The review class stays Opus 5.5 by the owner's choice (cost: Fable 5.2 is $8/$40 per MTok, twice Opus 5.5); its model reaches the reviewer through its agent file, not the `fable` export (§5 rule 5), so the move does not touch it. Both classes ask `high` (ADR-006, A 2026-11-12). Evidence so far: architect-cto-01's session was read back serving `claude-fable-5-2` at medium on 2026-11-12, a session and not a `code-plan` dispatch. Not yet measured: a `code-plan` dispatch served by Fable 5.2 at high and a `code-review` dispatch served by Opus 5.5 at high, after the next launch; docs/live-checks/2026-11-12-fable-5-2-code-plan.md holds both as pending. Unchanged: every other class, the sessions, every other provider.
+
+### Amendment 2026-11-27 — A code-high dispatch is no longer asked
+
+The dispatch guard asked before every `code-high` dispatch, because the
+premium tier was for a subagent only on an explicit instruction. Since
+delegation became the default (A 2026-11-12), the owner approved those
+dispatches one by one, and on 2026-11-27 lifted the ask: "you ask me
+authorization in dispatching code-high agents. no longer necessary".
+The guard still refuses a `code-high` dispatch whose `model` is not
+`opus` or that is not worktree-isolated, and still refuses an agent file
+whose effort no routing chose; a dispatch that passes those checks is
+allowed. `code-plan` keeps its ask: the owner's word named `code-high`
+alone. The guard runs from the managed settings snapshot, so the
+change takes effect once the owner installs main's managed settings.

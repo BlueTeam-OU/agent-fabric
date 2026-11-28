@@ -229,3 +229,45 @@ reaped its watch, is reported from outside it by the control agent's
 once it has been so for 10 minutes and work waits for it: a queued
 REQUEST job, or an unread message the carrier counts.
 
+
+### Amendment 2026-11-27 — A consuming inbox read is never piped
+
+A drain, `--wait`, `--until-delivery` or `--follow` marks what it prints
+delivered: the shown ledger is finished and the relay acknowledged once
+the page is written. On 2026-11-24 python-dev-01 piped a bare drain into
+`head` and `tail`; three messages were consumed and two never reached
+the session, which recovered them from `fabric-history` (j1090). It was
+the second time: the gzcoord-receive skill already said "never pipe the
+watch, `--wait` or a drain into anything" after a `| head` that took
+three and showed one, and the prose did not hold.
+
+Reproduced 2026-11-27 with the real `show_page` and a fake ledger and
+acknowledgement, piped into `head -n 3`, at 200 B and at 40 KB a
+message: three shown, the ledger finished and the relay acknowledged,
+and the broken pipe surfaced only while Python flushed stdout at exit.
+Nothing inside the process can tell a reader that drops lines from one
+that keeps them, so the drain cannot fence this itself. A line printed
+last naming the ids and the count was considered and rejected as the
+fence: `| head` cuts it and `| grep` removes it wherever it stands.
+Flushing inside the write, so that a broken pipe releases the ledger,
+narrows the loss for a page larger than the pipe buffer and is asked
+of python-dev (the drain is its entry). It cannot close the loss for a
+smaller one.
+
+The fence is therefore `runtime/claude-code/hooks/inbox-pipe-guard.py`,
+a `PreToolUse` guard on Bash, wired as the self-kill guard is (managed
+settings, workspace and project settings, `hook_entry.py`). Its own
+tests are `tests/test_inbox_pipe_guard.py`. It refuses a
+consuming `gzcoord-inbox` (as `canonical()` names it, so `fabric
+gzcoord inbox` too) whose stdout is piped or captured (`$( … )`,
+backticks, a process substitution). A redirect to a file, or to
+`/dev/null`, is allowed, because nothing is cut. `--replay`,
+`--history` and `--held`, as whole words, move no cursor and are
+allowed piped. `--help` is not among them: the command does not read
+it, so `gzcoord-inbox --help` drains, and is refused piped (read from
+the source; not run against a live inbox). A mention of the word
+under a reader (`echo`, `grep`, `git`, …) or in single quotes is not
+a run. The refusal
+gives the way out: run it bare, or redirect it to a scratchpad file and
+read that file whole; a message already taken is read again with
+`gzcoord-inbox --replay`.

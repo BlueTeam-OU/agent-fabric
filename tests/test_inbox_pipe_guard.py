@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""Tests for runtime/claude-code/hooks/inbox-pipe-guard.py: which gzcoord-inbox runs are refused for piping or
+capturing a consuming run's page, which pass, and the hook's protocol end to end (j1090). No case here runs a real
+gzcoord-inbox: the guard only reads the command text, and a real drain would consume this login's inbox."""
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+
+# Held by tests/test_own_instance_tree.py: this file names AGENT_FABRIC_ROOT. The fallback cases build a closed
+# environment, so no exported operator reaches them; the call changes nothing this suite does.
+own_instance_tree()
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HOOK = os.path.join(HERE, "runtime", "claude-code", "hooks", "inbox-pipe-guard.py")
+spec = importlib.util.spec_from_file_location("inbox_pipe_guard", HOOK)
+g = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(g)
+
+
+def run(payload: str, hook: str = HOOK) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, "-I", "-S", hook], input=payload, capture_output=True, text=True, timeout=60)
+
+
+def decision(out: str) -> str | None:
+    return json.loads(out)["hookSpecificOutput"]["permissionDecision"] if out.strip() else None
+
+
+def main() -> int:
+    fails = 0
+
+    def check(label: str, good: bool, detail: object = "") -> None:
+        nonlocal fails
+        print(f"  {'ok  ' if good else 'FAIL'} {label}" + ("" if good else f": {detail}"))
+        fails += not good
+
+    refused = [
+        ("the 2026-11-24 shape: the drain into head", "gzcoord-inbox | head -n 20"),
+        ("stderr folded in, then a pipe", "gzcoord-inbox 2>&1 | tail -5"),
+        ("|& alone", "gzcoord-inbox |& cat"),
+        ("--wait into grep", "gzcoord-inbox --wait 60 | grep X"),
+        ("--follow piped", "gzcoord-inbox --follow | head"),
+        ("--until-delivery piped", "gzcoord-inbox --until-delivery | tail -1"),
+        ("the dispatcher's spelling", "fabric gzcoord inbox | head"),
+        ("the dispatcher's spelling with --wait", "fabric gzcoord inbox --wait 30 | head"),
+        ("after cd &&", "cd x && gzcoord-inbox | sed -n 1,5p"),
+        ("a multi-line command", "cd /tmp\ngzcoord-inbox \\\n  | head -n 3\necho done"),
+        ("an absolute path to the link", "/home/someone/.local/bin/gzcoord-inbox | head"),
+        ("bin/ in a checkout", "bin/gzcoord-inbox | head"),
+        ("behind a wrapper", "timeout 60 gzcoord-inbox --wait 5 | head"),
+        ("behind an assignment", "LC_ALL=C gzcoord-inbox | head"),
+        ("run by an interpreter", "python3 -I bin/gzcoord-inbox | head"),
+        ("the module by path", "fabric-python -I tools/fabric/gzcoord/inbox.py | head"),
+        ("tee: refused like any pipe", "gzcoord-inbox | tee \"$f\""),
+        ("--help drains: inbox.py does not read it", "gzcoord-inbox --help | head"),
+        ("-h drains too", "gzcoord-inbox -h | head"),
+        ("--replay=ID is no replay to inbox.py, which tests the whole word", "gzcoord-inbox --replay=01a | head"),
+        ("a single-quoted shell payload", "bash -c 'gzcoord-inbox | head'"),
+        ("a single-quoted shell payload, the pipe outside", "bash -c 'gzcoord-inbox' | head"),
+        ("a double-quoted shell payload", 'bash -c "gzcoord-inbox | head"'),
+        ("captured by a substitution", "x=$(gzcoord-inbox)"),
+        ("captured in a double-quoted substitution", 'echo "$(gzcoord-inbox)" | head'),
+        ("captured by backticks", "x=`gzcoord-inbox`"),
+        ("read by a process substitution", "while read -r l; do :; done < <(gzcoord-inbox)"),
+        ("written into a process substitution", "gzcoord-inbox > >(head)"),
+        ("a brace group piped", "{ gzcoord-inbox; } | head"),
+        ("a subshell piped", "( gzcoord-inbox ) | head"),
+        ("a loop piped", "while gzcoord-inbox --wait 5; do :; done | head"),
+        ("a substitution naming the command word", "$(which gzcoord-inbox) | head"),
+        ("`.` as a command word, its single-quoted text given back", ". /dev/stdin <<<'gzcoord-inbox' | head"),
+        ("a substitution beside it is blanked, the pipe still counts", 'cd "$(git rev-parse --show-toplevel)" && gzcoord-inbox | head'),
+        ("a consuming run inside a substitution that also names an inbox file", "x=$(cat inbox.txt; gzcoord-inbox)"),
+        ("a consuming run in a substitution inside arithmetic", "echo $(( $(gzcoord-inbox | wc -l) + 1 ))"),
+        ("captured with --wait", "x=$(gzcoord-inbox --wait 5)"),
+        ("a subshell opening a substitution: bash reads no arithmetic", "x=$((cd x); gzcoord-inbox)"),
+        ("a capture nested in a substitution", "x=$(echo $(gzcoord-inbox))"),
+        # A `)` that does not close the span (#721 F7): blanking the part before it dropped the `$(` and let the run
+        # after it pass as a bare one. Where the pairing cannot be trusted, nothing is blanked.
+        ("a case pattern's `)` inside a capture", "x=$(case $m in inbox) gzcoord-inbox;; esac)"),
+        ("a double-quoted `)` naming inbox inside a capture", 'x=$(echo "inbox)"; gzcoord-inbox)'),
+        ("a double-quoted `)` in a grep pattern inside a capture", 'x=$(grep -c "inbox)" log; gzcoord-inbox --wait 5)'),
+        ("a double-quoted `)` in a subshell opening a capture", 'x=$((echo ")"); gzcoord-inbox)'),
+        ("a double-quoted `)` inside a capture", 'x=$(echo ")"; gzcoord-inbox)'),
+        ("a case pattern naming no inbox inside a capture", "x=$(case $m in new) gzcoord-inbox --wait 5;; esac)"),
+        ("a quoted `)` balanced by a quoted `(` later", 'x=$(echo ")"; gzcoord-inbox; echo "(")'),
+        ("a quoted `)(`", 'x=$(echo ")("; gzcoord-inbox)'),
+        ("escaped parentheses", "x=$(echo \\)\\(; gzcoord-inbox)"),
+        ("an escaped backtick", "x=`echo \\`gzcoord-inbox\\` `"),
+        ("a case pattern balanced by a quoted `(`", 'x=$(case $m in a) gzcoord-inbox;; esac; echo "(")'),
+        ("a heredoc body holding `)(`", "x=$(cat <<EOF\n)(\nEOF\ngzcoord-inbox)"),
+        ("parentheses inside parameter expansions", "x=$(echo ${y:-)}${z:-(}; gzcoord-inbox)"),
+        # live_text gives a runner's single-quoted payload back at the end of the text: the span around the runner
+        # held no run where it stood and was blanked, so the capture read as a bare run.
+        ("a runner's single-quoted payload captured", "x=$(bash -c 'gzcoord-inbox')"),
+        ("a runner's payload captured inside double quotes", "fabric-jobs add \"note $(bash -c 'gzcoord-inbox') x\""),
+        ("a runner's payload captured by backticks", "x=`sh -c 'gzcoord-inbox'`"),
+        ("`.` reading a here-string, captured", "x=$(. /dev/stdin <<<'gzcoord-inbox')"),
+        ("`.` after an assignment, captured", "x=$(A=1 . /dev/stdin <<<'gzcoord-inbox')"),
+        ("`.` after then, captured", "x=$(if true; then . /dev/stdin <<<'gzcoord-inbox'; fi)"),
+        ("a case pattern balanced by a `(` behind an escaped `}`", "x=$(case $m in a) gzcoord-inbox;; esac; echo ${y//\\}/(})"),
+        # A quoted or backticked `}` inside a parameter expansion ended its depth early, so the `(` and `)` after it
+        # read as trusted and the capture closed before the run (#721 F7).
+        ("a double-quoted `}` in a parameter expansion inside a capture", 'x=$(echo ${y:-"}")}; gzcoord-inbox; echo ${z:-"}"(})'),
+        ("a backticked `}` in a parameter expansion inside a capture",
+         "x=$(echo ${y:-`echo }`)}; gzcoord-inbox; echo ${z:-`echo }`(})"),
+        ("a single-quoted `}` in a parameter expansion inside a capture", "x=$(echo ${y:-'}')}; gzcoord-inbox; echo ${z:-'}'(})"),
+        # bash nests the old arithmetic `$[ … ]` to its `]`: a `}` or `)` inside it closes nothing.
+        ("a `}` in an old arithmetic inside a parameter expansion inside a capture",
+         "x=$(echo ${HOME:-$[}])}; gzcoord-inbox; echo ${HOME:-$[}](})"),
+        ("a `)` in an old arithmetic inside a capture", "x=$(echo $[0)]; gzcoord-inbox; echo $[(0])"),
+        # A heredoc delimiter that begins with `-` is unquoted; its body's `)(` re-balanced the pairing (#721 round 4).
+        ("a heredoc delimiter that begins with a dash, in a capture", "y=$(cat <<--EOF\n)(\n-EOF\ngzcoord-inbox)"),
+        ("the tab-stripping form with a dashed delimiter, in a capture", "y=$(cat <<- -EOF\n)(\n-EOF\ngzcoord-inbox)"),
+        # Distrusted from the first untrusted mark on (#721 F9): a span still open there is left as written, and a
+        # span closed before it is judged as before.
+        ("a capture open across an escaped quote", 'x=$(gzcoord-inbox; echo \\"x\\")'),
+        ("a capture closed before an escaped quote", 'x=$(gzcoord-inbox); echo \\"x\\"'),
+        ("the way out piped, an escaped quote after it", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox | head; echo \\"$f\\"'),
+        ("a capture after an unquoted heredoc", "cat <<EOF\n)(\nEOF\nx=$(gzcoord-inbox)"),
+        ("a backtick capture open across an escaped quote", "x=`gzcoord-inbox; echo \\\"x`"),
+    ]
+    for label, cmd in refused:
+        check(f"refused: {label}", g.refused(cmd), cmd)
+
+    allowed = [
+        ("the bare drain", "gzcoord-inbox"),
+        ("the armed watch, as session-start and the gzcoord-receive skill spell it", "gzcoord-inbox --until-delivery"),
+        ("the watch re-armed in place", "gzcoord-inbox --until-delivery --replace"),
+        ("--wait bare", "gzcoord-inbox --wait 60"),
+        ("to a file", 'gzcoord-inbox > "$f"'),
+        ("appended to a file, then read whole", "gzcoord-inbox >> inbox.txt; cat inbox.txt"),
+        ("&> a file", "gzcoord-inbox &> inbox.txt"),
+        ("--replay piped: nothing is consumed", "gzcoord-inbox --replay 01a2b3 | head"),
+        ("--history piped", "gzcoord-inbox --history | tail"),
+        ("--held piped", "gzcoord-inbox --held | cat"),
+        ("--replay in the dispatcher's spelling", "fabric gzcoord inbox --replay 01a | head"),
+        ("a substitution of a read-only mode", "echo $(gzcoord-inbox --history) | head"),
+        ("the word as echo's argument: a mention, not a run", "echo gzcoord-inbox | cat"),
+        ("the word in a grep", "grep -rn gzcoord-inbox docs | head"),
+        ("the word in a grep of `.`: a path, not source", "grep -rn gzcoord-inbox . | head"),
+        ("the word in a double-quoted commit message", 'git commit -m "gzcoord-inbox | head lost messages"'),
+        ("the self-kill guard's incident, single-quoted", "pgrep -f 'gzcoord-inbox --follow' | xargs kill"),
+        ("a comment", "ls # gzcoord-inbox | head"),
+        ("a quoted heredoc body", "cat <<'EOF' | gzcoord-send -\ngzcoord-inbox | head\nEOF"),
+        ("a pipe in another command after ;", "gzcoord-inbox; git log | head"),
+        ("a pipe in another command after &&", "gzcoord-inbox && git log | head"),
+        ("a subshell, no pipe", "(gzcoord-inbox)"),
+        ("stdout to /dev/null: outside the contract, the coordinator's call", "gzcoord-inbox > /dev/null"),
+        ("the deny's own way out: a scratch file from mktemp, read whole", 'f=$(mktemp); gzcoord-inbox > "$f"; cat "$f"'),
+        ("a file named by a substitution", 'gzcoord-inbox > "$S/inbox-$(date +%s).txt"'),
+        ("the watch after a cd into a substitution", 'cd "$(git rev-parse --show-toplevel)" && gzcoord-inbox --until-delivery'),
+        ("a backtick naming no inbox", "cd `pwd` && gzcoord-inbox > f"),
+        ("a scratch file named inbox by mktemp (#721 F2)", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; cat "$f"'),
+        ("an inbox file counted after the drain", "gzcoord-inbox > inbox.txt; n=$(wc -l < inbox.txt)"),
+        ("arithmetic before the drain", "n=$((n+1)); gzcoord-inbox > f"),
+        ("old arithmetic before the drain", "n=$[n+1]; gzcoord-inbox > f"),
+        # An untrusted mark after the way out's span closed leaves that span blanked (#721 F9).
+        ("the way out, then the word esac in a message", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; echo "no esac here"'),
+        ("the way out, then an unquoted heredoc", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; cat <<EOF\nsaved $f\nEOF'),
+        ("the way out, then an escaped quote", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; echo "saved \\"$f\\""'),
+        # These two reach only the branch that skips the end-of-text parity and stack checks past an offset (#721 F10).
+        ("the way out, then an odd count of quotes past an escape", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; echo "a \\" b"'),
+        ("the way out, then a subshell open across an escape", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; ( echo \\"x\\" )'),
+        ("arithmetic after the drain to an inbox file", 'gzcoord-inbox > "$S/inbox.txt"; echo $((1+1))'),
+        ("arithmetic with parentheses inside", "n=$(( (n+1)*2 )); gzcoord-inbox > f"),
+        ("a backtick naming an inbox file", "n=`wc -l < inbox.txt`; gzcoord-inbox > f"),
+        ("a substitution inside a substitution, neither a run", 'cd "$(dirname "$(pwd)")" && gzcoord-inbox > f'),
+        ("a subshell opening a substitution, no run", "x=$((cd x); ls); gzcoord-inbox > f"),
+        ("the module read with sed", "sed -n 1,40p tools/fabric/gzcoord/inbox.py | head"),
+        ("the link read with nl", "nl -ba bin/gzcoord-inbox | sed -n 1,5p"),
+        ("the link resolved", "readlink -f ~/.local/bin/gzcoord-inbox | cat"),
+        ("no inbox at all", "git log | head"),
+        ("another inbox", "ls ~/inbox | head"),
+    ]
+    for label, cmd in allowed:
+        check(f"allowed: {label}", not g.refused(cmd), cmd)
+
+    # A hook past its 5 s timeout is read as no objection: a long command holding the word, a runner, a pipe and
+    # nested substitutions is decided well inside it, end to end.
+    long = " ".join(["bash -c 'x' gzcoord-inbox --history $(echo $(date)) | grep inbox;"] * 1600) + " gzcoord-inbox | head"
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": long}}))
+    took = time.monotonic() - t0
+    check(f"a {len(long) // 1000} KB command is refused in under 2 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 2.0 and len(long) > 100_000, (took, r.stdout[-200:], r.stderr[-300:]))
+
+    # One long chunk of words that mostly hold `inbox`, no `;` between them, in a closed command with a pipe: every
+    # word is asked whether a run starts there. A copy of the rest per word made it quadratic, 11.8 s on 966bdd7e7 for
+    # this size, past the 5 s timeout that counts as no objection (#721 F1). The bound leaves a loaded runner room
+    # and stays under that timeout.
+    chunk = "( true ); echo " + " ".join(["inbox"] * 32_000) + " | head; gzcoord-inbox | head"
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": chunk}}))
+    took = time.monotonic() - t0
+    check(f"one {len(chunk) // 1000} KB chunk of inbox words is refused in under 4 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 4.0 and len(chunk) > 190_000, (took, r.stdout[-200:], r.stderr[-300:]))
+
+    # Substitutions nested deep, none a run: blanking them a round per level over the whole text was quadratic in the
+    # depth (#721).
+    deep = "$(echo " * 20_000 + "x" + ")" * 20_000 + "; gzcoord-inbox | head"
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": deep}}))
+    took = time.monotonic() - t0
+    check(f"20,000 nested substitutions beside a drain are refused in under 4 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 4.0, (took, r.stdout[-200:], r.stderr[-300:]))
+
+    # Substitutions nested deep, every one kept: re-joining each kept level's body was quadratic in the depth, 6.6 s
+    # end to end on 41d8d5a0f for this size, past the 5 s timeout that counts as no objection (#721 F8).
+    kept = "x=" + "$(echo " * 80_000 + "gzcoord-inbox" + ")" * 80_000
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": kept}}))
+    took = time.monotonic() - t0
+    check(f"80,000 nested substitutions, each kept, are refused in under 4 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 4.0, (took, r.stdout[-200:], r.stderr[-300:]))
+
+    # Parameter expansions nested deep: a regex from every `${` to its `}` was quadratic, 12.3 s end to end at this
+    # size before the forward pass that replaced it.
+    braces = "echo " + "${a:-" * 20_000 + "x" + "}" * 20_000 + "; gzcoord-inbox | head"
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": braces}}))
+    took = time.monotonic() - t0
+    check(f"20,000 nested parameter expansions beside a drain are refused in under 4 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 4.0, (took, r.stdout[-200:], r.stderr[-300:]))
+
+    # The protocol, run the way the settings run it (-I -S, by path).
+    deny = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "gzcoord-inbox | head -n 3"}}))
+    got = json.loads(deny.stdout) if deny.stdout.strip() else {}
+    reason = got.get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
+    check("deny: one PreToolUse deny line, exit 0, nothing on stderr",
+          deny.returncode == 0 and decision(deny.stdout) == "deny" and deny.stdout.count("\n") == 1 and not deny.stderr,
+          (deny.returncode, deny.stdout, deny.stderr))
+    check("deny: the reason names the way out (bare, a file, --replay)",
+          "bare" in reason and "file" in reason and "gzcoord-inbox --replay <MESSAGE-ID>" in reason, reason)
+    sub = run(json.dumps({"tool_name": "Bash", "agent_id": "a1", "agent_type": "code-low",
+                          "tool_input": {"command": "gzcoord-inbox | tail -2"}}))
+    check("a subagent's call is judged as the session's", decision(sub.stdout) == "deny", sub.stdout)
+    for label, payload in (("not JSON", "not json"), ("an array", "[1]"), ("tool_input a string", '{"tool_input": "x"}'),
+                           ("no command", '{"tool_input": {}}'), ("a number for the command", '{"tool_input": {"command": 3}}'),
+                           ("an allowed command", json.dumps({"tool_input": {"command": "gzcoord-inbox"}}))):
+        r = run(payload)
+        check(f"passed with nothing printed, exit 0: {label}", (r.returncode, r.stdout) == (0, ""), (r.returncode, r.stdout, r.stderr))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # A guard that cannot decide exits non-zero with nothing on stdout, which hook_entry.py and the settings
+        # fallback turn into an ask; it must never print an allow. Its sibling missing is such a failure.
+        hooks = os.path.join(tmp, "runtime", "claude-code", "hooks")
+        os.makedirs(hooks)
+        shutil.copy(HOOK, hooks)
+        r = run(json.dumps({"tool_input": {"command": "gzcoord-inbox | head"}}), os.path.join(hooks, "inbox-pipe-guard.py"))
+        check("its sibling missing: exit non-zero, nothing on stdout (the caller asks)", r.returncode != 0 and r.stdout == "",
+              (r.returncode, r.stdout))
+        r = run(json.dumps({"tool_input": {"command": "git log | head"}}), os.path.join(hooks, "inbox-pipe-guard.py"))
+        check("its sibling missing: a command naming no inbox still passes, nothing loaded",
+              (r.returncode, r.stdout) == (0, ""), (r.returncode, r.stdout))
+        # An unreadable command table leaves the spelled names: "unreadable" is not "no drain".
+        for sib in ("post-review-shape-guard.py", "inbox-watch.py"):
+            shutil.copy(os.path.join(HERE, "runtime", "claude-code", "hooks", sib), hooks)
+        for label, cmd in (("gzcoord-inbox", "gzcoord-inbox | head"), ("fabric gzcoord inbox", "fabric gzcoord inbox | head")):
+            r = run(json.dumps({"tool_input": {"command": cmd}}), os.path.join(hooks, "inbox-pipe-guard.py"))
+            check(f"no command table: the spelled name {label} is still refused", decision(r.stdout) == "deny",
+                  (r.returncode, r.stdout, r.stderr[-300:]))
+        r = run(json.dumps({"tool_input": {"command": "gzcoord-inbox --replay 01a | head"}}),
+                os.path.join(hooks, "inbox-pipe-guard.py"))
+        check("no command table: a read-only mode still passes", (r.returncode, r.stdout) == (0, ""), (r.returncode, r.stdout))
+
+    # The managed entry knows it, so a managed host runs it and asks when it cannot.
+    sys.path.insert(0, os.path.join(HERE, "runtime", "claude-code", "managed"))
+    import hook_entry  # noqa: E402
+    check("hook_entry's table names it on PreToolUse, with a label",
+          hook_entry.GUARDS.get("inbox-pipe-guard", ("", "", ""))[:2] == ("runtime/claude-code/hooks/inbox-pipe-guard.py",
+                                                                         "PreToolUse")
+          and "inbox-pipe-guard" in hook_entry.LABEL)
+
+    # Registered where every session runs it, in both settings files, with the fallback that asks.
+    for rel in (".claude/settings.json", "runtime/claude-code/workspace/settings.json"):
+        with open(os.path.join(HERE, rel), encoding="utf-8") as fh:
+            pre = json.load(fh)["hooks"]["PreToolUse"]
+        hooked = [h["command"] for e in pre if e.get("matcher") == "Bash" for h in e["hooks"]]
+        check(f"registered on Bash in {rel}", any("inbox-pipe-guard.py" in c for c in hooked), hooked)
+        pin = "/usr/local/bin/fabric-python"
+        cmds = [h["command"] for e in pre for h in e["hooks"] if "hooks/inbox-pipe-guard.py" in h.get("command", "")]
+        check(f"{rel}: one fallback, none on python3", len(cmds) == 1 and "python3 " not in cmds[0], cmds)
+        if len(cmds) != 1:
+            continue
+        shadow = tempfile.mkdtemp(prefix="guard-shadow-")
+        with open(os.path.join(shadow, "json.py"), "w", encoding="utf-8") as fh:
+            fh.write("import sys; sys.exit(0)\n")
+        cmd = cmds[0].replace("/etc/claude-code/managed-settings.json", os.path.join(shadow, "no-managed.json"))
+        env = {"PATH": "/usr/bin:/bin", "HOME": shadow, "CLAUDE_PROJECT_DIR": HERE, "AGENT_FABRIC_ROOT": HERE}
+        payload = {"tool_name": "Bash", "tool_input": {"command": "gzcoord-inbox | head"}}
+        for label, c, extra, want in (
+                ("the pin runs it", cmd.replace(pin, sys.executable), {}, "deny"),
+                ("PYTHONPATH does not silence it", cmd.replace(pin, sys.executable), {"PYTHONPATH": shadow}, "deny"),
+                ("a missing pin asks", cmd.replace(pin, os.path.join(shadow, "no-python")), {}, "ask"),
+                ("a missing guard file asks",
+                 cmd.replace(pin, sys.executable).replace("hooks/inbox-pipe-guard.py", "hooks/no-such-guard.py"), {}, "ask")):
+            r = subprocess.run(["sh", "-c", c], input=json.dumps(payload), capture_output=True, text=True,
+                               env={**env, **extra}, timeout=60)
+            check(f"{rel}: fallback: {label}", r.returncode == 0 and decision(r.stdout) == want, (r.returncode, r.stdout[-200:]))
+        r = subprocess.run(["sh", "-c", cmd.replace(pin, sys.executable)], input=json.dumps({"tool_input": {"command": "ls"}}),
+                           capture_output=True, text=True, env=env, timeout=60)
+        check(f"{rel}: fallback: an allowed command passes with no output", (r.returncode, r.stdout) == (0, ""),
+              (r.returncode, r.stdout[-200:]))
+        shutil.rmtree(shadow, True)
+
+    print(f"{'PASS' if not fails else 'FAIL'}: inbox pipe guard ({fails} failed)")
+    return 1 if fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

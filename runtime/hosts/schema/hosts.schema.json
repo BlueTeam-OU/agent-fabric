@@ -31,6 +31,8 @@
           "operator",
           "fabric"
         ],
+        "if": {"required": ["interweave_address"]},
+        "then": {"required": ["interweave_admit"]},
         "additionalProperties": false,
         "properties": {
           "platform": {
@@ -102,6 +104,11 @@
             "type": "string",
             "pattern": "^(\\d{1,3}\\.){3}\\d{1,3}$|^[0-9A-Fa-f:]+$",
             "description": "Optional: the literal IP the other hosts' profiles dial for the accounts this host places (ADR-064 rule 1's second-host milestone): an address of the host, or a public address forwarded to it on the same ports that the operator's record names (ADR-069 rule 2); the host's own profiles listen on the wildcard either way. An IP, not a name, as for sshd.address. Absent, a roster row naming the host is refused; a row with no host is on loopback (127.0.0.1)."
+          },
+          "interweave_admit": {
+            "type": "string",
+            "pattern": "^any$|^(\\d{1,3}\\.){3}\\d{1,3}(/\\d{1,2})?$",
+            "description": "Who the host's firewall admits on the carrier roster's port_range (ADR-064 rule 1, A 2026-11-27): `any`, where interweave_address is a public forward admitted from any source on the owner's word; else the coordinator's host's address as this host sees it, an IPv4 address or a CIDR without host bits (lint refuses any other value, and a /0, which is spelled `any`). `fabric-host <host> persist` makes the admission from it and keeps it across a reboot. Required with interweave_address, whose profiles listen on the wildcard: a host with no word on who may connect is refused, never opened to everyone. Absent with interweave_address absent: the host's profiles are on loopback and nothing is admitted."
           }
         }
       }

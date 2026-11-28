@@ -19,8 +19,9 @@ is the failure this section exists to prevent.
 
 Work over a few lines that has a clear contract goes to a class agent
 with worktree isolation, dispatched in the background: `code-low` or
-`code-medium` by the work (the table below), `code-high` and `code-plan`
-only as the guard already asks. A search across many files ("find
+`code-medium` by the work (the table below), `code-high` for difficult
+or high-consequence work without asking, and `code-plan` only as the
+guard asks. A search across many files ("find
 everything that does X", an audit, a sweep) goes to `Explore`.
 Independent pieces run in parallel, each on its own file set. The
 isolation machinery below is what makes that safe; the default is what
@@ -54,8 +55,8 @@ tier decision is where the bill is actually made:
 |---|---|---|
 | `code-low` | `haiku` | mechanical, well-specified work: pattern-following edits, extraction, formatting, single-file lookups, structured search |
 | `code-medium` | `sonnet` | judgement work: multi-file reasoning, prose that must hold a convention |
-| `code-high` | `opus` | only on the user's explicit instruction for that dispatch (the guard asks) |
-| `code-plan` | `fable` | planning and design reasoning on the top tier; the guard asks, as for `code-high` |
+| `code-high` | `opus` | difficult or high-consequence work; the guard does not ask |
+| `code-plan` | `fable` | planning and design reasoning on the top tier; the guard asks |
 | `code-review` | `fable` | the review class; shares the tier with `code-plan` but never its export — its model reaches its agent file; see below |
 
 **The class decides the tier, and the call says both.** The binding is
@@ -73,16 +74,18 @@ decision into a hook that cannot read `routing/`.
 Pinning the tier on every call is also what keeps a campaign
 reproducible: if the session model changes while a batch is in flight,
 unset-field agents change with it. The hook denies an unset `model`, a
-class on the wrong alias, and prompts on a premium one. One exception:
+class on the wrong alias, and prompts on `code-plan`, never on
+`code-high`. One exception:
 under a fabric launch a review with no `model` passes, because that is
 the guard's own answer when the harness runs it a second time; write
 `fable` all the same.
 
 ### Review is the standing premium-alias exception (`fable`)
 
-One role escapes the premium ban without a per-dispatch ask: the
-**review class**, dispatched for the review of a PR's head, for judging
-a finding (step 26) and for the re-review of a fix range. It stands in
+Two classes reach the premium tier without a per-dispatch ask:
+`code-high`, on `opus`, for difficult or high-consequence work (the
+table above), and, on `fable`, the **review class**, dispatched for
+the review of a PR's head, for judging a finding (step 26) and for the re-review of a fix range. It stands in
 for nothing: no automated reviewer runs ahead of it, and its review,
 posted with `fabric-pr post-review`, is the one the gate counts.
 
@@ -134,8 +137,9 @@ those rounds found defects introduced by the previous round's own fix.
 Every one had passed a full green suite and mutation checks first. That
 is the failure rate the review class is being asked to match.
 
-It covers review only. "This task looks hard" is not review, and the
-exception must not be read as a general licence — the ~40-agent bill
+The `fable` exception covers review only. "This task looks hard" is
+not review: hard work goes to `code-high`, and the exception must not
+be read as a general licence — the ~40-agent bill
 above is what happens when premium becomes the default rather than the
 argued case.
 
@@ -220,8 +224,9 @@ Two properties of the guard matter and are pinned by the test file:
   **denied** with a reason naming which; and a general agent whose
   description begins with `review` is denied too — reviews use the
   class.
-- It is the ONLY type that passes without a prompt; `general-purpose`
-  with `opus` or `fable` still asks exactly as before, and every
+- It is the ONLY type on `fable` that passes without a prompt
+  (`code-high` on `opus` passes too); `general-purpose` with `opus`
+  or `fable` still asks exactly as before, and every
   writing agent still needs `model` and `isolation: "worktree"`.
 - The read-only harness types — `Explore`, `Plan`, `claude-code-guide`
   — need `model` and must NOT set isolation: they have no writing tool,
