@@ -113,6 +113,13 @@ def main() -> int:
         ("a backticked `}` in a parameter expansion inside a capture",
          "x=$(echo ${y:-`echo }`)}; gzcoord-inbox; echo ${z:-`echo }`(})"),
         ("a single-quoted `}` in a parameter expansion inside a capture", "x=$(echo ${y:-'}')}; gzcoord-inbox; echo ${z:-'}'(})"),
+        # Distrusted from the first untrusted mark on (#721 F9): a span still open there is left as written, and a
+        # span closed before it is judged as before.
+        ("a capture open across an escaped quote", 'x=$(gzcoord-inbox; echo \\"x\\")'),
+        ("a capture closed before an escaped quote", 'x=$(gzcoord-inbox); echo \\"x\\"'),
+        ("the way out piped, an escaped quote after it", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox | head; echo \\"$f\\"'),
+        ("a capture after an unquoted heredoc", "cat <<EOF\n)(\nEOF\nx=$(gzcoord-inbox)"),
+        ("a backtick capture open across an escaped quote", "x=`gzcoord-inbox; echo \\\"x`"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.refused(cmd), cmd)
@@ -148,6 +155,10 @@ def main() -> int:
         ("a scratch file named inbox by mktemp (#721 F2)", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; cat "$f"'),
         ("an inbox file counted after the drain", "gzcoord-inbox > inbox.txt; n=$(wc -l < inbox.txt)"),
         ("arithmetic before the drain", "n=$((n+1)); gzcoord-inbox > f"),
+        # An untrusted mark after the way out's span closed leaves that span blanked (#721 F9).
+        ("the way out, then the word esac in a message", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; echo "no esac here"'),
+        ("the way out, then an unquoted heredoc", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; cat <<EOF\nsaved $f\nEOF'),
+        ("the way out, then an escaped quote", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; echo "saved \\"$f\\""'),
         ("arithmetic after the drain to an inbox file", 'gzcoord-inbox > "$S/inbox.txt"; echo $((1+1))'),
         ("arithmetic with parentheses inside", "n=$(( (n+1)*2 )); gzcoord-inbox > f"),
         ("a backtick naming an inbox file", "n=`wc -l < inbox.txt`; gzcoord-inbox > f"),
