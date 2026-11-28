@@ -330,8 +330,8 @@ def _blanked(text: str, untrusted: int | None) -> str | None:
             return None
         else:
             opened, mark_at, quotes_before = stack.pop()
-            # No `at < limit` test: at the limit stands the start of an untrusted mark, never a `)` (#721 F11, measured with
-            # at == limit for `$((cd x)\"y\"`), so the second `)` of `))` is only ever found before it.
+            # No `at < limit` test: when `at` is the limit, the character there is no `)`. Only a `)` inside `${` can be
+            # the offset, and the `)` just paired, at the same depth, would have been the offset first (#721 F11).
             if opened == "$((" and not text.startswith(")", at):
                 # `$((cd x); …)`: the `(` after `$(` opened a subshell, closed here, in a substitution still open.
                 stack.append(("$(", mark_at, quotes_before))
