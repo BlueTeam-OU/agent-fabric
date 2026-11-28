@@ -306,6 +306,16 @@
       "peer_id": "12D3KooWAUuLoxzQCvGPyve6JTXXwUpsGErHZsPqvXunuRR6fUdN",
       "port": 47130,
       "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCat+GYwAKCRDXDobMImJA\n6mIPAQClY0d8yKw5WQ68809ZldlR9yhTdATCvxnwSrwUs69ahQD/VX+VU9buyREt\njiDF3BUWJSa3vAUkwSoar2Eo58fO5Ak=\n=pnza\n-----END PGP SIGNATURE-----\n"
+    },
+    {
+      "agent_id": "01a220ed-543c-70d9-8bfc-c742e03193f3",
+      "endpoint": "gzcoord",
+      "identity_show": "12D3KooWB8ayNTsjz8VimfdMrk4aHj2qhrAnMYakna6uxQqVALv7\n",
+      "login": "accountant-ee-blueteam-ou",
+      "login_signature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQS1T/1/QQWsNgB0EA6yGTElfLzd2gUCawrvkAAKCRCyGTElfLzd\n2vWBAQC33yOlzVsHK/04myvMN3b83orHCjF8pOEoxPIUp7pU1QD7ByCgOjmZoZ+h\n40tYdMNzr1fTgaI/kRaEOed3dHUncAg=\n=v3lw\n-----END PGP SIGNATURE-----\n",
+      "peer_id": "12D3KooWB8ayNTsjz8VimfdMrk4aHj2qhrAnMYakna6uxQqVALv7",
+      "port": 47131,
+      "countersignature": "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTWt33kU1o4LDZ2XffXDobMImJA6gUCawrzNAAKCRDXDobMImJA\n6rybAP4tlweXMSnnVq3uQZ6eAP/95jpwXQnuo8oT6XxAJgE1JwD/RQp6NReuQm7R\nUOsAD0LdvrpPuYurH87L+43qFepDMws=\n=VRZs\n-----END PGP SIGNATURE-----\n"
     }
   ]
 }
