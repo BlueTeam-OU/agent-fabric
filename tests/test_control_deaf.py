@@ -548,6 +548,366 @@ class Cli(unittest.TestCase):
             found = [os.path.join(root, f) for root, _, files in os.walk(state) for f in files]
             self.assertEqual([os.path.basename(os.path.dirname(f)) for f in found], [deaf_alarm.PENDING])   # one kept file, no ledger
 
+SID = "0b1c2d3e-aaaa-bbbb-cccc-1234567890ab"
+
+
+def rec(kind: str, content, stop: str | None = None, **more) -> dict:
+    msg: dict = {"role": kind, "content": content}
+    if stop:
+        msg["stop_reason"] = stop
+    return {"type": kind, "message": msg, **more}
+
+
+ENDED = [rec("user", "go"), rec("assistant", [{"type": "text", "text": "done"}], "end_turn"), {"type": "attachment"}]
+PENDING_TOOL = [rec("user", "go"), rec("assistant", [{"type": "tool_use", "id": "t1", "name": "Agent", "input": {}}], "tool_use")]
+
+
+class Idle(Scratch):
+    """j1061: the idle gate, over a real transcript file under a scratch home; the age is the file's mtime."""
+
+    def transcript(self, records: list, age_s: float = 3600, binding: bool = True) -> str:
+        self.home = os.path.join(self._tmp.name, "home")
+        d = os.path.join(self.home, ".claude", "projects", "-some-copy")
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, SID + ".jsonl")
+        with open(path, "w", encoding="utf-8") as fh:
+            for r in records:
+                fh.write(json.dumps(r) + "\n")
+        os.utime(path, (NOW - age_s, NOW - age_s))
+        self.session = SID if binding else None
+        return path
+
+    def idle(self, **kw):
+        return deaf.idle_of(lambda: getattr(self, "session", None), getattr(self, "home", os.path.join(self._tmp.name, "home")), NOW, **kw)
+
+    def test_an_ended_turn_in_a_quiet_transcript_is_idle(self) -> None:
+        self.transcript(ENDED)
+        self.assertEqual(self.idle()[0], True)
+
+    def test_a_pending_tool_use_is_not_idle_and_its_result_makes_it_idle_again(self) -> None:
+        self.transcript(PENDING_TOOL)   # the prompt case: held at the dispatch guard
+        r = self.idle()
+        self.assertEqual(r[0], False)
+        self.assertIn("pending", r[1])
+        answered = PENDING_TOOL + [rec("user", [{"type": "tool_result", "tool_use_id": "t1", "content": "x"}]),
+                                   rec("assistant", [{"type": "text", "text": "ok"}], "end_turn")]
+        self.transcript(answered)   # positive control: one fact changed
+        self.assertEqual(self.idle()[0], True)
+
+    def test_a_tool_use_in_an_earlier_record_still_pending_is_not_idle(self) -> None:
+        # a later end_turn record does not clear a call that never got its result
+        self.transcript(PENDING_TOOL + [rec("assistant", [{"type": "text", "text": "x"}], "end_turn")])
+        self.assertEqual(self.idle()[0], False)
+
+    def test_a_recent_write_or_an_unanswered_prompt_is_a_turn(self) -> None:
+        self.transcript(ENDED, age_s=30)
+        self.assertEqual(self.idle()[0], False)
+        self.transcript(ENDED + [rec("user", [{"type": "tool_result", "tool_use_id": "zz", "content": "x"}])])
+        self.assertEqual(self.idle()[0], False)
+
+    def test_what_cannot_be_read_is_unknown_never_idle(self) -> None:
+        self.assertEqual(self.idle()[0], "unknown")   # no binding, no transcript
+        self.transcript(ENDED, binding=False)
+        self.assertEqual(self.idle()[0], "unknown")
+        path = self.transcript([])
+        with open(path, "w") as fh:
+            fh.write("not json\n{\n")
+        self.assertEqual(self.idle()[0], "unknown")   # no assistant record
+        self.transcript(ENDED)
+        os.chmod(path, 0)
+        try:
+            if os.access(path, os.R_OK):
+                self.skipTest("runs as a user that reads any file")
+            self.assertEqual(self.idle()[0], "unknown")
+        finally:
+            os.chmod(path, 0o600)
+        self.assertEqual(self.idle()[0], True)
+
+    def test_the_section_carries_idle_and_why_only_when_deaf(self) -> None:
+        self.transcript(PENDING_TOOL)
+        self.log({"t": iso(-3600), "event": "start", "pid": 11}, {**END5, "t": iso(-3000)})
+        ctx = {"deaf_opts": {"now": NOW, "state": self.state, "uid": UID, "proc": self.proc, "home": self.home, "session": lambda: SID, "is_watch": lambda a: False}}
+        sec = deaf.section(ctx, presence=lambda: {"status": "ok", "online": True, "sessions": 1, "since": None},
+                           inbox=lambda: {"status": "ok", "source": "interweave", "unread": 0},
+                           jobs=lambda: {"status": "ok", "jobs": [{"id": "j1", "state": "queued", "title": "x (REQUEST 01a2180d-ab5f-7fd1-82dd-a3347d5076f0)"}]})
+        self.assertEqual((sec["deaf"], sec["idle"]), (True, False))
+        self.assertIn("pending", sec["idle_why"])
+
+
+class Restart(unittest.TestCase):
+    """j1061: deaf_alarm restarts a deaf AND idle account, recording before acting."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="deaf-test-")
+        self.addCleanup(self._tmp.cleanup)
+        self.path = os.path.join(self._tmp.name, "state", deaf_alarm.RESTART_LEDGER)
+        self.now = NOW
+        self.calls: list = []
+
+    def idle_row(self, account="a", episode="end@1", idle=True, why="the last assistant turn ended") -> dict:
+        r = row(account, episode)
+        r["deaf"].update(idle=idle, idle_why=why)
+        return r
+
+    def restarter(self, own="me", ctl=None) -> deaf_alarm.Restarter:
+        def default(account):
+            self.calls.append(account)
+            return "restarted", ""
+        return deaf_alarm.Restarter(self.path, own, ctl=ctl or default, clock=lambda: self.now)
+
+    def poll(self, rows, ledger, rs, sent):
+        return deaf_alarm.alarm(rows, ledger, "h/user", False, lambda a, d, t: sent.append((a, d)), None, rs)
+
+    def test_an_idle_deaf_account_is_restarted_once_per_episode_and_the_info_says_so(self) -> None:
+        rs, sent = self.restarter(), []
+        ledger, said, failed = self.poll([self.idle_row()], {}, rs, sent)
+        self.assertEqual((self.calls, failed), (["a"], []))
+        self.assertEqual(ledger, {"a": "end@1" + deaf_alarm.RESTART_TAG})
+        self.assertIn("restarted", sent[0][1]["action"])
+        self.assertIn("was run: restarted", deaf_alarm.body("a", sent[0][1])[1])
+        ledger2, said2, _ = self.poll([self.idle_row()], ledger, self.restarter(), sent)   # the next poll, a fresh process
+        self.assertEqual((self.calls, len(sent), said2), (["a"], 1, []))
+        _, _, _ = self.poll([self.idle_row(episode="end@2")], ledger2, self.restarter(), sent)   # positive control: a new episode restarts
+        self.assertEqual(self.calls, ["a", "a"])
+
+    def test_the_ledger_holds_the_attempt_before_the_restart_runs_and_when_it_raises(self) -> None:
+        seen: list = []
+
+        def ctl(account):
+            with open(self.path, encoding="utf-8") as fh:
+                seen.append(json.load(fh)[account])
+            raise subprocess.TimeoutExpired("fabric-ctl", 1)
+        rs = self.restarter(ctl=ctl)
+        ledger, _, failed = self.poll([self.idle_row()], {}, rs, [])
+        self.assertEqual(seen[0]["episode"], "end@1")           # on disk while the restart ran
+        self.assertEqual(seen[0]["times"], [NOW])
+        again, sent = self.restarter(), []
+        self.poll([self.idle_row()], {}, again, sent)            # a later run: never restarted again for this episode
+        self.assertEqual(self.calls, [])
+        self.assertIn("failed", sent[0][1]["action"])
+
+    def test_a_ledger_that_cannot_be_written_restarts_nothing(self) -> None:
+        os.makedirs(os.path.dirname(self.path))
+        os.chmod(os.path.dirname(self.path), 0o500)
+        try:
+            if os.access(os.path.dirname(self.path), os.W_OK):
+                self.skipTest("runs as a user that writes anywhere")
+            sent: list = []
+            ledger, _, failed = self.poll([self.idle_row()], {}, self.restarter(), sent)
+            self.assertEqual((self.calls, ledger), ([], {"a": "end@1"}))
+            self.assertIn("restart ledger cannot be written", sent[0][1]["action"])
+        finally:
+            os.chmod(os.path.dirname(self.path), 0o700)
+
+    def test_two_restarts_in_24_hours_are_the_cap_and_the_third_is_an_alarm_only(self) -> None:
+        for n in (1, 2):
+            self.now = NOW + n * 3600
+            self.poll([self.idle_row(episode=f"end@{n}")], {}, self.restarter(), [])
+        self.assertEqual(len(self.calls), 2)
+        self.now = NOW + 3 * 3600
+        sent: list = []
+        ledger, _, _ = self.poll([self.idle_row(episode="end@3")], {}, self.restarter(), sent)
+        self.assertEqual((len(self.calls), ledger), (2, {"a": "end@3"}))
+        self.assertIn("did not restore a watch", sent[0][1]["action"])
+        self.now = NOW + 2 * 3600 + deaf_alarm.RESTART_WINDOW_S + 1   # control: both aged out, restarts again
+        self.poll([self.idle_row(episode="end@4")], {}, self.restarter(), [])
+        self.assertEqual(len(self.calls), 3)
+
+    def test_this_logins_own_account_is_never_restarted(self) -> None:
+        sent: list = []
+        self.poll([self.idle_row("me")], {}, self.restarter(own="me"), sent)
+        self.assertEqual(self.calls, [])
+        self.assertIn("own account", sent[0][1]["action"])
+        self.poll([self.idle_row("other")], {}, self.restarter(own="me"), [])   # control
+        self.assertEqual(self.calls, ["other"])
+
+    def test_idle_false_unknown_or_absent_is_an_alarm_only_naming_why(self) -> None:
+        for idle, why in ((False, "a tool call is pending (held at a permission prompt or in a long call)"), ("unknown", "the transcript cannot be read"), (None, "")):
+            sent: list = []
+            r = self.idle_row(idle=idle, why=why)
+            if idle is None:
+                del r["deaf"]["idle"], r["deaf"]["idle_why"]
+            ledger, _, _ = self.poll([r], {}, self.restarter(), sent)
+            self.assertEqual((self.calls, ledger), ([], {"a": "end@1"}), idle)
+            self.assertIn("Not restarted", sent[0][1]["action"])
+            if why:
+                self.assertIn(why, sent[0][1]["action"])
+        self.poll([self.idle_row()], {}, self.restarter(), [])   # control: idle true restarts
+        self.assertEqual(self.calls, ["a"])
+
+    def test_an_alarm_sent_while_held_does_not_stand_in_for_the_restart_after_it_goes_idle(self) -> None:
+        sent: list = []
+        ledger, _, _ = self.poll([self.idle_row(idle=False, why="pending")], {}, self.restarter(), sent)
+        ledger, _, _ = self.poll([self.idle_row()], ledger, self.restarter(), sent)
+        self.assertEqual((self.calls, len(sent), ledger), (["a"], 2, {"a": "end@1" + deaf_alarm.RESTART_TAG}))
+
+    def test_dry_run_restarts_and_writes_nothing(self) -> None:
+        rs = self.restarter()
+        _, said, _ = deaf_alarm.alarm([self.idle_row()], {}, "h/user", True, lambda *a: self.fail("sent"), None, rs)
+        self.assertEqual((self.calls, os.path.exists(self.path)), ([], False))
+        self.assertIn("would restart", said[0])
+
+    def test_the_restart_reply_is_read_from_the_account_row(self) -> None:
+        mk = lambda out, rc=0: (lambda argv, **kw: subprocess.CompletedProcess(argv, rc, out, "err"))  # noqa: E731
+        line = lambda data: json.dumps({"account": "a", "status": "ok", "restart": data})  # noqa: E731
+        self.assertEqual(deaf_alarm.ctl_restart("a", mk(line({"status": "restarted", "pids": [1]}))), ("restarted", ""))
+        self.assertEqual(deaf_alarm.ctl_restart("a", mk(line({"status": "failed", "reason": "busy upgrade"}), 1)), ("failed", "busy upgrade"))
+        self.assertEqual(deaf_alarm.ctl_restart("a", mk(line({"status": "no-session"}))), ("no-session", ""))
+        self.assertEqual(deaf_alarm.ctl_restart("a", mk(json.dumps({"account": "a", "status": "no answer"})))[0], "failed")
+        self.assertEqual(deaf_alarm.ctl_restart("a", mk("", 2))[0], "failed")
+
+        def boom(argv, **kw):
+            raise subprocess.TimeoutExpired(argv, 1)
+        self.assertEqual(deaf_alarm.ctl_restart("a", boom)[0], "failed")
+
+    def test_the_entry_point_restarts_by_default_and_not_with_no_restart(self) -> None:
+        d = self._tmp.name
+        import pwd
+        bindir, root = os.path.join(d, "bin"), os.path.join(d, "state2")
+        state = os.path.join(root, "agents", pwd.getpwuid(os.geteuid()).pw_name)   # identity.agent_state_dir under the override
+        os.makedirs(bindir)
+        rowjson = json.dumps({"account": "a", "status": "ok", "deaf": {**row("a", "end@1")["deaf"], "idle": True, "idle_why": "ended"}})
+        rrow = json.dumps({"account": "a", "status": "ok", "restart": {"status": "restarted"}})
+        scripts = {
+            "fabric-ctl": f"#!/bin/sh\nif [ \"$5\" = restart ] || [ \"$4\" = restart ]; then echo \"$@\" >> '{d}/ctl.log'; printf '%s\\n' '{rrow}'; "
+                          f"else printf '%s\\n' '{rowjson}'; fi\n",
+            "gzcoord-compose": '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n'
+                               "printf '[GZCOORD/1] INFO\\nTO: h/user\\nSUBJECT: s\\n\\nCONTEXT:\\n\\nNOTES:\\n\\nREFERENCES:\\n' > \"$out\"\n",
+            "gzcoord-send": f'#!/bin/sh\ncat "$1" >> "{d}/posted"\nexit 0\n',
+        }
+        for name, text in scripts.items():
+            with open(os.path.join(bindir, name), "w") as fh:
+                fh.write(text)
+            os.chmod(os.path.join(bindir, name), 0o755)
+        env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": d, "AGENT_FABRIC_STATE_DIR": root}
+        cmd = [sys.executable, "-I", os.path.join(HERE, "tools", "fabric", "control", "deaf_alarm.py"), "--to", "h/user"]
+        r = subprocess.run(cmd + ["--no-restart"], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(d, "ctl.log")))
+        self.assertFalse(os.path.exists(os.path.join(state, deaf_alarm.RESTART_LEDGER)))
+        self.assertTrue(os.path.exists(os.path.join(state, deaf_alarm.LEDGER)))   # the alarm still went, so this state dir is the one read
+        os.unlink(os.path.join(state, deaf_alarm.LEDGER))   # control: the same row, restart allowed
+        r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(d, "ctl.log")) as fh:
+            self.assertEqual(len(fh.read().splitlines()), 1)
+        with open(os.path.join(d, "posted")) as fh:
+            self.assertIn("was run: restarted", fh.read())
+
+
+class Review1(Scratch):
+    """#722 round 1: F1 (a refused binding), F2 (several sessions), F3 (the lock), F4 (ledger per send)."""
+
+    def test_f1_a_binding_identity_refuses_is_unknown_and_the_status_reply_survives(self) -> None:
+        import pwd
+        root = os.path.join(self._tmp.name, "idroot")
+        agent_dir = os.path.join(root, "agents", pwd.getpwuid(os.geteuid()).pw_name)
+        os.makedirs(agent_dir)
+        with open(os.path.join(agent_dir, "binding.json"), "w") as fh:
+            json.dump({"agent": pwd.getpwuid(os.geteuid()).pw_name, "host": "some-other-host", "session": SID}, fh)
+        old = os.environ.get("AGENT_FABRIC_STATE_DIR")
+        os.environ["AGENT_FABRIC_STATE_DIR"] = root
+        try:
+            r = deaf.idle_of(deaf._binding_session, self._tmp.name, NOW)   # SystemExit before the fix
+        finally:
+            if old is None:
+                del os.environ["AGENT_FABRIC_STATE_DIR"]
+            else:
+                os.environ["AGENT_FABRIC_STATE_DIR"] = old
+        self.assertEqual(r[0], "unknown")
+
+    def test_f2_more_than_one_session_is_unknown_and_one_is_judged(self) -> None:
+        self.log({"t": iso(-3600), "event": "start", "pid": 11}, {**END5, "t": iso(-3000)})
+        ended = lambda: (True, "ended")  # noqa: E731
+        for n, want in ((2, "unknown"), (1, True)):
+            r = deaf.judge(session={"status": "ok", "online": True, "sessions": n, "since": None}, last={**END5, "t": iso(-3000)}, watching=None, now=NOW,
+                           ask_pending=lambda: ({"unread": 0, "queued_requests": 1}, None), ask_idle=ended)
+            self.assertEqual(r["idle"], want, n)
+
+
+class LockAndSave(unittest.TestCase):
+    def test_f3_a_second_run_that_read_an_empty_ledger_does_not_restart_the_episode_again(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            path = os.path.join(d, "deaf-restart.json")
+            calls: list = []
+            ctl = lambda a: (calls.append(a), ("restarted", ""))[1]  # noqa: E731
+            first = deaf_alarm.Restarter(path, "me", ctl=ctl, clock=lambda: NOW)
+            second = deaf_alarm.Restarter(path, "me", ctl=ctl, clock=lambda: NOW)   # both read the ledger while it was empty
+            self.assertEqual(first.execute("a", "end@1"), "restarted")
+            self.assertTrue(second.execute("a", "end@1").startswith(deaf_alarm.ALREADY + "restarted"))
+            self.assertEqual(calls, ["a"])
+            self.assertEqual(len(json.load(open(path))["a"]["times"]), 1)
+
+    def test_f4_the_alarm_ledger_is_saved_after_each_send(self) -> None:
+        rows = [row("a", "end@1"), row("b", "end@2")]
+        saved: list = []
+
+        def send_one(account, d, to):
+            if account == "b":
+                self.assertEqual(saved, [{"a": "end@1"}])   # a's record already written when b is sent
+        deaf_alarm.alarm(rows, {}, "h/user", False, send_one, None, None, lambda s: saved.append(dict(s)))
+        self.assertEqual(saved[-1], {"a": "end@1", "b": "end@2"})
+
+    def test_f6_a_run_that_lost_the_lock_tells_restarted_under_the_restart_key(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            path = os.path.join(d, "deaf-restart.json")
+            first = deaf_alarm.Restarter(path, "me", ctl=lambda a: ("restarted", ""), clock=lambda: NOW)
+            first.execute("a", "end@1")
+
+            class Stale(deaf_alarm.Restarter):   # built before the first run wrote: plans a restart, then the lock's re-read finds it
+                def plan(self, account, episode, d):
+                    return ("restart", "") if not getattr(self, "_replanned", False) and not setattr(self, "_replanned", True) else super().plan(account, episode, d)
+            stale = Stale(path, "me", ctl=lambda a: self.fail("restarted twice"), clock=lambda: NOW)
+            sent: list = []
+            ledger, _, _ = deaf_alarm.alarm([self.idle_row()], {}, "h/user", False, lambda a, dd, t: sent.append(dd), None, stale)
+            self.assertEqual(ledger, {"a": "end@1" + deaf_alarm.RESTART_TAG})
+            self.assertIn("was run: restarted", sent[0]["action"])
+
+    def idle_row(self):
+        r = row("a", "end@1")
+        r["deaf"].update(idle=True, idle_why="ended")
+        return r
+
+    def test_f7_an_unreadable_ledger_under_the_lock_is_not_a_restart_that_was_run(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            path = os.path.join(d, "deaf-restart.json")
+            rs = deaf_alarm.Restarter(path, "me", ctl=lambda a: self.fail("restarted"), clock=lambda: NOW)
+            with open(path, "w") as fh:
+                fh.write("not json")
+            self.assertTrue(rs.execute("a", "end@1").startswith("not restarted: the restart ledger cannot be read"))
+
+    def test_f9_an_exception_from_the_restart_is_told_as_run_under_the_restart_key(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            def ctl(account):
+                raise ValueError("bad bytes")
+            rs = deaf_alarm.Restarter(os.path.join(d, "deaf-restart.json"), "me", ctl=ctl, clock=lambda: NOW)
+            sent: list = []
+            ledger, _, _ = deaf_alarm.alarm([self.idle_row()], {}, "h/user", False, lambda a, dd, t: sent.append(dd), None, rs)
+            self.assertEqual(ledger, {"a": "end@1" + deaf_alarm.RESTART_TAG})
+            self.assertIn("was run: failed: ValueError", sent[0]["action"])
+
+    def test_f9_ctl_restart_reads_output_that_is_not_utf8(self) -> None:
+        r = deaf_alarm.ctl_restart("a", lambda argv, **kw: subprocess.run(["printf", r"\377"], capture_output=True, text=True, **{k: v for k, v in kw.items() if k in ("encoding", "errors")}))
+        self.assertEqual(r[0], "failed")
+
+    def test_f11_a_lock_that_cannot_be_taken_is_not_a_restart_that_was_run(self) -> None:
+        import errno
+        import fcntl
+        from unittest import mock
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            rs = deaf_alarm.Restarter(os.path.join(d, "deaf-restart.json"), "me", ctl=lambda a: self.fail("restarted"), clock=lambda: NOW)
+            sent: list = []
+            with mock.patch.object(fcntl, "flock", side_effect=OSError(errno.ENOLCK, "no locks")):
+                ledger, _, _ = deaf_alarm.alarm([self.idle_row()], {}, "h/user", False, lambda a, dd, t: sent.append(dd), None, rs)
+            self.assertEqual(ledger, {"a": "end@1"})   # the alarm-only key: a later run whose lock works still restarts
+            self.assertIn("not restarted: the restart ledger cannot be read", sent[0]["action"])
+
+    def test_f8_a_failed_per_send_save_is_not_a_failure_when_the_final_write_covers_it(self) -> None:
+        def save(state):
+            raise OSError("ENOSPC")
+        _, _, failed = deaf_alarm.alarm([row("a", "end@1")], {}, "h/user", False, lambda *a: None, None, None, save)
+        self.assertEqual(failed, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,12 +28,22 @@ no session, or with no waiting work, answers deaf False with the reason in `why`
 and with no watch the cursor stops, so there "unread" would be true of any busy channel: it is not counted as work, and the alarm says
 only what was counted. Only the carrier's own-spool reading (its `source` is the carrier's name) counts unread messages.
 
+IDLE (j1061). A deaf account is restarted by deaf_alarm.py only when its session is idle, which the section says as `idle`
+true | false | "unknown" with `idle_why`, read from the session's own transcript (the binding's session id, ~/.claude/projects/*/<id>.jsonl):
+idle <=> exactly one session runs (the restart stops every claude of the login, and only the binding's transcript is read), AND the
+transcript has had no write for MIN_AGE_S, AND its last user or assistant record is an assistant one that ended its turn (ENDED_TURN
+stop_reasons), AND no tool_use is left without a tool_result. A transcript with only user records is "in a turn", not unknown. A pending tool_use is NOT idle: that is a session held at a permission prompt or inside a long foreground
+call, and a restart would throw its pending work away (rust-ui-dev-02, 2026-11-27 16:58Z, held at the dispatch guard's prompt). A transcript
+that cannot be found or read, or has no user or assistant record, is "unknown", never idle. NOT COVERED: a background shell or
+agent still running after an ended turn reads as idle.
+
 The episode: `episode` is the watch-log line's own event and time, which does not change between polls, so the alarm
 (deaf_alarm.py) sends one message for it and not one per poll; a new `end` or `start` line, or a recovery, is a new episode.
 """
 from __future__ import annotations
 
 import datetime
+import glob
 import importlib.util
 import json
 import os
@@ -44,6 +54,10 @@ MIN_AGE_S = 600
 # The log is a bounded jsonl of short lines; the last event is in its tail.
 TAIL_BYTES = 64 * 1024
 WATCH_LOG = "gzcoord-watch.jsonl"
+# One message of a transcript can be a whole file read; the last turn's records are in the tail, not the head.
+TRANSCRIPT_TAIL_BYTES = 2 * 1024 * 1024
+# An assistant turn that ended on its own. `tool_use` is the model waiting for a tool, a permission prompt or a long call.
+ENDED_TURN = ("end_turn", "stop_sequence", "max_tokens", "refusal")
 
 
 def last_watch_event(log: str) -> dict | None:
@@ -101,6 +115,77 @@ def load_is_watch(root: str) -> Callable[[list[str]], bool]:
     return mod.is_watch
 
 
+def transcript_path(session: str | None, home: str) -> str:
+    """The running session's transcript. ValueError when the id or the file cannot be found: the caller says unknown."""
+    # The id is a UUID and becomes a glob and a file name: anything else is refused, not matched.
+    if not isinstance(session, str) or not session or not all(c.isalnum() or c == "-" for c in session):
+        raise ValueError("the binding has no usable session id")
+    found = glob.glob(os.path.join(glob.escape(home), ".claude", "projects", "*", session + ".jsonl"))
+    if len(found) != 1:
+        raise ValueError(f"{len(found)} transcripts of session {session} found")
+    return found[0]
+
+
+def read_tail(path: str) -> list[dict]:
+    with open(path, "rb") as fh:
+        size = fh.seek(0, os.SEEK_END)
+        start = max(0, size - TRANSCRIPT_TAIL_BYTES)
+        fh.seek(start)
+        raw = fh.read()
+    lines = raw.split(b"\n")
+    if start:
+        lines = lines[1:]   # the first line of a tail is cut
+    out = []
+    for ln in lines:
+        try:
+            rec = json.loads(ln)
+        except ValueError:
+            continue   # a torn last line from a write in progress
+        if isinstance(rec, dict):
+            out.append(rec)
+    return out
+
+
+def judge_transcript(records: list[dict]) -> tuple[bool | str, str]:
+    """(idle, why) from a transcript's records: pure."""
+    uses: set[str] = set()
+    results: set[str] = set()
+    last: dict | None = None
+    for rec in records:
+        msg = rec.get("message")
+        if rec.get("type") not in ("user", "assistant") or not isinstance(msg, dict) or rec.get("isSidechain"):
+            continue   # attachments, hook output and bookkeeping lines say nothing of the turn
+        last = rec
+        content = msg.get("content")
+        for block in content if isinstance(content, list) else []:
+            if isinstance(block, dict) and block.get("type") == "tool_use" and isinstance(block.get("id"), str):
+                uses.add(block["id"])
+            elif isinstance(block, dict) and block.get("type") == "tool_result" and isinstance(block.get("tool_use_id"), str):
+                results.add(block["tool_use_id"])
+    if last is None:
+        return "unknown", "the transcript has no user or assistant record"
+    if uses - results:
+        return False, "a tool call is pending (held at a permission prompt or in a long call)"
+    reason = last["message"].get("stop_reason")
+    if reason in ENDED_TURN:
+        return True, "the last assistant turn ended"
+    # A user record (a prompt, or a tool result the model has not answered) has no stop_reason: it lands here too.
+    if reason is None or reason == "tool_use":
+        return False, "in a turn (the last record has not ended its turn)"
+    return "unknown", f"the last assistant record's stop_reason is {str(reason)[:40]!r}"
+
+
+def idle_of(session: Callable[[], str | None], home: str, now: float, min_age_s: int = MIN_AGE_S) -> tuple[bool | str, str]:
+    try:
+        path = transcript_path(session(), home)
+        age = now - os.stat(path).st_mtime
+        if age < min_age_s:
+            return False, f"in a turn (the transcript was written {max(int(age), 0)} s ago)"
+        return judge_transcript(read_tail(path))
+    except (OSError, ValueError, ImportError) as e:   # ValueError: identity refused the binding, or the transcript is not one
+        return "unknown", f"the transcript cannot be read ({e.__class__.__name__}: {str(e)[:120]})"
+
+
 def _unknown(why: str) -> dict:
     return {"status": "unknown", "reason": why[:200]}
 
@@ -134,7 +219,7 @@ def pending_work(inbox: Callable[[], Any], jobs: Callable[[], Any]) -> tuple[dic
 
 
 def judge(*, session: Any, last: dict | None, watching: bool | None, now: float, ask_pending: Callable[[], tuple[dict | None, str | None]],
-          min_age_s: int = MIN_AGE_S) -> dict:
+          min_age_s: int = MIN_AGE_S, ask_idle: Callable[[], tuple[bool | str, str]] | None = None) -> dict:
     """The rule on what the account has said. `ask_pending` is asked only once everything before it says deaf: the inbox is a
     relay read and the jobs list a subprocess, and an account with a live watch pays for neither."""
     if not isinstance(session, dict) or session.get("status") != "ok":
@@ -165,9 +250,20 @@ def judge(*, session: Any, last: dict | None, watching: bool | None, now: float,
         return _unknown(why or "pending work not read")
     if not pending["unread"] and not pending["queued_requests"]:   # None unread: not counted
         return _no("no work is waiting", age_s=age)
+    # Asked last, like the inbox: only an account that is deaf has a transcript worth reading.
+    n = session.get("sessions")
+    if n != 1:
+        idle, idle_why = "unknown", f"{n} sessions run; only the binding's transcript can be read, and a restart stops them all"
+    else:
+        idle, idle_why = ask_idle() if ask_idle else ("unknown", "no transcript reader")
     return {"status": "ok", "deaf": True, "watch": how, "age_s": age,
             "since": datetime.datetime.fromtimestamp(began, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "episode": f"{last['event']}@{last['t']}", "pending": pending}
+            "episode": f"{last['event']}@{last['t']}", "pending": pending, "idle": idle, "idle_why": idle_why}
+
+
+def _binding_session() -> str | None:
+    from control.ops import util
+    return util.binding_session()
 
 
 def section(ctx: Mapping[str, Any], *, presence: Callable[[], Any], inbox: Callable[[], Any], jobs: Callable[[], Any]) -> dict:
@@ -190,4 +286,5 @@ def section(ctx: Mapping[str, Any], *, presence: Callable[[], Any], inbox: Calla
         except Exception:  # noqa: BLE001 — an unreadable command table or process table is unknown, never "no watch"
             watching = None
     return judge(session=presence(), last=last, watching=watching, now=now,
-                 ask_pending=lambda: pending_work(inbox, jobs))
+                 ask_pending=lambda: pending_work(inbox, jobs),
+                 ask_idle=lambda: idle_of(opts.get("session") or _binding_session, opts.get("home") or os.path.expanduser("~"), now))
