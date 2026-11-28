@@ -512,7 +512,7 @@ class EntryPoint(Case):
 
 
 class FabricHostPersist(unittest.TestCase):
-    def persist(self, results):
+    def persist(self, results, host="h1"):
         calls = []
 
         def step(argv):
@@ -526,7 +526,7 @@ class FabricHostPersist(unittest.TestCase):
             with unittest.mock.patch.object(fabric_host, "resolve_registry", lambda: reg), \
                     unittest.mock.patch.object(fabric_host, "run_hostexec_step", step), \
                     unittest.mock.patch.dict(os.environ, {}):
-                rc = fabric_host.main(["h1", "persist"])
+                rc = fabric_host.main([host, "persist"])
         return rc, calls
 
     def test_both_steps_run_as_root_on_the_pinned_interpreter_the_accounts_first(self):
@@ -539,6 +539,22 @@ class FabricHostPersist(unittest.TestCase):
         for results, want in (([1, 0], 1), ([0, 1], 1), ([1, 1], 1), ([2, 1], 2), ([0, 126], 126)):
             rc, calls = self.persist(results)
             self.assertEqual((rc, len(calls)), (want, 2), results)
+
+    def test_with_no_placements_only_the_settings_step_runs_and_its_exit_is_the_exit(self):
+        base = ["h3", "--", "sudo", "-n", fabric_host.FABRIC_PYTHON, "-I"]
+        for result in (0, 1, 126):
+            with tempfile.TemporaryFile("w+") as err, unittest.mock.patch.object(sys, "stderr", err):
+                rc, calls = self.persist([result], host="h3")
+                err.seek(0)
+                said = err.read()
+            self.assertEqual((rc, calls), (result, [[*base, "@fabric/tools/fabric/provisioning/persist_host_settings.py"]]))
+            self.assertEqual(said, "fabric-host: no placements on h3: persist_accounts.py skipped, persist_host_settings.py runs\n")
+
+    def test_with_placements_the_skip_line_is_not_said(self):
+        with tempfile.TemporaryFile("w+") as err, unittest.mock.patch.object(sys, "stderr", err):
+            self.persist([0, 0])
+            err.seek(0)
+            self.assertEqual(err.read(), "")
 
     def test_a_step_runs_as_a_child_with_its_status_a_signals_as_the_shells_and_a_bound(self):
         with tempfile.TemporaryDirectory() as t:

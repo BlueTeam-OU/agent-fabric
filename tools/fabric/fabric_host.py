@@ -7,7 +7,8 @@
   fabric-host <host> moveto <login> [<clone>]       an interactive shell as that account, in its workspace
   fabric-host <host> rename <login> <old> <new> [--dry-run]   provisioning/rename_working_copy.py, run there
   fabric-host <host> persist                        every placement survives the host's reboot (linger; the record snapshot on Qubes),
-                                                    and the host settings the fabric needs are made and kept (reserved ports, ADR-064)
+                                                    and the host settings the fabric needs are made and kept (reserved ports, ADR-064);
+                                                    with no placements the settings step alone runs (one line says the accounts step is skipped)
   fabric-host <host> drain <login> [harvest flags...] > drain.tar   the account's memory as a bundle (stdout) — the sudo
                                                                    fallback; the drain is fabric-ctl <login> memory (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
   fabric-host ssh-pin <login>                       how to enter that account: `ssh <address> <port>` when its host's registry entry has a pinned
@@ -32,7 +33,8 @@ Contract (ADR-040 Wave 9; ported from the bash fabric-host, which this keeps):
   exit      2 for a usage error; 1 for an unresolvable registry, a host that
             does not answer or answers under another name; otherwise the
             command's (run, moveto, rename and drain exec hostexec; persist runs its two steps as children and
-            exits with the worse status).
+            exits with the worse status; on a host with no placements it skips the accounts step, says so on stderr, and
+            exits with the settings step's).
 """
 from __future__ import annotations
 
@@ -185,10 +187,14 @@ def main(argv: list[str]) -> int:
         if sub == "persist":
             placement = load_registry(registry).get("placement") or {}
             logins = [login for login, p in placement.items() if p == host]
-            if not logins:
-                raise Refused(f"no placements on {host}")
-            # Both steps always run: the accounts failing is no reason to leave the host's settings unmade, nor the reverse.
-            steps = (("persist_accounts.py", *logins), ("persist_host_settings.py",))
+            # Both steps run whenever the accounts step has logins to work on: the accounts failing is no reason to leave the host's
+            # settings unmade, nor the reverse. The settings step takes no login and is the one a host needs before its first
+            # account (its firewall must open first), so a host with no placements still runs it.
+            steps = (("persist_host_settings.py",),)
+            if logins:
+                steps = (("persist_accounts.py", *logins), *steps)
+            else:
+                print(f"fabric-host: no placements on {host}: persist_accounts.py skipped, persist_host_settings.py runs", file=sys.stderr)
             return max([run_hostexec_step([host, "--", "sudo", "-n", FABRIC_PYTHON, "-I", f"@fabric/tools/fabric/provisioning/{script}", *args])
                         for script, *args in steps])
         if sub == "drain":

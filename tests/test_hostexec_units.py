@@ -131,7 +131,7 @@ def main() -> int:
         with open(envr["AGENT_FABRIC_HOSTS_REGISTRY"], "w") as fh:
             json.dump({"hosts": {"h": {"platform": "p", "ssh": None, "operator": "o", "fabric": "/f"}}, "placement": {}}, fh)
         fh_cmd = os.path.join(ROOT, "bin", "fabric-host")
-        for argv, want in (([], 2), (["h"], 2), (["h", "moveto"], 2), (["h", "rename", "a", "b"], 2), (["h", "persist"], 2), (["h", "drain"], 2),
+        for argv, want in (([], 2), (["h"], 2), (["h", "moveto"], 2), (["h", "rename", "a", "b"], 2), (["h", "drain"], 2),
                            (["h", "wat"], 2)):
             r = run([fh_cmd, *argv], env=envr)
             check(f"fabric-host {' '.join(argv) or '(nothing)'}: exit {want}, no traceback", r.returncode == want and "Traceback" not in r.stderr, (r.returncode, r.stderr))
@@ -154,8 +154,6 @@ def main() -> int:
         r = run([fh_cmd, "ssh-pin", "pinned"], env={**envr, "AGENT_FABRIC_HOSTS_REGISTRY": os.path.join(tmp, "absent.json")})
         check("...a registry that cannot be read is exit 1, one line, never `sudo`", r.returncode == 1 and r.stdout == "" and "unreadable" in r.stderr and "Traceback" not in r.stderr,
               (r.returncode, r.stdout, r.stderr))
-        r = run([fh_cmd, "h", "persist"], env=envr)
-        check("persist with no placements on the host is said", "no placements on h" in r.stderr, r.stderr)
         r = run([fh_cmd, "h", "drain", "someone"], env=envr)
         check("drain to a pipe, not a terminal, is accepted far enough to reach hostexec (positive control for the terminal refusal)",
               "redirect it" not in r.stderr, r.stderr)
