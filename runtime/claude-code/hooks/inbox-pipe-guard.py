@@ -39,9 +39,10 @@ FLAT, AND CLOSED WHERE IT IS NOT. The command is judged as pipelines of simple c
 `&` and newlines. A `$( … )` or backtick span in which the loose scan below finds no consuming run, and no runner or
 process substitution stands, is blanked to a word first, so naming an inbox file is no capture (`f=$(mktemp -t
 inbox.XXXXXX); gzcoord-inbox > "$f"` passes), and a `$(( … ))` is arithmetic, blanked on the same test
-(`n=$((n+1))`); a process substitution never is. Blanking is all or nothing: where one span is kept, or a `)` may not
-close what it seems to (a quoted one, a case pattern's, an escaped one), nothing is blanked and the text is read as
-written (#721 F7). Groups,
+(`n=$((n+1))`); a process substitution never is. Where one span is kept, or a `)` in a span may not close it (a
+quoted one), nothing is blanked and the text is read as written (#721 F7); from the first mark after which a `)` may
+not close what it seems to (an escape, an unquoted heredoc, a case, a `$[`, a quote inside a `${ … }`) the text is
+read as written, and the spans closed before it are blanked still (#721 F9). Groups,
 compound commands, the substitutions left and runners are not followed: when the command holds any of them (`(`, `{`,
 `}`, `fi`, `done`, `esac`, `$(`, a backtick, `<(`, `>(`, a word of post-review-shape-guard's RUNNERS, `.`) and a
 consuming run found by a loose scan of every word (mention or run alike, readers not exempt), it is refused if it also
@@ -125,18 +126,29 @@ REASON = ("A consuming gzcoord-inbox run acknowledges its whole page before a pi
 # command, blanked on the same test (bash reads `$((gzcoord-inbox | head))` as arithmetic, but a shell that did not
 # would drain; keeping it costs a rephrase). A `$((` whose first `)` is not `))` opens a substitution of a subshell, as
 # bash reads `$((cd x); gzcoord-inbox)`. Never a <( … ) or >( … ): `gzcoord-inbox > >(head)` is a pipe by another name.
-# All or nothing: the text is given back as written, nothing blanked, the moment one span is kept (its `$(` decides
-# the command, and blanking the rest would only cost time, #721 F8) or the pairing cannot be trusted. Quotes are not
-# parsed here, so a `)` is not trusted to close a span (#721 F7: a quoted one or a case pattern's ended a span early,
-# its `$(` was blanked away and the run after it read as bare) when the span's body holds an odd count of `"`, when a
-# `)` meets no open span, when a span or a quote is left open at the end, or anywhere _untrusted() says.
+# The text is given back as written, nothing blanked, the moment one span is kept (its `$(` decides the command, and
+# blanking the rest would only cost time, #721 F8). Quotes are not parsed here, so a `)` is not trusted to close a
+# span (#721 F7: a quoted one or a case pattern's ended a span early, its `$(` was blanked away and the run after it
+# read as bare) when the span's body holds an odd count of `"` or when a `)` meets no open span: nothing is blanked
+# then either. From _untrusted()'s offset on, nothing is trusted: a span whose closing `)` or backtick stands before
+# it is judged as above, and everything from it on, a span still open there included, is left as written. Only that
+# far, not the whole text: a heredoc, an escaped quote or the word esac after the way out's `$(mktemp …)` closed
+# leaves that span blanked (#721 F9), and no quote parity is asked across the offset, where an escaped `"` stands.
 SUBST_MARK = re.compile(r"\$\(\(|\$\(|[()`]")
-# A `(`, `)` or quote that may be no such thing: after a backslash, in the body of a heredoc whose delimiter is
-# unquoted (live_text drops a quoted one's body; its delimiter is let through here), or a case pattern's `)`, which
-# closes nothing. Inside a parameter expansion too, which BRACE_MARK finds in one forward pass: a regex from every
-# `${` to its `}` was quadratic in their nesting.
-UNTRUSTED = re.compile(r"\\[()`\"$]|(?<!<)<<-?[ \t]*(?![-<'\"\\ \t])|\besac\b")
-BRACE_MARK = re.compile(r"\$\{|[{}()\\]")
+# A `(`, `)`, `}` or quote that may be no such thing: after a backslash, in the body of a heredoc whose delimiter is
+# unquoted (live_text drops a quoted one's body; its delimiter is let through here), or inside the old arithmetic
+# `$[ … ]`, which bash nests to its `]` (`$[0)]` closes no `$(`, and `${y:-$[}]}` no `${`); the offset is the
+# backslash, the `<<` or the `$[`, before what they change.
+UNTRUSTED = re.compile(r"\\[()`\"$]|(?<!<)<<-?[ \t]*(?![-<'\"\\ \t])|\$\[")
+# A case pattern's `)` closes nothing. It stands after its `case` word, so where an `esac` stands the earliest `case`
+# word, or the `esac` when it comes first, is the offset: a `case` that is no reserved word only moves it earlier.
+ESAC = re.compile(r"\besac\b")
+CASE = re.compile(r"\bcase\b")
+# Inside a parameter expansion, a `(`, `)`, backslash, `"` or backtick is untrusted, which BRACE_MARK finds in one
+# forward pass (a regex from every `${` to its `}` was quadratic in their nesting). A quote or backtick because this
+# scan does not read them: a quoted or backticked `}` ended the depth early and a later `(` or `)` read as trusted
+# (#721 F7, `${y:-"}")}`). The scan stops at the first one, so the offset is that mark.
+BRACE_MARK = re.compile(r"\$\{|[{}()\\\"`]")
 # Holds no `inbox`, so a command whose every mention was blanked passes before the lexer runs.
 PLACEHOLDER = "_pipe_guard_subst_"
 
@@ -249,17 +261,23 @@ def loosely_consuming(text: str) -> bool:
 
 
 def blank_substitutions(text: str) -> str:
-    """The text with every substitution and arithmetic span blanked, or the text as written when a span is kept
-    (_kept) or the pairing cannot be trusted (SUBST_MARK's comment says when). One pass over the text, each
+    """The text with every substitution and arithmetic span blanked that closes before _untrusted()'s offset, the
+    rest as written; or all of it as written when a span is kept (_kept) or the pairing cannot be trusted
+    (SUBST_MARK's comment says when). One pass over the text, each
     span's body joined and judged once, when it closes, its children already blanked; the pass stops at the first span
     kept, so nothing is re-joined level after level and the cost is linear whatever the nesting (#721, #721 F8)."""
-    blanked = _blanked(text)
+    blanked = _blanked(text, _untrusted(text))
     return text if blanked is None else blanked
 
 
-def _untrusted(text: str) -> bool:
-    if UNTRUSTED.search(text):
-        return True
+def _untrusted(text: str) -> int | None:
+    """The first offset from which a `(`, `)`, backtick or quote may be no such thing, or None (SUBST_MARK's comment)."""
+    offsets = []
+    if (m := UNTRUSTED.search(text)) is not None:
+        offsets.append(m.start())
+    if (m := ESAC.search(text)) is not None:
+        case = CASE.search(text)
+        offsets.append(m.start() if case is None else min(case.start(), m.start()))
     depth = 0       # open `${`, and the plain braces inside them
     for m in BRACE_MARK.finditer(text):
         mark = m.group(0)
@@ -268,19 +286,21 @@ def _untrusted(text: str) -> bool:
         elif mark == "}":
             depth = max(depth - 1, 0)
         elif depth and mark != "{":
-            return True     # a paren or a backslash inside a parameter expansion
-    return False
+            offsets.append(m.start())   # a paren, a backslash, a quote or a backtick inside a parameter expansion
+            break
+    return min(offsets, default=None)
 
 
-def _blanked(text: str) -> str | None:
-    if _untrusted(text):
-        return None
+def _blanked(text: str, untrusted: int | None) -> str | None:
+    """blank_substitutions' reading, up to `untrusted`; the text from there on is given back as written."""
+    limit = len(text) if untrusted is None else untrusted
     out: list[str] = []
     # One output list and a stack of the open spans: (the mark, where it stands in out, the `"` count before it). A
     # span's body is out after its mark; a plain `(` span is only paired, never judged, so it joins nothing.
     stack: list[tuple[str, int, int]] = []
     quotes = at = 0
-    while (m := SUBST_MARK.search(text, at)) is not None:
+    # A mark is searched only before the limit, so every `)` paired here closes before it.
+    while (m := SUBST_MARK.search(text, at, limit)) is not None:
         chunk = text[at:m.start()]
         out.append(chunk)
         quotes += chunk.count('"')
@@ -289,7 +309,13 @@ def _blanked(text: str) -> str | None:
             close = text.find("`", at)
             if close < 0:
                 return None
-            body = _blanked(text[at:close])
+            if close >= limit:
+                at = m.start()      # its closing backtick is untrusted: the span is left as written
+                break
+            inner = text[at:close]
+            if _untrusted(inner) is not None:
+                return None
+            body = _blanked(inner, None)
             if body is None or _kept(body):
                 return None
             at = close + 1
@@ -301,7 +327,8 @@ def _blanked(text: str) -> str | None:
             return None
         else:
             opened, mark_at, quotes_before = stack.pop()
-            if opened == "$((" and not text.startswith(")", at):
+            # The second `)` of `))` is read only before the limit; past it, the `$((` is left open, as written.
+            if opened == "$((" and not (at < limit and text.startswith(")", at)):
                 # `$((cd x); …)`: the `(` after `$(` opened a subshell, closed here, in a substitution still open.
                 stack.append(("$(", mark_at, quotes_before))
                 out.append(")")
@@ -319,6 +346,11 @@ def _blanked(text: str) -> str | None:
                 quotes = quotes_before
                 out.append(PLACEHOLDER)
     rest = text[at:]
+    if untrusted is not None:
+        # A span still open here keeps its mark in out, so the command still reads as captured; a quote open here may
+        # close on an escaped `"`, which is why the offset is one, so its parity is not asked.
+        out.append(rest)
+        return "".join(out)
     if stack or (quotes + rest.count('"')) % 2:
         return None
     out.append(rest)
