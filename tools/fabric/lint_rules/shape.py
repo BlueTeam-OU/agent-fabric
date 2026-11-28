@@ -187,17 +187,19 @@ def host_registry_findings(root: str) -> list[str]:
     # The schema's pattern only shapes the field; persist_host_settings.py opens the firewall from it and refuses what
     # IPv4Network(strict=True) refuses, so lint holds the same reading. A /0 admits every source: it is spelled "any",
     # where the owner's word for it is recorded (ADR-064 rule 1), never as an address that looks narrower than it is.
+    # The key is the carrier roster module's, as persist_host_settings reads it: a generic file names no managed project.
+    from gzcoord.carrier.roster import ADMIT_KEY  # noqa: PLC0415 — only this check needs the carrier package
     for hid, e in sorted(hosts.items()):
-        admit = e.get("interweave_admit")
+        admit = e.get(ADMIT_KEY)
         if not isinstance(admit, str) or admit == "any":
             continue
         try:
             net = ipaddress.IPv4Network(admit, strict=True)
         except ValueError as exc:
-            findings.append(f"{where}: host {hid}'s interweave_admit {admit!r} is not an IPv4 address or a CIDR without host bits ({exc})")
+            findings.append(f"{where}: host {hid}'s {ADMIT_KEY} {admit!r} is not an IPv4 address or a CIDR without host bits ({exc})")
             continue
         if net.prefixlen == 0:
-            findings.append(f"{where}: host {hid}'s interweave_admit {admit!r} admits every source; write \"any\" (ADR-064 rule 1)")
+            findings.append(f"{where}: host {hid}'s {ADMIT_KEY} {admit!r} admits every source; write \"any\" (ADR-064 rule 1)")
     placement = reg.get("placement") or {}
     for login, hid in sorted(placement.items()):
         if hid not in hosts:

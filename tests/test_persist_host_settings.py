@@ -55,7 +55,10 @@ for a in args:
         print("running")
     elif a.startswith("--get-zone-of-interface="):
         f = os.path.join(d, "zone-of-" + a.split("=", 1)[1])
-        print(open(f).read().strip() if os.path.exists(f) else "no zone")
+        if not os.path.exists(f):
+            print("no zone")
+            sys.exit(2)
+        print(open(f).read().strip())
     elif a == "--get-default-zone":
         print("public")
     elif a.startswith(("--query-port=", "--query-rich-rule=")):

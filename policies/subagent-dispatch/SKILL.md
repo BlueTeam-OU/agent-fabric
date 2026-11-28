@@ -224,8 +224,9 @@ Two properties of the guard matter and are pinned by the test file:
   **denied** with a reason naming which; and a general agent whose
   description begins with `review` is denied too — reviews use the
   class.
-- It is the ONLY type that passes without a prompt; `general-purpose`
-  with `opus` or `fable` still asks exactly as before, and every
+- It is the ONLY type on `fable` that passes without a prompt
+  (`code-high` on `opus` passes too); `general-purpose` with `opus`
+  or `fable` still asks exactly as before, and every
   writing agent still needs `model` and `isolation: "worktree"`.
 - The read-only harness types — `Explore`, `Plan`, `claude-code-guide`
   — need `model` and must NOT set isolation: they have no writing tool,

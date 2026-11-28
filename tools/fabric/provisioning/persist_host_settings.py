@@ -234,8 +234,10 @@ def default_route_interface(proc_root: str) -> str:
 
 def _zone(env: Mapping[str, str], proc_root: str) -> str:
     iface = default_route_interface(proc_root)
-    _, zone = _fw(env, f"--get-zone-of-interface={iface}")
-    if zone in ("", "no zone"):
+    # firewalld answers an interface no zone claims with "no zone" and exit status 2 (measured on fabric-h2, firewalld 2.4.0,
+    # 2026-11-28), not 0: accepting only 0 here made the default-zone branch unreachable.
+    rc, zone = _fw(env, f"--get-zone-of-interface={iface}", ok=(0, 2))
+    if rc == 2 or zone in ("", "no zone"):
         # An interface no zone claims is in the default zone, which is where firewalld applies its traffic.
         _, zone = _fw(env, "--get-default-zone")
     if not zone or " " in zone:
