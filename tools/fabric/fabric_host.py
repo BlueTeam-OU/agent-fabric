@@ -7,7 +7,8 @@
   fabric-host <host> moveto <login> [<clone>]       an interactive shell as that account, in its workspace
   fabric-host <host> rename <login> <old> <new> [--dry-run]   provisioning/rename_working_copy.py, run there
   fabric-host <host> persist                        every placement survives the host's reboot (linger; the record snapshot on Qubes),
-                                                    and the host settings the fabric needs are made and kept (reserved ports, ADR-064)
+                                                    and the host settings the fabric needs are made and kept (reserved ports, ADR-064);
+                                                    with no placements the settings step alone runs (one line says the accounts step is skipped)
   fabric-host <host> drain <login> [harvest flags...] > drain.tar   the account's memory as a bundle (stdout) — the sudo
                                                                    fallback; the drain is fabric-ctl <login> memory (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
   fabric-host ssh-pin <login>                       how to enter that account: `ssh <address> <port>` when its host's registry entry has a pinned
@@ -29,10 +30,11 @@ Contract (ADR-040 Wave 9; ported from the bash fabric-host, which this keeps):
             roots cannot give is a refusal (exit 1), never the checkout's own
             file. It is exported, so hostexec, which keeps its own default,
             reads the same registry when this runs it.
-  exit      2 for a usage error; 1 for an unresolvable registry, a host that
+  exit      2 for a usage error; 1 for an unresolvable registry or one of the wrong shape (hosts, placement), a host that
             does not answer or answers under another name; otherwise the
             command's (run, moveto, rename and drain exec hostexec; persist runs its two steps as children and
-            exits with the worse status).
+            exits with the worse status; on a host with no placements it skips the accounts step, says so on stderr, and
+            exits with the settings step's).
 """
 from __future__ import annotations
 
@@ -89,6 +91,13 @@ def load_registry(path: str) -> dict:
         raise Refused(f"the hosts registry {path} is unreadable ({e.__class__.__name__})", 1) from None
     if not isinstance(doc, dict):
         raise Refused(f"the hosts registry {path} is not an object", 1)
+    # The shape every subcommand reads is checked once, here: a wrong type is one line and exit 1, never a traceback and never
+    # an empty answer (an absent key is the contract's own default, a present key of the wrong type is a broken registry).
+    # `in`, not `.get() is not None`: a present null is a wrong type, and the schema allows neither key to be null.
+    if "hosts" in doc and not (isinstance(doc["hosts"], dict) and all(isinstance(h, dict) for h in doc["hosts"].values())):
+        raise Refused(f"the hosts registry {path}: 'hosts' must map each host id to an object", 1)
+    if "placement" in doc and not (isinstance(doc["placement"], dict) and all(isinstance(p, str) for p in doc["placement"].values())):
+        raise Refused(f"the hosts registry {path}: 'placement' must map each login to a host id", 1)
     return doc
 
 
@@ -98,6 +107,9 @@ def list_text(reg: dict) -> str:
     out = []
     for hid, h in sorted(hosts.items()):
         where = "this host (direct)" if h.get("ssh") is None else f"ssh {h['ssh']}"
+        for key in ("platform", "operator"):
+            if not isinstance(h.get(key), str):
+                raise Refused(f"the hosts registry: host {hid} has no '{key}' (a string)", 1)
         out.append(f"{hid:20} {h['platform']:14} operator {h['operator']:12} {where}")
         placed = sorted(login for login, p in placement.items() if p == hid)
         out.append("                     accounts: " + (", ".join(placed) or "(none placed)"))
@@ -157,6 +169,9 @@ def main(argv: list[str]) -> int:
     try:
         registry = resolve_registry()
         os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = registry
+        # Every subcommand that goes on to use the registry reads it here, after its own usage checks and before it runs anything:
+        # hostexec reads the same file more leniently, and a registry of the wrong shape must be refused in one line; a usage error
+        # (exit 2, the synopsis) is still told before a registry the caller never got to use.
         if argv[0] == "list":
             sys.stdout.write(list_text(load_registry(registry)))
             return 0
@@ -171,24 +186,35 @@ def main(argv: list[str]) -> int:
             return 2
         sub, rest = rest[0], rest[1:]
         if sub == "check":
+            load_registry(registry)
             return check(host, registry)
         if sub == "run":
+            load_registry(registry)
             return run_hostexec([host, *rest])
         if sub == "moveto":
             if not rest:
                 raise Refused("moveto needs the login")
+            load_registry(registry)
             return run_hostexec([host, "--tty", "--", "moveto", rest[0], *rest[1:]])
         if sub == "rename":
             if len(rest) < 3:
                 raise Refused("rename needs <login> <old> <new>")
+            load_registry(registry)
             return run_hostexec([host, "--", FABRIC_PYTHON, "-I", "@fabric/tools/fabric/provisioning/rename_working_copy.py", *rest])
         if sub == "persist":
-            placement = load_registry(registry).get("placement") or {}
+            reg = load_registry(registry)
+            placement = reg.get("placement") or {}
+            if host not in (reg.get("hosts") or {}):
+                raise Refused(f"unknown host {host}: not in the hosts registry")
             logins = [login for login, p in placement.items() if p == host]
-            if not logins:
-                raise Refused(f"no placements on {host}")
-            # Both steps always run: the accounts failing is no reason to leave the host's settings unmade, nor the reverse.
-            steps = (("persist_accounts.py", *logins), ("persist_host_settings.py",))
+            # Both steps run whenever the accounts step has logins to work on: the accounts failing is no reason to leave the host's
+            # settings unmade, nor the reverse. The settings step takes no login and is the one a host needs before its first
+            # account (its firewall must open first), so a host with no placements still runs it.
+            steps = (("persist_host_settings.py",),)
+            if logins:
+                steps = (("persist_accounts.py", *logins), *steps)
+            else:
+                print(f"fabric-host: no placements on {host}: persist_accounts.py skipped, persist_host_settings.py runs", file=sys.stderr)
             return max([run_hostexec_step([host, "--", "sudo", "-n", FABRIC_PYTHON, "-I", f"@fabric/tools/fabric/provisioning/{script}", *args])
                         for script, *args in steps])
         if sub == "drain":
@@ -196,6 +222,7 @@ def main(argv: list[str]) -> int:
                 raise Refused("drain needs the login")
             if os.isatty(1):
                 raise Refused("drain writes a tar to stdout; redirect it (> drain.tar) or pipe it to assemble.py --bundle -")
+            load_registry(registry)
             return run_hostexec([host, "--as", rest[0], "--", "python3", "@fabric/tools/fabric/harvest_memory.py", "--bundle", "-", *rest[1:]])
         raise Refused(f"unknown subcommand {sub} ({USAGE_SUBCOMMANDS})")
     except Refused as e:

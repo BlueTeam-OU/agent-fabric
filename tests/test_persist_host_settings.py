@@ -511,8 +511,89 @@ class EntryPoint(Case):
         self.assertIn("usage:", r.stderr)
 
 
+class FabricHostRegistryShape(unittest.TestCase):
+    """A registry of the wrong shape is one line and exit 1 on every subcommand that reads it, never a traceback."""
+
+    def run_main(self, doc, argv):
+        with tempfile.TemporaryDirectory() as t, tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
+            reg = os.path.join(t, "registry.json")
+            with open(reg, "w") as fh:
+                json.dump(doc, fh)
+            with unittest.mock.patch.object(fabric_host, "resolve_registry", lambda: reg), \
+                    unittest.mock.patch.object(fabric_host, "run_hostexec_step", lambda argv: 0), \
+                    unittest.mock.patch.object(fabric_host, "run_hostexec", lambda argv: 99), \
+                    unittest.mock.patch.dict(os.environ, {}), \
+                    unittest.mock.patch.object(sys, "stdout", out), unittest.mock.patch.object(sys, "stderr", err):
+                rc = fabric_host.main(argv)
+            out.seek(0)
+            err.seek(0)
+            return rc, out.read(), err.read()
+
+    def test_a_placement_that_is_not_a_map_of_strings_refuses_persist_and_list(self):
+        for placement in (["la"], {"la": ["h1"]}, {"la": None}):
+            for argv in (["h1", "persist"], ["list"]):
+                rc, out, err = self.run_main({"hosts": {}, "placement": placement}, argv)
+                self.assertEqual((rc, out), (1, ""), (placement, argv))
+                self.assertTrue(err.startswith("fabric-host: the hosts registry ") and err.endswith(": 'placement' must map each login to a host id\n"), err)
+                self.assertEqual(err.count("\n"), 1)
+
+    def test_every_subcommand_that_takes_a_host_refuses_before_reaching_hostexec(self):
+        bad = {"hosts": {"h1": "debian"}, "placement": {}}
+        for argv in (["h1", "run", "--", "true"], ["h1", "check"], ["h1", "moveto", "la"], ["h1", "rename", "a", "b", "c"],
+                     ["h1", "drain", "la"], ["h1", "persist"], ["ssh-pin", "la"], ["list"]):
+            rc, out, err = self.run_main(bad, argv)
+            self.assertEqual((rc, out), (1, ""), argv)
+            self.assertEqual(err.count("\n"), 1, argv)
+            # check would fail with one line and exit 1 on its own (nothing answers), so the line must be the registry's.
+            self.assertIn("'hosts' must map", err, argv)
+        rc, out, err = self.run_main({"hosts": {"h1": {"platform": "debian", "operator": "op", "ssh": None}}, "placement": {}},
+                                     ["h1", "run", "--", "true"])
+        self.assertEqual(rc, 99, "positive control: a well-formed registry reaches hostexec")
+
+    def test_a_usage_error_is_told_before_a_registry_that_cannot_be_read(self):
+        for argv, status in ((["h1"], 2), (["h1", "bogus"], 2), (["h1", "moveto"], 2), (["h1", "rename", "a"], 2), (["ssh-pin"], 2)):
+            with tempfile.TemporaryDirectory() as t, tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err, \
+                    unittest.mock.patch.object(fabric_host, "resolve_registry", lambda t=t: os.path.join(t, "absent.json")), \
+                    unittest.mock.patch.dict(os.environ, {}), \
+                    unittest.mock.patch.object(sys, "stdout", out), unittest.mock.patch.object(sys, "stderr", err):
+                rc = fabric_host.main(argv)
+                err.seek(0)
+                said = err.read()
+            self.assertEqual(rc, status, argv)
+            # A refusal of the registry is exit 1 and says "unreadable"; a usage error is exit 2 and never says it.
+            self.assertNotIn("unreadable", said, argv)
+
+    def test_a_present_null_is_a_wrong_type_not_an_absent_key(self):
+        for doc in ({"hosts": None, "placement": {}}, {"hosts": {}, "placement": None}):
+            rc, out, err = self.run_main(doc, ["list"])
+            self.assertEqual((rc, out), (1, ""), doc)
+            self.assertIn("must map", err)
+        rc, out, err = self.run_main({}, ["list"])
+        self.assertEqual((rc, out, err), (0, "", ""), "positive control: absent keys are the contract's default")
+
+    def test_persist_on_a_host_the_registry_does_not_have_is_refused_in_one_line(self):
+        rc, out, err = self.run_main({"hosts": {"h1": {"platform": "debian", "operator": "op"}}, "placement": {}}, ["typo", "persist"])
+        self.assertEqual((rc, out, err), (2, "", "fabric-host: unknown host typo: not in the hosts registry\n"))
+        rc, out, err = self.run_main({"hosts": {"h1": {"platform": "debian", "operator": "op"}}, "placement": {}}, ["h1", "persist"])
+        self.assertEqual(rc, 0, "positive control: a registered host with no placements runs the settings step")
+
+    def test_hosts_that_are_not_a_map_of_objects_refuse(self):
+        for hosts in (["h1"], {"h1": "debian"}):
+            rc, out, err = self.run_main({"hosts": hosts, "placement": {}}, ["list"])
+            self.assertEqual((rc, out), (1, ""), hosts)
+            self.assertIn("'hosts' must map each host id to an object", err)
+
+    def test_list_names_the_host_that_lacks_a_platform_or_operator(self):
+        rc, out, err = self.run_main({"hosts": {"h1": {"operator": "op"}}, "placement": {}}, ["list"])
+        self.assertEqual((rc, out), (1, ""))
+        self.assertIn("host h1 has no 'platform'", err)
+        rc, out, err = self.run_main({"hosts": {"h1": {"platform": "debian", "operator": "op", "ssh": None}}, "placement": {"la": "h1"}}, ["list"])
+        self.assertEqual((rc, err), (0, ""), "positive control: a well-formed registry lists")
+        self.assertIn("accounts: la", out)
+
+
 class FabricHostPersist(unittest.TestCase):
-    def persist(self, results):
+    def persist(self, results, host="h1"):
         calls = []
 
         def step(argv):
@@ -521,12 +602,12 @@ class FabricHostPersist(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             reg = os.path.join(t, "registry.json")
             with open(reg, "w") as fh:
-                json.dump({"version": 1, "hosts": {"h1": {"platform": "debian", "ssh": None}},
+                json.dump({"version": 1, "hosts": {"h1": {"platform": "debian", "ssh": None}, "h3": {"platform": "debian", "ssh": None}},
                            "placement": {"la": "h1", "lb": "h1", "lz": "h2"}}, fh)
             with unittest.mock.patch.object(fabric_host, "resolve_registry", lambda: reg), \
                     unittest.mock.patch.object(fabric_host, "run_hostexec_step", step), \
                     unittest.mock.patch.dict(os.environ, {}):
-                rc = fabric_host.main(["h1", "persist"])
+                rc = fabric_host.main([host, "persist"])
         return rc, calls
 
     def test_both_steps_run_as_root_on_the_pinned_interpreter_the_accounts_first(self):
@@ -539,6 +620,22 @@ class FabricHostPersist(unittest.TestCase):
         for results, want in (([1, 0], 1), ([0, 1], 1), ([1, 1], 1), ([2, 1], 2), ([0, 126], 126)):
             rc, calls = self.persist(results)
             self.assertEqual((rc, len(calls)), (want, 2), results)
+
+    def test_with_no_placements_only_the_settings_step_runs_and_its_exit_is_the_exit(self):
+        base = ["h3", "--", "sudo", "-n", fabric_host.FABRIC_PYTHON, "-I"]
+        for result in (0, 1, 126):
+            with tempfile.TemporaryFile("w+") as err, unittest.mock.patch.object(sys, "stderr", err):
+                rc, calls = self.persist([result], host="h3")
+                err.seek(0)
+                said = err.read()
+            self.assertEqual((rc, calls), (result, [[*base, "@fabric/tools/fabric/provisioning/persist_host_settings.py"]]))
+            self.assertEqual(said, "fabric-host: no placements on h3: persist_accounts.py skipped, persist_host_settings.py runs\n")
+
+    def test_with_placements_the_skip_line_is_not_said(self):
+        with tempfile.TemporaryFile("w+") as err, unittest.mock.patch.object(sys, "stderr", err):
+            self.persist([0, 0])
+            err.seek(0)
+            self.assertEqual(err.read(), "")
 
     def test_a_step_runs_as_a_child_with_its_status_a_signals_as_the_shells_and_a_bound(self):
         with tempfile.TemporaryDirectory() as t:
