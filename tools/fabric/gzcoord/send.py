@@ -11,8 +11,11 @@ CONTRACT, frozen from the Node:
             AGENT_FABRIC_FALLBACK_DIR and CLAUDE_PID (the fallback
             reminder), AGENT_FABRIC_JOBS_AUTO_INTAKE=1 (off unless exactly
             1), GZCOORD_PRESENCE_WAIT_MS (the presence CLI's),
-            GZCOORD_TRANSPORT_MODE (read by the presence child only; the
-            send builds the carrier whatever the mode),
+            GZCOORD_TRANSPORT_MODE (the send builds the carrier whatever the
+            mode; a message that presence is asked about validates and says
+            the override, which only the presence child uses), and for that
+            same ask CLAUDE_BRIDGE_AUTH_TOKEN, CLAUDE_BRIDGE_URL and
+            GZCOORD_CHANNEL (the control plane's relay path, until W16),
             AGENT_FABRIC_HOSTS_REGISTRY / AGENT_FABRIC_OPERATOR (the hosts
             registry a REQUEST's job intake reads)
   stdout    `sent <TYPE> <id>` (the carrier numbers nothing: the id names the message), and nothing else
@@ -23,7 +26,8 @@ CONTRACT, frozen from the Node:
   exit      0 sent (a dry run: validated and resolved); 1 usage or
             unreadable input, or the id could not be written into the
             file; 2 invalid, FROM not this login, an id already sent with
-            other text, a journal that cannot keep
+            other text, a GZCOORD_TRANSPORT_MODE that names no mode (for a
+            message presence is asked about), a journal that cannot keep
             the message, or (GZCOORD_JOURNAL=off) a bypass that cannot
             be recorded; 3 the carrier not accepting the send: absent,
             failing, or its answer lost (not sent when it recorded
@@ -584,10 +588,14 @@ def main(argv: list[str]) -> int:
                 print(f"gzcoord: not sent: {e}", file=sys.stderr)
                 return 2
         # The presence child is the control plane's, and asks the relay in relay-record and carrier-record (until W16), where it
-        # needs the account's token; in carrier-only it ignores it. A token that is not found is the empty string, which a
-        # relay mode answers with its own 401 (presence says so and the TO is reported unchecked), never a request without one.
-        pres = asked_presence(msg["metadata"], me["address"],
-                              tokens.token(root, inbox_config.integration_config(who.get("project"), os.environ, t)) or "")
+        # needs the account's token; in carrier-only it ignores it. A token that is not found, or that cannot be read, is the empty
+        # string: a relay mode then posts unauthenticated, presence answers 401 and the TO is reported unchecked (said below), and
+        # carrier-only, which never looks at it, is not stopped by a relay secret it does not use.
+        try:
+            relay_token = tokens.token(root, inbox_config.integration_config(who.get("project"), os.environ, t)) or ""
+        except (tokens.TokenRefused, OSError, ValueError):
+            relay_token = ""
+        pres = asked_presence(msg["metadata"], me["address"], relay_token)
         # Said, never silent: the contract is that a TO is checked.
         if pres.get("skipped"):
             print(t("send.presence-skipped"), file=sys.stderr)

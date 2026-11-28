@@ -2402,7 +2402,19 @@ def _():
         srv.server_close()
 
 
-@case("send and inbox read no relay setting: a relay address, a token, a channel or a transport mode in the environment changes nothing and is never dialled")
+@case("carrier-only, an addressed send: a relay token that holds a line break stops nothing, since nothing in carrier-only uses it")
+def _():
+    pr = Presence({"h/alpha": up("web-dev")})
+    try:
+        r = send_with(pr, addressed("TO: h/alpha"), **pr.env, CLAUDE_BRIDGE_AUTH_TOKEN="tok\nsplit")
+        eq(r.code, 0, r.err)
+        eq(len(pr.posts), 1, "sent")
+        hasnt(r"relay token", r.err, "a relay secret carrier-only never looks at is not said")
+    finally:
+        pr.close()
+
+
+@case("a broadcast send and the inbox read no relay setting: a relay address, a token, a channel or a transport mode in the environment changes nothing and is never dialled")
 def _():
     # A listener standing where CLAUDE_BRIDGE_URL points: a connection to it is a relay call.
     import socket
@@ -2679,10 +2691,18 @@ def _():
         b = run_cmd(INBOX_CMD, ["--replay", theirs_id], env)
         unknown = run_cmd(INBOX_CMD, ["--replay", "01a09fc1-0000-7000-8000-0000000000ff"], env)
         by_seq = run_cmd(INBOX_CMD, ["--replay", "7"], env)
+        long_arg = run_cmd(INBOX_CMD, ["--replay", "x" * 50], env)
+        ctl_arg = run_cmd(INBOX_CMD, ["--replay", "a\x1b[31mb"], env)
         aj = run_cmd(INBOX_CMD, ["--replay", mine_id, "--json"], env)
         bj = run_cmd(INBOX_CMD, ["--replay", theirs_id, "--json"], env)
     finally:
         carrier.close()
+    # The refusal echoes the argument bounded and escaped: it may have been copied out of a message body.
+    eq(long_arg.code, 1)
+    has(r"and x{40}\.\.\. is not one", long_arg.err)
+    eq(ctl_arg.code, 1)
+    has(r"and a\\x1b\[31mb\.\.\. is not one", ctl_arg.err)
+    hasnt(r"\x1b", ctl_arg.err, "no raw escape reaches the session")
     # --json, for fabric-jobs add --request: the same read, the same withholding.
     eq(aj.code, 0, aj.err)
     doc = json.loads(aj.out)

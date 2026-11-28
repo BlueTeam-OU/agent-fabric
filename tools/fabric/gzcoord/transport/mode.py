@@ -24,7 +24,7 @@ CONTRACT
                    of THIS command, whatever the state file says, and the file is not read (a damaged file does not stop the
                    command that overrides it: that is what the override is for). A value that is not one of MODES raises
                    ModeError: an unknown mode is never read as the default. Empty is read as unset, as a shell's `VAR= cmd`
-                   means. The presence child the sender starts honours it; send, inbox and the watch no longer read the mode.
+                   means. The presence child the sender starts honours it, and an addressed send validates and says it for that child; send, inbox and the watch read no mode otherwise.
   effective(state_dir, env, say)
                    the Mode a command runs in: the override when set, else read(). `say` is called once with the line that
                    tells the override is in force ("every time it is used"); a repeated read of the same command (the watch's
