@@ -6,7 +6,8 @@ the carrier is the only transport), through the real entry points with a real ca
      transport-mode file says: with no relay token and no relay section anywhere (no CLAUDE_BRIDGE_*, no GZCOORD_CHANNEL, a
      project integration holding no relay_url) a send, the watch and a replay all work; so they do with a relay named and no
      token, with a malformed token, with a relay-record or carrier-record file (read, and changing nothing), with a damaged file,
-     and with any GZCOORD_TRANSPORT_MODE (read only by the presence child: the send and the inbox neither say nor obey it).
+     and with any GZCOORD_TRANSPORT_MODE (the presence child's: an addressed send says a valid one once and, with --force, never
+     refuses one the child cannot read; the inbox neither says nor obeys it).
   2. an account with no transport-mode.json reads carrier-only, and a read never creates the file.
 
 Plain script: prints ok/FAIL, exit 1 on any failure. The world is test_gzcoord_carrier_only_gate2's."""
@@ -55,15 +56,21 @@ def cases(w: G.World) -> None:
     posted = lambda: len(w.daemon.sends)  # noqa: E731
     n = [40]
 
-    def sends_ok(label: str, force: bool = False, **env: str) -> None:
-        """`force` skips the presence ask: its child is the one reader of the mode and the override, and refuses a mode it cannot read."""
+    def sends_ok(label: str, force: bool = False, said: str = "", **env: str) -> None:
+        """`force` skips the presence ask: its child is the one reader of the mode and the override, and refuses a mode it cannot read.
+        `said` is a valid override of a relay mode: an addressed send says it once (the child, which reads it, does not), and
+        that one line is the only word of a mode, a relay or a token the send may print."""
         n[0] += 1
         mid, path = send_file(w, n[0])
         before = posted()
         r = w.run([SEND, path, *(["--force"] if force else [])], **env)
-        check(f"{label}: send exits 0, `sent INFO <id>`, the peer posted through the carrier, no word of a relay, a token or a mode (the presence child may say its own mode, never the send)",
+        line = f"gzcoord: transport mode {said} for this command, from {mode.ENV} (the account's own mode is not read)\n"
+        err = r.stderr.replace(line, "", 1) if said else r.stderr
+        check(f"{label}: send exits 0, `sent INFO <id>`, the peer posted through the carrier, no word of a relay, a token or a mode"
+              + (f" but the one line saying {said}" if said else "") + " (the presence child may say its own mode)",
               r.returncode == 0 and r.stdout == f"sent INFO {mid}\n" and sent_through_carrier(w, before)
-              and not any(x in r.stderr.lower() for x in (("for this command",) if force else ("token", "relay", "transport mode", mode.ENV.lower()))),
+              and (not said or line in r.stderr)
+              and not any(x in err.lower() for x in (("for this command",) if force else ("token", "relay", "transport mode", mode.ENV.lower()))),
               f"{r.returncode} {r.stdout!r} {r.stderr!r}")
 
     with G.AgentdStandIn(w.run_dir) as agentd:
@@ -96,8 +103,9 @@ def cases(w: G.World) -> None:
         sends_ok("a damaged state file, the presence ask skipped by --force", force=True)
         set_mode(w, mode.CARRIER_ONLY)
 
-        # The override is not a send's or an inbox's: no value of it is refused, said or obeyed.
-        sends_ok(f"{mode.ENV}=relay-record over a carrier-only state file", **{mode.ENV: mode.RELAY_RECORD})
+        # The override is the presence child's. An addressed send says a valid one once for it, and with --force never refuses
+        # a value the child cannot read; the inbox and the transport neither say nor obey it (the watch cases below).
+        sends_ok(f"{mode.ENV}=relay-record over a carrier-only state file", said=mode.RELAY_RECORD, **{mode.ENV: mode.RELAY_RECORD})
         for bad in ("carrier", "CARRIER-ONLY", "bogus", ""):
             sends_ok(f"{mode.ENV}={bad!r}, the presence ask skipped by --force", force=True, **{mode.ENV: bad})
 

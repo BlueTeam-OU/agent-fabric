@@ -27,7 +27,7 @@ CONTRACT, frozen from the Node:
             unreadable input, or the id could not be written into the
             file; 2 invalid, FROM not this login, an id already sent with
             other text, a GZCOORD_TRANSPORT_MODE that names no mode (for a
-            message presence is asked about), a journal that cannot keep
+            message presence is asked about, and not with --force), a journal that cannot keep
             the message, or (GZCOORD_JOURNAL=off) a bypass that cannot
             be recorded; 3 the carrier not accepting the send: absent,
             failing, or its answer lost (not sent when it recorded
@@ -583,11 +583,14 @@ def main(argv: list[str]) -> int:
         if addressed and os.environ.get(transport.mode.ENV):
             # The override reaches only the presence child, which does not say it: said here once, and a value that names no
             # mode is a refusal before anything is posted. A message nobody is asked about reads no mode, so none is said.
+            # --force is the sender's word that presence is not to stop this send: the child refuses a value it cannot read
+            # and force goes on (gate-2's old contract, which this keeps), so the refusal here would be a new way to stop it.
             try:
                 transport.mode.effective(say=transport.mode.say_stderr)
             except transport.ModeError as e:
-                print(f"gzcoord: not sent: {e}", file=sys.stderr)
-                return 2
+                if not force:
+                    print(f"gzcoord: not sent: {e}", file=sys.stderr)
+                    return 2
         if addressed:
             # The presence child is the control plane's, and asks the relay in relay-record and carrier-record (until W16),
             # where it needs the account's token; in carrier-only it ignores it, so a token that cannot be used must not stop
