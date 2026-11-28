@@ -521,6 +521,7 @@ class FabricHostRegistryShape(unittest.TestCase):
                 json.dump(doc, fh)
             with unittest.mock.patch.object(fabric_host, "resolve_registry", lambda: reg), \
                     unittest.mock.patch.object(fabric_host, "run_hostexec_step", lambda argv: 0), \
+                    unittest.mock.patch.object(fabric_host, "run_hostexec", lambda argv: 99), \
                     unittest.mock.patch.dict(os.environ, {}), \
                     unittest.mock.patch.object(sys, "stdout", out), unittest.mock.patch.object(sys, "stderr", err):
                 rc = fabric_host.main(argv)
@@ -535,6 +536,31 @@ class FabricHostRegistryShape(unittest.TestCase):
                 self.assertEqual((rc, out), (1, ""), (placement, argv))
                 self.assertTrue(err.startswith("fabric-host: the hosts registry ") and err.endswith(": 'placement' must map each login to a host id\n"), err)
                 self.assertEqual(err.count("\n"), 1)
+
+    def test_every_subcommand_that_takes_a_host_refuses_before_reaching_hostexec(self):
+        bad = {"hosts": {"h1": "debian"}, "placement": {}}
+        for argv in (["h1", "run", "--", "true"], ["h1", "check"], ["h1", "moveto", "la"], ["h1", "rename", "a", "b", "c"],
+                     ["h1", "drain", "la"], ["h1", "persist"], ["ssh-pin", "la"], ["list"]):
+            rc, out, err = self.run_main(bad, argv)
+            self.assertEqual((rc, out), (1, ""), argv)
+            self.assertEqual(err.count("\n"), 1, argv)
+        rc, out, err = self.run_main({"hosts": {"h1": {"platform": "debian", "operator": "op", "ssh": None}}, "placement": {}},
+                                     ["h1", "run", "--", "true"])
+        self.assertEqual(rc, 99, "positive control: a well-formed registry reaches hostexec")
+
+    def test_a_present_null_is_a_wrong_type_not_an_absent_key(self):
+        for doc in ({"hosts": None, "placement": {}}, {"hosts": {}, "placement": None}):
+            rc, out, err = self.run_main(doc, ["list"])
+            self.assertEqual((rc, out), (1, ""), doc)
+            self.assertIn("must map", err)
+        rc, out, err = self.run_main({}, ["list"])
+        self.assertEqual((rc, out, err), (0, "", ""), "positive control: absent keys are the contract's default")
+
+    def test_persist_on_a_host_the_registry_does_not_have_is_refused_in_one_line(self):
+        rc, out, err = self.run_main({"hosts": {"h1": {"platform": "debian", "operator": "op"}}, "placement": {}}, ["typo", "persist"])
+        self.assertEqual((rc, out, err), (2, "", "fabric-host: unknown host typo: not in the hosts registry\n"))
+        rc, out, err = self.run_main({"hosts": {"h1": {"platform": "debian", "operator": "op"}}, "placement": {}}, ["h1", "persist"])
+        self.assertEqual(rc, 0, "positive control: a registered host with no placements runs the settings step")
 
     def test_hosts_that_are_not_a_map_of_objects_refuse(self):
         for hosts in (["h1"], {"h1": "debian"}):
@@ -561,7 +587,7 @@ class FabricHostPersist(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             reg = os.path.join(t, "registry.json")
             with open(reg, "w") as fh:
-                json.dump({"version": 1, "hosts": {"h1": {"platform": "debian", "ssh": None}},
+                json.dump({"version": 1, "hosts": {"h1": {"platform": "debian", "ssh": None}, "h3": {"platform": "debian", "ssh": None}},
                            "placement": {"la": "h1", "lb": "h1", "lz": "h2"}}, fh)
             with unittest.mock.patch.object(fabric_host, "resolve_registry", lambda: reg), \
                     unittest.mock.patch.object(fabric_host, "run_hostexec_step", step), \

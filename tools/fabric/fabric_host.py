@@ -93,10 +93,10 @@ def load_registry(path: str) -> dict:
         raise Refused(f"the hosts registry {path} is not an object", 1)
     # The shape every subcommand reads is checked once, here: a wrong type is one line and exit 1, never a traceback and never
     # an empty answer (an absent key is the contract's own default, a present key of the wrong type is a broken registry).
-    hosts, placement = doc.get("hosts"), doc.get("placement")
-    if hosts is not None and not (isinstance(hosts, dict) and all(isinstance(h, dict) for h in hosts.values())):
+    # `in`, not `.get() is not None`: a present null is a wrong type, and the schema allows neither key to be null.
+    if "hosts" in doc and not (isinstance(doc["hosts"], dict) and all(isinstance(h, dict) for h in doc["hosts"].values())):
         raise Refused(f"the hosts registry {path}: 'hosts' must map each host id to an object", 1)
-    if placement is not None and not (isinstance(placement, dict) and all(isinstance(p, str) for p in placement.values())):
+    if "placement" in doc and not (isinstance(doc["placement"], dict) and all(isinstance(p, str) for p in doc["placement"].values())):
         raise Refused(f"the hosts registry {path}: 'placement' must map each login to a host id", 1)
     return doc
 
@@ -169,13 +169,16 @@ def main(argv: list[str]) -> int:
     try:
         registry = resolve_registry()
         os.environ["AGENT_FABRIC_HOSTS_REGISTRY"] = registry
+        # Read once for every subcommand: hostexec reads the same file more leniently, and a registry of the wrong shape must be
+        # refused here, in one line, before it runs anything.
+        reg = load_registry(registry)
         if argv[0] == "list":
-            sys.stdout.write(list_text(load_registry(registry)))
+            sys.stdout.write(list_text(reg))
             return 0
         if argv[0] == "ssh-pin":
             if len(argv) != 2:
                 raise Refused("ssh-pin needs the login, and only that")
-            print(ssh_pin(load_registry(registry), argv[1]))
+            print(ssh_pin(reg, argv[1]))
             return 0
         host, rest = argv[0], argv[1:]
         if not rest:
@@ -195,7 +198,9 @@ def main(argv: list[str]) -> int:
                 raise Refused("rename needs <login> <old> <new>")
             return run_hostexec([host, "--", FABRIC_PYTHON, "-I", "@fabric/tools/fabric/provisioning/rename_working_copy.py", *rest])
         if sub == "persist":
-            placement = load_registry(registry).get("placement") or {}
+            placement = reg.get("placement") or {}
+            if host not in (reg.get("hosts") or {}):
+                raise Refused(f"unknown host {host}: not in the hosts registry")
             logins = [login for login, p in placement.items() if p == host]
             # Both steps run whenever the accounts step has logins to work on: the accounts failing is no reason to leave the host's
             # settings unmade, nor the reverse. The settings step takes no login and is the one a host needs before its first
