@@ -511,6 +511,46 @@ class EntryPoint(Case):
         self.assertIn("usage:", r.stderr)
 
 
+class FabricHostRegistryShape(unittest.TestCase):
+    """A registry of the wrong shape is one line and exit 1 on every subcommand that reads it, never a traceback."""
+
+    def run_main(self, doc, argv):
+        with tempfile.TemporaryDirectory() as t, tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
+            reg = os.path.join(t, "registry.json")
+            with open(reg, "w") as fh:
+                json.dump(doc, fh)
+            with unittest.mock.patch.object(fabric_host, "resolve_registry", lambda: reg), \
+                    unittest.mock.patch.object(fabric_host, "run_hostexec_step", lambda argv: 0), \
+                    unittest.mock.patch.dict(os.environ, {}), \
+                    unittest.mock.patch.object(sys, "stdout", out), unittest.mock.patch.object(sys, "stderr", err):
+                rc = fabric_host.main(argv)
+            out.seek(0)
+            err.seek(0)
+            return rc, out.read(), err.read()
+
+    def test_a_placement_that_is_not_a_map_of_strings_refuses_persist_and_list(self):
+        for placement in (["la"], {"la": ["h1"]}, {"la": None}):
+            for argv in (["h1", "persist"], ["list"]):
+                rc, out, err = self.run_main({"hosts": {}, "placement": placement}, argv)
+                self.assertEqual((rc, out), (1, ""), (placement, argv))
+                self.assertTrue(err.startswith("fabric-host: the hosts registry ") and err.endswith(": 'placement' must map each login to a host id\n"), err)
+                self.assertEqual(err.count("\n"), 1)
+
+    def test_hosts_that_are_not_a_map_of_objects_refuse(self):
+        for hosts in (["h1"], {"h1": "debian"}):
+            rc, out, err = self.run_main({"hosts": hosts, "placement": {}}, ["list"])
+            self.assertEqual((rc, out), (1, ""), hosts)
+            self.assertIn("'hosts' must map each host id to an object", err)
+
+    def test_list_names_the_host_that_lacks_a_platform_or_operator(self):
+        rc, out, err = self.run_main({"hosts": {"h1": {"operator": "op"}}, "placement": {}}, ["list"])
+        self.assertEqual((rc, out), (1, ""))
+        self.assertIn("host h1 has no 'platform'", err)
+        rc, out, err = self.run_main({"hosts": {"h1": {"platform": "debian", "operator": "op", "ssh": None}}, "placement": {"la": "h1"}}, ["list"])
+        self.assertEqual((rc, err), (0, ""), "positive control: a well-formed registry lists")
+        self.assertIn("accounts: la", out)
+
+
 class FabricHostPersist(unittest.TestCase):
     def persist(self, results, host="h1"):
         calls = []

@@ -30,7 +30,7 @@ Contract (ADR-040 Wave 9; ported from the bash fabric-host, which this keeps):
             roots cannot give is a refusal (exit 1), never the checkout's own
             file. It is exported, so hostexec, which keeps its own default,
             reads the same registry when this runs it.
-  exit      2 for a usage error; 1 for an unresolvable registry, a host that
+  exit      2 for a usage error; 1 for an unresolvable registry or one of the wrong shape (hosts, placement), a host that
             does not answer or answers under another name; otherwise the
             command's (run, moveto, rename and drain exec hostexec; persist runs its two steps as children and
             exits with the worse status; on a host with no placements it skips the accounts step, says so on stderr, and
@@ -91,6 +91,13 @@ def load_registry(path: str) -> dict:
         raise Refused(f"the hosts registry {path} is unreadable ({e.__class__.__name__})", 1) from None
     if not isinstance(doc, dict):
         raise Refused(f"the hosts registry {path} is not an object", 1)
+    # The shape every subcommand reads is checked once, here: a wrong type is one line and exit 1, never a traceback and never
+    # an empty answer (an absent key is the contract's own default, a present key of the wrong type is a broken registry).
+    hosts, placement = doc.get("hosts"), doc.get("placement")
+    if hosts is not None and not (isinstance(hosts, dict) and all(isinstance(h, dict) for h in hosts.values())):
+        raise Refused(f"the hosts registry {path}: 'hosts' must map each host id to an object", 1)
+    if placement is not None and not (isinstance(placement, dict) and all(isinstance(p, str) for p in placement.values())):
+        raise Refused(f"the hosts registry {path}: 'placement' must map each login to a host id", 1)
     return doc
 
 
@@ -100,6 +107,9 @@ def list_text(reg: dict) -> str:
     out = []
     for hid, h in sorted(hosts.items()):
         where = "this host (direct)" if h.get("ssh") is None else f"ssh {h['ssh']}"
+        for key in ("platform", "operator"):
+            if not isinstance(h.get(key), str):
+                raise Refused(f"the hosts registry: host {hid} has no '{key}' (a string)", 1)
         out.append(f"{hid:20} {h['platform']:14} operator {h['operator']:12} {where}")
         placed = sorted(login for login, p in placement.items() if p == hid)
         out.append("                     accounts: " + (", ".join(placed) or "(none placed)"))
