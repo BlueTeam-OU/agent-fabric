@@ -193,8 +193,8 @@ class Restarter:
         # re-read, the check, the record and the restart all run under it, so a second run waits and then finds the episode
         # restarted with its outcome.
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX)
             try:
+                fcntl.flock(lock, fcntl.LOCK_EX)
                 self.ledger = self._read()
                 again, note = self.plan(account, episode, {"idle": True})
             except (OSError, ValueError) as e:   # the flock or the re-read failed: nothing was recorded or run

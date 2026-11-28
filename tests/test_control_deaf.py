@@ -890,6 +890,18 @@ class LockAndSave(unittest.TestCase):
         r = deaf_alarm.ctl_restart("a", lambda argv, **kw: subprocess.run(["printf", r"\377"], capture_output=True, text=True, **{k: v for k, v in kw.items() if k in ("encoding", "errors")}))
         self.assertEqual(r[0], "failed")
 
+    def test_f11_a_lock_that_cannot_be_taken_is_not_a_restart_that_was_run(self) -> None:
+        import errno
+        import fcntl
+        from unittest import mock
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            rs = deaf_alarm.Restarter(os.path.join(d, "deaf-restart.json"), "me", ctl=lambda a: self.fail("restarted"), clock=lambda: NOW)
+            sent: list = []
+            with mock.patch.object(fcntl, "flock", side_effect=OSError(errno.ENOLCK, "no locks")):
+                ledger, _, _ = deaf_alarm.alarm([self.idle_row()], {}, "h/user", False, lambda a, dd, t: sent.append(dd), None, rs)
+            self.assertEqual(ledger, {"a": "end@1"})   # the alarm-only key: a later run whose lock works still restarts
+            self.assertIn("not restarted: the restart ledger cannot be read", sent[0]["action"])
+
     def test_f8_a_failed_per_send_save_is_not_a_failure_when_the_final_write_covers_it(self) -> None:
         def save(state):
             raise OSError("ENOSPC")
