@@ -78,6 +78,11 @@ def main() -> int:
         ("a substitution naming the command word", "$(which gzcoord-inbox) | head"),
         ("`.` as a command word, its single-quoted text given back", ". /dev/stdin <<<'gzcoord-inbox' | head"),
         ("a substitution beside it is blanked, the pipe still counts", 'cd "$(git rev-parse --show-toplevel)" && gzcoord-inbox | head'),
+        ("a consuming run inside a substitution that also names an inbox file", "x=$(cat inbox.txt; gzcoord-inbox)"),
+        ("a consuming run in a substitution inside arithmetic", "echo $(( $(gzcoord-inbox | wc -l) + 1 ))"),
+        ("captured with --wait", "x=$(gzcoord-inbox --wait 5)"),
+        ("a subshell opening a substitution: bash reads no arithmetic", "x=$((cd x); gzcoord-inbox)"),
+        ("a capture nested in a substitution", "x=$(echo $(gzcoord-inbox))"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.refused(cmd), cmd)
@@ -110,6 +115,14 @@ def main() -> int:
         ("a file named by a substitution", 'gzcoord-inbox > "$S/inbox-$(date +%s).txt"'),
         ("the watch after a cd into a substitution", 'cd "$(git rev-parse --show-toplevel)" && gzcoord-inbox --until-delivery'),
         ("a backtick naming no inbox", "cd `pwd` && gzcoord-inbox > f"),
+        ("a scratch file named inbox by mktemp (#721 F2)", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; cat "$f"'),
+        ("an inbox file counted after the drain", "gzcoord-inbox > inbox.txt; n=$(wc -l < inbox.txt)"),
+        ("arithmetic before the drain", "n=$((n+1)); gzcoord-inbox > f"),
+        ("arithmetic after the drain to an inbox file", 'gzcoord-inbox > "$S/inbox.txt"; echo $((1+1))'),
+        ("arithmetic with parentheses inside", "n=$(( (n+1)*2 )); gzcoord-inbox > f"),
+        ("a backtick naming an inbox file", "n=`wc -l < inbox.txt`; gzcoord-inbox > f"),
+        ("a substitution inside a substitution, neither a run", 'cd "$(dirname "$(pwd)")" && gzcoord-inbox > f'),
+        ("a subshell opening a substitution, no run", "x=$((cd x); ls); gzcoord-inbox > f"),
         ("the module read with sed", "sed -n 1,40p tools/fabric/gzcoord/inbox.py | head"),
         ("the link read with nl", "nl -ba bin/gzcoord-inbox | sed -n 1,5p"),
         ("the link resolved", "readlink -f ~/.local/bin/gzcoord-inbox | cat"),
@@ -127,6 +140,26 @@ def main() -> int:
     took = time.monotonic() - t0
     check(f"a {len(long) // 1000} KB command is refused in under 2 s ({took:.2f} s)",
           decision(r.stdout) == "deny" and took < 2.0 and len(long) > 100_000, (took, r.stdout[-200:], r.stderr[-300:]))
+
+    # One long chunk of words that mostly hold `inbox`, no `;` between them, in a closed command with a pipe: every
+    # word is asked whether a run starts there. A copy of the rest per word made it quadratic, 11.8 s on 966bdd7e7 for
+    # this size, past the 5 s timeout that counts as no objection (#721 F1). The bound leaves a loaded runner room
+    # and stays under that timeout.
+    chunk = "( true ); echo " + " ".join(["inbox"] * 32_000) + " | head; gzcoord-inbox | head"
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": chunk}}))
+    took = time.monotonic() - t0
+    check(f"one {len(chunk) // 1000} KB chunk of inbox words is refused in under 4 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 4.0 and len(chunk) > 190_000, (took, r.stdout[-200:], r.stderr[-300:]))
+
+    # Substitutions nested deep, none a run: blanking them a round per level over the whole text was quadratic in the
+    # depth (#721).
+    deep = "$(echo " * 20_000 + "x" + ")" * 20_000 + "; gzcoord-inbox | head"
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": deep}}))
+    took = time.monotonic() - t0
+    check(f"20,000 nested substitutions beside a drain are refused in under 4 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 4.0, (took, r.stdout[-200:], r.stderr[-300:]))
 
     # The protocol, run the way the settings run it (-I -S, by path).
     deny = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": "gzcoord-inbox | head -n 3"}}))

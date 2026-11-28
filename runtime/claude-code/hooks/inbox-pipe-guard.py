@@ -36,22 +36,26 @@ bin/gzcoord-inbox | head` are runs. A double-quoted word is one word: `git commi
 pipe.
 
 FLAT, AND CLOSED WHERE IT IS NOT. The command is judged as pipelines of simple commands, split on `;`, `&&`, `||`,
-`&` and newlines. A `$( … )` or backtick span that names no inbox is blanked to a word first (`f=$(mktemp);
-gzcoord-inbox > "$f"` passes); a process substitution never is. Groups, compound commands, the substitutions left and
-runners are not followed: when the command holds any of them (`(`, `{`, `}`, `fi`, `done`, `esac`, `$(`, a backtick,
-`<(`, `>(`, a word of post-review-shape-guard's RUNNERS, `.`) and a consuming run found by a loose scan of every word
-(mention or run alike, readers not exempt), it is refused if it also holds a `|` anywhere or a substitution. Runners
-are in the list because live_text gives their quoted payload back at the end of the text, not where it stood, and a
-double-quoted `bash -c "…"` payload is one word to the lexer. A nesting-aware
-reading of bash lost review rounds in both directions for the two sibling guards that tried (their headers say so); a
-false deny costs a rephrase (`gzcoord-inbox; ( cd x && git log | head )` is one), a false allow costs messages.
+`&` and newlines. A `$( … )` or backtick span in which the loose scan below finds no consuming run is blanked to a
+word first, so naming an inbox file is no capture (`f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"` passes), and
+a `$(( … ))` is arithmetic, blanked on the same test (`n=$((n+1))`); a process substitution never is. Groups,
+compound commands, the substitutions left and runners are not followed: when the command holds any of them (`(`, `{`,
+`}`, `fi`, `done`, `esac`, `$(`, a backtick, `<(`, `>(`, a word of post-review-shape-guard's RUNNERS, `.`) and a
+consuming run found by a loose scan of every word (mention or run alike, readers not exempt), it is refused if it also
+holds a `|` anywhere or a substitution. Runners are in the list because live_text gives their quoted payload back at
+the end of the text, not where it stood, and a double-quoted `bash -c "…"` payload is one word to the lexer. A
+nesting-aware reading of bash lost review rounds in both directions for the two sibling guards that tried (their
+headers say so); a false deny costs a rephrase (`gzcoord-inbox; ( cd x && git log | head )` is one), a false allow
+costs messages.
 
 SCOPE. A fence against the habit of filtering the drain, not a sandbox. Not seen: a command word the shell builds
 (`$c | head`, `'gzcoord-inbox' | head`, whose quotes live_text drops as inert text), a script or alias that drains, a
 link to the command under another name. Each costs messages only when written on purpose.
 
 COST. Nothing is loaded unless `inbox` occurs in the command (the hook runs on every Bash call); canonical() is asked
-only where `inbox` stands in the words it reads; the rest is linear passes over the text.
+only where `inbox` stands in the words it reads, and with those NAMING_WORDS words only, never the rest of the command;
+whether a run is read-only is one index per simple command. So every reading is linear in the words: a long run of
+words that mostly hold `inbox` once took longer than the hook's 5 s timeout, which counts as no objection (#721 F1).
 
 SUBAGENTS. Judged as the session is: a subagent's Bash call drains the same login's inbox, and a page it filters is
 lost to the session the same way.
@@ -109,11 +113,16 @@ REASON = ("A consuming gzcoord-inbox run acknowledges its whole page before a pi
           "your scratchpad and read the whole file. A message already consumed is read again with "
           "`gzcoord-inbox --replay <MESSAGE-ID>`, never through a filter; a command that only mentions the name puts it "
           "in single quotes.")
-# An innermost $( … ) or backtick span, blanked to PLACEHOLDER when it names no inbox: `f=$(mktemp); gzcoord-inbox >
-# "$f"` is the way out the reason names, and `cd "$(git rev-parse --show-toplevel)"` beside the watch is no capture.
-# Never a <( … ) or >( … ): `gzcoord-inbox > >(head)` is a pipe by another name.
-INNER_SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
-PLACEHOLDER = "_inbox_pipe_guard_subst_"
+# A $( … ) or backtick span is blanked to PLACEHOLDER when the loose scan finds no consuming run in it and no span
+# kept inside it: `f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"` is the way out the reason names, and
+# `cd "$(git rev-parse --show-toplevel)"` beside the watch is no capture. A $(( … )) span is arithmetic, which runs no
+# command, blanked on the same test (bash reads `$((gzcoord-inbox | head))` as arithmetic, but a shell that did not
+# would drain; keeping it costs a rephrase). A `$((` whose first `)` is not `))` opens a substitution of a subshell, as
+# bash reads `$((cd x); gzcoord-inbox)`. Never a <( … ) or >( … ): `gzcoord-inbox > >(head)` is a pipe by another name.
+# Quotes are not read here: a `)` inside one ends a span early, on the side of keeping it.
+SUBST_MARK = re.compile(r"\$\(\(|\$\(|[()`]")
+# Holds no `inbox`, so a command whose every mention was blanked passes before the lexer runs.
+PLACEHOLDER = "_pipe_guard_subst_"
 
 
 def _load(name: str, file: str):
@@ -139,30 +148,35 @@ def _canonical():
     return _LOADED["canonical"]
 
 
-def inbox_args(words: list[str], k: int) -> list[str] | None:
-    """The arguments of the gzcoord-inbox run that starts at words[k], or None when none starts there."""
-    # Only where the window canonical() reads holds the word: asking it at every word of a long command, a copy of
-    # the rest each time, is quadratic, and a hook past its timeout is read as no objection.
-    if not any("inbox" in w for w in words[k:k + NAMING_WORDS]):
+def inbox_run(words: list[str], k: int) -> int | None:
+    """Where the arguments of the gzcoord-inbox run that starts at words[k] begin, or None when none starts there."""
+    # canonical() is asked with the naming window only, as inbox-watch.py asks it, and only where that window holds
+    # the word: a copy of the rest at every word of a long command is quadratic, and a hook past its timeout is read
+    # as no objection. The arguments it gives back are the window's tail, so the run's own begin where they begin.
+    window = words[k:k + NAMING_WORDS]
+    if not any("inbox" in w for w in window):
         return None
     word = words[k]
     if word.endswith(MODULE_SUFFIX) or os.path.basename(word) == _sibling("inbox-watch").NODE_SHIM:
-        return words[k + 1:]
-    named = [os.path.basename(word), *words[k + 1:]]
+        return k + 1
+    named = [os.path.basename(word), *window[1:]]
     try:
         read = _canonical().canonical(named)
     except Exception:  # noqa: BLE001 - TableError or a module that cannot load: the spelled names, never "no drain"
         if named[0] == INBOX:
-            return named[1:]
-        return named[NAMING_WORDS:] if tuple(named[:NAMING_WORDS]) == INBOX_SPOKEN else None
-    return read[1] if read is not None and read[0] == INBOX else None
+            return k + 1
+        return k + NAMING_WORDS if tuple(named) == INBOX_SPOKEN else None
+    return k + len(window) - len(read[1]) if read is not None and read[0] == INBOX else None
 
 
 def consuming(words: list[str], every_word: bool) -> bool:
     """Whether a consuming run starts at any word asked: the command word, or every word when it may be a wrapper."""
+    # A run is read-only when one of the three stands after its start: the last one's index, found once for the
+    # simple command, answers that for every start without a copy of the rest.
+    last_read_only = max((i for i, w in enumerate(words) if w in READ_ONLY), default=-1)
     for k in range(len(words) if every_word else min(1, len(words))):
-        args = inbox_args(words, k)
-        if args is not None and not READ_ONLY & set(args):
+        start = inbox_run(words, k)
+        if start is not None and last_read_only < start:
             return True
     return False
 
@@ -219,13 +233,46 @@ def loosely_consuming(text: str) -> bool:
 
 
 def blank_substitutions(text: str) -> str:
-    """The text with every substitution that names no inbox blanked, innermost first, until none is left to blank.
-    Each round shortens the text, so it ends; the spans left all hold `inbox` and stay for the closed reading."""
-    while True:
-        out = INNER_SUBST.sub(lambda m: m.group(0) if "inbox" in m.group(0) else PLACEHOLDER, text)
-        if out == text:
-            return text
-        text = out
+    """The text with every substitution and arithmetic span blanked that holds no consuming run, in one pass.
+    One pass, a stack of the open spans, each judged on its own text once its children are judged: rounds of a
+    regex over the whole text, one per nesting level, were quadratic in the depth (#721). A span left open at the end
+    is given back as written, for the closed reading."""
+    stack: list[tuple[str, list[str]]] = [("", [])]   # (the mark that opened it, its text so far)
+    at = 0
+    while (m := SUBST_MARK.search(text, at)) is not None:
+        stack[-1][1].append(text[at:m.start()])
+        mark, at = m.group(0), m.end()
+        if mark == "`":
+            close = text.find("`", at)
+            if close < 0:
+                stack[-1][1].append(mark)
+                continue
+            body = blank_substitutions(text[at:close])
+            at = close + 1
+            stack[-1][1].append(f"`{body}`" if _kept(body) else PLACEHOLDER)
+        elif mark != ")":
+            stack.append((mark, []))
+        elif len(stack) == 1:
+            stack[0][1].append(mark)
+        else:
+            opened, parts = stack.pop()
+            body = "".join(parts)
+            if opened == "$((" and not text.startswith(")", at):
+                stack.append(("$(", ["(", body, ")"]))   # `$((cd x); …)`: a subshell inside a substitution
+            elif opened == "(":
+                stack[-1][1].append(f"({body})")
+            else:
+                if opened == "$((":
+                    at += 1
+                shut = "))" if opened == "$((" else ")"
+                stack[-1][1].append(f"{opened}{body}{shut}" if _kept(body) else PLACEHOLDER)
+    stack[-1][1].append(text[at:])
+    return "".join(opened + "".join(parts) for opened, parts in stack)
+
+
+def _kept(body: str) -> bool:
+    """A span is kept when a span kept inside it still stands there or a consuming run is found in it."""
+    return bool(SUBSTITUTION.search(body)) or loosely_consuming(body)
 
 
 def refused(command: str) -> bool:
