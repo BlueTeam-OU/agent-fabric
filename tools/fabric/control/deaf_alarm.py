@@ -122,7 +122,7 @@ def ctl_restart(account: str, run: Callable[..., Any] = subprocess.run) -> tuple
     from control.restart import RESTART_BUDGET_S
     argv = ["fabric-ctl", "--json", "--timeout", str(int(RESTART_BUDGET_S)), account, "restart"]
     try:
-        r = run(argv, capture_output=True, text=True, timeout=RESTART_BUDGET_S + 60, stdin=subprocess.DEVNULL, check=False)
+        r = run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=RESTART_BUDGET_S + 60, stdin=subprocess.DEVNULL, check=False)
     except (OSError, subprocess.SubprocessError) as e:
         return "failed", f"fabric-ctl: {e.__class__.__name__}"
     for line in (r.stdout or "").splitlines():
@@ -194,15 +194,16 @@ class Restarter:
         # restarted with its outcome.
         try:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            self.ledger = self._read()
-            again, note = self.plan(account, episode, {"idle": True})
+            try:
+                self.ledger = self._read()
+                again, note = self.plan(account, episode, {"idle": True})
+            except (OSError, ValueError) as e:   # the flock or the re-read failed: nothing was recorded or run
+                return f"not restarted: the restart ledger cannot be read ({e.__class__.__name__})"
             if again == "already":
                 return ALREADY + note   # the run that held the lock restarted it: this INFO says so, under the same key
             if again != "restart":
                 return f"not restarted: {note}"
             return self._record_and_restart(account, episode)
-        except (OSError, ValueError) as e:   # the flock or the re-read failed before anything was recorded or run
-            return f"not restarted: the restart ledger cannot be read ({e.__class__.__name__})"
         finally:
             os.close(lock)
 
@@ -380,14 +381,12 @@ def alarm(rows: list[dict], ledger: dict[str, str], to: str, dry_run: bool = Fal
             assert restarter is not None
             try:
                 outcome = restarter.execute(account, episode)
-            except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as e:   # ValueError: the ledger would not parse; nothing ran
+            except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as e:   # the restart was recorded and run (or tried); only its result is missing
                 outcome = f"failed: {e.__class__.__name__}"
             if outcome.startswith(ALREADY):
                 key = episode + RESTART_TAG
                 d = {**d, "action": f"The session was idle, so `fabric-ctl {account} restart` was run: {outcome[len(ALREADY):]}."}
                 what = f" (restart: {outcome[len(ALREADY):]})"
-                if new.get(account) == key:
-                    continue
             elif outcome.startswith("not restarted"):
                 key = episode   # nothing was done: the alarm-only message is the true one
                 d = {**d, "action": f"{outcome}; read its pane."}

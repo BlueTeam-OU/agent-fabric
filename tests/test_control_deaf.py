@@ -876,6 +876,20 @@ class LockAndSave(unittest.TestCase):
                 fh.write("not json")
             self.assertTrue(rs.execute("a", "end@1").startswith("not restarted: the restart ledger cannot be read"))
 
+    def test_f9_an_exception_from_the_restart_is_told_as_run_under_the_restart_key(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="deaf-test-") as d:
+            def ctl(account):
+                raise ValueError("bad bytes")
+            rs = deaf_alarm.Restarter(os.path.join(d, "deaf-restart.json"), "me", ctl=ctl, clock=lambda: NOW)
+            sent: list = []
+            ledger, _, _ = deaf_alarm.alarm([self.idle_row()], {}, "h/user", False, lambda a, dd, t: sent.append(dd), None, rs)
+            self.assertEqual(ledger, {"a": "end@1" + deaf_alarm.RESTART_TAG})
+            self.assertIn("was run: failed: ValueError", sent[0]["action"])
+
+    def test_f9_ctl_restart_reads_output_that_is_not_utf8(self) -> None:
+        r = deaf_alarm.ctl_restart("a", lambda argv, **kw: subprocess.run(["printf", r"\377"], capture_output=True, text=True, **{k: v for k, v in kw.items() if k in ("encoding", "errors")}))
+        self.assertEqual(r[0], "failed")
+
     def test_f8_a_failed_per_send_save_is_not_a_failure_when_the_final_write_covers_it(self) -> None:
         def save(state):
             raise OSError("ENOSPC")
