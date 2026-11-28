@@ -133,10 +133,13 @@ REASON = ("A consuming gzcoord-inbox run acknowledges its whole page before a pi
 SUBST_MARK = re.compile(r"\$\(\(|\$\(|[()`]")
 # A `(`, `)` or quote that may be no such thing: after a backslash, in the body of a heredoc whose delimiter is
 # unquoted (live_text drops a quoted one's body; its delimiter is let through here), or a case pattern's `)`, which
-# closes nothing. Inside a parameter expansion too, which BRACE_MARK finds in one forward pass: a regex from every
-# `${` to its `}` was quadratic in their nesting.
+# closes nothing.
 UNTRUSTED = re.compile(r"\\[()`\"$]|(?<!<)<<-?[ \t]*(?![-<'\"\\ \t])|\besac\b")
-BRACE_MARK = re.compile(r"\$\{|[{}()\\]")
+# Inside a parameter expansion, a `(`, `)`, backslash, `"` or backtick is untrusted, which BRACE_MARK finds in one
+# forward pass (a regex from every `${` to its `}` was quadratic in their nesting). A quote or backtick because this
+# scan does not read them: a quoted or backticked `}` ended the depth early and a later `(` or `)` read as trusted
+# (#721 F7, `${y:-"}")}`).
+BRACE_MARK = re.compile(r"\$\{|[{}()\\\"`]")
 # Holds no `inbox`, so a command whose every mention was blanked passes before the lexer runs.
 PLACEHOLDER = "_pipe_guard_subst_"
 
@@ -268,7 +271,7 @@ def _untrusted(text: str) -> bool:
         elif mark == "}":
             depth = max(depth - 1, 0)
         elif depth and mark != "{":
-            return True     # a paren or a backslash inside a parameter expansion
+            return True     # a paren, a backslash, a quote or a backtick inside a parameter expansion
     return False
 
 

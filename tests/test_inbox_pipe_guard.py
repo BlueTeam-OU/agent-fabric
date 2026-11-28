@@ -107,6 +107,12 @@ def main() -> int:
         ("`.` after an assignment, captured", "x=$(A=1 . /dev/stdin <<<'gzcoord-inbox')"),
         ("`.` after then, captured", "x=$(if true; then . /dev/stdin <<<'gzcoord-inbox'; fi)"),
         ("a case pattern balanced by a `(` behind an escaped `}`", "x=$(case $m in a) gzcoord-inbox;; esac; echo ${y//\\}/(})"),
+        # A quoted or backticked `}` inside a parameter expansion ended its depth early, so the `(` and `)` after it
+        # read as trusted and the capture closed before the run (#721 F7).
+        ("a double-quoted `}` in a parameter expansion inside a capture", 'x=$(echo ${y:-"}")}; gzcoord-inbox; echo ${z:-"}"(})'),
+        ("a backticked `}` in a parameter expansion inside a capture",
+         "x=$(echo ${y:-`echo }`)}; gzcoord-inbox; echo ${z:-`echo }`(})"),
+        ("a single-quoted `}` in a parameter expansion inside a capture", "x=$(echo ${y:-'}')}; gzcoord-inbox; echo ${z:-'}'(})"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.refused(cmd), cmd)
