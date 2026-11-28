@@ -40,6 +40,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   parity report (§5 rule 2).
 - Split from ADR-034, which keeps the criterion and rules 2-5 these rows are measured against.
 - A 2026-11-14 — fabric-h2's InterWeave range: public forward 195.69.140.18, any source, exposure accepted by the owner; ssh stays LAN (§1 row, §5 rule 2).
+- A 2026-11-28 — SPIKE-004's five limits accepted by the owner for fabric-h2's first account (the two-host check's); forward and firewall read back from outside; a dial from the provider's LAN not measured (§5 rule 2).
 - Keywords: inventory, single point of failure, host, relay, degraded mode, undrained memory, decentralization table, public forward, fabric-h2.
 
 ### ADR-070 — This organisation's porting programme: its projects' Node scripts move to Python (Accepted)

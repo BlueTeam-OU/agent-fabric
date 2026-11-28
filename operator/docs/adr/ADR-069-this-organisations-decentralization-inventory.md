@@ -57,12 +57,19 @@ The criterion makes the direction testable for any deployment; the inventory is 
    puts InterWeave's handshake and parser within reach of the internet
    before InterWeave ADR-0034 §7's release gate has closed on the
    pinned release, as a known limit for fabric-h2 over the whole range;
-   admission is the roster's PeerIds. That word does not answer
-   SPIKE-004's deferred limits for a public listener, which ADR-064
-   rule 1 still requires consumed or accepted before the milestone
-   opens.
-   No roster row names fabric-h2 until a probe from develop-qzapp has
-   read the forward back. For its first
+   admission is the roster's PeerIds. SPIKE-004's deferred limits are
+   accepted on the owner's word as known limits for fabric-h2 (A 2026-11-28),
+   for its first account only: hole-punch rates in the wild, a carrier's
+   CGNAT and operationally independent relay and probe services, which
+   nothing here relies on; a public listener, which InterWeave has never
+   run; and interface change on real hardware, which the two-host check
+   measures, since develop-qzapp travels and only it redials. A probe
+   from develop-qzapp has read the forward back and the VM's firewall
+   admitting the range, from outside the provider's network with the
+   VPN up; a dial from inside the provider's LAN is not measured
+   (`docs/live-checks/2026-11-27-fabric-h2-public-forward.md`,
+   `docs/live-checks/2026-11-28-fabric-h2-firewall-admits-the-range.md`).
+   For its first
    account, a throwaway login for the two-host check, the owner waived
    ADR-034 §7 step 3's held bound and the control parity report; an agent
    moves there only on the owner's word on that report.
@@ -95,3 +102,4 @@ The body above reads current; each change's full note is in [history/ADR-069-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-11-14 | fabric-h2's InterWeave range is a public forward from any source | §1 a row for InterWeave between hosts; §5 rule 2: the address, the forward and the owner's acceptance of the exposure |
+| 2026-11-28 | SPIKE-004's limits accepted for fabric-h2's first account | §5 rule 2: the owner's acceptance of the five limits, scoped to the two-host check's account; the forward and the firewall read back |
