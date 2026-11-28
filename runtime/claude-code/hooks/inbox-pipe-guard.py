@@ -138,8 +138,9 @@ SUBST_MARK = re.compile(r"\$\(\(|\$\(|[()`]")
 # A `(`, `)`, `}` or quote that may be no such thing: after a backslash, in the body of a heredoc whose delimiter is
 # unquoted (live_text drops a quoted one's body; its delimiter is let through here), or inside the old arithmetic
 # `$[ … ]`, which bash nests to its `]` (`$[0)]` closes no `$(`, and `${y:-$[}]}` no `${`); the offset is the
-# backslash, the `<<` or the `$[`, before what they change.
-UNTRUSTED = re.compile(r"\\[()`\"$]|(?<!<)<<-?[ \t]*(?![-<'\"\\ \t])|\$\[")
+# backslash, the `<<` or the `$[`, before what they change. A delimiter may itself begin with `-` (`<<--EOF`, `<<- -EOF`
+# read `-EOF`, #721 round 4): only the one `-` after `<<` is the tab-stripping flag, so it is not a quote.
+UNTRUSTED = re.compile(r"\\[()`\"$]|(?<!<)<<(?:-|(?!-))[ \t]*(?![<'\"\\ \t])|\$\[")
 # A case pattern's `)` closes nothing. It stands after its `case` word, so where an `esac` stands the earliest `case`
 # word, or the `esac` when it comes first, is the offset: a `case` that is no reserved word only moves it earlier.
 ESAC = re.compile(r"\besac\b")
@@ -313,6 +314,8 @@ def _blanked(text: str, untrusted: int | None) -> str | None:
                 at = m.start()      # its closing backtick is untrusted: the span is left as written
                 break
             inner = text[at:close]
+            # Unreachable while the limit is _untrusted's over this same text (a mark in the body would be the offset);
+            # kept so a caller passing another limit cannot blank a body nobody judged.
             if _untrusted(inner) is not None:
                 return None
             body = _blanked(inner, None)
@@ -327,7 +330,8 @@ def _blanked(text: str, untrusted: int | None) -> str | None:
             return None
         else:
             opened, mark_at, quotes_before = stack.pop()
-            # The second `)` of `))` is read only before the limit; past it, the `$((` is left open, as written.
+            # The second `)` of `))` is read only before the limit; past it, the `$((` is left open, as written. With the
+            # limit _untrusted's over this text, `at` is never the limit here; the test stands for a caller passing another.
             if opened == "$((" and not (at < limit and text.startswith(")", at)):
                 # `$((cd x); …)`: the `(` after `$(` opened a subshell, closed here, in a substitution still open.
                 stack.append(("$(", mark_at, quotes_before))

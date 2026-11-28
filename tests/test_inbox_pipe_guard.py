@@ -117,6 +117,9 @@ def main() -> int:
         ("a `}` in an old arithmetic inside a parameter expansion inside a capture",
          "x=$(echo ${HOME:-$[}])}; gzcoord-inbox; echo ${HOME:-$[}](})"),
         ("a `)` in an old arithmetic inside a capture", "x=$(echo $[0)]; gzcoord-inbox; echo $[(0])"),
+        # A heredoc delimiter that begins with `-` is unquoted; its body's `)(` re-balanced the pairing (#721 round 4).
+        ("a heredoc delimiter that begins with a dash, in a capture", "y=$(cat <<--EOF\n)(\n-EOF\ngzcoord-inbox)"),
+        ("the tab-stripping form with a dashed delimiter, in a capture", "y=$(cat <<- -EOF\n)(\n-EOF\ngzcoord-inbox)"),
         # Distrusted from the first untrusted mark on (#721 F9): a span still open there is left as written, and a
         # span closed before it is judged as before.
         ("a capture open across an escaped quote", 'x=$(gzcoord-inbox; echo \\"x\\")'),
@@ -164,6 +167,9 @@ def main() -> int:
         ("the way out, then the word esac in a message", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; echo "no esac here"'),
         ("the way out, then an unquoted heredoc", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; cat <<EOF\nsaved $f\nEOF'),
         ("the way out, then an escaped quote", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; echo "saved \\"$f\\""'),
+        # These two reach only the branch that skips the end-of-text parity and stack checks past an offset (#721 F10).
+        ("the way out, then an odd count of quotes past an escape", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; echo "a \\" b"'),
+        ("the way out, then a subshell open across an escape", 'f=$(mktemp -t inbox.XXXXXX); gzcoord-inbox > "$f"; ( echo \\"x\\" )'),
         ("arithmetic after the drain to an inbox file", 'gzcoord-inbox > "$S/inbox.txt"; echo $((1+1))'),
         ("arithmetic with parentheses inside", "n=$(( (n+1)*2 )); gzcoord-inbox > f"),
         ("a backtick naming an inbox file", "n=`wc -l < inbox.txt`; gzcoord-inbox > f"),
