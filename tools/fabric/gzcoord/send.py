@@ -13,7 +13,9 @@ CONTRACT, frozen from the Node:
             1), GZCOORD_PRESENCE_WAIT_MS (the presence CLI's),
             GZCOORD_TRANSPORT_MODE (the send builds the carrier whatever the
             mode; a message that presence is asked about validates and says
-            the override, which only the presence child uses), and for that
+            the override, which only the presence child uses), the account's
+            transport-mode.json (read once, only when the relay token cannot
+            be used, to say so in a relay mode), and for that
             same ask CLAUDE_BRIDGE_AUTH_TOKEN, CLAUDE_BRIDGE_URL and
             GZCOORD_CHANNEL (the control plane's relay path, until W16),
             AGENT_FABRIC_HOSTS_REGISTRY / AGENT_FABRIC_OPERATOR (the hosts

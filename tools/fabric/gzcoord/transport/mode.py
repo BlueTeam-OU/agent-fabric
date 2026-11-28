@@ -10,7 +10,8 @@ CONTRACT
   DEFAULT          carrier-only: what an account with no transport-mode.json is in (W15, after gate 2 of the cutover plan; it was
                    relay-record). Absence is the normal state and a reader never creates the file. Since W15 the GZCoord send and
                    inbox build the carrier alone whatever this says; the file is read by the control plane's presence ask, the
-                   carrier's position report and the Stop hook, and is rewritten by the signed action.
+                   carrier's position report and the Stop hook, and by an addressed send whose relay token cannot be used
+                   (to say so only in a relay mode), and is rewritten by the signed action.
   read(state_dir)  the Mode: {"mode", "set_by", "set_at"} (the last two None for the default). A file that is not a regular
                    file (a FIFO would block the watch, a symlink would redirect it), is larger than MAX_BYTES, cannot be
                    opened or read, is not JSON, is not an object, or whose mode is not one of MODES raises ModeError: an unknown mode is never read as the
@@ -24,7 +25,7 @@ CONTRACT
                    of THIS command, whatever the state file says, and the file is not read (a damaged file does not stop the
                    command that overrides it: that is what the override is for). A value that is not one of MODES raises
                    ModeError: an unknown mode is never read as the default. Empty is read as unset, as a shell's `VAR= cmd`
-                   means. The presence child the sender starts honours it, and an addressed send validates and says it for that child; send, inbox and the watch read no mode otherwise.
+                   means. The presence child the sender starts honours it, and an addressed send validates and says it for that child (--force: a value it cannot read is the child's to refuse); send, inbox and the watch read no mode otherwise, bar the one read below.
   effective(state_dir, env, say)
                    the Mode a command runs in: the override when set, else read(). `say` is called once with the line that
                    tells the override is in force ("every time it is used"); a repeated read of the same command (the watch's

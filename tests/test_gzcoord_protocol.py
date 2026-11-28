@@ -2427,7 +2427,7 @@ def _():
     lone.bind(("127.0.0.1", 0))
     lone.listen(8)
     lone.settimeout(0.2)
-    hostile = {"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{lone.getsockname()[1]}", "CLAUDE_BRIDGE_AUTH_TOKEN": "tok-hostile",
+    hostile = {"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{lone.getsockname()[1]}", "CLAUDE_BRIDGE_AUTH_TOKEN": "tok\nhostile",
                "GZCOORD_CHANNEL": "fixture:chan", "GZCOORD_TRANSPORT_MODE": "relay-record"}
     carrier = Carrier(records=[record(f"[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nTO: {MY_ADDRESS}\n"
                                       "MESSAGE-ID: 01a09fc1-0000-7000-8000-0000000000e1\nSUBJECT: subject-e1\n\nNOTES:\nn\n")])
