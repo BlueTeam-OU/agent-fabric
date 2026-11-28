@@ -83,6 +83,21 @@ def main() -> int:
         ("captured with --wait", "x=$(gzcoord-inbox --wait 5)"),
         ("a subshell opening a substitution: bash reads no arithmetic", "x=$((cd x); gzcoord-inbox)"),
         ("a capture nested in a substitution", "x=$(echo $(gzcoord-inbox))"),
+        # A `)` that does not close the span (#721 F7): blanking the part before it dropped the `$(` and let the run
+        # after it pass as a bare one. Where the pairing cannot be trusted, nothing is blanked.
+        ("a case pattern's `)` inside a capture", "x=$(case $m in inbox) gzcoord-inbox;; esac)"),
+        ("a double-quoted `)` naming inbox inside a capture", 'x=$(echo "inbox)"; gzcoord-inbox)'),
+        ("a double-quoted `)` in a grep pattern inside a capture", 'x=$(grep -c "inbox)" log; gzcoord-inbox --wait 5)'),
+        ("a double-quoted `)` in a subshell opening a capture", 'x=$((echo ")"); gzcoord-inbox)'),
+        ("a double-quoted `)` inside a capture", 'x=$(echo ")"; gzcoord-inbox)'),
+        ("a case pattern naming no inbox inside a capture", "x=$(case $m in new) gzcoord-inbox --wait 5;; esac)"),
+        ("a quoted `)` balanced by a quoted `(` later", 'x=$(echo ")"; gzcoord-inbox; echo "(")'),
+        ("a quoted `)(`", 'x=$(echo ")("; gzcoord-inbox)'),
+        ("escaped parentheses", "x=$(echo \\)\\(; gzcoord-inbox)"),
+        ("an escaped backtick", "x=`echo \\`gzcoord-inbox\\` `"),
+        ("a case pattern balanced by a quoted `(`", 'x=$(case $m in a) gzcoord-inbox;; esac; echo "(")'),
+        ("a heredoc body holding `)(`", "x=$(cat <<EOF\n)(\nEOF\ngzcoord-inbox)"),
+        ("parentheses inside parameter expansions", "x=$(echo ${y:-)}${z:-(}; gzcoord-inbox)"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.refused(cmd), cmd)
@@ -159,6 +174,15 @@ def main() -> int:
     r = run(json.dumps({"tool_input": {"command": deep}}))
     took = time.monotonic() - t0
     check(f"20,000 nested substitutions beside a drain are refused in under 4 s ({took:.2f} s)",
+          decision(r.stdout) == "deny" and took < 4.0, (took, r.stdout[-200:], r.stderr[-300:]))
+
+    # Substitutions nested deep, every one kept: re-joining each kept level's body was quadratic in the depth, 6.6 s
+    # end to end on 41d8d5a0f for this size, past the 5 s timeout that counts as no objection (#721 F8).
+    kept = "x=" + "$(echo " * 80_000 + "gzcoord-inbox" + ")" * 80_000
+    t0 = time.monotonic()
+    r = run(json.dumps({"tool_input": {"command": kept}}))
+    took = time.monotonic() - t0
+    check(f"80,000 nested substitutions, each kept, are refused in under 4 s ({took:.2f} s)",
           decision(r.stdout) == "deny" and took < 4.0, (took, r.stdout[-200:], r.stderr[-300:]))
 
     # The protocol, run the way the settings run it (-I -S, by path).
