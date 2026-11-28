@@ -2,14 +2,14 @@
 """The account's GZCoord transport mode (InterWeave-only cutover plan D2, D10, row W5; agent-fabric ADR-029, ADR-067):
 the state file and its reader (gzcoord/transport/mode.py), `open_transport` reading it, the signed `<carrier>-mode` action
 (control/transport_mode.py), `fabric-ctl <login|all> <carrier>` showing it, and the refusal of carrier-only while a placed
-account is not past relay-record. What a mode sends or reads is W6 to W8's and is not here. The running watch taking a change
-is tests/test_gzcoord_transport_mode_watch.py. A scratch state directory per test, removed with it."""
+account is not past relay-record. Send and inbox read no mode since the relay left them (W15): the default is carrier-only, the
+mode file is the control plane's record of an account's stage, and `open_transport` ignores it. The mode watch (mode.Watcher)
+and the cases that built a relay transport per mode went with the relay. A scratch state directory per test, removed with it."""
 from __future__ import annotations
 
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -32,7 +32,6 @@ from gzcoord.transport import mode  # noqa: E402
 OPERATOR = "h1/op"
 OP = f"{CARRIER_NAME}-mode"
 ME = {"address": "h1/me"}
-CFG = {"relay_url": "http://127.0.0.1:1", "channel": "c"}
 
 
 class Scratch(unittest.TestCase):
@@ -51,8 +50,8 @@ class Scratch(unittest.TestCase):
 
 
 class State(Scratch):
-    def test_no_file_is_relay_record_and_reading_creates_nothing(self):
-        self.assertEqual(mode.read(self.dir), {"mode": "relay-record", "set_by": None, "set_at": None})
+    def test_no_file_is_carrier_only_and_reading_creates_nothing(self):
+        self.assertEqual(mode.read(self.dir), {"mode": "carrier-only", "set_by": None, "set_at": None})
         self.assertEqual(os.listdir(self.dir), [])
 
     def test_a_written_mode_reads_back_with_who_and_when_and_leaves_no_temporary(self):
@@ -82,7 +81,7 @@ class State(Scratch):
     def test_a_state_directory_that_is_not_a_directory_holds_no_mode_file(self):
         # The journal says that failure in its own words (exit 6 in the watch); the mode must not pre-empt it with another.
         open(self.file, "w").close()
-        self.assertEqual(mode.read(self.file)["mode"], "relay-record")
+        self.assertEqual(mode.read(self.file)["mode"], "carrier-only")
 
     def test_content_and_files_a_reader_must_not_follow_are_errors_not_crashes_or_hangs(self):
         cases = {"deeply nested": lambda: self.write('{"mode": "carrier-record", "x": ' + "[" * 100000 + "]" * 100000 + "}"),
@@ -106,115 +105,34 @@ class State(Scratch):
             mode.read(self.dir)
 
 
-class Watching(Scratch):
-    def watcher(self, every=5.0):
-        self.now = 0.0
-        return mode.Watcher("relay-record", self.dir, every=every, clock=lambda: self.now)
-
-    def test_a_change_is_seen_once_and_not_before_the_poll_interval(self):
-        w = self.watcher()
-        mode.write("carrier-record", OPERATOR, self.dir)
-        self.now = 4.9
-        self.assertFalse(w.changed(), "the file is read at most once per interval")
-        self.now = 5.0
-        self.assertTrue(w.changed())
-        self.now = 10.0
-        self.assertFalse(w.changed(), "the same mode is not a second change")
-        mode.write("carrier-only", OPERATOR, self.dir)
-        self.now = 15.0
-        self.assertTrue(w.changed())
-
-    def test_the_bound_a_default_watch_keeps_is_inside_the_minute(self):
-        from gzcoord import inbox
-        self.assertLessEqual(inbox.MODE_POLL_S, 30)
-
-    def test_the_poll_is_5_s_unless_a_test_shortens_it(self):
-        # Alone, with only PATH: this suite's own environment may carry the seam. Unset and empty are the same default.
-        tools = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "fabric")
-        for env in ({}, {"GZCOORD_MODE_POLL_S": ""}):
-            r = subprocess.run([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); from gzcoord import inbox; print(inbox.MODE_POLL_S)", tools],
-                               env={"PATH": os.environ["PATH"], **env}, capture_output=True, text=True, timeout=60)
-            self.assertEqual(r.stdout.strip(), "5.0", f"{env}: {r.stdout}{r.stderr}")
-
-    def test_a_file_that_cannot_be_read_keeps_the_mode_is_said_once_and_a_later_good_one_is_a_change(self):
-        # Started on carrier-record: a reader that took damage for the default would move it to relay-record.
-        self.now = 0.0
-        said = []
-        w = mode.Watcher("carrier-record", self.dir, every=5.0, clock=lambda: self.now, on_error=said.append)
-        self.write("{")
-        for t in (5.0, 10.0):
-            self.now = t
-            self.assertFalse(w.changed())
-            self.assertEqual(w.current, "carrier-record")
-        self.assertEqual(len(said), 1, "the same damage is said once")
-        self.assertIn("transport-mode.json", said[0])
-        self.write("[]")
-        self.now = 15.0
-        self.assertFalse(w.changed())
-        self.assertEqual(len(said), 2, "another reason is said again")
-        self.write('{"mode": "carrier-only"}')
-        self.now = 20.0
-        self.assertTrue(w.changed())
-        self.assertEqual(w.current, "carrier-only")
-
-    def test_a_reason_a_caller_reported_is_not_said_again_by_the_next_poll(self):
-        # The reopen after a change meets the damage itself and reports it; the poll after it reads the same file.
-        self.now = 0.0
-        said = []
-        w = mode.Watcher("carrier-record", self.dir, every=5.0, clock=lambda: self.now, on_error=said.append)
-        self.write("{")
-        try:
-            mode.read(self.dir)
-        except mode.ModeError as e:      # what the reopen meets: the reason the next poll will meet too
-            w.report(str(e))
-        w.report(said[0])
-        self.assertEqual(len(said), 1)
-        self.now = 5.0
-        self.assertFalse(w.changed())
-        self.assertEqual(len(said), 1, "the poll of the same damage says nothing")
-        self.write("[]")
-        self.now = 10.0
-        w.changed()
-        self.assertEqual(len(said), 2, "the control: another reason is still said")
-
-    def test_removing_the_file_is_a_move_back_to_the_default(self):
-        self.now = 0.0
-        w = mode.Watcher("carrier-record", self.dir, every=1.0, clock=lambda: self.now)
-        self.now = 1.0
-        self.assertTrue(w.changed())
-        self.assertEqual(w.current, "relay-record")
-
-
 class OpenTransport(Scratch):
     def open(self, **kw):
-        return transport.open_transport(CFG, token="tok", me=ME, state_dir=self.dir, iso_now=lambda: "2026-11-13T00:00:00Z", **kw)
+        return transport.open_transport(me=ME, state_dir=self.dir, iso_now=lambda: "2026-11-13T00:00:00Z", **kw)
 
-    def shape(self, mux):
-        return (type(mux.primary).__name__, mux.primary.relay_url, mux.primary.channel, [type(m).__name__ for m in mux.mirrors])
-
-    def test_with_no_state_file_the_mux_is_todays(self):
-        mux = self.open()
-        self.assertEqual(mux.mode, "relay-record")
-        self.assertEqual(self.shape(mux), ("RelayTransport", CFG["relay_url"], "c", ["CarrierTransport"]))
-        self.assertEqual(self.shape(self.open(journal_off=True))[3], [], "the journal off still has no mirror")
-        self.assertFalse(os.path.exists(self.file), "opening a transport writes no mode")
-
-    def test_every_mode_is_carried_and_builds_its_own_transports(self):
-        want = {"relay-record": ("RelayTransport", ["CarrierTransport"]),
-                "carrier-record": ("CarrierPrimary", ["RelayMirror"]),
-                "carrier-only": ("CarrierPrimary", [])}
-        for m in mode.MODES:
-            mode.write(m, OPERATOR, self.dir)
+    def test_the_transport_is_the_carrier_alone_whatever_the_state_file_says(self):
+        for m in (None, *mode.MODES):
+            if m:
+                mode.write(m, OPERATOR, self.dir)
             mux = self.open()
-            self.assertEqual(mux.mode, m)
-            self.assertEqual((type(mux.primary).__name__, [type(x).__name__ for x in mux.mirrors]), want[m], m)
+            self.assertEqual(type(mux.primary).__name__, "CarrierPrimary", m)
+            self.assertFalse(hasattr(mux, "mirrors") or hasattr(mux, "mode"), f"{m}: a mux that names a mirror or a mode")
 
-    def test_a_damaged_file_refuses_to_open_and_the_message_names_the_fix(self):
+    def test_opening_a_transport_writes_no_mode(self):
+        self.open()
+        self.open(for_send=True, journal_off=True)
+        self.assertFalse(os.path.exists(self.file))
+
+    def test_a_damaged_mode_file_is_not_read_by_a_transport_it_does_not_refuse_to_open(self):
+        # It did (ModeError naming the fix) while the mode chose the transports; send and inbox read no mode now.
         self.write("not json")
-        with self.assertRaisesRegex(transport.ModeError, rf"{CARRIER_NAME}-mode --mode"):
-            self.open()
-        with self.assertRaises(transport.ModeError):
-            transport.open_transport(CFG, token="tok", me=ME, state_dir=self.dir, journal_off=True)
+        self.assertEqual(type(self.open().primary).__name__, "CarrierPrimary")
+        self.assertEqual(type(self.open(for_send=True, journal_off=True).primary).__name__, "CarrierPrimary")
+
+    def test_receiving_with_the_journal_off_is_the_one_refusal(self):
+        with self.assertRaisesRegex(transport.ModeError, "GZCOORD_JOURNAL=off"):
+            self.open(journal_off=True)
+        self.assertEqual(type(self.open(journal_off=True, record_only=True).primary).__name__, "CarrierPrimary",
+                         "the read of the record needs no journal write")
 
 
 class Action(Scratch):
@@ -229,7 +147,7 @@ class Action(Scratch):
 
     def test_set_writes_the_record_under_the_signers_address_and_says_what_it_replaced(self):
         a = tm.set_mode(self.req(mode="carrier-record"), state_dir=self.dir)
-        self.assertEqual((a["status"], a["previous"], a["mode"]["mode"], a["mode"]["set_by"]), ("set", "relay-record", "carrier-record", OPERATOR))
+        self.assertEqual((a["status"], a["previous"], a["mode"]["mode"], a["mode"]["set_by"]), ("set", "carrier-only", "carrier-record", OPERATOR))
         b = tm.set_mode({**self.req(mode="carrier-only"), "from": "h1/other"}, state_dir=self.dir)
         self.assertEqual((b["previous"], mode.read(self.dir)["set_by"]), ("carrier-record", "h1/other"))
 
@@ -255,6 +173,8 @@ class Action(Scratch):
         self.assertIn(mode.FILE, a["reason"])
 
     def test_the_read_shows_the_mode_or_that_it_is_unreadable(self):
+        self.assertEqual(tm.section(self.dir)["mode"], "carrier-only", "no file is the default")
+        mode.write("relay-record", OPERATOR, self.dir)
         self.assertEqual(tm.section(self.dir)["mode"], "relay-record")
         mode.write("carrier-only", OPERATOR, self.dir)
         self.assertEqual(tm.section(self.dir)["mode"], "carrier-only")
@@ -359,13 +279,13 @@ class Fleet(Scratch):
 
 
 class FleetRuns(Fleet):
-    def test_the_read_prints_every_accounts_mode_with_no_state_file_as_relay_record(self):
+    def test_the_read_prints_every_accounts_mode_with_no_state_file_as_carrier_only(self):
         self.put("b", "carrier-record")
         rc, out, err = self.run_ctl(["all", CARRIER_NAME])
         lines = {l.split()[0]: l for l in out.splitlines()[1:] if l.strip()}
-        self.assertRegex(lines["a"], r"relay-record")
+        self.assertRegex(lines["a"], r"carrier-only")
         self.assertRegex(lines["b"], r"carrier-record")
-        self.assertRegex(lines["c"], r"relay-record")
+        self.assertRegex(lines["c"], r"carrier-only")
         self.assertEqual(self.moves(), [])
 
     def test_moving_all_to_carrier_record_then_the_read_shows_it_and_names_the_account_that_did_not_answer(self):
@@ -373,16 +293,17 @@ class FleetRuns(Fleet):
         rc, out, err = self.run_ctl(["all", OP, "--mode", "carrier-record"])
         self.assertEqual(rc, 1, "an account that did not confirm fails the run")
         self.assertEqual(self.moves()[-1]["args"], {"mode": "carrier-record"})
-        self.assertRegex(out, r"(?m)^a\s+set\s+relay-record -> carrier-record")
+        self.assertRegex(out, r"(?m)^a\s+set\s+carrier-only -> carrier-record")
         self.assertRegex(out, r"(?m)^c\s+no answer")
-        self.assertEqual(self.modes(), {"a": "carrier-record", "b": "carrier-record", "c": "relay-record"})
+        self.assertEqual(self.modes(), {"a": "carrier-record", "b": "carrier-record", "c": "carrier-only"})
         self.silent = set()
         rc, out, err = self.run_ctl(["all", CARRIER_NAME])
-        self.assertEqual({l.split()[0]: l.split()[2] for l in out.splitlines()[1:] if l.strip()}, {"a": "carrier-record", "b": "carrier-record", "c": "relay-record"})
+        self.assertEqual({l.split()[0]: l.split()[2] for l in out.splitlines()[1:] if l.strip()}, {"a": "carrier-record", "b": "carrier-record", "c": "carrier-only"})
 
     def test_carrier_only_is_refused_while_any_placed_account_reports_relay_record_and_nothing_is_sent(self):
         self.put("a", "carrier-record")
-        self.put("b", "carrier-record")      # c has no file: relay-record
+        self.put("b", "carrier-record")
+        self.put("c", "relay-record")        # no file is carrier-only now: the account still on the relay says so
         rc, out, err = self.run_ctl(["all", OP, "--mode", "carrier-only"])
         self.assertEqual(rc, 2)
         self.assertRegex(err, r"carrier-only is refused.*c \(relay-record\)")
@@ -406,6 +327,8 @@ class FleetRuns(Fleet):
 
     def test_the_refusal_looks_at_the_whole_fleet_not_only_the_accounts_addressed(self):
         self.put("a", "carrier-record")
+        self.put("b", "relay-record")
+        self.put("c", "relay-record")
         rc, out, err = self.run_ctl(["a", OP, "--mode", "carrier-only"])
         self.assertEqual(rc, 2)
         self.assertRegex(err, r"b \(relay-record\), c \(relay-record\)")

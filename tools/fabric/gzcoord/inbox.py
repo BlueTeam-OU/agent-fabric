@@ -1,4 +1,4 @@
-"""tools/fabric/gzcoord/inbox.py — GZCoord's inbox: what the relay holds for
+"""tools/fabric/gzcoord/inbox.py — GZCoord's inbox: what the carrier holds for
 THIS session, delivered the way SPEC §17 says a recipient receives — a
 body read only when it is addressed to it. Ported from
 communication/gzcoord/scripts/inbox.mjs (agent-fabric ADR-040 §7, Wave
@@ -23,12 +23,12 @@ CONTRACT, frozen from the Node:
                                 refusal, the --deadline quiet exit or the
                                 session-ended exit (below) is an exit other than 0 with its reason on STDOUT (a
                                 background command's output reaches the
-                                session only at exit): 2 a control
-                                channel named, 3 not configured
-                                or no token, 4 a refused token, 5 a relay
-                                unreachable for 15 minutes (a carrier primary never gives up: it retries to the deadline), 6 a delivery
+                                session only at exit): 6 a delivery
                                 the journal cannot keep, 7 an internal
-                                error or a transport mode that cannot be read. The session runs it again only
+                                error or GZCOORD_JOURNAL=off (a receive
+                                the carrier does not run without). The
+                                carrier never gives up the watch: it is
+                                retried to the deadline. The session runs it again only
                                 after exit 0 or its own timeout, except
                                 the exit 0 below that is a refusal and
                                 not a delivery: its line says not to.
@@ -103,91 +103,68 @@ CONTRACT, frozen from the Node:
                                 addressed here lands; --keyword K
                                 (repeatable, 3+ characters, at most 8)
                                 also ends it on a passing message
-            --replay <seq|message-id> [--json]
-                                re-read ONE message; the cursor does not
-                                move; a body not addressed here is not
-                                shown. A message-id is answered from this
-                                account's journal first (relay configured
-                                or not), else the relay; a seq only by the
-                                relay. --json: one object (addressed,
-                                seq, sender, when, type, metadata, text,
-                                carrier, sender_verified, and for a
-                                journal row state), or {"addressed":
-                                false, "seq": N}
-            --history [<seq>]   one line per message addressed here in the
-                                relay's recent history, then those a
-                                carrier other than the relay brought
-                                (from the journal) that its page lacks;
-                                with no relay to ask, the journal's list;
-                                bodies stay with --replay; the cursor does
-                                not move
+            --replay <message-id> [--json]
+                                re-read ONE message from this account's
+                                journal (the carrier keeps no past of its
+                                own); a body not addressed here is not
+                                shown; one the journal does not hold, or a
+                                reference that is no MESSAGE-ID, is one
+                                line and exit 1. --json: one object
+                                (addressed, seq, sender, when, type,
+                                metadata, text, carrier, sender_verified,
+                                and for a journal row state)
+            --history [<seq>]   one line per message addressed here, from
+                                the journal; bodies stay with --replay;
+                                the cursor does not move
             --held              is this account's inbox held (planning)?
-  env       CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL (together, or over a
-            project's integration), CLAUDE_BRIDGE_AUTH_TOKEN (after the
-            synced file); none of the three, nor the project's relay
-            section, is read in transport mode carrier-only.
-            GZCOORD_TRANSPORT_MODE overrides the account's mode for this
-            command (said on stderr; a value that is no mode ends it with
-            exit 7), AGENT_FABRIC_ROOT, AGENT_FABRIC_STATE_DIR,
-            AGENT_FABRIC_HOLD_DIR, GZCOORD_JOURNAL=off, GZCOORD_RELAY_UNIT,
+  env       no relay setting, token or transport mode is read (W15 of the
+            transport cutover plan). AGENT_FABRIC_ROOT, AGENT_FABRIC_STATE_DIR,
+            AGENT_FABRIC_HOLD_DIR, GZCOORD_JOURNAL=off,
             GZCOORD_TEST_BUS_ANY=1, XDG_RUNTIME_DIR, HOME,
             GZCOORD_DEFAULT_LOCALE_ONLY
   stdout    deliveries (below one, a `queued as jN: <title>` line for each
             REQUEST to this login it put on the job list, intake.py), the
             drain's listing, replay/history output, the
-            keyword hit, the watch's relay-down/back lines, the
+            keyword hit, the watch's carrier-down/back lines, the
             journal's held-messages line and, under GZCOORD_JOURNAL=off,
             one bypass warning per page. --follow runs under a Monitor,
             which turns each line into a notification as it is printed, so
-            its relay-down/back lines are stdout. --until-delivery runs
+            its carrier-down/back lines are stdout. --until-delivery runs
             under a background Bash, whose output reaches the session once,
-            at exit: it prints the one delivery (or, on exit 2-7, the
-            reason; under GZCOORD_JOURNAL=off also the bypass warning)
-            and no relay-down/back lines (a carrier primary still silent at the
+            at exit: it prints the one delivery (or, on exit 6 or 7, the
+            reason) and no carrier-down/back lines (a carrier still silent at the
             deadline adds one line, the failure, before the quiet line); the journal's held-messages
             line is printed only as it exits 6.
-            a second watch's refusal line (watchlock.py), the --deadline
+                        a second watch's refusal line (watchlock.py), the --deadline
             quiet line and the session-ended line, which exit 0 without
             being a delivery.
   stderr    every start-up and refusal line (under --until-delivery, the
             refusals that end it go to stdout instead); the hold's
             held/released
   exit      0 drained, delivered, a second watch refused (one per login), --until-delivery quiet to its
-            --deadline, a watch whose session ended, nothing for you, relay unreachable on a
-            drain or wait, and (outside --until-delivery) not configured
-            or no token (--history then lists the journal);
+            --deadline, a watch whose session ended, nothing for you, a carrier that does not
+            answer on a drain or wait;
             1 a usage line, replay of no such message, an unreadable
-            journal, the --held "not held"; 2 a control channel named,
-            replay not addressed (--json too); 3 a keyword hit, and under
-            --until-delivery not configured or no token; 4 a refused
-            token; 5 --until-delivery's relay unreachable for 15 minutes (a carrier primary retries to the deadline instead);
+            journal, the --held "not held"; 2 replay not addressed (--json too); 3 a keyword hit;
             6 --until-delivery's delivery held by the journal; 7
             --until-delivery's last resort. Anything unforeseen is
             `gzcoord inbox: <why>`, exit 0 for every mode but
             --until-delivery (7): the whole contract of a session start is
             one line and exit 0.
 
-THE SHOWN LEDGER AND THE SECOND CARRIER (agent-fabric ADR-064, CARRIER-CONTRACT.md):
+THE SHOWN LEDGER (agent-fabric ADR-064, CARRIER-CONTRACT.md):
 what a session sees is decided by `<state>/agents/<login>/gzcoord-shown.jsonl`
-(carrier/ledger.py), whichever carrier brought a message and with no carrier at all:
-a message shown is not shown again, even when the relay delivers it again (an
-acknowledgement that failed, a retransmission under its MESSAGE-ID) — and the
-one second showing is the copy that reveals a FROM mismatch after the relay's, shown
-again, flagged. A showing that died between its two ledger lines is shown once
-more, flagged "may repeat". When the carrier is running, the arrivals it journaled
-come in the same page as the relay's, titled from the roster's address; they are
-never acknowledged to the relay. The arrival log (gzcoord-arrivals.jsonl) gets a line
-per relay copy addressed here, journal on or off. The acknowledgement log (gzcoord-acks.jsonl) gets
-a line per POST /api/ack for such a copy, by MESSAGE-ID, with whether the relay answered (the relay-outage drill's evidence). The watch log (gzcoord-watch.jsonl) gets a line when a --follow or --until-delivery watch starts and one when it
-ends, with the reason (delivery, quiet, session-ended, gave-up, token-refused, journal-held): the drill's report counts the starts and the give-ups inside
-the outage from it; a watch killed from outside writes no end line. A ledger that cannot be opened is
-said on stderr and the relay's messages are shown without it.
+(carrier/ledger.py): a message shown is not shown again, even when the carrier lists it again. A showing that died between its two
+ledger lines is shown once more, flagged "may repeat". The arrivals the carrier journaled
+come in the watch's page, titled from the roster's address. The watch log (gzcoord-watch.jsonl) gets a line when a --follow or --until-delivery watch starts and one when it
+ends, with the reason (delivery, quiet, session-ended, journal-held); a watch killed from outside writes no end line. A ledger that cannot be opened is
+said on stderr and the carrier's messages wait: they are never shown without it.
 
 The rest of the Node's header — the modes, the hold, the addressee rule —
 is kept where each applies: below, or in the part that holds it
 (inbox_parts/). A watch is one consumer per address, run once per session
 (under a Monitor for --follow, a background Bash for --until-delivery).
-Never blocks a session start: relay down, no token, no catalogue — each is
+Never blocks a session start: carrier down, no catalogue — each is
 one line on stderr and exit 0.
 
 THE JOURNAL (ADR-041 rule 4), in this process now: a page's messages
@@ -200,7 +177,7 @@ GZCOORD_JOURNAL=off skips the journal, never the record: each of those
 messages gets a line in journal-bypass.jsonl (gzcoord/bypass.py) before it
 is shown or acknowledged, and a line that cannot be written holds the page
 as a journal that cannot keep it does. --replay and --history leave no
-bypass line, journal on or off: they show what the relay or the journal
+bypass line, journal on or off: they show what the journal
 already holds and acknowledge nothing, and the journal is only read by them
 (episodic.open_readonly), in either mode.
 A replay ahead of the drain shows a record no line or row records yet: it
@@ -217,7 +194,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from .carrier import CARRIER_LABEL, CARRIER_NAME, arrivals
+from .carrier import CARRIER_LABEL, arrivals
 from . import bypass, gzmsg, i18n, intake, paths, transport
 from .transport import carrier as carrier_transport
 from . import jsvalues as js
@@ -231,16 +208,10 @@ from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
 # here with run_episodic and journal_inbound, which call it; it is the one
 # name a test can replace here: the parts call one another directly, so
 # replacing any other name on inbox changes main() and nothing it calls.
-from .inbox_parts.config import workspace, relay_runtime_dir, integration_config, default_relay  # noqa: F401
-from .inbox_parts.config import resolve_integration  # noqa: F401
-from .inbox_parts.config import ControlChannel, assert_not_control_channel, git_toplevel  # noqa: F401
+from .inbox_parts.config import CARRIER_ONLY_CHANNEL  # noqa: F401
+from .inbox_parts.config import git_toplevel  # noqa: F401
 from .inbox_parts.config import inbox_root  # noqa: F401
-from .inbox_parts.tokens import synced_var, TokenRefused, checked_token, synced_token, token  # noqa: F401
-from .inbox_parts.tokens import _token, identity, for_me  # noqa: F401
-# Kept for the tests and tools that reach the relay's client as inbox.<name> (the protocol and port suites run unchanged
-# as the oracle of the move to transport/); nothing in this module calls them.
-from .inbox_parts.relay import _relay_up, ensure_relay, RelayError, API_TIMEOUT  # noqa: F401
-from .inbox_parts.relay import _OPENER, api, explain_relay_error  # noqa: F401
+from .inbox_parts.tokens import identity, for_me  # noqa: F401
 from .inbox_parts.records import _records, _when, one_line, _parse_quiet, replay, HISTORY_WINDOW  # noqa: F401
 from .inbox_parts.records import history, RETRANSMISSION_LOOKUP_MS, mark_retransmissions  # noqa: F401
 from .inbox_parts.records import MESSAGE_ID, JournalUnreadable, history_journal, history_journal_only, journal_newest, journal_record, replay_journal_row  # noqa: F401
@@ -250,7 +221,7 @@ from .inbox_parts.hold import hold_dir, pid_start, pid_alive, hold_status, HOLD_
 from .inbox_parts.render import NOTIFICATION_CAP, MAX_FLAG_LINES, _SECTION, cut_at_line  # noqa: F401
 from .inbox_parts.render import _drop_final_newline, split_message, render  # noqa: F401
 from .inbox_parts.watch import JOURNAL_RETRY_MS, bypass_inbound, wait_loop  # noqa: F401
-from .inbox_parts.watchlock import take_or_report, mark_relay_down, clear_relay_down  # noqa: F401
+from .inbox_parts.watchlock import take_or_report  # noqa: F401
 from .inbox_parts import session as watch_session
 
 
@@ -260,13 +231,10 @@ REPLACE_USAGE = "gzcoord inbox: --replace goes with --until-delivery or --follow
 DEADLINE_USAGE = "gzcoord inbox: --deadline takes a number of seconds above 0 and goes with --until-delivery"
 
 
-# How long --until-delivery rides out an unreachable relay before it exits
-# to tell the session; --follow never gives up (its Monitor shows each line).
-# How often a running watch reads the account's transport mode; the plan's bound is a minute. The environment is a seam for
-# tests, which wait for the poll's event rather than out several fixed 5 s polls; a test of the default reads this constant.
-MODE_POLL_S = float(os.environ.get("GZCOORD_MODE_POLL_S") or 5.0)
+# How long --until-delivery rides out a carrier that does not answer before it says so on stderr; it never exits for it (the
+# carrier is a local daemon that comes back by itself) and retries to its --deadline. --follow never gives up either.
 UNTIL_DELIVERY_DOWN_S = float(os.environ.get("GZCOORD_UNTIL_DELIVERY_DOWN_S") or 900)
-# Seconds between tries while the relay does not answer. The environment is a seam for tests, which wait for the retry's
+# Seconds between tries while the carrier does not answer. The environment is a seam for tests, which wait for the retry's
 # event rather than out a fixed 30 s; a test of the default reads this constant.
 RETRY_S = float(os.environ.get("GZCOORD_RETRY_S") or 30)
 
@@ -391,6 +359,9 @@ def show_page(res: dict, write: Callable[[], None]) -> None:
     held = res.get("ledger")
     try:
         write()
+        # stdout is block-buffered when piped: without this the bytes leave only at exit, after the ledger is
+        # finished and the page acknowledged, so a reader that closed early would lose a message already settled.
+        sys.stdout.flush()
     except BaseException:
         if held:
             held.release()
@@ -401,12 +372,12 @@ def show_page(res: dict, write: Callable[[], None]) -> None:
         except OSError as e:
             print(f"gzcoord: the shown ledger could not be written ({e.strerror or e}); the message may repeat", file=sys.stderr)
     if res.get("ack_later"):
-        res["ack_later"]()          # after the lock is released: the relay's acknowledgement is a network call
+        res["ack_later"]()          # after the lock is released: the carrier's acknowledgement may be a call
 
 
 def with_queued(shown: str, classified: list[dict], me: dict) -> str:
     """A delivery, and below it a line for each REQUEST to this login it put
-    on the job list (intake.py). After the journal; the relay's acknowledgement
+    on the job list (intake.py). After the journal; the carrier's acknowledgement
     follows the showing (show_page): a job the list could not take is a line on stderr, never an unshown message."""
     lines = intake.queue_received(classified, me)
     return shown + "".join(f"\n{x}" for x in lines)
@@ -431,8 +402,8 @@ def main(argv: list[str]) -> int:
         wait_total = n if js.truthy_number(n) else 1800.0
     deadline_s = deadline_arg(argv) or DEFAULT_DEADLINE_S
     # Who this session is (the login) and which project it works in — the
-    # second selects the integration: relay, channel, where the token and
-    # runtime live, in the project's WORKING COPY.
+    # second names the project whose catalogue and roster are read, in the
+    # project's WORKING COPY.
     who = gzmsg.whoami()
     # From here every line is this login's: English, or the locale its name
     # ends in when that locale has an active dictionary (i18n).
@@ -462,12 +433,8 @@ def main(argv: list[str]) -> int:
             print(t("held.not-held", {"reason": h["reason"]}))
         return 0 if h["held"] else 1
     root = inbox_root(who)
-    try:
-        cfg, account_mode = resolve_integration(who.get("project"), os.environ, t, _episodic().state_dir())
-    except transport.ModeError as e:       # a GZCOORD_TRANSPORT_MODE that names no mode
-        print(f"gzcoord-inbox: {e}", file=sys.stdout if until_delivery else sys.stderr)
-        return 7
-    carrier_only = account_mode is not None and account_mode["mode"] == transport.mode.CARRIER_ONLY
+    channel = CARRIER_ONLY_CHANNEL      # what a delivery's header names where the relay's channel was
+    refusal_out = sys.stdout if until_delivery else sys.stderr
 
     def own_identity() -> dict:
         tax_path = gzmsg.find_taxonomy(root)
@@ -477,19 +444,24 @@ def main(argv: list[str]) -> int:
         print(f"gzcoord-inbox: your journal could not be read: {e}", file=sys.stderr)
         return 1
 
-    # A MESSAGE-ID is answered from this account's journal first, in every configuration: relay configured or not, up or not,
-    # journal writing on or off (it is read here, never written). Only a relay seq, or a MESSAGE-ID the journal does not hold,
-    # goes on to the relay.
-    if replay_which and MESSAGE_ID.fullmatch(replay_which):
+    # --replay is answered from this account's journal: the carrier keeps no past of its own, and the relay's seqs are no longer
+    # asked. A message the journal does not hold, or a reference that is not a MESSAGE-ID, is a refusal in one line.
+    if replay_which:
+        if not MESSAGE_ID.fullmatch(replay_which):
+            # Echoed bounded and escaped: the argument may have been copied out of a message body (mode.effective's convention).
+            shown = replay_which if len(replay_which) <= 40 and replay_which.isprintable() \
+                else replay_which[:40].encode("unicode_escape").decode("ascii") + "..."
+            print(f"gzcoord inbox: --replay takes a MESSAGE-ID, and {shown} is not one (a relay seq is no longer read)",
+                  file=sys.stderr)
+            return 1
         try:
             row = journal_record(_episodic(), replay_which)
         except JournalUnreadable as e:
             return journal_unreadable(e)
         if row is not None:
             return replay_journal_row(row, own_identity(), t, "--json" in argv)
-        if not cfg["configured"]:
-            print(f"gzcoord inbox: no message {replay_which} in your journal, and no relay is configured to ask", file=sys.stderr)
-            return 1
+        print(f"gzcoord inbox: no message {replay_which} in your journal", file=sys.stderr)
+        return 1
 
     def history_from_journal() -> int:
         try:
@@ -497,94 +469,13 @@ def main(argv: list[str]) -> int:
         except JournalUnreadable as e:
             return journal_unreadable(e)
 
-    if history_given and not cfg["configured"]:
+    if history_given:
         return history_from_journal()
-    # Not configured is not an error at a session start, and not a guess.
-    # Under --until-delivery the session reads stdout only, and "run it again"
-    # on an immediate exit 0 would loop it one turn per run: so a refusal
-    # no rerun can cure is a distinct code with its reason on stdout.
-    refusal_out = sys.stdout if until_delivery else sys.stderr
-    if not cfg["configured"]:
-        print(t("start.skipping", {"reason": cfg["reason"]}), file=refusal_out)
-        return 3 if until_delivery else 0
-    try:
-        assert_not_control_channel(cfg["channel"], t)
-    except ControlChannel as e:
-        print(t("start.error", {"detail": str(e)}), file=refusal_out)
-        return 2
-    relay_url, channel = cfg["relay_url"], cfg["channel"]
-    def start_relay(for_cfg: dict) -> dict:
-        """Start the hosting working copy's relay and say what happened, at the start and at a move out of carrier-only alike."""
-        up_ = transport.start_hosted(for_cfg, t)
-        if up_.get("started"):
-            print(t("start.relay-started-unit", {"unit": up_["unit"]}) if up_.get("unit")
-                  else t("start.relay-started-pid", {"pid": up_.get("pid")}), file=sys.stderr)
-        elif up_.get("note"):
-            print(t("start.error", {"detail": up_["note"]}), file=sys.stderr)
-        return up_
-
-    # What this session owns first: the hosting working copy starts its
-    # relay here, so a session restart is also the relay's.
-    # Not in carrier-only: nothing in that mode's inbox path may start or probe the relay. A mode that cannot be read
-    # does not decide it here; open_mux below refuses it in one line.
-    if not carrier_only:
-        start_relay(cfg)
-    # No relay token in carrier-only: it is neither looked for nor needed.
-    tok = None if carrier_only else token(root, cfg)
-    if not tok and not carrier_only and history_given:
-        return history_from_journal()
-    if not tok and not carrier_only:
-        print(t("start.no-token", {"token_file": cfg["token_env_file"] if cfg.get("token_env_file") is not None
-                                   else t("config.no-token-file")}), file=refusal_out)
-        return 3 if until_delivery else 0
     tax_path = gzmsg.find_taxonomy(root)
     taxonomy = gzmsg.load_taxonomy(tax_path) if tax_path else None
     me = identity(who, taxonomy)
     if me.get("roleError"):
         print(t("start.error", {"detail": me["roleError"]}), file=sys.stderr)
-    def with_fresh_token(primary: transport.Primary, fn: Callable[[], Any]) -> Any:
-        """Once: a refused token is retried with the synced file's value
-        when that differs from what the environment carried."""
-        try:
-            return fn()
-        except Exception as e:  # noqa: BLE001 — the primary says whether it was a refused token
-            if not primary.refresh(e):
-                raise
-            print(t("start.token-retry"), file=sys.stderr)
-            return fn()
-
-    if history_given or replay_which:
-        # The record the primary keeps, read whole; no cursor moves, so no mirror and no logs.
-        try:
-            primary = transport.open_transport(cfg, token=tok or "", me=me, record_only=True, account_mode=account_mode,
-                                               journal_newest=lambda n: journal_newest(_episodic(), n)).primary
-        except transport.ModeError as e:
-            print(f"gzcoord-inbox: {e}", file=refusal_out)
-            return 7
-        try:
-            if history_given and primary.name == CARRIER_NAME:
-                return history_from_journal()     # the carrier keeps no list of its own: the journal is the record this account holds
-            if history_given:
-                def relay_then_journal() -> int:
-                    page = primary.newest(HISTORY_WINDOW)
-                    code = history(page, channel, history_from, me, t)
-                    try:
-                        history_journal_only(_episodic(), page, history_from, me, t)
-                    except JournalUnreadable as e:
-                        journal_unreadable(e)   # said on stderr; the relay's list above stands
-                    return code
-                return with_fresh_token(primary, relay_then_journal)
-            return with_fresh_token(primary, lambda: replay(primary.newest(500), channel, replay_which, me, t, "--json" in argv,
-                                                                      from_journal=primary.name == CARRIER_NAME))
-        except JournalUnreadable as e:
-            return journal_unreadable(e)      # the carrier's record is the journal: the carrier was never asked
-        except Exception as e:  # noqa: BLE001 — any failure of the read is the primary's line
-            x = primary.explain(e, t)
-            print(x["line"], file=sys.stderr)
-            if history_given:
-                # The relay said why it did not answer; the journal is the record this account holds.
-                return history_from_journal()
-            return x["code"] or 1
 
     # Drain mode spends 1 s on the cursor page and lists everything; wait
     # mode chains slices until a message ADDRESSED TO THIS SESSION lands,
@@ -600,57 +491,19 @@ def main(argv: list[str]) -> int:
     off = bypass.is_off()
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
     ep = _episodic()
-    def open_mux(resolved: dict | None = None, use_cfg: dict | None = None, use_tok: str | None = None) -> transport.TransportMux:
-        return transport.open_transport(use_cfg or cfg, token=(tok if use_cfg is None else use_tok) or "", me=me, journal_off=off,
-                                        state_dir=ep.state_dir(), iso_now=ep.now,
-                                        journal_newest=lambda n: journal_newest(ep, n), account_mode=resolved)
-
-    def moved_integration() -> tuple[dict, str | None, dict]:
-        """The integration, token and Mode a watch needs after its account's mode moved. A watch begun in carrier-only holds the
-        carrier's config and no token, which a relay mode must never be built from, so both are resolved afresh with every check
-        the start makes; any refusal is a ModeError, and the caller keeps the transport it has."""
-        new_cfg, new_mode = resolve_integration(who.get("project"), os.environ, t, ep.state_dir())
-        if new_mode is None:      # a mode that cannot be read: open_transport would say it; here nothing is rebuilt
-            raise transport.ModeError("the transport mode cannot be read")
-        name = new_mode["mode"]
-        if not new_cfg["configured"]:
-            raise transport.ModeError(f"transport mode {name} needs the project's relay configuration: {new_cfg['reason']}")
-        try:
-            assert_not_control_channel(new_cfg["channel"], t)
-        except ControlChannel as e:
-            raise transport.ModeError(f"transport mode {name}: {e}") from None
-        if name == transport.mode.CARRIER_ONLY:
-            return new_cfg, None, new_mode
-        try:
-            new_tok = token(root, new_cfg)
-        except (TokenRefused, OSError) as e:       # the message names no part of the token
-            raise transport.ModeError(f"transport mode {name}: {e}") from None
-        if not new_tok:
-            raise transport.ModeError(f"transport mode {name} needs the relay token, and none is found")
-        return new_cfg, new_tok, new_mode
-
     try:
-        tp = open_mux(account_mode)
-    except transport.ModeError as e:
+        tp = transport.open_transport(me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now,
+                                      journal_newest=lambda n: journal_newest(ep, n))
+    except transport.ModeError as e:      # receiving with GZCOORD_JOURNAL=off
         print(f"gzcoord-inbox: {e}", file=refusal_out)
         return 7
     primary = tp.primary
-    # A running watch takes a changed mode at its next arm, within a minute: the file is read every few seconds and a change
-    # ends the arm the way a session's end does (nothing acknowledged is lost, the relay shows the slice again).
-    mode_watch = transport.mode.Watcher(tp.mode, ep.state_dir(), every=MODE_POLL_S,
-                                        on_error=lambda why: print(f"gzcoord-inbox: {why}; the watch keeps transport mode {tp.mode}", file=sys.stderr, flush=True))
     cause = {"reason": None}
 
     def primary_down_line(kind: str) -> str:
-        """What the watch says of its primary being down, gone for good, or back: the relay's or the carrier's three lines."""
-        if primary.name != CARRIER_NAME:
-            # Each key literally beside its t(: the i18n suite reads the source for them.
-            if kind == "down":
-                return t("watch.relay-down", {"relay_url": relay_url})
-            if kind == "gave-up":
-                return t("watch.relay-gave-up", {"relay_url": relay_url})
-            return t("watch.relay-back")
+        """What the watch says of the carrier being down, gone for good, or back."""
         fix = carrier_transport.fix_line(t, me["address"])
+        # Each key literally beside its t(: the i18n suite reads the source for them.
         if kind == "down":
             return t("watch.carrier-down", {"carrier": CARRIER_LABEL, "fix": fix})
         if kind == "gave-up":   # unreachable under --until-delivery since j266 (a carrier is retried to the deadline); the key stays until it is retired
@@ -686,14 +539,13 @@ def main(argv: list[str]) -> int:
         # The watch. Each arm waits an hour of slices (under --until-delivery
         # the time left to the deadline, when that is less); a delivery is
         # printed and the next arm starts at once; a quiet hour starts the next
-        # arm silently. Transport trouble is one line each way; a refused token
-        # ends the watch with exit 4 so the harness reports it once.
+        # arm silently. A carrier that does not answer is one line each way.
         # --until-delivery is the same loop that returns after the first
         # delivery: a Monitor is capped at 30 minutes and every expiry rings
         # the Fleet Deck, a background command is capped at 2 hours and ends
         # by delivering or, quiet, at its --deadline (the owner, 2026-10-10). Its output reaches the
-        # session only when it exits, so a relay down for long ends it too,
-        # rather than leaving a session believing it is watched.
+        # session only when it exits, so a carrier that stays down is said once and the watch
+        # keeps retrying to its deadline (the carrier is a local daemon that comes back by itself).
         down = False
         down_since = 0.0
         # When the primary last answered a slice. An arm lasts up to an hour of slices and returns only at its end, so `down`
@@ -715,8 +567,8 @@ def main(argv: list[str]) -> int:
         # call it so) and a watch started through main alone serves its session as one started through run.
         session = watch_session.current()
 
-        # The watch's own start and end, for the relay-outage drill's report (carrier/arrivals.WatchLog): written beside the
-        # shown ledger because the give-up's marker is deleted by the next fetch and nothing else says a watch ran. A log
+        # The watch's own start and end, for the deaf-watch report (carrier/arrivals.WatchLog, read by control/deaf.py): written beside the
+        # shown ledger because nothing else says a watch ran. A log
         # that cannot be written is said once and never ends the watch: it is evidence, not a part of what the watch does.
         watch_log = arrivals.WatchLog(os.path.join(ep.state_dir(), "gzcoord-watch.jsonl"), iso_now=ep.now)
         said = {"v": False}
@@ -727,7 +579,7 @@ def main(argv: list[str]) -> int:
             except OSError as e:
                 if not said["v"]:
                     said["v"] = True
-                    print(f"gzcoord-inbox: the watch log {watch_log.path} cannot be written ({e}); the relay-outage report will not hold this watch",
+                    print(f"gzcoord-inbox: the watch log {watch_log.path} cannot be written ({e}); the deaf-watch report will not hold this watch",
                           file=sys.stderr, flush=True)
 
         def ended(reason: str, code: int) -> int:
@@ -735,42 +587,31 @@ def main(argv: list[str]) -> int:
             return code
 
         log_watch(watch_log.append_start, os.getpid())
-        mode_moved = {"v": False}
 
         def session_gone() -> bool:
-            if watch_session.gone(session):
-                return True
-            if mode_watch.changed():
-                mode_moved["v"] = True
-                return True
-            return False
+            return watch_session.gone(session)
         while True:
-            # Checked before each arm, so a relay that was down at the
+            # Checked before each arm, so a carrier that was down at the
             # deadline, or a hold that outlasted it, ends the watch as a quiet one.
             left = deadline - time.monotonic()
             if until_delivery and left <= 0:
-                if down and primary.name == CARRIER_NAME and last_failure["e"] is not None:   # the relay's quiet ending is frozen as the one line
+                if down and last_failure["e"] is not None:
                     # Still down at the deadline: said before the quiet line, so the session that re-runs the watch knows why it was quiet.
                     # The failure itself, not the "waiting for it" line: the watch is ending.
                     print(primary.explain(last_failure["e"], t)["line"], flush=True)
                 print(QUIET_LINE.format(minutes=int((time.monotonic() - started) // 60)), flush=True)
                 return ended("quiet", 0)
             try:
-                r = with_fresh_token(primary, lambda: wait_loop(fetch_noting, tp.ack, min(3600, math.ceil(left)) if until_delivery else 3600,
-                                                           mine_fn, [], me["address"], held, on_hold, journal=journal,
-                                                           on_journal_fail=on_journal_fail,
-                                                           deadline=deadline if until_delivery else None,
-                                                           session_gone=session_gone, iw=tp.iw, on_arrival=tp.on_arrival,
-                                                           ledger=tp.ledger))
+                r = wait_loop(fetch_noting, tp.ack, min(3600, math.ceil(left)) if until_delivery else 3600,
+                              mine_fn, [], me["address"], held, on_hold, journal=journal,
+                              on_journal_fail=on_journal_fail,
+                              deadline=deadline if until_delivery else None,
+                              session_gone=session_gone, iw=tp.iw, ledger=tp.ledger)
             except _JournalHeld as e:
                 print(e.line, flush=True)
                 return ended("journal-held", 6)
-            except Exception as e:  # noqa: BLE001 — every failure of an arm is the relay's, said once
+            except Exception as e:  # noqa: BLE001 — every failure of an arm is the carrier's, said once
                 last_failure["e"] = e
-                x = primary.explain(e, t)
-                if x["code"] == 4:
-                    print(x["line"], file=sys.stdout if until_delivery else sys.stderr, flush=True)
-                    return ended("token-refused", 4)
                 if until_delivery and down and answered["at"] > down_since:
                     # It answered after the outage began: that outage is over and this failure is a new one. Only the give-up
                     # bound reads the clock, so --follow, which has none, keeps its lines exactly as they were.
@@ -782,54 +623,24 @@ def main(argv: list[str]) -> int:
                     down = True
                     down_since = time.monotonic()
                     carrier_bound_said["v"] = False
-                elif until_delivery and primary.name == CARRIER_NAME:
+                elif until_delivery:
                     # The carrier is a local daemon that comes back by itself (a restart, an upgrade: the 2026-11-18 fleet upgrades
                     # that deafened eight idle sessions): exiting 5 left a session that waits to be re-run, deaf until someone restarted
-                    # it. The watch keeps retrying to its --deadline and ends quiet (exit 0, run it again) if the carrier never returns;
-                    # only the relay, which an operator may stop on purpose, still gives up (watch-on-stop's relay-down marker).
+                    # it. The watch keeps retrying to its --deadline and ends quiet (exit 0, run it again) if the carrier never returns.
                     if not carrier_bound_said["v"] and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
                         carrier_bound_said["v"] = True
                         print(f"gzcoord-inbox: the {CARRIER_LABEL} carrier has not answered for {UNTIL_DELIVERY_DOWN_S / 60:g} minutes; "
                               "the watch keeps retrying until its deadline", file=sys.stderr, flush=True)
-                elif until_delivery and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
-                    print(primary_down_line("gave-up"), flush=True)
-                    mark_relay_down(who["agent"], time.time())
-                    return ended("gave-up", 5)
-                # The RETRY_S between tries, shortened to the time left before the give-up bound and, under --until-delivery,
-                # before the --deadline (never negative: sleep refuses that): a relay that refuses connections must not
-                # carry the watch past the deadline it promised, and a shorter bound (a test's) is not slept through twice.
-                to_give_up = UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since) if primary.name != CARRIER_NAME else RETRY_S
-                time.sleep(max(0.0, min(RETRY_S, to_give_up, deadline - time.monotonic())) if until_delivery else RETRY_S)
-                continue
-            if r.get("relayAnswered"):
-                clear_relay_down(who["agent"])
-            if r.get("sessionEnded") and mode_moved["v"]:
-                mode_moved["v"] = False
-                try:
-                    new_cfg, new_tok, new_account_mode = moved_integration()
-                    tp = open_mux(new_account_mode, new_cfg, new_tok)
-                    # Only after the mux is accepted, so a move it refuses starts nothing at every retry, and only for a move out
-                    # of carrier-only, the one start that was skipped: a move between the relay modes did not start it before.
-                    if carrier_only and new_account_mode["mode"] != transport.mode.CARRIER_ONLY:
-                        start_relay(new_cfg)
-                    # Only now: a refused move leaves the watch's labels describing the transport it kept.
-                    cfg, tok, carrier_only = new_cfg, new_tok, new_account_mode["mode"] == transport.mode.CARRIER_ONLY
-                    relay_url, channel = cfg["relay_url"], cfg["channel"]
-                except transport.ModeError as e:
-                    # The watch keeps the transport it has, and asks again at the next poll: a damaged file is said, never read as a mode.
-                    mode_watch.current = tp.mode
-                    mode_watch.report(str(e))
-                else:
-                    primary = tp.primary
-                    # The old primary's outage is not the new one's: the give-up bound counts from the new primary's first failure.
-                    down, carrier_bound_said["v"], last_failure["e"] = False, False, None
-                    print(f"gzcoord-inbox: transport mode is now {tp.mode}", file=sys.stderr, flush=True)
+                # The RETRY_S between tries, shortened under --until-delivery to the time left before the --deadline (never
+                # negative: sleep refuses that): a carrier that does not answer must not carry the watch past the deadline it
+                # promised.
+                time.sleep(max(0.0, min(RETRY_S, deadline - time.monotonic())) if until_delivery else RETRY_S)
                 continue
             if r.get("sessionEnded"):
                 print(SESSION_ENDED.format(pid=session.pid), flush=True)
                 return ended("session-ended", 0)
             # An arm the deadline cut short asked and heard nothing (watch.py returns out_of_time without an error): it is no answer.
-            if down and r.get("relayError") is None and answered["at"] > down_since:   # a delivery the carrier made says nothing of the relay
+            if down and answered["at"] > down_since:
                 if not until_delivery:
                     print(primary_down_line("back"), flush=True)
                 down = False
@@ -838,17 +649,12 @@ def main(argv: list[str]) -> int:
                 mark_retransmissions(r["classified"], fetch_recent)
                 show_page(r, lambda: print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t,
                                                                 reminder=reminder), r["classified"], me), flush=True))
-                if r.get("relayError") is not None:
-                    # The carrier delivered while the relay failed: the session is still told the relay is failing.
-                    print(primary.explain(r["relayError"], t)["line"],
-                          file=sys.stdout if until_delivery else sys.stderr, flush=True)
                 if until_delivery:
                     return ended("delivery", 0)
 
     try:
-        res = with_fresh_token(primary, lambda: wait_loop(tp.fetch_page, tp.ack, wait_total, mine_fn, keywords, me["address"],
-                                                     journal=journal, on_journal_fail=on_journal_fail, iw=tp.iw,
-                                                     on_arrival=tp.on_arrival, ledger=tp.ledger))
+        res = wait_loop(tp.fetch_page, tp.ack, wait_total, mine_fn, keywords, me["address"],
+                        journal=journal, on_journal_fail=on_journal_fail, iw=tp.iw, ledger=tp.ledger)
     except Exception as e:  # noqa: BLE001
         x = primary.explain(e, t)
         print(x["line"], file=sys.stderr)
@@ -866,13 +672,6 @@ def main(argv: list[str]) -> int:
     mark_retransmissions(res["classified"], fetch_recent)
     show_page(res, lambda: print(with_queued(render(res, me, channel, taxonomy, t=t, reminder=reminder),
                                              res["classified"], me)))
-    # show_page acknowledged the slice once the page was written (wait_loop did, for a
-    # slice that delivered nothing).
-    if res.get("relayError") is not None:
-        # The carrier delivered while the relay failed: the relay's line and exit code stand as without the carrier.
-        x = primary.explain(res["relayError"], t)
-        print(x["line"], file=sys.stderr)
-        return x["code"]
     return 0
 
 

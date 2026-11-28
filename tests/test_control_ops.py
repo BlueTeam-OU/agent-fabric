@@ -863,7 +863,9 @@ class Collect(Base):
             calls.append(" ".join(cmd))
             raise OSError("boom")
         ctx = {"home": h, "who": WHO, "fetch": lambda *a, **k: usage_mod.Response(200, {}, b"{}"), "root": "/r", "run": run, "uid": 1,
-               "managed_opts": {"prefix": os.path.join(h, "no-prefix"), "etc": os.path.join(h, "no-etc")}}
+               "managed_opts": {"prefix": os.path.join(h, "no-prefix"), "etc": os.path.join(h, "no-etc")},
+               # The carrier is the only reader (W15): a runtime directory of the case's own, with no socket in it, is "no carrier here".
+               "mode_state_dir": os.path.join(h, "no-state"), "inbox_carrier_opts": {"runtime_dir": os.path.join(h, "no-run")}}
         allr = ops.collect("status", ctx)
         # harness and inbox (tools/fabric/drift.py) ride with status since j113: Claude Code against the pin, and the read position.
         self.assertEqual(sorted(allr), ["deaf", "fabric", "harness", "identity", "inbox", "keys", "managed", "session", "usage"])
@@ -872,7 +874,8 @@ class Collect(Base):
         # ADR-043 rules 1-2 (tools/fabric/managed_settings.py) ride with status: its dict, pointed here at a scratch prefix and etc.
         self.assertEqual((allr["managed"]["state"], allr["managed"]["ref"]), ("missing", "origin/main"))
         self.assertIn(os.path.join(h, "no-etc", "managed-settings.json") + " is absent", allr["managed"]["reasons"])
-        self.assertEqual(allr["inbox"], {"status": "none", "reason": "no relay reader in this context"}, "no relay in a bare context")
+        self.assertEqual(allr["inbox"]["status"], "unknown", "the carrier is the reader, and a bare context has none running")
+        self.assertIn("the InterWeave carrier did not answer", allr["inbox"]["reason"])
         self.assertEqual(allr["fabric"]["status"], "not-a-checkout")
         self.assertEqual(allr["session"]["claude_processes"], 0)
         self.assert_no_secret(allr)

@@ -222,11 +222,21 @@ def ago(seconds: float) -> float:
     return time.time() - seconds
 
 
+def relay_mode_dir(case: unittest.TestCase) -> str:
+    """A state directory of its own whose transport mode is relay-record: carrier-only is the default (W15), and these cases
+    read the relay path the control plane keeps until W16."""
+    d = tempfile.mkdtemp(prefix="drift-mode")
+    case.addCleanup(__import__("shutil").rmtree, d, True)
+    with open(os.path.join(d, "transport-mode.json"), "w", encoding="utf-8") as fh:
+        json.dump({"mode": "relay-record", "set_by": "test", "set_at": "2026-11-27T00:00:00Z"}, fh)
+    return d
+
+
 class StatusOp(unittest.TestCase):
     def test_the_sections_ride_with_status_and_answer_for_a_daemon_that_hands_in_its_relay(self):
         api = Inbox().relay([message(3, ago(2 * 86400.0))])[0]
         ctx = {"home": "/home/x", "root": "/nonexistent-fabric", "run": lambda cmd, **k: done("2.1.286 (Claude Code)\n"),
-               "inbox_opts": {"api": api, "channel": "gzapp:gzcoord", "me": "h/a"}}
+               "inbox_opts": {"api": api, "channel": "gzapp:gzcoord", "me": "h/a"}, "mode_state_dir": relay_mode_dir(self)}
         h, i = ops.SECTIONS["harness"](ctx), ops.SECTIONS["inbox"](ctx)
         self.assertEqual((h["installed"], h["pinned"], h["drift"]), ("2.1.286", None, None))
         self.assertEqual((i["status"], i["lagging"], i["unread"]), ("ok", True, 1))
@@ -235,7 +245,7 @@ class StatusOp(unittest.TestCase):
         self.assertEqual(ops._wants("jobs"), ["jobs"], "only status carries them")
 
     def test_a_context_with_no_relay_reader_says_so_and_reads_no_token(self):
-        self.assertEqual(ops.SECTIONS["inbox"]({}), {"status": "none", "reason": "no relay reader in this context"})
+        self.assertEqual(ops.SECTIONS["inbox"]({"mode_state_dir": relay_mode_dir(self)}), {"status": "none", "reason": "no relay reader in this context"})
 
 
 def row_for(login: str, **sections) -> dict:
@@ -344,8 +354,7 @@ class FabricStatus(unittest.TestCase):
                 self.tokens_used.append(token)
                 return api(path)
         # A state directory of its own: the account's real one holds the real transport mode.
-        state = tempfile.mkdtemp(prefix="drift-state")
-        self.addCleanup(__import__("shutil").rmtree, state, True)
+        state = relay_mode_dir(self)
         ctx = {"project": project, "host": "h", "agent": "a", "state_dir": state}
         return status.inbox_state(drift, "/r", ctx, relay=R, home="/h"), calls
 

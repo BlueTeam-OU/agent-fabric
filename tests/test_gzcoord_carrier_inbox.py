@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
-"""bin/gzcoord-inbox with the shown ledger and the InterWeave carrier beside the
-relay (ADR-064 rules 9 and 11; CARRIER-CONTRACT.md §6), through the real command
-in the protocol suite's minimal environment, a stub relay and a fake carrier on
-its adapter socket. What is held end to end: a message the relay delivers and the
-carrier also lists is shown once; one only the carrier has is shown, from the
-roster's address; with no carrier at all the relay's copy is shown and the ledger
-stops a second showing of the same record; a mismatch copy after the relay's is
-shown again, flagged, once; the relay is acknowledged only after the ledger's
-pending line; the arrival log has a line per relay copy addressed here, journal on
-or off; a showing that died after its pending line is shown again, flagged "may
-repeat". Plain script: prints ok/FAIL, exit 1 on any failure."""
+"""bin/gzcoord-inbox with the shown ledger over the InterWeave carrier (ADR-064 rules 9 and 11; CARRIER-CONTRACT.md §6), through
+the real command in the protocol suite's minimal environment and a carrier stand-in on its adapter socket (P.Carrier). What is
+held end to end: a record the carrier lists is shown once, from the roster's address, and the next drain shows nothing more of
+it; a record whose FROM the carrier's verdict contradicts is shown flagged; a showing that died after its pending line is
+shown again, flagged "may repeat"; receiving with the journal off is refused; the watch log has a start and an end per watch,
+and the watch retries a carrier that does not answer. This module also
+holds the World the other inbox suites build on. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
 import json
 import os
 import shutil
-import sqlite3
 import subprocess
 import sys
 import threading
@@ -24,11 +19,10 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
-from gzcoord.carrier import server  # noqa: E402
-import test_gzcoord_protocol as P  # noqa: E402 — its relay stub, scratch and command environment
+import test_gzcoord_protocol as P  # noqa: E402 — its carrier stand-in, scratch and command environment
 
 
-RETRY_S = "1"   # GZCOORD_RETRY_S: the watch's seconds between tries while the relay fails, shortened so a case waits for the retry's event
+RETRY_S = "1"   # GZCOORD_RETRY_S: the watch's seconds between tries while the carrier does not answer, shortened so a case waits for the retry's event
 
 
 class Follow:
@@ -86,71 +80,18 @@ def mid(n: int) -> str:
     return f"01a09fc1-0000-7000-8000-00000000010{n}"
 
 
-def relay_rec(n: int, frm: str = "x/y") -> dict:
-    return {"seq": n, "id": f"r{n}", "ts": "T", "sender": "x/y", "content": msg(n, frm)}
-
-
 class World:
-    def __init__(self, pages: list[list[dict]], carrier_records: list[dict] | None = None, journal: bool = True) -> None:
-        self.relay_down = False   # every /api/wait fetch answers 500
-        self.ack_down = False     # every /api/ack answers 500
-        self.acks: list[str] = []
-        self.calls = 0
-        self.pages = pages
-        self.history: list[dict] = []   # what /api/messages (--replay, --history) lists
-        self.env = None
-        self.ledger_at_ack: list[int] = []
-        self.at_ack: list[dict] = []   # what the account held at the moment the relay was acknowledged, per call
+    """A scratch account whose inbox commands find a carrier stand-in (`carrier`, a P.Carrier) listing `carrier_records`;
+    `records` is what it lists now, and a case changes it between runs."""
 
-        def answer(_h, method, path, body):
-            if path.startswith("/api/ack"):
-                if self.ack_down:
-                    return 500, "{}"
-                self.acks.append(json.loads(body)["message_id"])
-                self.ledger_at_ack.append(len(self.ledger_lines()))
-                self.at_ack.append(self.snapshot())
-                return 200, "{}"
-            if path.startswith("/api/wait"):
-                self.calls += 1
-                if self.relay_down:
-                    return 500, "{}"
-                page = self.pages[self.calls - 1] if self.calls <= len(self.pages) else []
-                return 200, json.dumps({"messages": page})
-            if path.startswith("/api/messages"):
-                return 200, json.dumps({"messages": self.history})
-            return 200, "{}"
-        self.stub = P.Stub(answer)
-        extra = {} if journal else {"GZCOORD_JOURNAL": "off"}
-        self.env = P.cmd_env(CLAUDE_BRIDGE_URL=self.stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan",
-                             AGENT_FABRIC_SECRET_STORE=P.id_store(), **extra)
+    def __init__(self, carrier_records: list[dict] | None = None, journal: bool = True, hold_s: float | None = 0.3) -> None:
+        self.carrier = P.Carrier(records=carrier_records, hold_s=hold_s)
+        self.env = P.inbox_env(self.carrier, **({} if journal else {"GZCOORD_JOURNAL": "off"}))
         self.state = self.env["AGENT_FABRIC_STATE_DIR"]
-        self.carrier = None
-        if carrier_records is not None:
-            self.carrier = server.Server(server.socket_path(self.env["XDG_RUNTIME_DIR"]),
-                                         lambda req: {"ok": True, "records": carrier_records} if req["op"] == "unseen"
-                                         else {"ok": False, "error": "unexpected"})
 
-    def snapshot(self) -> dict:
-        """The account's journal rows, job list and ledger as they are now: read when the relay is acknowledged, they say
-        what the acknowledgement waited for."""
-        d = self.agent_dir()
-        if not d:     # no account directory yet: a relative path would read, and create, files in the runner's directory
-            return {"journal": [], "jobs": {}, "ledger": []}
-        rows: list = []
-        try:
-            db = sqlite3.connect(os.path.join(d, "episodic.db"), timeout=5)
-            try:
-                rows = db.execute("SELECT direction, message_id FROM episodes").fetchall()
-            finally:
-                db.close()
-        except sqlite3.Error:
-            pass
-        try:
-            with open(os.path.join(d, "jobs.json"), encoding="utf-8") as fh:
-                jobs = json.load(fh)
-        except (OSError, ValueError):
-            jobs = {}
-        return {"journal": rows, "jobs": jobs, "ledger": [(bool(x.get("pending")), x["mid"]) for x in self.ledger_lines()]}
+    @property
+    def records(self) -> list[dict]:
+        return self.carrier.records
 
     def agent_dir(self) -> str:
         found = [os.path.join(dp) for dp, _, fs in os.walk(self.state) if {"gzcoord-shown.jsonl", "gzcoord-arrivals.jsonl", "gzcoord-watch.jsonl"} & set(fs)]
@@ -174,20 +115,16 @@ class World:
         return out
 
     def watch(self, deadline: int = 8) -> subprocess.CompletedProcess:
-        """The real watch (--until-delivery) with a short give-up bound, so a relay that never answers ends it."""
-        self.calls = 0
+        """The real watch (--until-delivery) with a short bound on how long a carrier that never answers is called down."""
         env = {**self.env, "GZCOORD_UNTIL_DELIVERY_DOWN_S": "3"}
         return subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", str(deadline)], env=env, capture_output=True,
                               text=True, timeout=120, stdin=subprocess.DEVNULL)
 
     def drain(self) -> subprocess.CompletedProcess:
-        self.calls = 0
         return subprocess.run([P.INBOX_CMD], env=self.env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
 
     def close(self) -> None:
-        if self.carrier:
-            self.carrier.close()
-        self.stub.close()
+        self.carrier.close()
 
 
 def urec(n: int, verdict: str = "ok", frm: str = "x/y") -> dict:
@@ -196,62 +133,49 @@ def urec(n: int, verdict: str = "ok", frm: str = "x/y") -> dict:
 
 
 def main() -> int:
-    # relay copy + carrier copy of one message: shown once
-    w = World([[relay_rec(1)]], carrier_records=[urec(1)])
+    # a record the carrier lists is shown once
+    w = World([urec(1)])
     r = w.drain()
-    check("a message the relay delivers and the carrier also lists is shown once, as the relay's",
-          r.returncode == 0 and r.stdout.count("subject-1") == 1 and "relay seq 1" in r.stdout, r.stdout + r.stderr)
-    check("the relay was acknowledged after the ledger's pending line", w.acks == ["r1"] and w.ledger_at_ack[0] >= 1
-          and w.ledger_lines()[0].get("pending") is True, str(w.ledger_at_ack))
-    check("the ledger holds the pending line and the final line", [bool(x.get("pending")) for x in w.ledger_lines()] == [True, False])
-    check("the arrival log has the relay copy, unauthenticated",
-          [(x["carrier"], x["verdict"]) for x in w.read("gzcoord-arrivals.jsonl")] == [("relay", "unauthenticated")])
-    w.pages = [[]]
+    check("a record the carrier lists is shown once, titled from the roster's address",
+          r.returncode == 0 and r.stdout.count("subject-1") == 1 and "x/y" in r.stdout, r.stdout + r.stderr)
+    check("the ledger holds the pending line and the final line, under the carrier's name",
+          [(bool(x.get("pending")), x["via"]) for x in w.ledger_lines()] == [(True, "interweave"), (False, "interweave")],
+          str(w.ledger_lines()))
     r2 = w.drain()
-    check("the next drain shows nothing more of it, the carrier still listing it", "subject-1" not in r2.stdout, r2.stdout)
+    check("the next drain shows nothing more of it, the carrier still listing it", "subject-1" not in r2.stdout and r2.returncode == 0,
+          r2.stdout + r2.stderr)
     w.close()
 
-    # only the carrier has it
-    w = World([[]], carrier_records=[urec(2)])
+    # no carrier at all: said, not silent
+    w = World([urec(2)])
+    w.carrier.close()
     r = w.drain()
-    check("a message only the carrier has is shown, titled from the roster's address, with no relay acknowledgement",
-          "subject-2" in r.stdout and "x/y" in r.stdout and "relay seq" not in r.stdout and w.acks == [], r.stdout + r.stderr)
+    check("with no carrier running the drain says so on stderr, exit 0, and shows nothing",
+          r.returncode == 0 and "carrier is not running" in r.stderr and "subject-2" not in r.stdout, r.stdout + r.stderr)
     w.close()
 
-    # no carrier at all
-    w = World([[relay_rec(3)]])
+    # journal off: receiving is refused, the carrier is not asked
+    w = World([urec(5)], journal=False)
     r = w.drain()
-    check("with no carrier the relay's copy is shown", "subject-3" in r.stdout and r.returncode == 0, r.stdout + r.stderr)
-    w.pages = [[relay_rec(3)]]
-    r = w.drain()
-    check("... and the same record delivered again (an acknowledgement that failed) is not shown twice: the ledger knows it",
-          "subject-3" not in r.stdout and w.acks[-1] == "r3", r.stdout)
+    check("with the journal off the inbox refuses in one line, exit 7, and the carrier is not asked",
+          r.returncode == 7 and "GZCOORD_JOURNAL=off" in r.stdout + r.stderr and w.carrier.ops() == [] and "subject-5" not in r.stdout,
+          f"{r.returncode}\n{r.stdout}{r.stderr}\n{w.carrier.ops()}")
     w.close()
 
-    # journal off: the arrival log is still kept, the carrier is not asked
-    w = World([[relay_rec(4)]], carrier_records=[urec(5)], journal=False)
+    # rule 9: the carrier's verdict contradicts the message's FROM
+    w = World([urec(6, "mismatch", frm="x/forged")])
     r = w.drain()
-    check("with the journal off the carrier is not asked (its arrival is not shown) and the relay's copy is",
-          "subject-4" in r.stdout and "subject-5" not in r.stdout, r.stdout + r.stderr)
-    check("... and the arrival log still has the relay copy", len(w.read("gzcoord-arrivals.jsonl")) == 1)
-    w.close()
-
-    # rule 9: the relay's copy shown, the carrier's copy reveals a mismatch
-    w = World([[relay_rec(6, frm="x/forged")]], carrier_records=[urec(6, "mismatch", frm="x/forged")])
+    check("a record whose FROM the carrier's verdict contradicts is shown once, flagged, as from the roster's address",
+          r.stdout.count("subject-6") == 1 and "FROM mismatch" in r.stdout, r.stdout + r.stderr)
     r = w.drain()
-    check("the relay's copy and, on the same page, the carrier's copy that reveals the FROM mismatch: shown again, flagged",
-          r.stdout.count("subject-6") == 2 and "FROM mismatch" in r.stdout and "relay copy of" in r.stdout, r.stdout)
-    w.pages = [[]]
-    r = w.drain()
-    check("... and that second showing happens once", "subject-6" not in r.stdout, r.stdout)
+    check("... and it is not shown again", "subject-6" not in r.stdout, r.stdout)
     w.close()
 
     # an interrupted showing
-    w = World([[]], carrier_records=[])
-    os.makedirs(os.path.join(w.state, "agents"), exist_ok=True)
+    w = World([])
     w.drain()
-    agent_dir = w.agent_dir() or None
-    if agent_dir is None:
+    agent_dir = w.agent_dir()
+    if not agent_dir:
         # make the agent state directory the inbox uses, by asking it for it
         import episodic
         saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
@@ -265,179 +189,67 @@ def main() -> int:
                 os.environ["AGENT_FABRIC_STATE_DIR"] = saved
     os.makedirs(agent_dir, exist_ok=True)
     with open(os.path.join(agent_dir, "gzcoord-shown.jsonl"), "w") as fh:
-        fh.write(json.dumps({"mid": mid(7), "via": "relay", "t": "T", "pending": True}) + "\n")
-    w.pages = [[relay_rec(7)]]
+        fh.write(json.dumps({"mid": mid(7), "via": "interweave", "t": "T", "pending": True}) + "\n")
+    w.records.append(urec(7))
     r = w.drain()
     check("a message whose showing died after its pending line is shown again, flagged may-repeat",
           "subject-7" in r.stdout and "may repeat" in r.stdout, r.stdout + r.stderr)
-    w.pages = [[relay_rec(7)]]
     r = w.drain()
     check("... and then it is settled", "subject-7" not in r.stdout, r.stdout)
     w.close()
 
-    # ADR-064: the relay is the channel of record, but the carrier must carry a message when every relay fetch fails.
-    # (a) only the carrier has it, the relay fails every fetch
-    recs: list[dict] = []
-    w = World([], carrier_records=recs)
-    w.relay_down = True
-    r = w.watch()
-    check("relay down, nothing on the carrier: the watch gives up with the relay's line, shows nothing",
-          r.returncode == 5 and "subject-" not in r.stdout, f"{r.returncode}\n{r.stdout}{r.stderr}")
-    # The watch log (the relay-outage drill's evidence of restarts and give-ups): a start, and the end with the reason the watch ended.
+    # The watch: its log of starts and ends, and a record the carrier lists again.
+    w = World([])
+    r = w.watch(deadline=3)
+
     def lifecycle() -> list[tuple]:
         return [(x["event"], x.get("reason"), x.get("code")) for x in w.read("gzcoord-watch.jsonl")]
-    check("the watch that gave up wrote its start and an end with reason gave-up and exit code 5",
-          lifecycle() == [("start", None, None), ("end", "gave-up", 5)], str(w.read("gzcoord-watch.jsonl")))
-    check("the watch log's lines are one pid, and a time each; no text of any message",
-          len({x["pid"] for x in w.read("gzcoord-watch.jsonl")}) == 1 and all(x["t"].endswith("Z") for x in w.read("gzcoord-watch.jsonl")))
-    # (b) the watch above ended and a new one starts: the message that arrived meanwhile is shown
-    recs.append(urec(1))
+    check("a watch that ended at its deadline says quiet, exit 0, and logged its start and an end with reason quiet",
+          r.returncode == 0 and lifecycle() == [("start", None, None), ("end", "quiet", 0)], f"{r.returncode}\n{lifecycle()}")
+    w.records.append(urec(1))
     r = w.watch()
-    check("(a)(b) relay down: a message only the carrier has reaches a watch started after the first one ended",
-          r.returncode == 0 and r.stdout.count("subject-1") == 1 and w.acks == [], f"{r.returncode}\n{r.stdout}{r.stderr}")
+    check("a message that arrived meanwhile reaches the next watch, once, exit 0",
+          r.returncode == 0 and r.stdout.count("subject-1") == 1, f"{r.returncode}\n{r.stdout}{r.stderr}")
     check("the restart is a second start, and its end says delivery",
           lifecycle()[2:] == [("start", None, None), ("end", "delivery", 0)], str(w.read("gzcoord-watch.jsonl")))
-    r = w.watch()
-    check("(b) a restart of the watch does not show it again, the carrier still listing it",
-          "subject-1" not in r.stdout and r.returncode == 5, f"{r.returncode}\n{r.stdout}{r.stderr}")
-    check("... and the third watch gave up again: the log keeps every start and end of the account",
-          [e for e in lifecycle() if e[0] == "end"] == [("end", "gave-up", 5), ("end", "delivery", 0), ("end", "gave-up", 5)], str(lifecycle()))
-    # (c) the relay comes back carrying the same message
-    w.relay_down = False
-    w.pages = [[relay_rec(1)]]
-    r = w.watch()
-    check("(c) the relay back with the same message: shown no second time, and acknowledged",
-          "subject-1" not in r.stdout and w.acks == ["r1"], f"{r.returncode}\n{r.stdout}{r.stderr}\n{w.acks}")
-    check("(c) the ledger holds it once (pending line, final line)",
-          [(x["mid"], bool(x.get("pending"))) for x in w.ledger_lines()] == [(mid(1), True), (mid(1), False)], str(w.ledger_lines()))
-    # The relay-outage drill's evidence of the acknowledgement (parity.relay_outage): a line per call, by MESSAGE-ID, with what the relay answered.
-    check("(c) the acknowledgement is logged by MESSAGE-ID, answered, without the text",
-          [(x["mid"], x["addressee"], x["ok"]) for x in w.read("gzcoord-acks.jsonl")] == [(mid(1), ME, True)]
-          and "subject-1" not in json.dumps(w.read("gzcoord-acks.jsonl")), str(w.read("gzcoord-acks.jsonl")))
-    # an acknowledgement the relay does not answer is a line too: "not acknowledged" must be a fact, not an absence
-    w.pages = [[relay_rec(4)]]
-    w.ack_down = True
-    w.watch()
-    check("an acknowledgement the relay refused is logged as not ok, and the relay never recorded it",
-          [(x["mid"], x["ok"]) for x in w.read("gzcoord-acks.jsonl")][-1:] == [(mid(4), False)] and "r4" not in w.acks,
-          f"{w.read('gzcoord-acks.jsonl')}\n{w.acks}")
-    w.close()
-
-    # Others' traffic the watch passes through is acknowledged but is no evidence of ours: no line names it under this address.
-    w = World([[{"seq": 6, "id": "r6", "ts": "T", "sender": "x/y", "content": msg(6).replace(f"TO: {ME}", "TO: x/someone-else")}, relay_rec(5)]])
-    r = w.drain()
-    check("a record addressed to another account is acknowledged and not in the acknowledgement log; ours is",
-          "r6" in w.acks and "r5" in w.acks and [x["mid"] for x in w.read("gzcoord-acks.jsonl")] == [mid(5)],
-          f"{w.acks}\n{w.read('gzcoord-acks.jsonl')}\n{r.stdout}{r.stderr}")
-    w.close()
-
-    # D6 (owner, 2026-11-15): a TO-ROLE message is decided at arrival. The relay reads the role when its watch reads, so
-    # "arrival" is the first read that fetches the record: it is passed through and acknowledged by a holder of another
-    # role, and a holder who binds the role afterwards is not shown it while the relay keeps that acknowledgement.
-    def bind(w: World, role: str) -> None:
-        d = os.path.join(w.state, "agents", P.LOGIN)
-        os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, "binding.json"), "w", encoding="utf-8") as fh:
-            fh.write(P.bound(role))
-
-    to_role = msg(7).replace(f"TO: {ME}", "TO-ROLE: python-dev")
-    rec7 = {"seq": 7, "id": "r7", "ts": "T", "sender": "x/y", "content": to_role}
-    w = World([[rec7]])
-    bind(w, "fabric-coordinator")
-    r = w.drain()
-    check("D6: a TO-ROLE message read by a holder of another role is acknowledged and not shown",
-          "r7" in w.acks and "subject-7" not in r.stdout, f"{w.acks}\n{r.stdout}{r.stderr}")
-    bind(w, "python-dev")
-    w.pages = [[rec7]]   # served again: as after a lost or refused acknowledgement, or a second listing
-    r = w.drain()
-    # Decided (fabric-coordinator, j905): kept. A record is served again only after a lost or refused acknowledgement,
-    # a retransmission under its MESSAGE-ID or a second listing, and then it is judged again by the role held now. That
-    # errs towards showing a message to a holder of its role, never towards losing it, which a per-record arrival
-    # decision would not improve enough to keep state for.
-    check("D6 limit: a TO-ROLE record served again is judged again, by the role held at that read",
-          "subject-7" in r.stdout, r.stdout + r.stderr)
-    w.close()
-    w = World([[rec7]])
-    bind(w, "python-dev")
-    r = w.drain()
-    check("D6 positive control: a holder of the role at the read is shown it",
-          "subject-7" in r.stdout, r.stdout + r.stderr)
-    w.close()
-
-    # the relay's copy arrives first, the relay then goes down and the carrier lists it: still once
-    w = World([[relay_rec(2)]], carrier_records=[urec(2)])
-    r = w.watch()
-    w.relay_down = True
-    r2 = w.watch()
-    check("relay copy shown, then the relay fails and the carrier lists it: once",
-          r.stdout.count("subject-2") == 1 and "subject-2" not in r2.stdout, r.stdout + r2.stdout)
-    w.close()
-
-    # the carrier's delivery does not hide that the relay failed
-    w = World([], carrier_records=[urec(3)])
-    w.relay_down = True
-    r = w.drain()
-    check("relay down, the carrier delivers (drain): shown, and the relay's line is on stderr, exit 0",
-          r.returncode == 0 and "subject-3" in r.stdout and "HTTP 500" in r.stderr, f"{r.returncode}\n{r.stdout}{r.stderr}")
-    w.close()
-    w = World([], carrier_records=[urec(4)])
-    w.relay_down = True
-    r = w.watch()
-    check("relay down, the carrier delivers (--until-delivery): shown, the relay's line beside it, exit 0",
-          r.returncode == 0 and "subject-4" in r.stdout and "HTTP 500" in r.stdout, f"{r.returncode}\n{r.stdout}{r.stderr}")
-    w.close()
-    # the relay-down marker (a Stop hook reads it) survives a carrier delivery made while the relay fails, and goes when the relay answers
-    w = World([[]], carrier_records=[urec(5)])
-    login = subprocess.run(["id", "-un"], capture_output=True, text=True, timeout=10).stdout.strip()
-    marker = os.path.join(w.env["XDG_RUNTIME_DIR"], "agent-fabric", f"gzcoord-inbox-{login}.relay-down")
-    os.makedirs(os.path.dirname(marker), mode=0o700, exist_ok=True)
-    with open(marker, "w") as fh:
-        fh.write("1\n")
-    w.relay_down = True
-    r = w.watch()
-    check("relay down, the carrier delivers: the relay-down marker stays", r.returncode == 0 and "subject-5" in r.stdout
-          and os.path.exists(marker), f"{r.returncode}\n{r.stdout}{r.stderr}")
-    w.relay_down = False
     r = w.watch(deadline=3)
-    check("the relay answered (an empty page): the marker is removed", not os.path.exists(marker), f"{r.returncode}\n{r.stdout}{r.stderr}")
-    # The world above must not show the carrier's record a second time: the shown ledger holds its final line, so the rerun is quiet. An earlier
-    # run once ended that second watch with "delivery" (cause untraced); the check below runs in a world of its own so it does not depend on that.
-    check("the carrier's record is not shown again by the rerun", "subject-5" not in r.stdout
-          and len([x for x in w.ledger_lines() if not x.get("pending")]) == 1, f"{r.stdout}\n{w.ledger_lines()}")
-    q = World([[]])
-    r = q.watch(deadline=3)
-    check("a watch that ended at its deadline says quiet, exit 0",
-          r.returncode == 0 and [(x["event"], x.get("reason"), x.get("code")) for x in q.read("gzcoord-watch.jsonl")][-1:] == [("end", "quiet", 0)],
-          f"{r.returncode}\n{q.read('gzcoord-watch.jsonl')}")
-    q.close()
-    # A log that cannot be written (a directory where the file belongs) never ends or alters the watch; it is said once on stderr.
-    os.remove(os.path.join(w.agent_dir(), "gzcoord-watch.jsonl"))
-    os.mkdir(os.path.join(w.agent_dir(), "gzcoord-watch.jsonl"))
-    w.pages = [[relay_rec(8)]]
+    check("a restart of the watch does not show it again, the carrier still listing it: quiet",
+          "subject-1" not in r.stdout and r.returncode == 0, f"{r.returncode}\n{r.stdout}{r.stderr}")
+    check("the watch log keeps every start and end of the account; its lines are one pid per watch and a time each, no message text",
+          [e for e in lifecycle() if e[0] == "end"] == [("end", "quiet", 0), ("end", "delivery", 0), ("end", "quiet", 0)]
+          and len({x["pid"] for x in w.read("gzcoord-watch.jsonl")}) == 3
+          and all(x["t"].endswith("Z") for x in w.read("gzcoord-watch.jsonl"))
+          and "subject-1" not in json.dumps(w.read("gzcoord-watch.jsonl")), str(lifecycle()))
+    w.close()
+
+    # An unwritable watch log never ends or alters the watch; it is said once on stderr.
+    w = World([])
+    w.watch(deadline=2)
+    log = os.path.join(w.agent_dir(), "gzcoord-watch.jsonl")      # before the removal: agent_dir() finds the account by its logs
+    os.remove(log)
+    os.mkdir(log)
+    w.records.append(urec(8))
     r = w.watch()
     check("an unwritable watch log is said once on stderr and the watch still delivers, exit 0",
           r.returncode == 0 and "subject-8" in r.stdout and r.stderr.count("the watch log") == 1, f"{r.returncode}\n{r.stdout}{r.stderr}")
     w.close()
-    # --follow: an arm failed (the watch is "down"), then the carrier delivers while the relay still fails: not "the relay is back".
-    # The watch retries every RETRY_S: the record is added once the watch has said the relay is down, and the case waits for
-    # the retry that shows it, then for one more failed fetch. A wait that never fires is a failed check, not a silent timeout.
-    recs = []
-    w = World([], carrier_records=recs)
-    w.relay_down = True
-    f = Follow(w.env)
+
+    # --follow: the carrier is not running (the watch is "down"), then it is and delivers: shown, and the watch says it is back.
+    env = P.inbox_env()
+    f = Follow(env)
+    carrier = None
     try:
-        waited = [f.wait_for(lambda out, err: "relay unreachable" in out)]
-        recs.append(urec(5))
+        waited = [f.wait_for(lambda out, err: "carrier is not answering" in out)]
+        carrier = P.Carrier(records=[urec(5)], run=env["XDG_RUNTIME_DIR"])
         waited.append(f.wait_for(lambda out, err: "subject-5" in out))
-        seen = w.calls
-        waited.append(f.wait_for(lambda out, err: w.calls > seen))
+        waited.append(f.wait_for(lambda out, err: "answers again" in out))
     finally:
         out, err = f.stop()
-    check("--follow, relay down, then the carrier delivers: shown, the relay still reported, and no relay-back line",
-          all(waited) and "subject-5" in out and "HTTP 500" in err
-          and [x for x in out.splitlines() if x.startswith("gzcoord watch:")] == [x for x in out.splitlines() if "relay unreachable" in x],
+        if carrier is not None:
+            carrier.close()
+    check("--follow, the carrier not running, then running: the down line once, the record shown, the back line",
+          all(waited) and out.count("subject-5") == 1 and out.count("carrier is not answering") == 1 and "answers again" in out,
           f"{waited}\n{out}{err}")
-    w.close()
 
     for d in P.SCRATCH:
         shutil.rmtree(d, ignore_errors=True)

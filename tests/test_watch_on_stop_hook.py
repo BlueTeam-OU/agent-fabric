@@ -354,7 +354,7 @@ def main() -> int:
         mode_file = tmode.path()
         check("the mode file is under the test's state root", mode_file.startswith(os.path.join(tmp, "modestate")), mode_file)
         os.makedirs(os.path.dirname(mode_file))
-        check("carrier_leads: no mode file is the relay's answer (False)", mod.carrier_leads() is False)
+        check("carrier_leads: no mode file is the default, carrier-only (True)", mod.carrier_leads() is True)
         for m, want in ((tmode.RELAY_RECORD, False), (tmode.CARRIER_RECORD, True), (tmode.CARRIER_ONLY, True)):
             tmode.write(m, "test", os.path.dirname(mode_file))
             check(f"carrier_leads: mode {m}", mod.carrier_leads() is want)

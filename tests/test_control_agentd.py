@@ -1080,6 +1080,11 @@ class Actions(Daemon):
         executable(os.path.join(home, ".local", "bin", "claude"), '#!/bin/sh\necho "9.9.9 (Claude Code)"\n')
         over = {"HOME": home, "AGENT_FABRIC_HOSTS_REGISTRY": reg, "AGENT_FABRIC_STATE_DIR": os.path.join(home, "state"),
                 "GZCOORD_CHANNEL": "fixture:chan"}
+        # Carrier-only is the default (W15) and the status op reads the mode file alone; this case reads the relay.
+        mode_dir = os.path.join(over["AGENT_FABRIC_STATE_DIR"], "agents", WHO["agent"])
+        os.makedirs(mode_dir)
+        with open(os.path.join(mode_dir, "transport-mode.json"), "w", encoding="utf-8") as fh:
+            json.dump({"mode": "relay-record", "set_by": "test", "set_at": "2026-11-27T00:00:00Z"}, fh)
         r = self.with_relay()
         signed = json.dumps(sign.sign_request(request_body(**{"from": SELF, "op": "status", "ttl_s": 60}), k["privateKeySpec"]))
         out = self.once_after_wait(r, [(SELF, signed)], **over)

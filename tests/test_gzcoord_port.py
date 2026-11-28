@@ -16,7 +16,6 @@ import math
 import os
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import traceback
@@ -27,7 +26,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gzcoord import gzmsg, inbox, send  # noqa: E402
 from gzcoord import jsvalues as js  # noqa: E402
-import test_gzcoord_protocol as P  # noqa: E402 — its Stub, scratch and command environment
+import test_gzcoord_protocol as P  # noqa: E402 — its Carrier, scratch and command environment
 
 PACKAGE = os.path.join(HERE, "tools", "fabric", "gzcoord")
 RUN_PY = os.path.join(PACKAGE, "run.py")
@@ -178,225 +177,26 @@ def _():
     eq(r, {"checked": True, "problems": []})
 
 
-@case("a command case's relay runtime dir is scratch, never the checkout's workspace: a hosting account's .gzcoord is not read")
-def _():
-    env = P.cmd_env(CLAUDE_BRIDGE_URL="http://127.0.0.1:1", GZCOORD_CHANNEL="fixture:chan")
-    r = subprocess.run([PYTHON, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); from gzcoord import inbox; "
-                        "print(inbox.relay_runtime_dir(inbox.integration_config(None)))", os.path.join(HERE, "tools", "fabric")],
-                       env=env, capture_output=True, text=True, timeout=30)
-    eq(r.returncode, 0, r.stderr)
-    runtime = r.stdout.strip()
-    ok(runtime.startswith(os.path.realpath(tempfile.gettempdir())) or runtime.startswith(tempfile.gettempdir()), runtime)
-    # The checkout's relay runtime is <workspace>/.gzcoord, exactly: a scratch directory may sit
-    # inside the workspace (tests/stripped_run.py puts its TMPDIR beside the tree).
-    hosted = os.path.join(os.path.dirname(os.path.realpath(HERE)), ".gzcoord")
-    ok(os.path.realpath(runtime) != hosted and not os.path.realpath(runtime).startswith(hosted + os.sep),
-       f"the checkout's workspace: {runtime}")
-
-
 # ── 5. the port's own departures ─────────────────────────────────────
-
-def _replay_env(stub: P.Stub, **extra: str) -> dict:
-    return P.cmd_env(**{"CLAUDE_BRIDGE_URL": stub.url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok", "GZCOORD_CHANNEL": "fixture:chan", **extra})
-
-
-def _record_stub(content_json: str) -> P.Stub:
-    rec = '{"seq": 5, "id": "r5", "ts": "T", "sender": "x/y", "content": ' + content_json + "}"
-    return P.Stub(lambda _h, _m, path, _b: (200, '{"messages": [' + rec + "]}") if path.startswith("/api/messages")
-                  else (200, "{}"))
-
-
-@case("a lone surrogate in a relay record is U+FFFD on stdout, as the Node wrote it, never an encoding error")
-def _():
-    stub = _record_stub(json.dumps("[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
-                                   "MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000005\nSUBJECT: s\n\nNOTES:\nA") [:-1]
-                        + '\\ud800B\\n"')
-    try:
-        r = subprocess.run([P.INBOX_CMD, "--replay", "5"], env=_replay_env(stub), capture_output=True, timeout=30)
-    finally:
-        stub.close()
-    eq(r.returncode, 0, r.stderr.decode("utf-8", "replace"))
-    ok("A\ufffdB".encode("utf-8") in r.stdout, f"U+FFFD, as the Node wrote: {r.stdout[-200:]!r}")
-
 
 @case("output is UTF-8 under a non-UTF-8 locale")
 def _():
     have = subprocess.run(["locale", "-a"], capture_output=True, text=True, timeout=10).stdout.split()
     latin = next((x for x in ("en_US", "en_AU", "en_GB", "de_DE", "en_US.iso88591") if x in have), None)
     if latin is None:
-        print("       (no non-UTF-8 locale installed here: the lone-surrogate case stands for it)")
+        print("       (no non-UTF-8 locale installed here)")
         return
-    stub = _record_stub(json.dumps("[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
-                                   "MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000005\nSUBJECT: s\n\nNOTES:\né → ✓\n"))
+    text = ("[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
+            "MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000005\nSUBJECT: s\n\nNOTES:\né → ✓\n")
+    carrier = P.Carrier()
+    env = P.inbox_env(carrier, LC_ALL=latin, LANG=latin)
+    P.seed_journal(env, (text, 5))
     try:
-        r = subprocess.run([P.INBOX_CMD, "--replay", "5"], env=_replay_env(stub, LC_ALL=latin, LANG=latin),
-                           capture_output=True, timeout=30)
+        r = subprocess.run([P.INBOX_CMD, "--replay", "01a09fc1-0000-7000-8000-000000000005"], env=env, capture_output=True, timeout=30)
     finally:
-        stub.close()
+        carrier.close()
     eq(r.returncode, 0, r.stderr.decode("utf-8", "replace"))
     ok("é → ✓".encode("utf-8") in r.stdout, f"{latin}: {r.stdout[-120:]!r}")
-
-
-_API_CALL = ("import sys; sys.path.insert(0, sys.argv[1]); from gzcoord import inbox\n"
-             "try:\n    print(inbox.api(sys.argv[3], '/x', sys.argv[2]))\n"
-             "except inbox.RelayError as e:\n    print('RelayError', e.status, e)\n")
-
-
-def _api(url: str, tok: str = "tok", **env: str) -> str:
-    r = subprocess.run([PYTHON, "-I", "-c", _API_CALL, os.path.join(HERE, "tools", "fabric"), url, tok],
-                       capture_output=True, text=True, timeout=30, env={**os.environ, **env})
-    eq(r.returncode, 0, r.stderr)
-    return r.stdout.strip()
-
-
-@case("the relay is called directly: no proxy from the environment, no redirect followed with the token")
-def _():
-    seen: list[tuple[str, str | None]] = []
-
-    def answer(h, _method, path, _body):
-        seen.append((path, h.headers.get("Authorization")))
-        return 200, '{"ok": true}'
-    relay = P.Stub(answer)
-    elsewhere = P.Stub(answer)
-    dead = "http://127.0.0.1:9"   # discard: a proxy that is used fails the call
-    try:
-        eq(_api(relay.url, http_proxy=dead, HTTP_PROXY=dead, no_proxy="", NO_PROXY=""), "{'ok': True}")
-        eq(seen, [("/x", "Bearer tok")])
-
-        seen.clear()
-        mover = _Redirect(f"{elsewhere.url}/stolen")
-        try:
-            out = _api(mover.url)
-        finally:
-            mover.close()
-        ok(out.startswith("RelayError 302 "), out)
-        eq(seen, [], "the redirect's target was never called")
-    finally:
-        relay.close()
-        elsewhere.close()
-
-
-class _Redirect:
-    """A relay that answers every call with a 302 to `location`."""
-
-    def __init__(self, location: str):
-        import http.server
-        import threading
-
-        class H(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *_a):
-                pass
-
-            def do_GET(self):  # noqa: N802 — the stdlib's name
-                self.send_response(302)
-                self.send_header("Location", location)
-                self.send_header("content-length", "0")
-                self.send_header("connection", "close")
-                self.end_headers()
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
-        self.server.daemon_threads = True
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-
-    def close(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
-
-
-@case("every token is trimmed once where it is read; one with a line break or NUL inside is refused, and never said")
-def _():
-    eq(inbox.checked_token(" tok\r\n"), "tok")
-    eq(inbox.checked_token(None), None)
-    for bad in ("a\r\nb", "a\nb", "a\0b"):
-        try:
-            inbox.checked_token(bad)
-            raise Failed(f"{bad!r} passed")
-        except inbox.TokenRefused as e:
-            ok(str(e).startswith("the relay token holds a line break or a NUL; nothing was sent"), str(e))
-    home = P.scratch("synced-")
-    os.makedirs(os.path.join(home, ".config", "agent-fabric"))
-    with open(os.path.join(home, ".config", "agent-fabric", "secrets.env"), "w", encoding="utf-8") as fh:
-        fh.write("export CLAUDE_BRIDGE_AUTH_TOKEN='HEAD\0TAIL'\n")
-    try:
-        inbox.synced_token(home)
-        raise Failed("the synced token, the one re-read after a 401, passed unchecked")
-    except inbox.TokenRefused:
-        pass
-    seen: list[tuple[str, str | None]] = []
-    stub = P.Stub(lambda h, _m, path, _b: (seen.append((path, h.headers.get("Authorization"))),
-                                           (200, '{"messages": []}') if path.startswith("/api/messages") else (200, "{}"))[1])
-    try:
-        r = subprocess.run([P.INBOX_CMD, "--history"], env=_replay_env(stub, CLAUDE_BRIDGE_AUTH_TOKEN=" tok\r\n"),
-                           capture_output=True, text=True, timeout=30)
-        eq(r.returncode, 0, r.stderr)
-        api = [a for p, a in seen if p.startswith("/api/")]
-        ok(api and all(a == "Bearer tok" for a in api), f"trimmed before the header: {seen}")
-    finally:
-        stub.close()
-
-
-@case("send's presence path never sees a token with a line break: refused before presence.mjs is asked, the token unsaid")
-def _():
-    hits: list[str] = []
-    stub = P.Stub(lambda _h, _m, path, _b: (hits.append(path), (200, '{"messages": []}'))[1])
-    try:
-        env = _replay_env(stub, CLAUDE_BRIDGE_AUTH_TOKEN="SECRET-HEAD\r\nSECRET-TAIL")
-        me = gzmsg.whoami()
-        f = os.path.join(env["HOME"], "m.txt")
-        with open(f, "w", encoding="utf-8") as fh:
-            fh.write(f"[GZCOORD/1] INFO\nFROM: {me['host']}/{me['agent']}\nROLE: backend-dev\nPROJECT: fixture\n"
-                     f"TO: {me['host']}/{me['agent']}\nSUBJECT: s\n\nNOTES:\nn\n")
-        r = subprocess.run([P.SEND_CMD, f], env=env, capture_output=True, text=True, timeout=60)
-    finally:
-        stub.close()
-    eq(r.returncode, 1, r.stderr)
-    ok("line break or a NUL" in r.stderr, r.stderr)
-    ok("SECRET" not in r.stderr + r.stdout, f"the token was said: {r.stderr}")
-    eq([h for h in hits if h.startswith("/api/")], [], "nothing reached the relay, the presence request included")
-
-
-def _synced(home: str, value: str) -> None:
-    os.makedirs(os.path.join(home, ".config", "agent-fabric"), exist_ok=True)
-    with open(os.path.join(home, ".config", "agent-fabric", "secrets.env"), "w", encoding="utf-8") as fh:
-        fh.write(f"export CLAUDE_BRIDGE_AUTH_TOKEN='{value}'\n")
-
-
-@case("a 401, then a synced token with a NUL: --follow stops with exit 4 and one line, send exits 3; never 'relay down'")
-def _():
-    # The token is rotated under a running session: the synced file is
-    # written as the first request arrives, then answered 401. token()
-    # reads the synced file first, so one there at the start is refused
-    # before any request — a different path, exit 0 at a session start.
-    home = {"dir": ""}
-
-    def answer(_h, _m, path, _b):
-        if not path.startswith("/api/"):
-            return 200, "{}"
-        _synced(home["dir"], "HEAD\0TAIL")
-        return 401, '{"error": "no"}'
-    refuse = P.Stub(answer)
-    try:
-        env = _replay_env(refuse)
-        home["dir"] = env["HOME"]
-        try:
-            r = subprocess.run([P.INBOX_CMD, "--follow"], env=env, capture_output=True, text=True, timeout=40)
-        except subprocess.TimeoutExpired:
-            raise Failed("--follow kept going: the refused token read as a relay that is down") from None
-        eq(r.returncode, 4, r.stdout + r.stderr)
-        ok("gzcoord inbox: the relay token holds a line break or a NUL" in r.stderr, r.stderr)
-        ok("relay down" not in r.stdout + r.stderr and "HEAD" not in r.stdout + r.stderr, r.stderr)
-        os.remove(os.path.join(env["HOME"], ".config", "agent-fabric", "secrets.env"))
-        me = gzmsg.whoami()
-        f = os.path.join(env["HOME"], "m.txt")
-        with open(f, "w", encoding="utf-8") as fh:
-            fh.write(f"[GZCOORD/1] INFO\nFROM: {me['host']}/{me['agent']}\nROLE: backend-dev\nPROJECT: fixture\n"
-                     f"BROADCAST: true\nSUBJECT: s\n\nNOTES:\nn\n")
-        r = subprocess.run([P.SEND_CMD, f], env={**env, "GZCOORD_JOURNAL": "off"}, capture_output=True, text=True,
-                           timeout=60)
-        eq(r.returncode, 3, r.stderr)
-        ok("send: the relay token holds a line break or a NUL" in r.stderr and "HEAD" not in r.stderr, r.stderr)
-    finally:
-        refuse.close()
 
 
 # ── the sent ledger is state: under the agent's lock, trimmed whole (ADR-003) ──
@@ -562,18 +362,10 @@ def _():
 
 @case("a running `gzcoord-inbox --follow` is found by the session-start hook's watch detection, under the name it is linked as")
 def _():
-    waits: list[int] = []
-
-    def answer(_h, _method, path, _body):
-        if path.startswith("/api/wait"):
-            waits.append(1)
-            return None
-        return 200, json.dumps({"messages": []}) if path.startswith("/api/messages") else "{}"
-    stub = P.Stub(answer)
+    carrier = P.Carrier(hold_s=None)   # a quiet wait that never answers
     try:
         d = P.scratch("claude-")
-        env = P.cmd_env(CLAUDE_BRIDGE_URL=stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan",
-                        AGENT_FABRIC_HOLD_DIR=P.scratch("hold-"), CMDLINE_OUT=os.path.join(d, "cmdline"),
+        env = P.inbox_env(carrier, AGENT_FABRIC_HOLD_DIR=P.scratch("hold-"), CMDLINE_OUT=os.path.join(d, "cmdline"),
                         HOOK_PY=os.path.join(HERE, "runtime", "claude-code", "hooks", "session-start.py"),
                         WATCH=os.path.join(_links(), "gzcoord-inbox"))
         # A process named claude is what watch_running looks for above it
@@ -596,41 +388,38 @@ def _():
             cmdline = fh.read()
         ok("gzcoord-inbox --follow" in cmdline, f"the process table reads {cmdline!r}")
     finally:
-        stub.close()
+        carrier.close()
 
 
 # ── --until-delivery: the background watch that ends on a delivery ──
 
-def _wait_stub(pages: list[list[dict]], status: int = 200) -> tuple[P.Stub, list[str]]:
-    """A relay whose /api/wait answers the given pages in turn (an empty
-    page, after a short pause, once they run out: a quiet long poll)."""
-    calls: list[str] = []
+def _wait_carrier(pages: list[list[dict]]) -> tuple[P.Carrier, list[dict]]:
+    """A carrier whose `wait` lists the given pages of records in turn (an empty page, after a short pause, once they run
+    out: a quiet wait); the waits it was asked come back as the second value."""
+    calls: list[dict] = []
 
-    def answer(_h, _m, path, _b):
-        if not path.startswith("/api/wait"):
-            return 200, "{}"
-        calls.append(path)
-        if status != 200:
-            return status, '{"error": "no"}'
+    def answer(req: dict) -> dict:
+        calls.append(req)
         if len(calls) <= len(pages):
-            return 200, json.dumps({"messages": pages[len(calls) - 1]})
+            return {"ok": True, "records": pages[len(calls) - 1]}
         time.sleep(0.3)
-        return 200, '{"messages": []}'
-    return P.Stub(answer), calls
+        return {"ok": True, "records": []}
+    return P.Carrier(wait_reply=answer), calls
 
 
 def _rec(seq: int, subject: str, to: str | None) -> dict:
     addressing = f"TO: {to}\n" if to else "BROADCAST: true\n"
-    return {"seq": seq, "id": f"r{seq}", "ts": "T", "sender": "x/y",
-            "content": f"[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\n{addressing}"
-                       f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{seq}\nSUBJECT: {subject}\n\nNOTES:\nn\n"}
+    return P.record(f"[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\n{addressing}"
+                    f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{seq}\nSUBJECT: {subject}\n\nNOTES:\nn\n")
 
 
-@case("--until-delivery ignores quiet windows and others' traffic, and exits 0 printing the first delivery addressed here")
+# Changed with the relay's going: what the carrier lists is addressed to this account by the roster, whatever its TO line says, so
+# there is no "others' traffic" to pass through unprinted, and the case holds the quiet windows alone.
+@case("--until-delivery ignores quiet windows, and exits 0 printing the first delivery")
 def _():
-    stub, calls = _wait_stub([[_rec(1, "for-somebody-else", "elsewhere/nobody")], [], [_rec(3, "for-this-session", None)]])
+    carrier, calls = _wait_carrier([[], [], [_rec(3, "for-this-session", None)]])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         p = subprocess.Popen([P.INBOX_CMD, "--until-delivery"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              text=True)
         try:
@@ -640,10 +429,9 @@ def _():
             raise Failed("--until-delivery did not return on a delivery addressed here") from None
         eq(p.returncode, 0, out + err)
         ok("for-this-session" in out, out)
-        ok("for-somebody-else" not in out, "a message not addressed here is never printed: " + out)
-        ok(len(calls) >= 3, f"it polled past the foreign message and the quiet page ({len(calls)} calls)")
+        ok(len(calls) >= 3, f"it waited past the quiet pages ({len(calls)} calls)")
     finally:
-        stub.close()
+        carrier.close()
 
 
 def _arm(env: dict, *flags: str) -> subprocess.Popen:
@@ -668,17 +456,15 @@ def _():
     release = threading.Event()
     sent: list[int] = []
 
-    def answer(_h, _m, path, _b):
-        if not path.startswith("/api/wait"):
-            return 200, "{}"
+    def answer(_req: dict) -> dict:
         if release.is_set() and not sent:
             sent.append(1)
-            return 200, json.dumps({"messages": [_rec(5, "late-delivery", None)]})
+            return {"ok": True, "records": [_rec(5, "late-delivery", None)]}
         time.sleep(0.3)
-        return 200, '{"messages": []}'
-    stub = P.Stub(answer)
+        return {"ok": True, "records": []}
+    carrier = P.Carrier(wait_reply=answer)
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         first = _arm(env, "--until-delivery")
         try:
             _wait_started(first, env)
@@ -724,14 +510,14 @@ def _():
             third.kill()
             third.communicate()
     finally:
-        stub.close()
+        carrier.close()
 
 
 @case("a drain, --wait, --history, and a watch flag with --held, --history or --replay take no lock while a watch holds it")
 def _():
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         first = _arm(env, "--until-delivery")
         try:
             _wait_started(first, env)
@@ -743,7 +529,7 @@ def _():
             first.kill()
             first.communicate()
     finally:
-        stub.close()
+        carrier.close()
 
 
 @case("a pid line that cannot be written leaves the lock held, and release() neither raises nor frees it early")
@@ -777,89 +563,37 @@ def _():
 
 @case("a watch whose lock cannot be had says so on stderr and still watches")
 def _():
-    stub, _calls = _wait_stub([[_rec(1, "delivered-anyway", None)]])
+    carrier, _calls = _wait_carrier([[_rec(1, "delivered-anyway", None)]])
     try:
-        # a runtime directory that is a file: the lock's directory cannot be made
-        blocked = P.scratch("blocked-")
-        open(os.path.join(blocked, "agent-fabric"), "w").close()
-        env = _replay_env(stub, GZCOORD_JOURNAL="off", XDG_RUNTIME_DIR=blocked)
+        # The carrier's socket and the watch's lock share the runtime directory, so the directory stays: a directory stands where
+        # the lock file belongs, and it cannot be opened as one.
+        env = P.inbox_env(carrier)
+        login = subprocess.run(["id", "-un"], capture_output=True, text=True, timeout=10).stdout.strip()
+        os.mkdir(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", f"gzcoord-inbox-{login}.lock"))
         r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=30)
         eq(r.returncode, 0, r.stdout + r.stderr)
         ok("delivered-anyway" in r.stdout, r.stdout)
         ok("no watch lock" in r.stderr, r.stderr)
     finally:
-        stub.close()
+        carrier.close()
 
 
-@case("--until-delivery does not return on a quiet window or a message not addressed here")
+@case("--until-delivery does not return on a quiet window")
 def _():
-    stub, _calls = _wait_stub([[_rec(1, "for-somebody-else", "elsewhere/nobody")]])
+    carrier, _calls = _wait_carrier([[]])
     try:
-        p = subprocess.Popen([P.INBOX_CMD, "--until-delivery"], env=_replay_env(stub, GZCOORD_JOURNAL="off"),
+        p = subprocess.Popen([P.INBOX_CMD, "--until-delivery"], env=P.inbox_env(carrier),
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             p.wait(timeout=4)
-            raise Failed(f"it returned (exit {p.returncode}) with nothing addressed here: {p.stdout.read()}")
+            raise Failed(f"it returned (exit {p.returncode}) with nothing delivered: {p.stdout.read()}")
         except subprocess.TimeoutExpired:
             pass
         finally:
             p.kill()
             p.communicate()
     finally:
-        stub.close()
-
-
-@case("--until-delivery exits 4 with the reason on stdout when the relay refuses the token; --follow keeps it on stderr")
-def _():
-    stub, _calls = _wait_stub([], status=401)
-    try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
-        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=40)
-        eq(r.returncode, 4, r.stdout + r.stderr)
-        ok("401" in r.stdout and "relay down" not in r.stdout, "the reason is on stdout, where the session reads it: " + r.stdout)
-        f = subprocess.run([P.INBOX_CMD, "--follow"], env=env, capture_output=True, text=True, timeout=40)
-        eq(f.returncode, 4, f.stdout + f.stderr)
-        ok("401" in f.stderr and "401" not in f.stdout, "--follow is unchanged: the line on stderr")
-    finally:
-        stub.close()
-
-
-@case("--until-delivery gives up on an unreachable relay with exit 5 and the reason on stdout, after GZCOORD_UNTIL_DELIVERY_DOWN_S")
-def _():
-    stub, _calls = _wait_stub([])
-    url = stub.url
-    stub.close()   # nothing listens there now
-    env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_UNTIL_DELIVERY_DOWN_S="1")
-    env["CLAUDE_BRIDGE_URL"] = url
-    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=20)   # under the 30 s retry sleep: the deadline is honoured
-    eq(r.returncode, 5, r.stdout + r.stderr)
-    ok(url in r.stdout, r.stdout)
-
-
-@case("--until-delivery: not configured exits 3 with the reason on stdout; a drain stays exit 0 on stderr")
-def _():
-    env = P.cmd_env(CLAUDE_BRIDGE_URL="", GZCOORD_CHANNEL="", CLAUDE_BRIDGE_AUTH_TOKEN="")
-    cwd = P.scratch("nocfg-")
-    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, cwd=cwd, capture_output=True, text=True, timeout=40)
-    eq(r.returncode, 3, r.stdout + r.stderr)
-    ok(r.stdout.strip() and not r.stderr.strip(), "the reason is on stdout only: " + r.stdout + r.stderr)
-    d = subprocess.run([P.INBOX_CMD], env=env, cwd=cwd, capture_output=True, text=True, timeout=40)
-    eq(d.returncode, 0, d.stdout + d.stderr)
-    ok(not d.stdout.strip() and d.stderr.strip(), "a drain keeps the reason on stderr")
-
-
-@case("--until-delivery: no token exits 3 with the reason on stdout; a drain stays exit 0")
-def _():
-    stub, _calls = _wait_stub([])
-    try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off", CLAUDE_BRIDGE_AUTH_TOKEN="")
-        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=40)
-        eq(r.returncode, 3, r.stdout + r.stderr)
-        ok(r.stdout.strip(), "the reason is on stdout: " + r.stderr)
-        d = subprocess.run([P.INBOX_CMD], env=env, capture_output=True, text=True, timeout=40)
-        eq(d.returncode, 0, d.stdout + d.stderr)
-    finally:
-        stub.close()
+        carrier.close()
 
 
 @case("--until-delivery: the last resort is exit 7 with the line on stdout; any other mode keeps exit 0 on stderr")
@@ -890,93 +624,22 @@ def _():
             os.environ["XDG_RUNTIME_DIR"] = saved_runtime
 
 
-@case("--until-delivery: a delivery the journal cannot keep ends it with exit 6 and the held line on stdout, not at the timeout")
+@case("receiving with GZCOORD_JOURNAL=off is refused in one line, exit 7: on stdout under --until-delivery, on stderr otherwise; the carrier is not asked")
 def _():
-    stub, _calls = _wait_stub([[_rec(1, "for-this-session", None)]])
+    carrier, _calls = _wait_carrier([[_rec(1, "never-shown", None)]])
     try:
-        blocker = P.scratch_file("not a directory")
-        env = _replay_env(stub, GZCOORD_JOURNAL="off", AGENT_FABRIC_STATE_DIR=os.path.join(blocker, "state"))
-        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=30)
-        eq(r.returncode, 6, r.stdout + r.stderr)
-        ok("held, not shown" in r.stdout, r.stdout + r.stderr)
+        env = P.inbox_env(carrier, GZCOORD_JOURNAL="off")
+        watch = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=30)
+        eq(watch.returncode, 7, watch.stdout + watch.stderr)
+        ok(watch.stdout.startswith("gzcoord-inbox: receiving with GZCOORD_JOURNAL=off is refused") and watch.stdout.count("\n") == 1, watch.stdout)
+        eq(watch.stderr, "", "a session that reads the watch's stdout is told there, once")
+        drain = subprocess.run([P.INBOX_CMD], env=env, capture_output=True, text=True, timeout=30)
+        eq(drain.returncode, 7, drain.stdout + drain.stderr)
+        ok(drain.stderr.startswith("gzcoord-inbox: receiving with GZCOORD_JOURNAL=off is refused") and drain.stdout == "", drain.stdout + drain.stderr)
+        ok("never-shown" not in watch.stdout + drain.stdout, "nothing was shown")
+        eq(carrier.requests + _calls, [], "the carrier was not asked: refused before the transport is used")
     finally:
-        stub.close()
-
-
-@case("--until-delivery: an unreachable relay says watch.relay-gave-up, not 'waiting for it'")
-def _():
-    stub, _calls = _wait_stub([])
-    url = stub.url
-    stub.close()
-    env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_UNTIL_DELIVERY_DOWN_S="1")
-    env["CLAUDE_BRIDGE_URL"] = url
-    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=20)   # under the 30 s retry sleep: the deadline is honoured
-    eq(r.returncode, 5, r.stdout + r.stderr)
-    ok("the watch ended" in r.stdout and "waiting for it" not in r.stdout, r.stdout)
-    # The line a woken session decides on says to run it again now: "when the relay is back" left idle sessions deaf (j1044).
-    ok("run it again now" in r.stdout and "is back" not in r.stdout, r.stdout)
-
-
-def _down_marker(env: dict) -> str:
-    # beside the watch's lock, named as it is (watchlock.down_marker_path)
-    login = subprocess.run(["id", "-un"], capture_output=True, text=True, timeout=10).stdout.strip()
-    return os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", f"gzcoord-inbox-{login}.relay-down")
-
-
-@case("--until-delivery: the exit-5 give-up leaves the time beside the lock for the Stop hook")
-def _():
-    stub, _calls = _wait_stub([])
-    url = stub.url
-    stub.close()
-    env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_UNTIL_DELIVERY_DOWN_S="1")
-    env["CLAUDE_BRIDGE_URL"] = url
-    marker = _down_marker(env)
-    ok(not os.path.exists(marker), "no marker before the watch")
-    before = time.time()
-    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=20)
-    eq(r.returncode, 5, r.stdout + r.stderr)
-    with open(marker) as fh:
-        written = float(fh.read().strip())
-    ok(before - 2 <= written <= time.time() + 2, f"the marker holds the time: {written}")
-    eq(os.stat(marker).st_dev, os.stat(os.path.dirname(marker)).st_dev)
-
-
-@case("--until-delivery: a fetch the relay answered removes the marker")
-def _():
-    stub, _calls = _wait_stub([[_rec(1, "for-this-session", None)]])
-    try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
-        marker = _down_marker(env)
-        os.makedirs(os.path.dirname(marker), mode=0o700, exist_ok=True)
-        with open(marker, "w") as fh:
-            fh.write("1\n")
-        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=30)
-        eq(r.returncode, 0, r.stdout + r.stderr)
-        ok("for-this-session" in r.stdout, r.stdout)
-        ok(not os.path.exists(marker), "the answered fetch cleared the marker")
-    finally:
-        stub.close()
-
-
-@case("--until-delivery: a refused token (exit 4) leaves no relay-down marker; a runtime directory that cannot hold one does not change exit 5")
-def _():
-    stub, _calls = _wait_stub([], status=401)
-    try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
-        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=40)
-        eq(r.returncode, 4, r.stdout + r.stderr)
-        ok(not os.path.exists(_down_marker(env)), "exit 4 is not a give-up on an unreachable relay")
-    finally:
-        stub.close()
-    stub, _calls = _wait_stub([])
-    url = stub.url
-    stub.close()
-    blocked = P.scratch("blocked-")
-    open(os.path.join(blocked, "agent-fabric"), "w").close()   # the lock's directory cannot be made: no lock, and no marker
-    env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_UNTIL_DELIVERY_DOWN_S="1", XDG_RUNTIME_DIR=blocked)
-    env["CLAUDE_BRIDGE_URL"] = url
-    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=20)
-    eq(r.returncode, 5, r.stdout + r.stderr)
+        carrier.close()
 
 
 QUIET = "gzcoord inbox: quiet for 0 min, nothing delivered; run the watch again\n"
@@ -984,9 +647,9 @@ QUIET = "gzcoord inbox: quiet for 0 min, nothing delivered; run the watch again\
 
 @case("--until-delivery --deadline: a quiet watch exits 0 with exactly the one line and frees the lock for the next watch")
 def _():
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         t0 = time.monotonic()
         r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "3"], env=env, capture_output=True, text=True, timeout=30)
         eq(r.returncode, 0, r.stdout + r.stderr)
@@ -1000,26 +663,26 @@ def _():
             again.kill()
             again.communicate()
     finally:
-        stub.close()
+        carrier.close()
 
 
 @case("--until-delivery --deadline: a delivery before the deadline is printed as without it")
 def _():
-    stub, _calls = _wait_stub([[_rec(1, "in-time", None)]])
+    carrier, _calls = _wait_carrier([[_rec(1, "in-time", None)]])
     try:
-        r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "60"], env=_replay_env(stub, GZCOORD_JOURNAL="off"),
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "60"], env=P.inbox_env(carrier),
                            capture_output=True, text=True, timeout=30)
         eq(r.returncode, 0, r.stdout + r.stderr)
         ok("in-time" in r.stdout and "quiet for" not in r.stdout, r.stdout)
     finally:
-        stub.close()
+        carrier.close()
 
 
 @case("--deadline: not a positive number, or without --until-delivery, is a usage line on stderr and exit 1")
 def _():
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         for argv in (["--until-delivery", "--deadline", "0"], ["--until-delivery", "--deadline", "-5"],
                      ["--until-delivery", "--deadline", "soon"], ["--until-delivery", "--deadline"],
                      ["--until-delivery", "--deadline", "Infinity"], ["--follow", "--deadline", "5"], ["--deadline", "5"]):
@@ -1027,7 +690,7 @@ def _():
             eq(r.returncode, 1, f"{argv}: {r.stdout}{r.stderr}")
             ok("--deadline takes a number of seconds" in r.stderr and r.stdout == "", f"{argv}: {r.stdout}{r.stderr}")
     finally:
-        stub.close()
+        carrier.close()
 
 
 @case("--deadline defaults to 6900 s, under the harness's 7200 s cap")
@@ -1058,9 +721,9 @@ def _():
 def _():
     import signal
     from gzcoord.inbox_parts import watchlock
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         first = _arm(env, "--until-delivery")
         try:
             _wait_started(first, env)
@@ -1076,7 +739,7 @@ def _():
             again.kill()
             again.communicate()
     finally:
-        stub.close()
+        carrier.close()
     base = P.scratch("mark-")
     path = os.path.join(base, "agent-fabric", "x.lock")
     os.makedirs(os.path.dirname(path))
@@ -1096,59 +759,39 @@ def _mark_path(env: dict) -> str:
     return lock[0]
 
 
-@case("--deadline: a relay that accepts and never answers still ends the watch near its deadline")
+@case("--deadline: a carrier that accepts and never answers still ends the watch near its deadline")
 def _():
-    import socket
-    srv = socket.socket()
-    srv.bind(("127.0.0.1", 0))
-    srv.listen(8)
-    held_open: list[socket.socket] = []
-    stop = threading.Event()
-
-    def accept() -> None:
-        srv.settimeout(0.2)
-        while not stop.is_set():
-            try:
-                held_open.append(srv.accept()[0])
-            except OSError:
-                pass
-    th = threading.Thread(target=accept, daemon=True)
-    th.start()
+    carrier = P.Carrier(hold_s=None)   # the wait is taken and never answered
     try:
-        env = P.cmd_env(**{"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{srv.getsockname()[1]}", "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
-                           "GZCOORD_CHANNEL": "fixture:chan", "GZCOORD_JOURNAL": "off"})
         t0 = time.monotonic()
-        r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "2"], env=env, capture_output=True, text=True, timeout=40)
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "2"], env=P.inbox_env(carrier), capture_output=True,
+                           text=True, timeout=40)
         eq(r.returncode, 0, r.stdout + r.stderr)
         eq(r.stdout, QUIET)
         ok(time.monotonic() - t0 < 20, "the unanswered request is not waited out")
+        ok(carrier.ops().count("wait") >= 1, "the carrier was asked")
     finally:
-        stop.set()
-        th.join()
-        for c in held_open:
-            c.close()
-        srv.close()
+        carrier.close()
 
 
-@case("--deadline: a relay that refuses connections ends the watch at the deadline, not after the 30 s retry sleep")
+@case("--deadline: a carrier that is not running ends the watch at the deadline, saying why, not after the retry sleep; the watch never gives up before it")
 def _():
-    stub, _calls = _wait_stub([])
-    url = stub.url
-    stub.close()   # nothing listens there now: every try is refused at once
-    env = _replay_env(stub, GZCOORD_JOURNAL="off")   # the give-up bound stays at its 900 s, so only the deadline can end it
-    env["CLAUDE_BRIDGE_URL"] = url
+    # No carrier on the case's runtime directory: every try is refused at once, and the retry sleep is cut at the deadline.
+    # The watch keeps retrying to its deadline (no exit 5): it ends quiet, after the line that says why it was.
+    env = P.inbox_env(None, GZCOORD_UNTIL_DELIVERY_DOWN_S="1")
     t0 = time.monotonic()
     r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "2"], env=env, capture_output=True, text=True, timeout=20)
     eq(r.returncode, 0, r.stdout + r.stderr)
-    eq(r.stdout, QUIET)
+    ok(r.stdout.endswith(QUIET), r.stdout)
+    ok("the InterWeave carrier is not running" in r.stdout.removesuffix(QUIET), r.stdout)
     ok(time.monotonic() - t0 < 10, "the retry sleep is cut at the deadline")
 
 
 @case("an invalid --deadline neither rewrites the mark nor is answered with another watch's refusal line")
 def _():
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         first = _arm(env, "--until-delivery")
         try:
             _wait_started(first, env)
@@ -1161,14 +804,14 @@ def _():
             first.kill()
             first.communicate()
     finally:
-        stub.close()
+        carrier.close()
 
 
 @case("the start says so when a killed watch left its mark, and not after a watch that ended by itself")
 def _():
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         line = "taking over the watch mark of pid"
         quiet = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "1"], env=env, capture_output=True, text=True, timeout=30)
         eq(quiet.stdout, QUIET)
@@ -1185,7 +828,7 @@ def _():
         ok(f"{line} {killed}, which is gone" in after.stderr, after.stderr)
         eq(after.stdout, QUIET)
     finally:
-        stub.close()
+        carrier.close()
 
 
 # ── a watch ends with its session (2026-10-20) ───────────────────────
@@ -1637,9 +1280,9 @@ def _wait_gone(p: subprocess.Popen, what: str, deadline: float = 30) -> tuple[st
 
 @case("a watch whose claude is gone ends at once with one line and exit 0, though the shell that runs it lives on; while claude is there it keeps watching")
 def _():
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         d = P.scratch("sim-")
         sim = os.path.join(d, "sim.py")
         open(sim, "w").write(_SIM)
@@ -1662,14 +1305,14 @@ def _():
             claude.kill()
             claude.communicate()
     finally:
-        stub.close()
+        carrier.close()
 
 
 @case("a watch ends when its parent changes: the shell that ran it dies and the session it served is not what it started under")
 def _():
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         d = P.scratch("sim-")
         sim = os.path.join(d, "sim.py")
         open(sim, "w").write(_SIM)
@@ -1691,15 +1334,15 @@ def _():
             shell.kill()
             shell.communicate()
     finally:
-        stub.close()
+        carrier.close()
 
 
 @case("a new watch ends an orphaned older one it finds holding the lock, through the real command")
 def _():
     import signal
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         first = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "1"], env=env, capture_output=True, text=True, timeout=60)
         eq(first.stdout, QUIET)
         lock_file = _mark_path(env)
@@ -1713,7 +1356,7 @@ def _():
         finally:
             _reap(orphan)
     finally:
-        stub.close()
+        carrier.close()
 
 
 @case("wait_loop ends on session_gone before it fetches, while a slice is out, and when a page lands with it, acknowledging nothing")
@@ -1733,7 +1376,7 @@ def _():
     t0 = time.monotonic()
     res = wait_loop(slow, lambda i: acked.append(i), 3600, session_gone=lambda: started.is_set(), hold_poll_ms=50)
     ok(res.get("sessionEnded") and not acked and time.monotonic() - t0 < 10, f"{res} {acked}")
-    # a page that landed as the session ended: the message is not acknowledged (the relay shows it to the next watch) nor journaled
+    # a page that landed as the session ended: the message is not acknowledged (the next watch is shown it) nor journaled
     msg = {"id": "r1", "seq": 1, "content": "[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
                                             "MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000001\nSUBJECT: s\n\nNOTES:\nA\n"}
     calls = {"n": 0}
@@ -1896,9 +1539,9 @@ def _alive(pid: int) -> bool:
 
 @case("--replace ends a watch this session armed, and a same-login orphan that names no live session, and takes its place")
 def _():
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         # a plain second watch is refused and now says how to replace one (the positive control of the refusal below)
         first = _arm(env, "--until-delivery")
         try:
@@ -1957,14 +1600,14 @@ def _():
             except OSError:
                 pass
     finally:
-        stub.close()
+        carrier.close()
 
 
 @case("--replace without a watch to replace the holder of, or beside --replay, --history or --held, is one usage line, exit 1, no lock")
 def _():
-    stub, _calls = _wait_stub([])
+    carrier, _calls = _wait_carrier([])
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(carrier)
         for argv in (["--replace"], ["--replace", "--wait", "1"], ["--replace", "--history", "--follow"],
                      ["--replace", "--held", "--until-delivery"], ["--replace", "--replay", "1", "--follow"]):
             r = subprocess.run([P.INBOX_CMD, *argv], env=env, capture_output=True, text=True, timeout=30)
@@ -1973,46 +1616,22 @@ def _():
             eq(r.stdout, "")
         ok(not glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock")), "no lock was taken")
     finally:
-        stub.close()
+        carrier.close()
 
 
 # ── placement: a TO no host places, before and apart from presence ──
 
 def _placement_send(to_line: str, *flags: str, placed: dict | None = None, registry: str | None = None,
-                    token: bool = True, presence: str = "online", wait_ms: str = "300") -> tuple[int, str, str, list, str]:
-    """(exit, stdout, stderr, the relay paths hit, the content posted) of gzcoord-send for a message with `to_line`,
-    on a hosts registry that places `placed` (login -> host) on the sender's host. `presence` is what the stub's control
-    channel answers an ask with: online, or `down` (a 503 for every call)."""
+                    presence: str = "online", wait_ms: str = "300") -> tuple[int, str, str, list, str]:
+    """(exit, stdout, stderr, the ops the carrier was asked, the text posted) of gzcoord-send for a message with `to_line`,
+    on a hosts registry that places `placed` (login -> host) on the sender's host. `presence` is what the account's agentd
+    answers an ask with: online, or `down` (no agentd on the control socket)."""
     me = gzmsg.whoami()
-    hits: list[str] = []
-    posted: list[str] = []
-    asked: dict = {}
-
-    def answer(_h, method, path, body):
-        hits.append(f"{method} {path.split('?')[0]}")
-        if presence == "down":
-            return 503, '{"error": "down"}'
-        if method == "POST" and path.startswith("/api/send"):
-            sent = json.loads(body)
-            try:
-                inner = json.loads(sent["content"])
-            except ValueError:
-                inner = None
-            if isinstance(inner, dict) and inner.get("op") == "presence":
-                asked.update(id=inner["id"], to=inner["to"])
-                return 200, '{"id": "p1", "seq": 1}'
-            posted.append(sent["content"])
-            return 200, '{"id": "m1", "seq": 7}'
-        if path.startswith("/api/messages") and asked:
-            who = asked["to"][0]
-            reply = {"v": 1, "kind": "reply", "in_reply_to": asked["id"], "from": who,
-                     "data": {"presence": {"status": "ok", "online": True}}}
-            return 200, json.dumps({"messages": [{"id": "p2", "seq": 2, "content": json.dumps(reply)}]})
-        return 200, '{"messages": []}'
-    stub = P.Stub(answer)
+    address = to_line.partition(": ")[2].replace("@HOST@", me["host"])
+    pr = P.Presence({address: {"status": "ok", "online": True}}) if presence == "online" else None
+    carrier = pr.carrier if pr is not None else P.Carrier()
     try:
-        extra = {} if token else {"CLAUDE_BRIDGE_AUTH_TOKEN": ""}
-        env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_PRESENCE_WAIT_MS=wait_ms, **extra)
+        env = P.inbox_env(carrier, GZCOORD_PRESENCE_WAIT_MS=wait_ms)
         if registry is None:
             registry = os.path.join(env["HOME"], "hosts.json")
             with open(registry, "w", encoding="utf-8") as fh:
@@ -2025,24 +1644,21 @@ def _placement_send(to_line: str, *flags: str, placed: dict | None = None, regis
                      f"{to_line.replace('@HOST@', me['host'])}\nSUBJECT: s\n\nNOTES:\nn\n")
         r = subprocess.run([P.SEND_CMD, f, *flags], env=env, capture_output=True, text=True, timeout=120)
     finally:
-        stub.close()
-    return r.returncode, r.stdout, r.stderr, hits, "".join(posted)
+        carrier.close()
+        if pr is not None:
+            pr.close()
+    return r.returncode, r.stdout, r.stderr, carrier.ops(), "".join(p["text"] for p in carrier.posts)
 
 
-def _api_hits(hits: list) -> list:
-    return [h for h in hits if " /api/" in h]
-
-
-@case("send: a TO naming a role no host places is refused (exit 2) however it is run: --force, --dry-run, no token, presence down")
+@case("send: a TO naming a role no host places is refused (exit 2) however it is run: --force, --dry-run, presence down")
 def _():
     to = "TO: @HOST@/fabric-coordinator"
     for label, flags, kw in (("plain", (), {}), ("--force", ("--force",), {}), ("--dry-run", ("--dry-run",), {}),
-                             ("--dry-run --force", ("--dry-run", "--force"), {}), ("no token", (), {"token": False}),
-                             ("no token --force", ("--force",), {"token": False}),
+                             ("--dry-run --force", ("--dry-run", "--force"), {}),
                              ("presence down", (), {"presence": "down"}), ("presence down --force", ("--force",), {"presence": "down"})):
-        rc, out, err, hits, posted = _placement_send(to, *flags, **kw)
+        rc, out, err, ops, posted = _placement_send(to, *flags, **kw)
         eq(rc, 2, f"{label}: {err}")
-        eq((out, posted, _api_hits(hits)), ("", "", []), f"{label}: nothing left, the relay not asked: {hits}")
+        eq((out, posted, ops), ("", "", []), f"{label}: nothing left, the carrier not asked: {ops}")
         ok("fabric-coordinator" in err and "TO-ROLE: fabric-coordinator" in err and "one holder's login" in err
            and "fabric-ctl all presence" in err and "sending anyway" not in err
            and err.rstrip().endswith("send: not sent — --force does not send it"), f"{label}: {err}")
@@ -2051,39 +1667,37 @@ def _():
 @case("send: any other TO no host places is no account: exit 4 and the line says so; --force sends it, with and without presence")
 def _():
     to = "TO: @HOST@/nobody-placed-here"
-    for label, kw in (("plain", {}), ("no token", {"token": False}), ("presence down", {"presence": "down"})):
-        rc, out, err, hits, posted = _placement_send(to, **kw)
+    for label, kw in (("plain", {}), ("presence down", {"presence": "down"})):
+        rc, out, err, ops, posted = _placement_send(to, **kw)
         eq(rc, 4, f"{label}: {err}")
-        eq((out, posted, _api_hits(hits)), ("", "", []), f"{label}: {hits}")
+        eq((out, posted, ops), ("", "", []), f"{label}: {ops}")
         ok("is no account" in err and "offline" not in err and "no session" not in err and "an account being placed right now" in err, err)
-    rc, out, err, hits, posted = _placement_send(to, "--dry-run")
-    eq((rc, _api_hits(hits)), (4, []), f"a dry run is refused alike: {err}")
-    rc, out, err, hits, posted = _placement_send(to, "--force", "--dry-run")
+    rc, out, err, ops, posted = _placement_send(to, "--dry-run")
+    eq((rc, ops), (4, []), f"a dry run is refused alike: {err}")
+    rc, out, err, ops, posted = _placement_send(to, "--force", "--dry-run")
     eq(rc, 0, f"{err}")
     ok("sending anyway" in err and "would post" in err.lower() or "would" in err, err)
-    rc, out, err, hits, posted = _placement_send(to, "--force")
+    rc, out, err, ops, posted = _placement_send(to, "--force")
     eq(rc, 0, err)
-    ok(out.startswith("sent seq 7 INFO ") and "nobody-placed-here" in posted, f"{out!r} {posted!r}")
-    eq(_api_hits(hits), ["POST /api/send"], "the message is the one relay call")
-    # presence.py answers not-placed without a relay call, so what shows it was not asked is the line it would add.
+    ok(out.startswith("sent INFO ") and "nobody-placed-here" in posted, f"{out!r} {posted!r}")
+    eq(ops, ["send"], "the message is the one carrier call")
+    # presence.py answers not-placed without a carrier call, so what shows it was not asked is the line it would add.
     ok("not an account any host places" not in err and err.count("sending anyway") == 1 and err.count("is no account") == 1,
        f"said once, by the local test and not again by the presence check: {err}")
-    rc, out, err, hits, posted = _placement_send(to, "--force", token=False)
-    eq(rc, 3, f"placement forced, then the old no-token refusal: {err}")
 
 
 @case("send: controls — a placed login, even one that equals a role slug, is sent; a TO-ROLE and a BROADCAST are no address to place")
 def _():
     for to, placed in (("TO: @HOST@/worker-01", {"worker-01": 1}), ("TO: @HOST@/fabric-coordinator", {"fabric-coordinator": 1})):
-        rc, out, err, hits, posted = _placement_send(to, placed=placed)
+        rc, out, err, ops, posted = _placement_send(to, placed=placed)
         eq(rc, 0, f"{to}: {err}")
-        ok(out.startswith("sent seq 7 INFO ") and to.split(": ")[1].replace("@HOST@", gzmsg.whoami()["host"]) in posted, f"{out!r}")
+        ok(out.startswith("sent INFO ") and to.split(": ")[1].replace("@HOST@", gzmsg.whoami()["host"]) in posted, f"{out!r}")
         ok("is no account" not in err and "names a role" not in err, err)
     for to in ("TO-ROLE: backend-dev", "BROADCAST: true"):
-        rc, out, err, hits, posted = _placement_send(to, "--dry-run")
-        eq((rc, _api_hits(hits)), (0, []), f"{to}: {err}")
+        rc, out, err, ops, posted = _placement_send(to, "--dry-run")
+        eq((rc, ops), (0, []), f"{to}: {err}")
         ok("is no account" not in err and "names a role" not in err, err)
-    rc, out, err, hits, posted = _placement_send("TO-ROLE: backend-dev", "--force")
+    rc, out, err, ops, posted = _placement_send("TO-ROLE: backend-dev", "--force")
     eq(rc, 0, f"a TO-ROLE still goes to the presence check, which finds no holder: {err}")
     ok("no running session holds" in err or "no account holds" in err, err)
 
@@ -2105,10 +1719,9 @@ def _():
 @case("send: a whoami with no binding file (identity.py not loadable) is refused in one line, exit 2, never a traceback; with it, the dry run passes")
 def _():
     me = gzmsg.whoami()
-    stub = P.Stub(lambda _h, _m, _p, _b: (200, '{"messages": []}'))
     saved = (gzmsg.whoami, dict(os.environ))
     try:
-        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        env = P.inbox_env(None)
         reg = os.path.join(env["HOME"], "hosts.json")
         with open(reg, "w", encoding="utf-8") as fh:
             json.dump({"hosts": {me["host"]: {"operator": "user"}}, "placement": {me["agent"]: me["host"]}}, fh)
@@ -2130,7 +1743,6 @@ def _():
         gzmsg.whoami = saved[0]
         os.environ.clear()
         os.environ.update(saved[1])
-        stub.close()
     eq(results[0][0], 0, results[0][1])
     eq(results[1][0], 2, results[1][1])
     ok("gzcoord-sent.jsonl" in results[1][1] and "Traceback" not in results[1][1], results[1][1])

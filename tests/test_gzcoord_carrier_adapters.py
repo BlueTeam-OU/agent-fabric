@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
-"""The inbox side of the InterWeave carrier (ADR-064 rules 9, 11; CARRIER-
-CONTRACT.md §6): carrier/adapter.py, wait_loop's use of the shown ledger and of
-the carrier's `unseen`, the spool behind `unseen`, the arrival log and the
-rendering of an InterWeave arrival. The relay's own behaviour stays with
-test_gzcoord_protocol.py and test_gzcoord_port.py, which run unchanged.
+"""The inbox side of the InterWeave carrier (ADR-064 rules 9, 11; CARRIER-CONTRACT.md §6): carrier/adapter.py, wait_loop's use of
+the shown ledger and of the carrier's `unseen`, the spool behind `unseen`, the arrival log and the rendering of an InterWeave
+arrival. Since W15 the carrier is the only transport: the page the fetch answers is always empty and what is shown is what the
+carrier lists.
 
-What is held: with no carrier the adapter is a no-op that costs a stat; a relay
-copy is shown unless the LEDGER says it was shown, with no carrier at all; the
-pending line is written before the relay is acknowledged; a page the journal
-holds writes nothing to the ledger; the carrier's arrivals pass through the same
-ledger and are never acknowledged to the relay; a mismatch revealed after the
-relay's copy is shown once more, flagged; a showing that died after its pending
-line is shown again, flagged; a carrier that does not answer never holds a relay
-delivery; an arrival is shown as from the roster's address with the mismatch
-said. Plain script: prints ok/FAIL, exit 1 on any failure."""
+What is held: with no carrier the adapter is a no-op that costs a stat; an arrival is shown unless the LEDGER says it was
+shown; the pending line is written before the page is shown and the final line after; a mismatch is shown flagged, once; a
+showing that died after its pending line is shown again, flagged; a message that reuses a shown id with another body is
+another message; a hold, a ledger that cannot be opened or written shows nothing of the carrier's; two inbox paths cannot both
+show one message; an arrival is shown as from the roster's address with the mismatch said. Plain script: prints ok/FAIL,
+exit 1 on any failure."""
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -45,10 +42,6 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 def text(mid: str, frm: str = "h/alpha", to: str = "h/beta") -> str:
     return f"[GZCOORD/1] INFO\nFROM: {frm}\nROLE: r\nTO: {to}\nMESSAGE-ID: {mid}\nSUBJECT: s\n\nCONTEXT:\nbody of {mid}\n"
-
-
-def rrec(n: int, mid: str, **kw) -> dict:
-    return {"id": f"id{n}", "seq": n, "sender": "h/alpha", "timestamp": NOW, "content": text(mid, **kw)}
 
 
 def urec(mid: str, verdict: str = "ok", frm: str = "h/alpha") -> dict:
@@ -159,71 +152,45 @@ def main() -> int:
         lpath = os.path.join(d, "gzcoord-shown.jsonl")
         led = L.Ledger(lpath, iso_now=lambda: NOW)
 
-        r, acked = loop([[rrec(1, "R-1")]], None)
-        check("without a ledger the relay page is exactly as before", r["delivered"] and acked == ["id1"] and "ledger" not in r
-              or (r["delivered"] and r.get("ledger") is None))
-
-        seen_when_acked: list[int] = []
-        r, acked = loop([[rrec(1, "R-1")]], led, ack_probe=lambda i: seen_when_acked.append(len(lines(lpath))))
-        check("a relay copy nothing showed is delivered, with the ledger's lock held for the caller",
-              r["delivered"] and r["ledger"] is not None and [c["rec"]["id"] for c in r["classified"]] == ["id1"])
+        r, acked = loop([[]], led, iw=FakeCarrier([urec("C-1")]))
+        check("a carrier arrival nobody showed is delivered, titled from its record, with the ledger's lock held for the caller",
+              r["delivered"] and r["ledger"] is not None and [c["iw"]["mid"] for c in r["classified"]] == ["C-1"]
+              and [c["rec"]["id"] for c in r["classified"]] == [None] and acked == [], str(r))
         out = []
-        show_page(r, lambda: out.append("written"))
-        check("the pending line was on disk when the relay was acknowledged, and the acknowledgement came after the showing",
-              seen_when_acked == [2] and lines(lpath)[0].get("pending") is True and acked == ["id1"], str(seen_when_acked))
+        pending_when_shown: list[int] = []
+        show_page(r, lambda: (out.append("written"), pending_when_shown.append(len(lines(lpath)))))
+        check("the pending line was on disk when the page was shown",
+              pending_when_shown == [1] and lines(lpath)[0].get("pending") is True and lines(lpath)[0]["via"] == "interweave")
         check("show_page writes the page, then the final line, and releases the lock",
               out == ["written"] and [x.get("pending") for x in lines(lpath)] == [True, None])
         led.exclusive().release()          # would block for ever if the lock were still held
 
-        r, acked = loop([[rrec(1, "R-1")]], led)
-        check("the same relay record again (an acknowledgement that failed): acknowledged, not shown, no lock kept",
-              not r["delivered"] and r["classified"] == [] and acked == ["id1"] and r["ledger"] is None if "ledger" in r else
-              not r["delivered"] and acked == ["id1"])
+        r, _ = loop([[]], led, iw=FakeCarrier([urec("C-1")]))
+        check("the same arrival listed again (the carrier lists it until settled): not shown, no lock kept",
+              not r["delivered"] and r["classified"] == [] and r.get("ledger") is None, str(r))
 
-        # shown by the carrier first: the relay's copy is not shown
-        c2 = FakeCarrier([urec("C-1")])
-        r, _ = loop([[]], led, iw=c2)
-        check("a carrier arrival nobody showed is delivered, titled from its record, never acknowledged to the relay",
-              r["delivered"] and [c["iw"]["mid"] for c in r["classified"]] == ["C-1"], str(r))
-        show_page(r, lambda: None)
-        r, acked = loop([[rrec(2, "C-1")]], led, iw=c2)
-        check("... and the relay's later copy of it is acknowledged and not shown", not r["delivered"] and acked == ["id2"])
-
-        # shown by the relay first: an ok carrier copy is not shown, a mismatch one is, flagged, once
-        r, _ = loop([[rrec(3, "S-1", frm="h/gamma")]], led, iw=FakeCarrier([urec("S-1", "mismatch", frm="h/gamma")]))
-        kinds = [("iw" if c.get("iw") else "relay", bool(c.get("flagged"))) for c in r["classified"]]
-        check("the relay's copy shown, and the carrier's copy that reveals the FROM mismatch shown again, flagged",
-              kinds == [("relay", False), ("iw", True)], str(kinds))
+        # a mismatch is shown once, flagged
+        r, _ = loop([[]], led, iw=FakeCarrier([urec("S-1", "mismatch", frm="h/gamma")]))
+        kinds = [("iw" if c.get("iw") else "page", bool(c.get("flagged"))) for c in r["classified"]]
+        check("a carrier copy with a FROM mismatch is shown once as itself, its verdict kept for the rendering (flagged is the re-show's)",
+              kinds == [("iw", False)] and r["classified"][0]["iw"]["verdict"] == "mismatch", str(kinds))
         show_page(r, lambda: None)
         r, _ = loop([[]], led, iw=FakeCarrier([urec("S-1", "mismatch", frm="h/gamma")]))
-        check("... and that second showing happens once", not r["delivered"])
-        r, _ = loop([[rrec(4, "S-2")]], led, iw=FakeCarrier([urec("S-2", "ok")]))
-        show_page(r, lambda: None)
-        check("an ok carrier copy of a message the relay showed is not shown (the same page: one showing)",
-              [("iw" if c.get("iw") else "relay") for c in r["classified"]] == ["relay"])
+        check("... and that showing happens once", not r["delivered"])
 
         # a showing that died after its pending line
         h = led.exclusive()
-        h.pending("D-1", "relay")
+        h.pending("D-1", "interweave")
         h.release()
-        r, _ = loop([[rrec(5, "D-1")]], led)
+        r, _ = loop([[]], led, iw=FakeCarrier([urec("D-1")]))
         check("a message whose showing died after the pending line is shown again, flagged may-repeat",
               r["delivered"] and r["classified"][0]["may_repeat"] is True)
         show_page(r, lambda: None)
-        r, _ = loop([[rrec(6, "D-1")]], led)
+        r, _ = loop([[]], led, iw=FakeCarrier([urec("D-1")]))
         check("... and then it is settled", not r["delivered"])
 
-        # a page the journal holds writes nothing
-        before = lines(lpath)
-        r, _ = loop([[rrec(7, "H-1")]], led, journal=lambda recs: {"ok": False, "reason": "held"})
-        check("a page the journal holds is not recorded in the ledger (it is shown later)",
-              lines(lpath) == before and not r["delivered"])
-        r, _ = loop([[rrec(7, "H-1")]], led, journal=lambda recs: {"ok": True, "said": []})
-        check("... and when the journal recovers it is shown", r["delivered"])
-        show_page(r, lambda: None)
-
         # the page cannot be written: the lock is released and the pending line stands
-        r, _ = loop([[rrec(8, "W-1")]], led)
+        r, _ = loop([[]], led, iw=FakeCarrier([urec("W-1")]))
 
         def broken():
             raise BrokenPipeError()
@@ -235,16 +202,56 @@ def main() -> int:
         check("a showing that raises releases the lock and leaves the pending line", lines(lpath)[-1].get("pending") is True
               and lines(lpath)[-1]["mid"] == "W-1")
 
+        # a ledger that cannot be opened: the carrier's records are not shown (they would be listed again on every pass),
+        # and the failure is said on stderr, not as a delivery
+        class Unopenable:
+            def exclusive(self):
+                raise PermissionError(13, "Permission denied")
+
+        said = io.StringIO()
+        saved_stderr = sys.stderr
+        sys.stderr = said
+        try:
+            r, _ = loop([[]], Unopenable(), iw=FakeCarrier([urec("U-1")]))
+        finally:
+            sys.stderr = saved_stderr
+        check("a ledger that cannot be opened shows nothing and says the carrier's messages wait",
+              not r["delivered"] and r["classified"] == [] and "the shown ledger could not be opened" in said.getvalue()
+              and "the carrier's messages wait" in said.getvalue(), f"{r} {said.getvalue()!r}")
+
+        # stdout is a pipe its reader closed, and the page is a bare print (no flush of its own): the failure surfaces
+        # inside show_page, so the ledger is released with the pending line standing and the page is not acknowledged
+        r, _ = loop([[]], led, iw=FakeCarrier([urec("P-1")]))
+        acks: list[str] = []
+        r["ack_later"] = lambda: acks.append("acked")
+        rd, wr = os.pipe()
+        os.close(rd)
+        saved_stdout = sys.stdout
+        sys.stdout = os.fdopen(wr, "w")
+        raised = False
+        try:
+            show_page(r, lambda: print("a page that fits the pipe buffer"))
+        except BrokenPipeError:
+            raised = True
+        finally:
+            try:
+                sys.stdout.close()
+            except BrokenPipeError:
+                pass
+            sys.stdout = saved_stdout
+        led.exclusive().release()
+        check("a page into a pipe its reader closed raises, leaves the pending line and is not acknowledged",
+              raised and acks == [] and lines(lpath)[-1].get("pending") is True and lines(lpath)[-1]["mid"] == "P-1")
+
         # a message that reuses a shown id is another message
-        r, _ = loop([[rrec(21, "COL-1")]], led)
+        r, _ = loop([[]], led, iw=FakeCarrier([urec("COL-1")]))
         show_page(r, lambda: None)
-        other = rrec(22, "COL-1")
+        other = urec("COL-1")
         other["content"] = other["content"].replace("body of COL-1", "a different body entirely")
-        r, acked = loop([[other]], led)
-        check("a different message that reuses a shown MESSAGE-ID is shown, not acknowledged away (even with no carrier)",
+        r, _ = loop([[]], led, iw=FakeCarrier([other]))
+        check("a different message that reuses a shown MESSAGE-ID is shown",
               r["delivered"] and "a different body" in r["classified"][0]["rec"]["content"])
         show_page(r, lambda: None)
-        check("... and acknowledged once shown", acked == ["id22"])
 
         # a hold: nothing is polled, the carrier's arrivals included
         asked = FakeCarrier([urec("HOLD-1")])
@@ -253,17 +260,9 @@ def main() -> int:
         def held_second():
             calls[0] += 1
             return calls[0] >= 2
-        r, acked = loop([[rrec(23, "HOLD-0")]], led, iw=asked, held=held_second)
+        r, acked = loop([[]], led, iw=asked, held=held_second)
         check("a page dropped for a hold asks the carrier nothing and shows nothing",
               not r["delivered"] and asked.asked == 0 and acked == [], str((r["delivered"], asked.asked, acked)))
-
-        # the relay is acknowledged after the lock is released, not under it
-        probe = []
-        r, acked = loop([[rrec(31, "ACK-1")]], led, ack_probe=lambda i: probe.append(i))
-        check("with the ledger's lock held for a showing, no acknowledgement is sent yet", probe == [] and callable(r["ack_later"]))
-        show_page(r, lambda: None)
-        check("... they follow once the lock is released", probe == ["id31"])
-        led.exclusive().release()
 
         # presence from the carrier is never shown
         hello = urec("HE-1")
@@ -271,20 +270,9 @@ def main() -> int:
         r, _ = loop([[]], led, iw=FakeCarrier([hello]))
         check("a retired HELLO from the carrier is not shown", not r["delivered"])
 
-        # a carrier that is down does not hold the relay
-        down = FakeCarrier([])
-        r, acked = loop([[rrec(9, "N-1")]], led, iw=down)
-        show_page(r, lambda: None)
-        check("a carrier with nothing to say never holds a relay delivery", r["delivered"] and acked == ["id9"])
-
-        # the arrival log hook
-        got: list[list[dict]] = []
-        order: list[str] = []
-        loop([[rrec(10, "L-1"), rrec(11, "L-2", to="h/other")]], None,
-             journal=lambda recs: order.append("journal") or {"ok": True, "said": []},
-             on_arrival=lambda recs: (order.append("arrival"), got.append(recs)))
-        check("the arrival hook sees only the copies addressed here, before the journal",
-              order == ["arrival", "journal"] and [x["id"] for x in got[0]] == ["id10"])
+        # a carrier with nothing to say delivers nothing
+        r, acked = loop([[]], led, iw=FakeCarrier([]))
+        check("a carrier with nothing to say delivers nothing and acknowledges nothing", not r["delivered"] and acked == [])
 
     # -- a ledger that cannot be opened ----------------------------------------
     with tempfile.TemporaryDirectory(prefix="gz-nol-") as d:
@@ -292,13 +280,11 @@ def main() -> int:
         open(blocker, "w").write("a file where the state directory should be")
         led = L.Ledger(os.path.join(blocker, "me", "gzcoord-shown.jsonl"), iso_now=lambda: NOW)
         import contextlib
-        import io
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            r, acked = loop([[rrec(1, "NL-1")]], led, iw=FakeCarrier([urec("NL-2")]))
-        check("a ledger that cannot be opened is said, the relay's message is shown without it, the carrier's is not (it would repeat)",
-              r["delivered"] and [c["rec"]["id"] for c in r["classified"]] == ["id1"] and acked == ["id1"]
-              and "shown ledger could not be opened" in err.getvalue(), err.getvalue())
+            r, acked = loop([[]], led, iw=FakeCarrier([urec("NL-2")]))
+        check("a ledger that cannot be opened is said and the carrier's arrival is not shown (it would repeat)",
+              not r["delivered"] and r["classified"] == [] and "shown ledger could not be opened" in err.getvalue(), err.getvalue())
 
     # -- a ledger whose write fails -------------------------------------------
     with tempfile.TemporaryDirectory(prefix="gz-wf-") as d:
@@ -309,16 +295,14 @@ def main() -> int:
             raise OSError(28, "No space left on device")
         L.Held._put = failing
         import contextlib
-        import io
         err = io.StringIO()
         try:
             with contextlib.redirect_stderr(err):
-                r, acked = loop([[rrec(1, "WF-1")]], led, iw=FakeCarrier([urec("WF-2")]))
+                r, acked = loop([[]], led, iw=FakeCarrier([urec("WF-2")]))
         finally:
             L.Held._put = real_put
-        check("a ledger write that fails is said as that, the relay's message is shown without the ledger, no exception",
-              r["delivered"] and [c["rec"]["id"] for c in r["classified"]] == ["id1"] and acked == ["id1"]
-              and "could not be written" in err.getvalue(), err.getvalue())
+        check("a ledger write that fails is said as that and the carrier's arrival waits, no exception",
+              not r["delivered"] and r["classified"] == [] and "could not be written" in err.getvalue(), err.getvalue())
 
     # -- two inbox paths cannot both show one message -------------------------
     with tempfile.TemporaryDirectory(prefix="gz-two-") as d:
@@ -326,15 +310,15 @@ def main() -> int:
         shown: list[str] = []
         gate = threading.Barrier(2)
 
-        def path(via_relay: bool) -> None:
+        def path(which: str) -> None:
             gate.wait()
-            r, _ = loop([[rrec(1, "T-1")]] if via_relay else [[]], led, iw=None if via_relay else FakeCarrier([urec("T-1")]))
+            r, _ = loop([[]], led, iw=FakeCarrier([urec("T-1")]))
             if r["delivered"]:
-                show_page(r, lambda: shown.append("relay" if via_relay else "carrier"))
-        ts = [threading.Thread(target=path, args=(v,)) for v in (True, False)]
+                show_page(r, lambda: shown.append(which))
+        ts = [threading.Thread(target=path, args=(v,)) for v in ("first", "second")]
         [t.start() for t in ts]
         [t.join(30) for t in ts]
-        check("the relay path and the carrier path racing for one message: it is shown once", len(shown) == 1, str(shown))
+        check("two inbox paths racing for one message: it is shown once", len(shown) == 1, str(shown))
 
     # -- the spool behind unseen ---------------------------------------------
     with tempfile.TemporaryDirectory(prefix="gz-spool-") as d:
@@ -379,23 +363,14 @@ def main() -> int:
     # -- the arrival log -------------------------------------------------------
     with tempfile.TemporaryDirectory(prefix="gz-arr-") as d:
         log = arrivals.ArrivalLog(os.path.join(d, "a", "gzcoord-arrivals.jsonl"), iso_now=lambda: NOW)
-        A.relay_arrivals(log, "h/beta", [("r1", "L-1"), ("r1", "L-1")])
-        A.relay_arrivals(log, "h/beta", [("r1", "L-1")])
-        check("a relay copy is a line with the relay's verdict unauthenticated; a re-read of the same record is not another",
-              [(x["mid"], x["carrier"], x["verdict"], x["addressee"]) for x in lines(log.path)]
-              == [("L-1", "relay", "unauthenticated", "h/beta")] and oct(os.stat(log.path).st_mode & 0o777) == "0o600")
-
-        A.relay_arrivals(log, "h/beta", [("r2", "L-1")])
-        check("a second relay record of the same message (a retransmission) is another copy and another line",
-              len(lines(log.path)) == 2)
-
         def writer(n: int) -> None:
             for i in range(25):
                 log.append(f"W-{n}-{i}", "h/beta", "interweave", "ok")
         ws = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
         [w.start() for w in ws]
         [w.join(30) for w in ws]
-        check("two writers appending at once leave whole lines only", len(lines(log.path)) == 102)
+        check("two writers appending at once leave whole lines only, and the file is the owner's alone",
+              len(lines(log.path)) == 100 and oct(os.stat(log.path).st_mode & 0o777) == "0o600")
 
     # -- rendering ---------------------------------------------------------
     me = {"address": "h/beta", "slug": "dev"}
@@ -410,9 +385,6 @@ def main() -> int:
           and "relay copy of W-2" in out and "may repeat" in out and "relay seq" not in out, out)
     ok_rec = {"classified": [{**entry(), "msg": gzmsg.parse(text("W-3")), "iw": {"mid": "W-3", "verdict": "ok"}}]}
     check("a verified arrival carries no mismatch flag", "mismatch" not in R.render(ok_rec, me, "gzapp:gzcoord", None))
-    relay_repeat = R.render({"classified": [{"rec": rrec(1, "R-9"), "msg": gzmsg.parse(text("R-9")), "isMine": True,
-                                             "may_repeat": True}]}, me, "gzapp:gzcoord", None)
-    check("a relay copy shown again after an interrupted showing says so", "may repeat" in relay_repeat, relay_repeat)
     big = {"id": None, "seq": "interweave", "sender": "h/alpha", "timestamp": "t",
            "content": text("W-4").replace("body of W-4", "x" * 6000)}
     cut = R.render({"classified": [{"rec": big, "msg": gzmsg.parse(big["content"]), "isMine": True,

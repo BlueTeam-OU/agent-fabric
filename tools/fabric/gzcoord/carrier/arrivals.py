@@ -81,22 +81,10 @@ class ArrivalLog:
                 os.close(fd)
 
 
-class AckLog(ArrivalLog):
-    """gzcoord-acks.jsonl: one line per POST /api/ack the relay's inbox path made for a record addressed
-    here, {"mid","addressee","t","ok"}; `ok` is whether the relay answered it. The relay keeps no cursor
-    anyone can read without being the consumer, so this is the acknowledgement's evidence for the
-    relay-outage drill (ADR-064 rule 11): the cursor move the relay accepted, as its answer was seen here.
-    A failed call is a line too (ok false): "not acknowledged" is then a fact, not an absence."""
-
-    def append_ack(self, mid: str, addressee: str, ok: bool) -> None:
-        self._append({"mid": mid, "addressee": addressee, "t": self._iso(), "ok": ok})
-
-
 class WatchLog(ArrivalLog):
     """gzcoord-watch.jsonl: when a watch (gzcoord-inbox --follow or --until-delivery) started and how it ended, one line each:
-    {"t","event":"start","pid"} and {"t","event":"end","pid","reason","code"}. The relay-outage drill (ADR-064 rule 11 / Gate 1 item 3)
-    asks whether a watch was restarted inside the outage and whether one gave up after its 15 minutes, and neither the shown
-    ledger nor the acknowledgement log says: the give-up (exit 5) leaves only a marker the next fetch deletes. A watch the
+    {"t","event":"start","pid"} and {"t","event":"end","pid","reason","code"}. The deaf-watch report (control/deaf.py)
+    asks whether a watch was running and how it ended, which neither the shown ledger nor the sent ledger says. A watch the
     kernel ends (SIGKILL, a host crash), or that leaves by an interrupt or an exception inside the process (a closed stdout,
     Ctrl-C), writes no end line; a start with no end of its pid is one of those, or a watch still running,
     and the report says so rather than naming a reason it does not have."""
@@ -113,10 +101,9 @@ class WatchLog(ArrivalLog):
 
 class MirrorLog(ArrivalLog):
     """gzcoord-mirror.jsonl, in the SENDER's state beside gzcoord-sent.jsonl: one line for each send the InterWeave carrier
-    did not accept: {"mid","t","outcome","reason","as"}, `outcome` one of OUTCOMES, `as` the carrier's place in that send: "mirror"
-    (a relay-record send's second copy; the relay's record then holds the message alone) or "primary" (the transport of record,
-    carrier-record and carrier-only: the send exited 3 and, in carrier-only, no relay copy is left to find). A line without `as`
-    was written before the field and is a mirror's. The parity report (ADR-064 rule 11) sees a pair with no InterWeave copy and
+    did not accept: {"mid","t","outcome","reason","as"}, `outcome` one of OUTCOMES, `as` the carrier's place in that send: "primary" (the only
+    transport: the send exited 3) or, on a line written before W15, "mirror" (a relay-record send's second copy). A line without
+    `as` was written before the field and is a mirror's. The parity report (ADR-064 rule 11) sees a pair with no InterWeave copy and
     no sender record; before this log the reason was a stderr line of a send nobody kept. A send the carrier accepted leaves no
     line here: it has a delivery row in the carrier's own outbox. The log is bounded (a sender with no carrier at all writes a
     line per send). A primary is never "not-carried": a roster without a recipient is a refusal that recorded nothing, "failed"."""
@@ -126,7 +113,7 @@ class MirrorLog(ArrivalLog):
     MAX_BYTES = 256 * 1024
     REASON_MAX = 200
 
-    def append_refused(self, mid: str, outcome: str, reason: str, role: str = "mirror") -> None:
+    def append_refused(self, mid: str, outcome: str, reason: str, role: str = "primary") -> None:
         assert outcome in self.OUTCOMES, outcome
         assert role in self.ROLES, role
         self._append({"mid": mid, "t": self._iso(), "outcome": outcome, "reason": " ".join(reason.split())[:self.REASON_MAX], "as": role})

@@ -2,9 +2,11 @@
 """GZCOORD_JOURNAL=off is a break-glass with a record (ADR-041): every
 message that crosses without the journal leaves one line in the agent's
 journal-bypass.jsonl, never its body, and a bypass that cannot be recorded
-does not happen. The commands are run by their real paths (the .mjs shims)
-against a stub relay, with a scratch state directory. Plain script: prints
-ok/FAIL, exit 1 on any failure."""
+does not happen. The commands are run by their real paths against a carrier
+stand-in (tests/test_gzcoord_protocol.py `Carrier`), with a scratch state directory. Since
+the relay left send and inbox (W15) the carrier numbers nothing, so an accepted line has no seq,
+and receiving with the journal off is refused (exit 7), so the cases that bypassed a page went with
+the relay. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
 import errno
@@ -18,7 +20,7 @@ import traceback
 from typing import Callable
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import test_gzcoord_protocol as P  # noqa: E402 — its Stub, scratch and command environment
+import test_gzcoord_protocol as P  # noqa: E402 — its Carrier, scratch and command environment
 
 CASES: list[tuple[str, Callable[[], None]]] = []
 eq, ok, Failed = P.eq, P.ok, P.Failed
@@ -51,45 +53,8 @@ def lines_of(path: str) -> list[dict]:
     return [json.loads(x) for x in text.split("\n") if x]
 
 
-class Relay:
-    """The stub relay: sends answered with a seq (or `send_status`), one page
-    served once, the same page as history, acks counted."""
-
-    def __init__(self, page: list[dict] | None = None, send_status: int = 200, send_body: str | None = None,
-                 on_send: Callable[[], None] | None = None):
-        self.posts: list[dict] = []
-        self.acks: list[str] = []
-        served = [False]
-
-        def answer(_h, _method, path, body):
-            if path.startswith("/api/send"):
-                self.posts.append(json.loads(body))
-                if on_send:
-                    on_send()
-                if send_body is not None:
-                    return send_status, send_body
-                if send_status != 200:
-                    return send_status, json.dumps({"error": "refused"})
-                return 200, json.dumps({"seq": 42, "id": "r42"})
-            if path.startswith("/api/ack"):
-                self.acks.append(json.loads(body).get("message_id"))
-                return 200, "{}"
-            if path.startswith("/api/wait"):
-                if page is not None and not served[0]:
-                    served[0] = True
-                    return 200, json.dumps({"messages": page, "next_cursor": "c"})
-                return 200, json.dumps({"messages": []})
-            if path.startswith("/api/messages"):
-                return 200, json.dumps({"messages": page or []})
-            return 200, "{}"
-        self.stub = P.Stub(answer)
-
-    def env(self, state: str, **extra: str) -> dict:
-        return P.cmd_env(CLAUDE_BRIDGE_URL=self.stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan",
-                         AGENT_FABRIC_STATE_DIR=state, **extra)
-
-    def close(self) -> None:
-        self.stub.close()
+def env_of(carrier: "P.Carrier | None", state: str, **extra: str) -> dict:
+    return P.inbox_env(carrier, AGENT_FABRIC_STATE_DIR=state, **extra)
 
 
 def send(env: dict, text: str, *flags: str) -> subprocess.CompletedProcess:
@@ -99,30 +64,30 @@ def send(env: dict, text: str, *flags: str) -> subprocess.CompletedProcess:
     return subprocess.run([P.SEND_CMD, f, *flags], env=env, capture_output=True, text=True, timeout=60)
 
 
-def drain(env: dict) -> subprocess.CompletedProcess:
-    return subprocess.run([P.INBOX_CMD], env=env, capture_output=True, text=True, timeout=60)
+def refused_send(**extra: object) -> dict:
+    return {"ok": False, "error": "disk full", "carried": 1, "queued": 0, **extra}
 
 
 MID = "01a09fc1-0000-7000-8000-0000000000c1"
 
 
-@case("a bypassed send leaves a pending line before the post and an accepted one with the seq after: 0600, no body")
+@case("a bypassed send leaves a pending line before the post and an accepted one after: 0600, no body, no seq")
 def _():
-    relay, state = Relay(), P.scratch("bypass-state-")
+    carrier, state = P.Carrier(), P.scratch("bypass-state-")
     try:
-        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+        r = send(env_of(carrier, state, GZCOORD_JOURNAL="off"), message(MID))
     finally:
-        relay.close()
+        carrier.close()
     eq(r.returncode, 0, r.stderr)
     ok("GZCOORD_JOURNAL=off — this message is sent without being kept" in r.stderr, r.stderr)
-    eq(len(relay.posts), 1)
+    eq(len(carrier.posts), 1)
     got = lines_of(record_path(state))
-    posted = relay.posts[0]["content"]
+    posted = carrier.posts[0]["text"]
     sha = hashlib.sha256(posted.encode()).hexdigest()
     eq([{k: x[k] for k in ("direction", "message_id", "sha256", "seq", "reason", "outcome")} for x in got],
        [{"direction": "out", "message_id": MID, "sha256": sha, "seq": None, "reason": "GZCOORD_JOURNAL=off",
          "outcome": "pending"},
-        {"direction": "out", "message_id": MID, "sha256": sha, "seq": 42, "reason": "GZCOORD_JOURNAL=off",
+        {"direction": "out", "message_id": MID, "sha256": sha, "seq": None, "reason": "GZCOORD_JOURNAL=off",
          "outcome": "accepted"}])
     ok(all(isinstance(x["at"], str) and x["at"].endswith("Z") for x in got), got)
     with open(record_path(state), "rb") as fh:
@@ -131,49 +96,35 @@ def _():
     eq(stat.S_IMODE(os.stat(record_path(state)).st_mode), 0o600)
 
 
-@case("a bypassed page leaves one line per record addressed here, with its seq; others' traffic none; one warning")
+@case("receiving with the journal off is refused: exit 7, the carrier not asked, no line written")
 def _():
-    other = "nowhere/else"
-    page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": message(MID, frm="x/y")},
-            {"seq": 8, "id": "r8", "ts": "T8", "sender": "x/y", "content": message(MID[:-2] + "c2", frm="x/y", to=other)},
-            {"seq": 9, "id": "r9", "ts": "T9", "sender": "x/y", "content": message(MID[:-2] + "c3", frm="x/y")}]
-    relay, state = Relay(page), P.scratch("bypass-state-")
+    carrier, state = P.Carrier(records=[P.record(message(MID, frm="x/y"))]), P.scratch("bypass-state-")
     try:
-        r = drain(relay.env(state, GZCOORD_JOURNAL="off"))
+        r = subprocess.run([P.INBOX_CMD], env=env_of(carrier, state, GZCOORD_JOURNAL="off"), capture_output=True, text=True, timeout=60)
+        r2 = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "3"], env=env_of(carrier, state, GZCOORD_JOURNAL="off"),
+                            capture_output=True, text=True, timeout=60)
     finally:
-        relay.close()
-    eq(r.returncode, 0, r.stdout + r.stderr)
-    got = lines_of(record_path(state))
-    eq([(x["direction"], x["message_id"], x["seq"]) for x in got],
-       [("in", MID, 7), ("in", MID[:-2] + "c3", 9)], got)
-    eq([x["sha256"] for x in got], [hashlib.sha256(page[i]["content"].encode()).hexdigest() for i in (0, 2)])
-    eq(r.stdout.count("GZCOORD_JOURNAL=off — 2 message(s) addressed to you are shown without being kept"), 1, r.stdout)
-    eq(sorted(relay.acks), ["r7", "r8", "r9"], "the page is acknowledged once recorded")
+        carrier.close()
+    eq(r.returncode, 7, r.stdout + r.stderr)
+    eq(r2.returncode, 7, r2.stdout + r2.stderr)
+    ok(BODY not in r.stdout + r2.stdout, "a message was shown with the journal off")
+    eq(carrier.requests, [], "the carrier was not asked")
+    ok(not os.path.exists(record_path(state)), "a line was written for a page that never crossed")
 
 
-@case("a bypass record that cannot be written refuses: no post, exit 2; the page held, neither shown nor acknowledged")
+@case("a bypass record that cannot be written refuses: no post, exit 2")
 def _():
     state = P.scratch("bypass-state-")
     os.makedirs(record_path(state))   # a directory where the file goes: no write succeeds, root or not
-    relay = Relay()
+    carrier = P.Carrier()
     try:
-        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+        r = send(env_of(carrier, state, GZCOORD_JOURNAL="off"), message(MID))
     finally:
-        relay.close()
+        carrier.close()
     eq(r.returncode, 2, r.stderr)
-    eq(relay.posts, [], "the carrier never saw it")
+    eq(carrier.posts, [], "the carrier never saw it")
     ok("not sent: the journal-bypass record" in r.stderr and "only with a record of it" in r.stderr, r.stderr)
     ok("this message is sent without being kept" not in r.stderr, f"a refused send said it is sent: {r.stderr}")
-    page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": message(MID, frm="x/y")}]
-    relay = Relay(page)
-    try:
-        r = drain(relay.env(state, GZCOORD_JOURNAL="off"))
-    finally:
-        relay.close()
-    eq(r.returncode, 0, r.stdout + r.stderr)
-    eq(relay.acks, [], "nothing acknowledged: the relay shows it again")
-    ok(BODY not in r.stdout, f"the held message was shown: {r.stdout}")
-    ok("1 message(s) addressed to you are held, not shown: the journal-bypass record" in r.stdout, r.stdout)
 
 
 @case("a symlink where the record goes is not followed: refused, its target untouched")
@@ -184,13 +135,13 @@ def _():
     with open(target, "w", encoding="utf-8") as fh:
         fh.write("untouched\n")
     os.symlink(target, record_path(state))
-    relay = Relay()
+    carrier = P.Carrier()
     try:
-        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+        r = send(env_of(carrier, state, GZCOORD_JOURNAL="off"), message(MID))
     finally:
-        relay.close()
+        carrier.close()
     eq(r.returncode, 2, r.stderr)
-    eq(relay.posts, [])
+    eq(carrier.posts, [])
     with open(target, encoding="utf-8") as fh:
         eq(fh.read(), "untouched\n")
 
@@ -200,49 +151,25 @@ def _():
     state = P.scratch("bypass-state-")
     os.makedirs(os.path.dirname(record_path(state)))
     os.mkfifo(record_path(state), 0o600)
-    relay = Relay()
+    carrier = P.Carrier()
     try:
-        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))   # send() times out at 60 s
+        r = send(env_of(carrier, state, GZCOORD_JOURNAL="off"), message(MID))   # send() times out at 60 s
     finally:
-        relay.close()
+        carrier.close()
     eq(r.returncode, 2, r.stderr)
-    eq(relay.posts, [])
+    eq(carrier.posts, [])
 
 
-@case("a record the relay sends with a lone surrogate crosses the bypass recorded, not as a relay failure")
+@case("no bypass, no record: the journal on, or a dry run with it off, writes no line")
 def _():
-    content = message(MID, frm="x/y").replace(BODY, "half \ud800 a pair")
-    odd_id = MID[:-2] + "\ud800"   # in a field the line carries, not only in the body it never does
-    page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": content},
-            {"seq": 8, "id": "r8", "ts": "T8", "sender": "x/y", "content": message(odd_id, frm="x/y")}]
-    relay, state = Relay(page), P.scratch("bypass-state-")
+    carrier, state = P.Carrier(), P.scratch("bypass-state-")
     try:
-        r = drain(relay.env(state, GZCOORD_JOURNAL="off"))
-    finally:
-        relay.close()
-    eq(r.returncode, 0, r.stdout + r.stderr)
-    ok("relay unreachable" not in r.stderr, r.stderr)
-    got = lines_of(record_path(state))
-    eq([(x["message_id"], x["seq"], x["sha256"]) for x in got],
-       [(MID, 7, hashlib.sha256(content.encode("utf-8", "surrogatepass")).hexdigest()),
-        (odd_id, 8, hashlib.sha256(page[1]["content"].encode("utf-8", "surrogatepass")).hexdigest())], got)
-    eq(sorted(relay.acks), ["r7", "r8"])
-
-
-@case("no bypass, no record: the journal on (a send and a page), or a dry run with it off, writes no line")
-def _():
-    page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": message(MID[:-2] + "c5", frm="x/y")}]
-    relay, state = Relay(page), P.scratch("bypass-state-")
-    try:
-        r = send(relay.env(state), message(MID))
+        r = send(env_of(carrier, state), message(MID))
         eq(r.returncode, 0, r.stderr)
-        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID[:-2] + "c4"), "--dry-run")
+        r = send(env_of(carrier, state, GZCOORD_JOURNAL="off"), message(MID[:-2] + "c4"), "--dry-run")
         eq(r.returncode, 0, r.stderr)
-        r = drain(relay.env(state))
-        eq(r.returncode, 0, r.stdout + r.stderr)
-        eq(relay.acks, ["r7"], "the journal kept the page and it was acknowledged")
     finally:
-        relay.close()
+        carrier.close()
     ok(not os.path.exists(record_path(state)), "a line was written with nothing bypassed")
 
 
@@ -299,13 +226,13 @@ def _():
             os.environ["AGENT_FABRIC_STATE_DIR"] = saved
 
 
-@case("a bypassed send the relay refuses leaves pending then failed: an auditor tells sent from refused")
+@case("a bypassed send the carrier refuses leaves pending then failed: an auditor tells sent from refused")
 def _():
-    relay, state = Relay(send_status=409), P.scratch("bypass-state-")
+    carrier, state = P.Carrier(send=refused_send()), P.scratch("bypass-state-")
     try:
-        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+        r = send(env_of(carrier, state, GZCOORD_JOURNAL="off"), message(MID))
     finally:
-        relay.close()
+        carrier.close()
     eq(r.returncode, 3, r.stderr)
     eq([(x["outcome"], x["seq"]) for x in lines_of(record_path(state))], [("pending", None), ("failed", None)])
 
@@ -316,11 +243,11 @@ def _():
     os.makedirs(os.path.dirname(record_path(state)))
     with open(record_path(state), "w", encoding="ascii") as fh:
         fh.write('{"at":"2026-10-06T00:00:00.000Z","direction":"out","messa')   # a kill mid-write left this
-    relay = Relay()
+    carrier = P.Carrier()
     try:
-        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+        r = send(env_of(carrier, state, GZCOORD_JOURNAL="off"), message(MID))
     finally:
-        relay.close()
+        carrier.close()
     eq(r.returncode, 0, r.stderr)
     with open(record_path(state), encoding="ascii") as fh:
         lines = fh.read().split("\n")
@@ -328,31 +255,30 @@ def _():
     eq([json.loads(x)["outcome"] for x in lines[1:] if x], ["pending", "accepted"], lines)
 
 
-@case("--replay under the bypass shows the record and leaves no line: it acknowledges nothing, as the journal-on replay")
+@case("--replay under the bypass shows the record and leaves no line: the journal's, the carrier asked nothing")
 def _():
-    page = [{"seq": 7, "id": "r7", "ts": "T7", "sender": "x/y", "content": message(MID, frm="x/y")}]
-    relay, state = Relay(page), P.scratch("bypass-state-")
+    carrier, state = P.Carrier(), P.scratch("bypass-state-")
+    env = env_of(carrier, state, GZCOORD_JOURNAL="off")
+    P.seed_journal(env, (message(MID, frm="x/y"), 7))
     try:
-        r = subprocess.run([P.INBOX_CMD, "--replay", "7"], env=relay.env(state, GZCOORD_JOURNAL="off"),
-                           capture_output=True, text=True, timeout=60)
+        r = subprocess.run([P.INBOX_CMD, "--replay", MID], env=env, capture_output=True, text=True, timeout=60)
     finally:
-        relay.close()
+        carrier.close()
     eq(r.returncode, 0, r.stdout + r.stderr)
     ok(BODY in r.stdout, f"the record was not shown: {r.stdout}{r.stderr}")
-    eq(relay.acks, [])
+    eq(carrier.requests, [])
     ok(not os.path.exists(record_path(state)), "a replay wrote a bypass line")
 
 
-@case("a post whose answer cannot be read, or a 5xx, is \"unknown\", never \"failed\": the relay may hold it")
+@case("a carrier that took only some recipients, or refused with no count, is \"unknown\", never \"failed\": it may hold it")
 def _():
-    for kw in ({"send_body": "accepted, but not JSON"}, {"send_status": 503}):
-        relay, state = Relay(**kw), P.scratch("bypass-state-")
+    for kw in (refused_send(carried=3, queued=1), {"ok": False, "error": "bad request"}):
+        carrier, state = P.Carrier(send=kw), P.scratch("bypass-state-")
         try:
-            r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+            r = send(env_of(carrier, state, GZCOORD_JOURNAL="off"), message(MID))
         finally:
-            relay.close()
+            carrier.close()
         eq(r.returncode, 3, f"{kw}: {r.stderr}")
-        eq(len(relay.posts), 1, "the relay received it")
         eq([x["outcome"] for x in lines_of(record_path(state))], ["pending", "unknown"], str(kw))
 
 
@@ -360,16 +286,17 @@ def _():
 def _():
     state = P.scratch("bypass-state-")
 
-    def swap() -> None:   # mid-post: the record becomes a directory, so the second line fails
+    def swap(_req: dict) -> dict:   # mid-post: the record becomes a directory, so the second line fails
         os.remove(record_path(state))
         os.makedirs(record_path(state))
-    relay = Relay(on_send=swap)
+        return {"ok": True, "carried": 1, "queued": 1}
+    carrier = P.Carrier(send=swap)
     try:
-        r = send(relay.env(state, GZCOORD_JOURNAL="off"), message(MID))
+        r = send(env_of(carrier, state, GZCOORD_JOURNAL="off"), message(MID))
     finally:
-        relay.close()
+        carrier.close()
     eq(r.returncode, 0, r.stderr)
-    ok(r.stdout.startswith("sent seq 42 "), r.stdout)
+    ok(r.stdout.startswith("sent INFO "), r.stdout)
     ok("the send's outcome (accepted) is not in the bypass record" in r.stderr, r.stderr)
 
 
@@ -379,41 +306,35 @@ def _():
     ledger = os.path.join(state, "agents", P.LOGIN, "gzcoord-sent.jsonl")
     os.makedirs(os.path.dirname(ledger))
     os.mkfifo(ledger, 0o600)
-    relay = Relay()
+    carrier = P.Carrier()
     try:
-        r = send(relay.env(state), message(MID))   # send() times out at 60 s: a blocking open would hang here
+        r = send(env_of(carrier, state), message(MID))   # send() times out at 60 s: a blocking open would hang here
     finally:
-        relay.close()
+        carrier.close()
     eq(r.returncode, 0, r.stderr)
-    eq(len(relay.posts), 1)
+    eq(len(carrier.posts), 1)
     ok("is not a regular file" in r.stderr and "a reused id is not checked" in r.stderr, r.stderr)
 
 
-@case("a bypassed send to a relay that refuses the connection is failed: it provably never arrived")
+@case("a bypassed send with no carrier running is failed: it provably never arrived")
 def _():
-    import socket as _socket
-    with _socket.socket() as probe:   # a port nothing listens on once closed
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
     state = P.scratch("bypass-state-")
-    env = P.cmd_env(CLAUDE_BRIDGE_URL=f"http://127.0.0.1:{port}", CLAUDE_BRIDGE_AUTH_TOKEN="tok",
-                    GZCOORD_CHANNEL="fixture:chan", AGENT_FABRIC_STATE_DIR=state, GZCOORD_JOURNAL="off")
-    r = send(env, message(MID))
+    r = send(env_of(None, state, GZCOORD_JOURNAL="off"), message(MID))
     eq(r.returncode, 3, r.stderr)
     eq([x["outcome"] for x in lines_of(record_path(state))], ["pending", "failed"])
 
 
 @case("an unknown outcome from stdin never promises a safe resend: a new id is minted unless the text carries it")
 def _():
-    relay, state = Relay(send_status=503), P.scratch("bypass-state-")
+    carrier, state = P.Carrier(send=refused_send(carried=3, queued=1)), P.scratch("bypass-state-")
     try:
-        env = relay.env(state)
+        env = env_of(carrier, state)
         text = message(MID).replace(f"MESSAGE-ID: {MID}\n", "")
         r = subprocess.run([P.SEND_CMD, "-"], env=env, input=text, capture_output=True, text=True, timeout=60)
     finally:
-        relay.close()
+        carrier.close()
     eq(r.returncode, 3, r.stderr)
-    ok("may have been delivered" in r.stderr and "a resend from stdin mints a new id" in r.stderr, r.stderr)
+    ok("outcome unknown" in r.stderr and "a resend from stdin mints a new id" in r.stderr, r.stderr)
     ok("sending the same file again is safe" not in r.stderr, r.stderr)
 
 

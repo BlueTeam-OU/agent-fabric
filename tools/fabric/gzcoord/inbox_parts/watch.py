@@ -58,30 +58,25 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     are the result's `ack_later`, which the caller runs after `finish()`. `held` is consulted before every slice,
     once a poll interval during one, and once more when it returns: a hold
     that begins mid-slice abandons the fetch, a page that landed with the
-    hold is dropped unread (nothing acknowledged, the relay re-shows it),
+    hold is dropped unread (nothing acknowledged, the carrier lists it again),
     and the loop polls nothing until the hold clears. A retired HELLO or
     GOODBYE (SPEC §8) an old session still sends is acknowledged and never
     delivered, not even listed: presence is the control plane's to answer
     (ADR-030), and on a busy day the announcements were most of what every
     watch printed (the owner, 2026-09-25). `deadline` (time.monotonic) ends a
     hold and abandons a slice still unanswered at it, as a hold does: `waited`
-    counts nominal slice seconds, while a relay that accepts and never answers
+    counts nominal slice seconds, while a carrier that accepts and never answers
     holds a slice for up to the request timeout on top. `session_gone` is asked as `held` is, and ends the wait the way a deadline
     does, with `sessionEnded` in the result: a slice abandoned or a page that landed with it is unread and unacknowledged, so
-    the relay shows it again to the next watch (a page already being journaled and shown is finished, and is in the journal).
+    the carrier lists it again to the next watch (a page already being journaled and shown is finished, and is in the journal).
 
-    A primary's fetch that raises (the relay's with the relay leading, the carrier's with the carrier leading; the result key is
-    still `relayError`) is read as an empty page when `iw` and `ledger` are given. With the relay leading the carrier is
-    still asked (ADR-064: the record is not the only channel). With the carrier leading neither is: the relay is read only after
-    a wait the carrier answered (transport/mux.py), so the error is raised and the relay's records wait. If nothing is delivered the error is raised as
-    without a carrier; if the carrier delivers, the result carries it as `relayError` and the caller must still report it.
-
-    `iw` is anything with `unseen()` (the TransportMux of gzcoord/transport/), None when there is no mirror: it only supplies `unseen`, the arrivals
-    the carrier journaled, which pass through the same ledger as a relay record. `ledger` (carrier/ledger.py) decides what is shown:
+    The carrier is the only transport, and the page `fetch_page` answers is empty (transport/mux.py holds the carrier's wait): a fetch
+    that raises is the carrier's, and is raised. `iw` is anything with `unseen()` (the TransportMux of gzcoord/transport/): it supplies
+    the arrivals the carrier journaled, which pass through the shown ledger. `ledger` (carrier/ledger.py) decides what is shown:
     with one, a delivered result carries `ledger`, the exclusive lock still held, and the caller must `finish()` it once it has
-    written the page (or `release()` it if it could not), and then run `ack_later` (inbox.show_page does all three). The lock is taken before the relay's acknowledgement and the pending
-    lines are written before it, so a record the relay no longer holds is one the ledger already knows. `on_arrival` is told the
-    relay records addressed here before the journal sees them (the arrival log, rule 11)."""
+    written the page (or `release()` it if it could not), and then run `ack_later` (inbox.show_page does all three). The lock is taken before the acknowledgement and the pending
+    lines are written before it, so a record the carrier no longer lists is one the ledger already knows. `on_arrival` is told the
+    records addressed here before the journal sees them (the arrival log, rule 11)."""
     for_me_fn = for_me_fn or (lambda msg: False)
     keywords = keywords or []
     waited = 0.0
@@ -217,36 +212,27 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                 continue
         lock = None
         if ledger is not None and not dropped:
-            # What the session sees is the shown ledger's to decide (ledger.py), whichever
-            # carrier brought the message and with or without a carrier. The lock is taken
-            # here, the pending lines are written, and only then does the relay's
-            # acknowledgement follow; the caller shows the page and calls finish().
-            relay_mine = [c for c in classified if c["isMine"] and c["msg"]]
+            # What the session sees is the shown ledger's to decide (ledger.py). The lock is taken here, the pending
+            # lines are written, and only then does the acknowledgement follow; the caller shows the page and calls finish().
             carrier_recs = iw.unseen() if iw is not None else []
-            if relay_mine or carrier_recs:
+            if carrier_recs:
                 try:
                     lock = ledger.exclusive()
                 except OSError as e:
-                    # The ledger cannot be opened (a state directory that cannot be written):
-                    # the relay's messages are shown without it, as before, and say so; the
-                    # carrier's are not, for without the ledger they would be listed again on
-                    # every pass. A message is never lost; one may repeat.
-                    print(f"gzcoord: the shown ledger could not be opened ({e.strerror or e}); relay messages are shown "
-                          "without it and may repeat", file=sys.stderr)
-                    carrier_recs = []
-                    relay_mine = []
-                    delivered = any(c["isMine"] for c in classified)
+                    # Without the ledger the carrier's records would be listed again on every pass, so they wait: a message
+                    # is never lost.
+                    print(f"gzcoord: the shown ledger could not be opened ({e.strerror or e}); the carrier's messages wait",
+                          file=sys.stderr)
             if lock is not None:
                 try:
-                    admit(lock, classified, relay_mine, carrier_recs, carrier_first=bool(getattr(iw, "carrier_leads", False)))
+                    admit(lock, classified, carrier_recs)
                     delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
                 except OSError as e:
-                    # A ledger write failed (a full disk): said as what it is, not as the relay being
-                    # down. The relay's messages are shown without the ledger; the carrier's wait.
+                    # A ledger write failed (a full disk): said as what it is; the carrier's records wait.
                     lock.release()
                     lock = None
-                    print(f"gzcoord: the shown ledger could not be written ({e.strerror or e}); relay messages are shown "
-                          "without it and may repeat", file=sys.stderr)
+                    print(f"gzcoord: the shown ledger could not be written ({e.strerror or e}); the carrier's messages wait",
+                          file=sys.stderr)
                     classified = [c for c in classified if not c.get("iw")]
                     delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
                 except BaseException:

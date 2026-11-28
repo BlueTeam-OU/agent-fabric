@@ -218,16 +218,15 @@ def replay_wait() -> float:
 
 
 def fetch_message(which: str) -> dict:
-    """The message, read the way `gzcoord-inbox --replay` reads it: a MESSAGE-ID from this account's own journal first (the
-    relay down, or none configured, makes no difference to a message the account already holds), else the relay's recent
-    history; the body only when addressed to this login. The inbox's process is the one reader, so this and --replay cannot
+    """The message, read the way `gzcoord-inbox --replay` reads it: a MESSAGE-ID from this account's own journal (the
+    carrier keeps no past of its own, so nothing else is read); the body only when addressed to this login. The inbox's process is the one reader, so this and --replay cannot
     answer differently."""
     wait = replay_wait()
     try:
         p = subprocess.run([INBOX, "--replay", which, "--json"], capture_output=True, text=True, timeout=wait)
     except subprocess.TimeoutExpired:
         raise Refused(f"cannot read message {which}: the relay did not answer within {wait:g} s")
-    # Exit 2 is also inbox's refusal of a control channel: only its own
+    # Exit 2 is also a refusal the inbox gives for other reasons: only its own
     # {"addressed": false} answer means "not for this login".
     if p.returncode == 2:
         try:

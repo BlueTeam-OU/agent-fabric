@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A watch in carrier-only rides out carrier restarts (j169). The fleet upgrade restarts interweave-client under every running
+"""A watch rides out carrier restarts (j169). The fleet upgrade restarts interweave-client under every running
 `gzcoord-inbox --until-delivery`; the watch must count its silence bound from the first failure after the carrier's LAST ANSWER,
 not from the first failure of an earlier outage, and must neither exit nor lose a message across a restart.
 
@@ -20,7 +20,6 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 import test_gzcoord_protocol as P  # noqa: E402 — its scratch and command environment
 from gzcoord.carrier import server  # noqa: E402
-from gzcoord.transport import mode  # noqa: E402
 
 DOWN_S = 6.0      # the bound after which the watch says the carrier is silent (stderr); it never ends the watch for it
 RETRY_S = 0.5
@@ -35,25 +34,13 @@ def record() -> dict:
 
 class Restart(unittest.TestCase):
     def setUp(self):
-        self.env = P.cmd_env(AGENT_FABRIC_SECRET_STORE=P.id_store(), GZCOORD_CHANNEL="fixture:chan",
-                             CLAUDE_BRIDGE_URL="http://127.0.0.1:9", CLAUDE_BRIDGE_AUTH_TOKEN="tok",
+        self.env = P.cmd_env(AGENT_FABRIC_SECRET_STORE=P.id_store(),
                              GZCOORD_UNTIL_DELIVERY_DOWN_S=str(DOWN_S), GZCOORD_RETRY_S=str(RETRY_S))
         self.path = server.socket_path(self.env["XDG_RUNTIME_DIR"])
         self.waits = 0
         self.pending: list[dict] = []
         self.carrier = None
         self.up()
-        saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
-        os.environ["AGENT_FABRIC_STATE_DIR"] = self.env["AGENT_FABRIC_STATE_DIR"]
-        try:
-            state = os.path.dirname(mode.path())
-        finally:
-            if saved is None:
-                os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
-            else:
-                os.environ["AGENT_FABRIC_STATE_DIR"] = saved
-        os.makedirs(state, exist_ok=True)
-        mode.write("carrier-only", "h1/op", state)
         self.addCleanup(self.down)
 
     def handler(self, req: dict) -> dict:

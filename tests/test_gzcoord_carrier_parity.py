@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """tools/fabric/gzcoord/carrier/parity.py (ADR-064 rule 11): the report
-counts per carrier what was delivered, missed and duplicated over every
+counts what the carrier delivered, missed and duplicated over every
 (MESSAGE-ID, addressee) pair of a window, names the cause of each miss from
 the sender's record, separates late copies by kind, counts compressed and
-chunked messages, and says whether the rollback drill lost anything. Built on
+chunked messages. A line of the retired relay carrier shows that a pair existed
+and counts as no copy. Built on
 synthetic logs with the answers known by construction. Plain script: prints
 ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
@@ -59,12 +60,10 @@ def main() -> int:
         {"mid": mid(80, 8), "to": "gamma", "enc": "plain", "queued": ISO(80), "state": "done"},     # filtered out by gamma: receipted, no arrival line
     ]}
     kinds = {m1: "direct", m2: "direct", m3: "role", m4: "direct", m5: "broadcast", m6: "broadcast"}
-    rep = P.compute(arrivals, senders, kinds, (T0, T0 + 1000), drill=(T0 + 15, T0 + 35), host="h")
+    rep = P.compute(arrivals, senders, kinds, (T0, T0 + 1000), host="h")
 
     check("pairs over the window: six with a copy, one lost", rep["pairs"] == 7, str(rep["pairs"]))
-    check("relay: delivered 5, missed 2 (m4, and the lost pair), no duplicates",
-          rep["carriers"]["relay"] == {"delivered": 5, "missed": 2, "duplicates": 0, "mismatch": 0},
-          str(rep["carriers"]["relay"]))
+    check("the report counts one carrier: a line of the retired relay is no carrier's column and no copy", list(rep["carriers"]) == ["interweave"], str(rep["carriers"]))
     ir = rep["carriers"]["interweave"]
     check("interweave: delivered 4, one duplicate copy, one FROM mismatch", ir["delivered"] == 4 and ir["missed"] == 3 and ir["duplicates"] == 1
           and ir["mismatch"] == 1, str(ir))
@@ -72,24 +71,18 @@ def main() -> int:
     check("a carrier's miss names its cause: the sender's blocked record",
           "refused by the daemon and still outstanding (UnauthorizedPeer)" in causes[(m2, "interweave")], str(causes))
     check("  a message the sender never queued says so", "recorded no InterWeave delivery" in causes[(m6, "interweave")])
-    check("  a relay miss says the inbox recorded no relay copy", "no relay copy" in causes[(m4, "relay")])
+    check("  every miss is the carrier's", {k[1] for k in causes} == {"interweave"}, str(causes))
     check("  and no first-arrival clause when the addressee was already receiving before the message",
           "first InterWeave arrival" not in causes[(m6, "interweave")], causes[(m6, "interweave")])
     check("the stranded pair is listed with the sender's state; the receipted delivery to a non-holder is no pair",
           [(x["sender"], x["state"]) for x in rep["stranded"]] == [("alpha", "posted")], str(rep["stranded"]))
     check("  and the filtering member is not a miss of either carrier (7 pairs, not 8)", rep["pairs"] == 7 and
           all(x["mid"] != mid(80, 8) for x in rep["missed"]), str(rep["missed"]))
-    check("late copies are counted by carrier and kind: m5 (broadcast) arrived 250 s late on both",
-          rep["late"]["broadcast"] == {"relay": 1, "interweave": 1} and rep["late"]["direct"] == {"relay": 0, "interweave": 0})
+    check("late copies are counted by kind: m5 (broadcast) arrived 250 s late; the relay's line at 300 s is no copy",
+          rep["late"]["broadcast"] == {"interweave": 1} and rep["late"]["direct"] == {"interweave": 0})
     check("compressed and chunked messages are counted once each from the sender's records",
           rep["messages"] == {"plain": 4, "compressed": 1, "chunked": 1}, str(rep["messages"]))
     check("pairs to a TO-ROLE recipient are counted", rep["role_pairs"] == 1)
-    d = rep["drill"]
-    check("the drill lists the pairs made inside it; nothing lost when the relay carried each",
-          sorted(x["mid"] for x in d["pairs"]) == sorted([m2, m3]) and d["nothing_lost"] is True)
-    lost = P.compute([a for a in arrivals if a["mid"] != m2], senders, kinds, (T0, T0 + 1000), drill=(T0 + 15, T0 + 25), host="h")
-    check("a drill pair that neither carrier delivered is nothing-lost false (the control)",
-          lost["drill"]["nothing_lost"] is False and [x["mid"] for x in lost["drill"]["pairs"]] == [m2], str(lost["drill"]))
 
     # A broadcast from alpha: the relay hands alpha its own copy back, the carrier never sends to its sender (rule 6).
     mb = mid(120, 20)
@@ -124,8 +117,8 @@ def main() -> int:
 
     md = P.render_markdown(rep)
     check("the markdown carries every section the rule names",
-          all(s in md for s in ("| relay |", "| interweave |", "Pairs a carrier missed", "Pairs the sender recorded sending",
-                                "was away", "Framing: 1 message(s) compressed, 1 chunked", "Rollback drill")), md)
+          all(s in md for s in ("| interweave |", "Pairs the carrier missed", "Pairs the sender recorded sending",
+                                "was away", "Framing: 1 message(s) compressed, 1 chunked")) and "| relay |" not in md and "Rollback drill" not in md, md)
 
     with tempfile.TemporaryDirectory(prefix="gz-par-") as d:
         db = os.path.join(d, "e.db")
